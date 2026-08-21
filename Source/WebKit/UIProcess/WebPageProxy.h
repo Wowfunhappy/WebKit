@@ -1016,6 +1016,11 @@ public:
     void loadAndDecodeImage(WebCore::ResourceRequest&&, std::optional<WebCore::FloatSize>, size_t, CompletionHandler<void(Expected<Ref<WebCore::ShareableBitmap>, WebCore::ResourceError>&&)>&&);
     // MAVERICKS_BACKPORT: fetch image bytes through the web process, for the favicon store (#112).
     void loadImageData(WebCore::ResourceRequest&&, size_t maximumBytesFromNetwork, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
+    // MAVERICKS_BACKPORT: the URL of the request that STARTED the committed main-frame load, before any
+    // redirect — the UI-process copy of the DocumentLoader::originalRequest() that the pre-deletion
+    // IconController::commitToDatabase read through FrameLoader::initialRequest(). The favicon store
+    // maps a page's icon under this URL as well as the committed one (#112).
+    const WTF::URL& committedInitialRequestURL() const LIFETIME_BOUND { return m_committedInitialRequestURL; }
 #if PLATFORM(COCOA)
     void getInformationFromImageData(Vector<uint8_t>&& data, CompletionHandler<void(Expected<std::pair<String, Vector<WebCore::IntSize>>, WebCore::ImageDecodingError>&&)>&&);
     void createIconDataFromImageData(Ref<WebCore::SharedBuffer>&&, const Vector<unsigned>&, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
@@ -3730,6 +3735,8 @@ private:
     RefPtr<PageLoadStateObserverBase> m_pageLoadStateObserver;
 
     const UniqueRef<WebNavigationState> m_navigationState;
+    // MAVERICKS_BACKPORT: see committedInitialRequestURL(); set at each main-frame commit (#112).
+    WTF::URL m_committedInitialRequestURL;
     String m_failingProvisionalLoadURL;
     bool m_allowsLoadingAlternateHTMLForFailingProvisionalLoadURL { true };
     bool m_isLoadingAlternateHTMLStringForFailingProvisionalLoad { false };

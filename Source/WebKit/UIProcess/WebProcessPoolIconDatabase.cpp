@@ -62,26 +62,36 @@ using namespace WebCore;
 // (github.com declares both) — and waste that can never amortize, since a refused result is never
 // stored to be found next time. And every page of an SVG-favicon site declares the same icon URL, so
 // once these bytes have been rendered the store can answer from what it holds.
-static void storeIconDataForPageURL(WebIconDatabase& iconDatabase, const WeakPtr<WebPageProxy>& weakPage, const String& pageURL, const String& iconURL, Ref<API::Data>&& iconData, WebIconDatabase::Persistence persistence, WebIconDatabase::IconOrigin fetchedOrigin)
+static void storeIconDataForPageURL(WebIconDatabase& iconDatabase, const WeakPtr<WebPageProxy>& weakPage, const String& pageURL, const String& initialRequestPageURL, const String& iconURL, Ref<API::Data>&& iconData, WebIconDatabase::Persistence persistence, WebIconDatabase::IconOrigin fetchedOrigin)
 {
+    // MAVERICKS_BACKPORT: bytes landing move the page's claim, so the URL its load started from
+    // follows; see WebProcessPool::carryIconToInitialRequestURL (#112).
+    auto carryToInitialRequestURL = [&iconDatabase, &pageURL, &initialRequestPageURL, persistence] {
+        iconDatabase.carryIconForPageURL(pageURL, initialRequestPageURL, persistence);
+    };
+
     // A guessed icon stays at Guessed rank whether its bytes decoded natively or had to be rasterized —
     // the rank records that nobody declared it, not how it was read.
-    if (iconDatabase.setIconDataForPageURL(pageURL, iconURL, iconData.copyRef(), fetchedOrigin, persistence))
+    if (iconDatabase.setIconDataForPageURL(pageURL, iconURL, iconData.copyRef(), fetchedOrigin, persistence)) {
+        carryToInitialRequestURL();
         return;
+    }
 
     if (iconDatabase.hasNativelyDecodedIconForPageURL(pageURL))
         return;
     // The same cap as the fetch's own reuse: a guess claims whatever bytes it falls back on at
     // Guessed rank, however they were once decoded.
-    if (iconDatabase.reuseStoredIconForPageURL(pageURL, iconURL, persistence, fetchedOrigin == WebIconDatabase::IconOrigin::Guessed ? std::optional { WebIconDatabase::IconOrigin::Guessed } : std::nullopt))
+    if (iconDatabase.reuseStoredIconForPageURL(pageURL, iconURL, persistence, fetchedOrigin == WebIconDatabase::IconOrigin::Guessed ? std::optional { WebIconDatabase::IconOrigin::Guessed } : std::nullopt)) {
+        carryToInitialRequestURL();
         return;
+    }
     RefPtr page = weakPage.get();
     if (!page)
         return;
 
     auto rasterizedOrigin = fetchedOrigin == WebIconDatabase::IconOrigin::Guessed ? WebIconDatabase::IconOrigin::Guessed : WebIconDatabase::IconOrigin::Rasterized;
     auto generation = iconDatabase.generation();
-    page->createIconDataFromImageData(WebCore::SharedBuffer::create(iconData->span()), { 16, 32 }, [iconDatabase = Ref { iconDatabase }, pageURL, iconURL, generation, persistence, rasterizedOrigin](RefPtr<WebCore::SharedBuffer>&& rasterizedIcon) {
+    page->createIconDataFromImageData(WebCore::SharedBuffer::create(iconData->span()), { 16, 32 }, [iconDatabase = Ref { iconDatabase }, pageURL, initialRequestPageURL, iconURL, generation, persistence, rasterizedOrigin](RefPtr<WebCore::SharedBuffer>&& rasterizedIcon) {
         if (iconDatabase->generation() != generation)
             return;
         // Nothing here could read these bytes and the web process could not draw them either, so they
@@ -90,7 +100,8 @@ static void storeIconDataForPageURL(WebIconDatabase& iconDatabase, const WeakPtr
             iconDatabase->noteUnusableIconURL(iconURL);
             return;
         }
-        iconDatabase->setIconDataForPageURL(pageURL, iconURL, API::Data::create(rasterizedIcon->span()), rasterizedOrigin, persistence);
+        if (iconDatabase->setIconDataForPageURL(pageURL, iconURL, API::Data::create(rasterizedIcon->span()), rasterizedOrigin, persistence))
+            iconDatabase->carryIconForPageURL(pageURL, initialRequestPageURL, persistence);
     });
 }
 
@@ -110,13 +121,27 @@ static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, 
 {
     if (pageURL.isEmpty() || iconURL.isEmpty())
         return;
+
+    // MAVERICKS_BACKPORT: the page's claim moves here when the icon it declares displaces the
+    // commit-time guess, and the URL its load started from follows; see
+    // WebProcessPool::carryIconToInitialRequestURL (#112).
+    auto initialRequestPageURL = page.committedInitialRequestURL().string();
+    auto carryToInitialRequestURL = [&iconDatabase, &pageURL, &initialRequestPageURL, persistence] {
+        iconDatabase.carryIconForPageURL(pageURL, initialRequestPageURL, persistence);
+    };
+
     // Age is judged before the reuse, which counts as a use and re-stamps the icon. A stale stored
     // icon still answers for the page right away — the refetch below replaces it when it lands.
     // A guess claims whatever bytes it reuses at Guessed rank, however they were once decoded.
     auto mappingRank = fetchedOrigin == WebIconDatabase::IconOrigin::Guessed ? std::optional { WebIconDatabase::IconOrigin::Guessed } : std::nullopt;
     bool needsRefresh = iconDatabase.iconNeedsRefresh(iconURL);
-    if (iconDatabase.reuseStoredIconForPageURL(pageURL, iconURL, persistence, mappingRank) && !needsRefresh)
-        return;
+    // A successful reuse has moved the page's claim to this icon URL, so the second URL follows it
+    // whatever the exits below decide.
+    if (iconDatabase.reuseStoredIconForPageURL(pageURL, iconURL, persistence, mappingRank)) {
+        carryToInitialRequestURL();
+        if (!needsRefresh)
+            return;
+    }
     if (iconDatabase.hasNativelyDecodedIconForPageURL(pageURL) && !needsRefresh)
         return;
     if (iconDatabase.isUnusableIconURL(iconURL))
@@ -126,13 +151,14 @@ static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, 
     // pre-deletion IconDatabase committed the mapping before loading, "just in case", and that is
     // what lets a history entry heal when any later visit stores this URL's bytes (#112).
     iconDatabase.notePendingIconURLForPageURL(pageURL, iconURL, persistence, fetchedOrigin);
+    carryToInitialRequestURL();
 
     // Bytes past this are not a site icon but a decoder waiting to be handed something enormous; the
     // network process stops the load there rather than buffering it for us.
     constexpr size_t maximumIconBytes = 8 * MB;
 
     auto generation = iconDatabase.generation();
-    page.loadImageData(WebCore::ResourceRequest { URL { iconURL } }, maximumIconBytes, [iconDatabase = Ref { iconDatabase }, weakPage = WeakPtr { page }, pageURL, iconURL, generation, persistence, fetchedOrigin](RefPtr<WebCore::SharedBuffer>&& iconData) {
+    page.loadImageData(WebCore::ResourceRequest { URL { iconURL } }, maximumIconBytes, [iconDatabase = Ref { iconDatabase }, weakPage = WeakPtr { page }, pageURL, initialRequestPageURL, iconURL, generation, persistence, fetchedOrigin](RefPtr<WebCore::SharedBuffer>&& iconData) {
         if (iconDatabase->generation() != generation)
             return;
         // Nothing came back at all: a network error, or a load the network process refused. Say nothing
@@ -148,7 +174,7 @@ static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, 
             return;
         }
 
-        storeIconDataForPageURL(iconDatabase.get(), weakPage, pageURL, iconURL, API::Data::create(iconData->span()), persistence, fetchedOrigin);
+        storeIconDataForPageURL(iconDatabase.get(), weakPage, pageURL, initialRequestPageURL, iconURL, API::Data::create(iconData->span()), persistence, fetchedOrigin);
     });
 }
 
@@ -268,6 +294,24 @@ void WebProcessPool::fetchGuessedIconForPage(WebPageProxy& page, const URL& url)
 
     auto persistence = page.sessionID().isEphemeral() ? WebIconDatabase::Persistence::SessionOnly : WebIconDatabase::Persistence::Persistent;
     fetchIconForPage(iconDatabase, page, pageURL, URL { url, "/favicon.ico"_s }.string(), persistence, WebIconDatabase::IconOrigin::Guessed);
+}
+
+// MAVERICKS_BACKPORT: an icon belongs to the URL its load STARTED from as well as to the committed
+// one, as the pre-deletion IconController::commitToDatabase kept it — a load that began at
+// http://example.com/ and redirected to https://example.com/ is reachable under both. Safari reads
+// that second URL: -[AcceptedSiteDataCell drawWithFrame:inView:], which draws each site in
+// Preferences -> Privacy -> Details..., has only a domain and asks this store for "http://%@/" and then
+// "http://www.%@/", never the redirected https form (#112).
+//
+// Every commit passes through here, because the URL a load started from belongs to the load rather than
+// to the page: a site already holding its icon still arrives this time from a URL nothing has recorded.
+void WebProcessPool::carryIconToInitialRequestURL(WebPageProxy& page, const URL& url)
+{
+    if (!m_iconDatabaseEnabled || !m_iconDatabase)
+        return;
+
+    auto persistence = page.sessionID().isEphemeral() ? WebIconDatabase::Persistence::SessionOnly : WebIconDatabase::Persistence::Persistent;
+    Ref { *m_iconDatabase }->carryIconForPageURL(url.string(), page.committedInitialRequestURL().string(), persistence);
 }
 
 // MAVERICKS_BACKPORT: carry a document's icon claim across a same-document navigation (#112). A

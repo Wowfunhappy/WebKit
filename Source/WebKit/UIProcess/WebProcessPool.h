@@ -315,6 +315,9 @@ public:
     // The page URL is passed in because at the call site the commit is still inside a PageLoadState
     // transaction: pageLoadState().url() holds the PREVIOUS page until that transaction closes.
     void fetchGuessedIconForPage(WebPageProxy&, const WTF::URL& pageURL);
+    // MAVERICKS_BACKPORT: give the committed page's icon to the URL its load started from, as the
+    // pre-deletion IconController::commitToDatabase did with its second row (#112).
+    void carryIconToInitialRequestURL(WebPageProxy&, const WTF::URL& pageURL);
     // MAVERICKS_BACKPORT: called at every main-frame same-document navigation — a pushState-driven
     // site (every click on github.com) makes history entries for URLs no load ever commits, so
     // neither the declared-icon offer nor the commit-time guess above can reach them. The document is

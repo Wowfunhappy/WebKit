@@ -8028,7 +8028,13 @@ void WebPageProxy::didCommitLoadForFrame(IPC::Connection& connection, FrameIdent
         // own icons are offered only once its head is parsed, and a reader can be gone by then (#112).
         // The URL travels explicitly: pageLoadState().url() still reads the previous page while this
         // commit's transaction is open.
+        //
+        // The navigation's original request is the URL the load started from, before any redirect;
+        // committedInitialRequestURL() holds it for the icon store, which maps this page's icon under
+        // it too, and it must be current before the two calls below read it.
+        m_committedInitialRequestURL = navigation ? navigation->originalRequest().url() : URL { };
         legacyMainFrameProcess().processPool().fetchGuessedIconForPage(*this, request.url());
+        legacyMainFrameProcess().processPool().carryIconToInitialRequestURL(*this, request.url());
 
 #if PLATFORM(COCOA)
         for (auto frameIDWithPendingLoad : m_framesWithSubresourceLoadingForPageLoadTiming)
