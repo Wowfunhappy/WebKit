@@ -480,6 +480,127 @@ WK_POLYFILL_REPLACES("CoreText", CGFloat, CTFontGetSize, (CTFontRef font))
     return WK_ORIGINAL(CTFontGetSize) ? WK_ORIGINAL(CTFontGetSize)(font) : 0;
 }
 
+// A descriptor's own attributes -- the set it CARRIES. CTFontDescriptorCopyAttribute answers by
+// MATCHING, so a descriptor holding nothing but a weight still answers kCTFontNameAttribute with the
+// default face's name; only this entry point separates what a caller asked for from what a match
+// would supply.
+static CFTypeRef wk_carriedAttribute(CTFontDescriptorRef descriptor, CFStringRef key)
+{
+    if (!descriptor)
+        return NULL;
+    CFDictionaryRef attributes = CTFontDescriptorCopyAttributes(descriptor);
+    if (!attributes)
+        return NULL;
+    CFTypeRef value = CFDictionaryGetValue(attributes, key);
+    if (value)
+        CFRetain(value);
+    CFRelease(attributes);
+    return value;
+}
+
+// kCTFontOpticalSizeAttribute takes a CFNumber here: the optical size, in points, that a realized
+// font's advances and tracking are looked up at. The CFString forms "auto" and "none" are a later
+// convention, and this CoreText reads the attribute as a number whatever it holds, so a string
+// leaves the optical size uninitialized and every metric derived from it follows. Measured on-host
+// at 19.8pt: Apple Color Emoji advances -5.3e8 rather than 22.88, a different value each run; the
+// scalable faces installed here carry no optical axis, so their metrics are the same either way.
+//
+// "auto" is the point size the font is realized at, and it stays "auto": a copy taken at another
+// size looks the optical size up at THAT size, and the attribute reads back as the string. "none" is
+// the optical axis at its default, which is the state a font realized with no such attribute is
+// already in, so that form is dropped. The resolution happens where a font is realized because that
+// is where the point size is known, and because CoreText's own cascade fallback copies its
+// attributes from the realized font.
+typedef enum {
+    WK_OPTICAL_SIZE_UNNAMED,        // the attributes carry none
+    WK_OPTICAL_SIZE_EXPLICIT,       // a size in points, which 10.9 takes as it stands
+    WK_OPTICAL_SIZE_POINT_SIZE,     // "auto"
+    WK_OPTICAL_SIZE_DEFAULT         // "none"
+} wk_optical_size_request;
+
+static wk_optical_size_request wk_opticalSizeRequest(CTFontDescriptorRef descriptor)
+{
+    CFTypeRef value = wk_carriedAttribute(descriptor, kCTFontOpticalSizeAttribute);
+    if (!value)
+        return WK_OPTICAL_SIZE_UNNAMED;
+    wk_optical_size_request request = WK_OPTICAL_SIZE_EXPLICIT;
+    if (CFGetTypeID(value) == CFStringGetTypeID())
+        request = CFEqual((CFStringRef)value, CFSTR("auto")) ? WK_OPTICAL_SIZE_POINT_SIZE : WK_OPTICAL_SIZE_DEFAULT;
+    CFRelease(value);
+    return request;
+}
+
+// A font realized for "auto" answers the string and re-resolves when it is copied to another size,
+// so the request rides the font the way wk_font_request does.
+static const void *wk_opticalSizeFollowsPointSizeKey(void)
+{
+    return (const void *)sel_registerName("wk_opticalSizeFollowsPointSize");
+}
+
+static CTFontRef wk_markOpticalSizeFollowsPointSize(CTFontRef font)
+{
+    if (font)
+        objc_setAssociatedObject((id)(void *)font, wk_opticalSizeFollowsPointSizeKey(),
+                                 (id)kCFBooleanTrue, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return font;
+}
+
+static bool wk_opticalSizeFollowsPointSize(CTFontRef font)
+{
+    return font && objc_getAssociatedObject((id)(void *)font, wk_opticalSizeFollowsPointSizeKey()) != NULL;
+}
+
+// The point size a request realizes at: the caller's, else the descriptor's own, else `unnamedSize`,
+// which is how every CoreText entry point taking a size and a descriptor resolves the pair.
+static CGFloat wk_resolvedPointSize(CTFontDescriptorRef descriptor, CGFloat size, CGFloat unnamedSize)
+{
+    if (size != 0)
+        return size;
+    CGFloat resolved = unnamedSize;
+    CFTypeRef named = wk_carriedAttribute(descriptor, kCTFontSizeAttribute);
+    if (named) {
+        double points = 0;
+        if (CFGetTypeID(named) == CFNumberGetTypeID()
+            && CFNumberGetValue((CFNumberRef)named, kCFNumberDoubleType, &points))
+            resolved = (CGFloat)points;
+        CFRelease(named);
+    }
+    return resolved;
+}
+
+// The descriptor to realize through: the caller's attributes with the optical size written in as
+// `points`, or with it taken out for the axis default. `descriptor` may be NULL, which is how a copy
+// carries its source's "auto" forward without any attributes of its own.
+static CTFontDescriptorRef wk_descriptorWithOpticalSize(CTFontDescriptorRef descriptor, wk_optical_size_request request, CGFloat points)
+{
+    CFDictionaryRef attributes = descriptor ? CTFontDescriptorCopyAttributes(descriptor) : NULL;
+    CFMutableDictionaryRef resolved = attributes
+        ? CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, attributes)
+        : CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    if (attributes)
+        CFRelease(attributes);
+    if (!resolved)
+        return NULL;
+
+    CFNumberRef number = request == WK_OPTICAL_SIZE_POINT_SIZE
+        ? CFNumberCreate(kCFAllocatorDefault, kCFNumberCGFloatType, &points) : NULL;
+    if (number) {
+        CFDictionarySetValue(resolved, kCTFontOpticalSizeAttribute, number);
+        CFRelease(number);
+    } else
+        CFDictionaryRemoveValue(resolved, kCTFontOpticalSizeAttribute);
+
+    CTFontDescriptorRef result = CTFontDescriptorCreateWithAttributes(resolved);
+    CFRelease(resolved);
+    return result;
+}
+
+// Whether a request has to be written into the descriptor before 10.9 sees it.
+static bool wk_opticalSizeNeedsResolving(wk_optical_size_request request)
+{
+    return request == WK_OPTICAL_SIZE_POINT_SIZE || request == WK_OPTICAL_SIZE_DEFAULT;
+}
+
 // The attribute form of the same two answers. The size a system fallback face is read back at is
 // FontCache::systemFallbackForCharacterCluster -> lookupFallbackFont -> preparePlatformFont, where
 // UnrealizedCoreTextFont::getSize() takes it from CTFontCopyAttribute (UnrealizedCoreTextFont.cpp:62)
@@ -499,6 +620,10 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontCopyAttribute, (CTFontRef font
             return CFDataCreate(kCFAllocatorDefault, (const UInt8 *)&matrix, sizeof(matrix));
         }
     }
+    // A font realized for an optical size of "auto" reports the request, not the points it resolved
+    // to, because the points move with the size the font is copied to.
+    if (attribute && CFEqual(attribute, kCTFontOpticalSizeAttribute) && wk_opticalSizeFollowsPointSize(font))
+        return CFRetain(CFSTR("auto"));
     return WK_ORIGINAL(CTFontCopyAttribute) ? WK_ORIGINAL(CTFontCopyAttribute)(font, attribute) : NULL;
 }
 
@@ -564,12 +689,21 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithFontDescriptor,
 {
     const CGAffineTransform *requested = matrix;
     CGAffineTransform composed;
+    wk_optical_size_request opticalSize = wk_opticalSizeRequest(descriptor);
+    CTFontDescriptorRef resolved = wk_opticalSizeNeedsResolving(opticalSize)
+        ? wk_descriptorWithOpticalSize(descriptor, opticalSize, wk_resolvedPointSize(descriptor, size, 12.0)) : NULL;
+    if (resolved)
+        descriptor = resolved;
     matrix = wk_fontMatrixForRequest(wk_descriptorScalesToNothing(descriptor), descriptor, size, matrix, NULL, &composed);
     CTFontRef instance = wk_realizeVariableFontInstance(descriptor, size, matrix);
     if (!instance) {
         instance = WK_ORIGINAL(CTFontCreateWithFontDescriptor)
             ? WK_ORIGINAL(CTFontCreateWithFontDescriptor)(descriptor, size, matrix) : NULL;
     }
+    if (resolved)
+        CFRelease(resolved);
+    if (opticalSize == WK_OPTICAL_SIZE_POINT_SIZE)
+        wk_markOpticalSizeFollowsPointSize(instance);
     return wk_recordFontRequest(instance, size, requested);
 }
 
@@ -578,12 +712,21 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithFontDescriptorAndOpt
 {
     const CGAffineTransform *requested = matrix;
     CGAffineTransform composed;
+    wk_optical_size_request opticalSize = wk_opticalSizeRequest(descriptor);
+    CTFontDescriptorRef resolved = wk_opticalSizeNeedsResolving(opticalSize)
+        ? wk_descriptorWithOpticalSize(descriptor, opticalSize, wk_resolvedPointSize(descriptor, size, 12.0)) : NULL;
+    if (resolved)
+        descriptor = resolved;
     matrix = wk_fontMatrixForRequest(wk_descriptorScalesToNothing(descriptor), descriptor, size, matrix, NULL, &composed);
     CTFontRef instance = wk_realizeVariableFontInstance(descriptor, size, matrix);
     if (!instance) {
         instance = WK_ORIGINAL(CTFontCreateWithFontDescriptorAndOptions)
             ? WK_ORIGINAL(CTFontCreateWithFontDescriptorAndOptions)(descriptor, size, matrix, options) : NULL;
     }
+    if (resolved)
+        CFRelease(resolved);
+    if (opticalSize == WK_OPTICAL_SIZE_POINT_SIZE)
+        wk_markOpticalSizeFollowsPointSize(instance);
     return wk_recordFontRequest(instance, size, requested);
 }
 
@@ -628,24 +771,39 @@ static bool wkNumberValue(CFDictionaryRef traits, CFStringRef key, CGFloat *out)
         && CFNumberGetValue(number, kCFNumberCGFloatType, out);
 }
 
-static bool wkDescriptorTraits(CTFontDescriptorRef descriptor, wk_font_traits *out)
+static bool wkTraitsFromDictionary(CFTypeRef traits, wk_font_traits *out)
 {
     memset(out, 0, sizeof(*out));
-    CFDictionaryRef traits = (CFDictionaryRef)CTFontDescriptorCopyAttribute(descriptor, kCTFontTraitsAttribute);
     if (!traits)
         return false;
     bool haveTraits = CFGetTypeID(traits) == CFDictionaryGetTypeID();
     if (haveTraits) {
-        out->haveWeight = wkNumberValue(traits, kCTFontWeightTrait, &out->weight);
-        out->haveWidth = wkNumberValue(traits, kCTFontWidthTrait, &out->width);
+        CFDictionaryRef dictionary = (CFDictionaryRef)traits;
+        out->haveWeight = wkNumberValue(dictionary, kCTFontWeightTrait, &out->weight);
+        out->haveWidth = wkNumberValue(dictionary, kCTFontWidthTrait, &out->width);
         int32_t bits = 0;
-        CFNumberRef symbolicNumber = (CFNumberRef)CFDictionaryGetValue(traits, kCTFontSymbolicTrait);
+        CFNumberRef symbolicNumber = (CFNumberRef)CFDictionaryGetValue(dictionary, kCTFontSymbolicTrait);
         if (symbolicNumber && CFGetTypeID(symbolicNumber) == CFNumberGetTypeID()
             && CFNumberGetValue(symbolicNumber, kCFNumberSInt32Type, &bits))
             out->symbolic = (uint32_t)bits;
     }
     CFRelease(traits);
     return haveTraits;
+}
+
+// The traits a face HAS. A concrete face's descriptor carries no traits dictionary of its own -- a
+// CTFontCopyFontDescriptor result carries a name and a size and nothing else -- so its weight and
+// width come from the match, which is what CTFontDescriptorCopyAttribute performs.
+static bool wkDescriptorTraits(CTFontDescriptorRef descriptor, wk_font_traits *out)
+{
+    return wkTraitsFromDictionary(CTFontDescriptorCopyAttribute(descriptor, kCTFontTraitsAttribute), out);
+}
+
+// The traits a request ASKS FOR. Matching answers a traits dictionary for every descriptor, weight
+// and width included, so the request has to be read from the attributes it carries.
+static bool wkRequestedTraits(CTFontDescriptorRef descriptor, wk_font_traits *out)
+{
+    return wkTraitsFromDictionary(wk_carriedAttribute(descriptor, kCTFontTraitsAttribute), out);
 }
 
 // |a - b| for two points on a normalized trait scale.
@@ -834,15 +992,17 @@ static CTFontRef wkApplyTraitsToFace(CTFontRef copy, CTFontDescriptorRef attribu
     if (!copy || !attributes)
         return copy;
 
-    // A face named outright is the caller's own choice of member.
-    CFTypeRef namedFace = CTFontDescriptorCopyAttribute(attributes, kCTFontNameAttribute);
+    // A face the attributes name outright is the caller's own choice of member. The name has to be one
+    // the attributes CARRY: matching answers kCTFontNameAttribute for every descriptor, weight-only
+    // requests included.
+    CFTypeRef namedFace = wk_carriedAttribute(attributes, kCTFontNameAttribute);
     if (namedFace) {
         CFRelease(namedFace);
         return copy;
     }
 
     wk_font_traits requested;
-    if (!wkDescriptorTraits(attributes, &requested) || (!requested.haveWeight && !requested.haveWidth))
+    if (!wkRequestedTraits(attributes, &requested) || (!requested.haveWeight && !requested.haveWidth))
         return copy;
 
     wk_font_traits own;
@@ -877,9 +1037,22 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateCopyWithAttributes,
     CGAffineTransform composed;
     matrix = wk_fontMatrixForRequest(wk_fontScalesToNothing(font), attributes, size, matrix,
                                      haveSource ? &source.matrix : NULL, &composed);
+    // Attributes that name no optical size leave the source's request standing, and "auto" resolves
+    // against the size the COPY is taken at.
+    wk_optical_size_request opticalSize = wk_opticalSizeRequest(attributes);
+    if (opticalSize == WK_OPTICAL_SIZE_UNNAMED && wk_opticalSizeFollowsPointSize(font))
+        opticalSize = WK_OPTICAL_SIZE_POINT_SIZE;
+    CTFontDescriptorRef resolved = wk_opticalSizeNeedsResolving(opticalSize)
+        ? wk_descriptorWithOpticalSize(attributes, opticalSize, wk_resolvedPointSize(attributes, size, CTFontGetSize(font))) : NULL;
+    if (resolved)
+        attributes = resolved;
     CTFontRef copy = WK_ORIGINAL(CTFontCreateCopyWithAttributes)
         ? WK_ORIGINAL(CTFontCreateCopyWithAttributes)(font, size, matrix, attributes) : NULL;
     copy = wkApplyTraitsToFace(copy, attributes);
+    if (resolved)
+        CFRelease(resolved);
+    if (opticalSize == WK_OPTICAL_SIZE_POINT_SIZE)
+        wk_markOpticalSizeFollowsPointSize(copy);
     return wk_recordFontRequest(copy, size, requested);
 }
 

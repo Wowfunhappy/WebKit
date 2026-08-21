@@ -237,6 +237,13 @@ PROBE_LIBS="$OUT/libpolyfill.a -framework Foundation -framework CoreFoundation -
 "$T/timebase"
 "$CLANG" $MODERN $INC -Wno-unguarded-availability-new -o "$T/unfair_lock" "$TBEHAV/libSystem-unfair-lock.c" $PROBE_LIBS
 "$T/unfair_lock"
+# -lc++: realizing a font reaches the variable-font instancer, which is C++.
+"$CLANG" $MODERN $INC -o "$T/optical_size" "$TBEHAV/CoreText-optical-size.c" $PROBE_LIBS \
+    -framework CoreText -framework CoreGraphics -lc++
+"$T/optical_size"
+"$CLANG" $MODERN $INC -o "$T/face_selection" "$TBEHAV/CoreText-face-selection.c" $PROBE_LIBS \
+    -framework CoreText -framework CoreGraphics -lc++
+"$T/face_selection"
 # The 10.9 host headers, not the modern SDK's: AudioUnit* live in AudioUnit.framework here and in
 # AudioToolbox from 10.10 on, so only these headers put the probe's references where this OS has them.
 "$CLANG" $HOST -Wno-deprecated-declarations $INC -o "$T/audiounit_max_frames" "$TBEHAV/AudioUnit-max-frames.c" \
