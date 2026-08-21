@@ -12,6 +12,25 @@ CCACHE="${MAVERICKS_CCACHE:-$TC/ccache/bin/ccache}"   # the same resolution as c
 BUILD="$ROOT/WebKitBuild/Release"
 LOG=/tmp/wk_build.log
 
+# --- What this build links against ------------------------------------------------------------
+# deps/build_deps.sh replaces deps/build/{include,lib,bin} wholesale when it finishes, and every
+# link below reads from there. It force-loads the polyfill's shared/ sources into the whole media
+# runtime as well, and nothing here relinks that: an edit to one of them parts those dylibs from the
+# copy libpolyfill.a gives the frameworks. The audit at the end proves that over the staged product;
+# the source half below reads only the sources and the deps build's manifest.
+DEPS_LOCK="$ROOT/MavericksSupport/deps/.build-tree/.lock"
+DEPS_PID="$(cat "$DEPS_LOCK/pid" 2>/dev/null || true)"
+if [ -n "$DEPS_PID" ] && kill -0 "$DEPS_PID" 2>/dev/null; then
+    echo "==================== A DEPS BUILD IS RUNNING — ABORTING ===================="
+    echo "### $DEPS_LOCK is held by pid $DEPS_PID; rerun when it is done."
+    exit 1
+fi
+echo "### gap archive currency (MavericksSupport/scripts/check-gap-archive-current.sh --sources-only)"
+if ! bash "$ROOT/MavericksSupport/scripts/check-gap-archive-current.sh" --sources-only; then
+    echo "==================== GAP SOURCES ARE AHEAD OF THE DEPS BUILD — ABORTING ===================="
+    exit 1
+fi
+
 # --- Take over from an in-flight build --------------------------------------------------------
 # One build dir, one log, one build at a time. A running cmake configure is waited out (it rewrites
 # build.ninja in place, and a half-written manifest kills every later build); ninja, the polyfill
@@ -34,15 +53,20 @@ _script_of() {
     esac
     (cd "$(dirname "$_tok")" 2>/dev/null && echo "$(pwd -P)/$(basename "$_tok")")
 }
+# Candidates come from ps -axo pid=,command=, which lists every process with its full command line.
+# _pids_running takes those whose program is <name>; _pids_running_script those whose command ends in
+# a build.sh, which _script_of below holds to this file.
+_pids_running() { ps -axo pid=,command= | awk -v n="$1" '{ p = $2; sub(/.*\//, "", p); if (p == n) print $1 }'; }
+_pids_running_script() { ps -axo pid=,command= | awk '$0 !~ / -c / && $NF ~ /(^|\/)build\.sh$/ { print $1 }'; }
 _stale_builds() {
     local _p
-    for _p in $(pgrep -f 'build\.sh' 2>/dev/null); do
+    for _p in $(_pids_running_script); do
         _is_ours "$_p" && continue
         [ "$(_script_of "$_p")" = "$SELF" ] && echo "$_p"
     done
     # A ninja is this build's only when it runs in $BUILD (ninja -C chdirs there); deps/build_deps.sh's
     # meson builds and other trees run their own.
-    for _p in $(pgrep -x ninja 2>/dev/null); do
+    for _p in $(_pids_running ninja); do
         _is_ours "$_p" && continue
         [ -n "$BUILD_P" ] && [ "$(lsof -a -d cwd -Fn -p "$_p" 2>/dev/null | sed -n 's/^n//p' | head -1)" = "$BUILD_P" ] && echo "$_p"
     done
@@ -53,7 +77,7 @@ BUILD_P="$(cd "$BUILD" 2>/dev/null && pwd -P)"
 # are not this build's.
 _configuring() {
     local _p
-    for _p in $(pgrep -x cmake 2>/dev/null); do
+    for _p in $(_pids_running cmake); do
         case "$(ps -o command= -p "$_p" 2>/dev/null)" in
             *" -E "*|*" -P "*) ;;
             *"$BUILD"*) return 0;;

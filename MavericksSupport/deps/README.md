@@ -32,13 +32,28 @@ at it and fails configuration with a pointer to bootstrap if it is empty;
 `WebKitFindPackage.cmake` finds ICU there and `OptionsMacGStreamer.cmake` points `GST_ROOT`
 there.
 
+Sources, build trees, build tools and the install prefix live in `.build-tree/` (gitignored),
+kept between runs: a rerun re-extracts and re-configures nothing it already has, and each
+package's own build system decides what to redo. What a package is built from — its section of
+`build_deps.sh`, the patches it names, and the values of the settings that section reads without
+defining (the ambient compile flags, the shared GStreamer option set, the pinned meson) — is
+hashed into its build dir, so editing a patch or a flag re-extracts and rebuilds that package.
+Static libraries and build tools are skipped whole once their product is in the tree and their
+build dirs are dropped; they are linked before the gap archive joins `LDFLAGS`, so no archive
+change reaches them. `--clean` discards the tree, as does a change of package versions, SDK or
+compiler.
+
+That is what makes an edit to one of the polyfill `shared/` sources cheap. They compile into
+the gap archive force-loaded into every dylib here, and no build system tracks its content, so
+when the archive's bytes change the script drops every image built from it — found by the
+archive's own diagnostics inside them — and each package links again: a relink of the media
+runtime, not a rebuild of it. Every image carrying the archive must then postdate it, which the
+run checks before it collects anything.
+
 `build_deps.sh` compiles through **its own ccache** in `build/ccache` (1 GB cap) — separate
 from the WebKit build's much larger cache in `WebKitBuild/ccache` so neither can evict the
-other. Because each run builds in a fresh `mktemp -d`, the script sets
-`CCACHE_BASEDIR`/`CCACHE_NOHASHDIR` so objects still hit across runs. `MAVERICKS_CCACHE`
-overrides the binary; if none is executable the deps build compiles uncached. A normal
-rerun keeps the cache (the script clears only `build/{include,lib,bin}`); the `rm -rf
-build` in *Updating* below discards it too, costing one uncached rebuild.
+other. `MAVERICKS_CCACHE` overrides the binary; if none is executable the deps build compiles
+uncached. Both caches sit outside `.build-tree/`, so `--clean` keeps them.
 
 ## Updating
 
@@ -46,8 +61,9 @@ build` in *Updating* below discards it too, costing one uncached rebuild.
 2. For a GStreamer bump, update `GSTREAMER_VERSION`/`GLIB_VERSION` in
    `OptionsMacGStreamer.cmake` to match. `build_deps.sh` checks the pair and fails if they
    disagree, so this cannot be skipped.
-3. `rm -rf build && ./build_deps.sh` (or re-run `../bootstrap.sh`); the script's final gate
-   must print `ok: ... every strong undefined resolves on 10.9`.
+3. `./build_deps.sh --clean`; the tree holds one version of every package, and the script
+   refuses to run against a tree built from a different set. The final gate must print
+   `ok: ... every strong undefined resolves on 10.9`.
 4. Re-point any prose that names the old version: this file, `patches/README.md`'s
    **Target:** lines, and the header comments in `OptionsMac.cmake` /
    `OptionsMacGStreamer.cmake` / `WebKitFindPackage.cmake`.

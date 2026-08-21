@@ -47,7 +47,8 @@ MavericksSupport/
 ```
 
 Every regenerable artifact lives in a gitignored `build/` (`toolchain/build`, `deps/build`,
-`polyfill/build`); everything else is committed.
+`polyfill/build`), beside the deps build's own gitignored tarball cache and build tree;
+everything else is committed.
 
 ## Building (a fresh clone)
 

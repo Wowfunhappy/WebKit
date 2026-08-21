@@ -1,6 +1,6 @@
 # Source patches
 
-Patches `build_deps.sh` applies to the source trees it unpacks, before each module is configured/built. Every patch here is applied explicitly and unconditionally by the build script (search it for `patches/`); none is optional. Each patch fixes a bug or
+Patches `build_deps.sh` applies to the source trees it unpacks, on the run that unpacks them and before that module is configured (search it for `patches/`); every patch here is named explicitly and none is optional. Each patch fixes a bug or
 over-strict behavior in GStreamer's **own** source — never a workaround that belongs in WebKit. Regenerate a patch against the pristine upstream tarball if its target version changes.
 
 **If you find yourself wanting to add a new patch here, you are probably doing something wrong!** Consider:

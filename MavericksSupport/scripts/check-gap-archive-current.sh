@@ -7,9 +7,20 @@
 # it links, so re-hashing the sources answers "were these binaries built from this content".
 # Coverage comes from the archive's symbols and its __cstring diagnostics, which answer "did the
 # force_load reach this artifact" one artifact at a time.
+#
+# --sources-only stops after the currency half, which reads nothing but the manifest and the sources,
+# so build.sh can run it in under a second before it compiles anything.
 set -euo pipefail
 export LC_ALL=C
 trap 'echo "  gap-archive currency: FAILED -- the check itself exited at ${BASH_SOURCE[0]}:$LINENO"; exit 1' ERR
+
+SOURCES_ONLY=""
+for arg in "$@"; do
+    case "$arg" in
+        --sources-only) SOURCES_ONLY=1 ;;
+        *) echo "usage: check-gap-archive-current.sh [--sources-only]" >&2; exit 2 ;;
+    esac
+done
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
@@ -88,6 +99,11 @@ gapcflags=$({ grep -o 'GAPCFLAGS="[^"]*"' "$BUILD_DEPS" || true; } | sed 's/GAPC
 if ! cmp -s "$scratch/buildinfo" "$BUILDINFO"; then
     { diff "$BUILDINFO" "$scratch/buildinfo" || true; } | sed -n 's/^[<>] /&/p' > "$scratch/cflag_diff"
     fail_list "the gap compile's inputs differ from the deps build's:" "$scratch/cflag_diff"
+fi
+
+if [ -n "$SOURCES_ONLY" ]; then
+    echo "  gap-archive currency: clean -- $verified source files match the deps build"
+    exit 0
 fi
 
 # --- the deployed artifacts -------------------------------------------------------------------------
