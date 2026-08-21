@@ -10326,44 +10326,6 @@ void WebInstallMemoryPressureHandler(void)
 #endif
             });
             memoryPressureHandler.install();
-
-            // MAVERICKS_BACKPORT: WebKit1 processes (DashboardClient for Safari Web Clips, the QuickLook
-            // host, etc.) run full live web pages but, unlike WebContent (fixed in #20), have no
-            // mechanism that hands the allocator's freed pages back to the OS. Modern WebKit relies
-            // on bmalloc's dedicated background Scavenger thread for this; bmalloc's libpas cannot
-            // run on 10.9 (os_unfair_lock is 10.12+), so these processes run on system malloc with
-            // no scavenger. WebCore's reclamation (releaseMemory: cache eviction, GC, decoded-image
-            // purge) frees memory *logically*, but on system malloc those pages stay in the malloc
-            // zone's free lists and are never returned to the OS, and the OS memory-pressure source
-            // that would otherwise drive a return is silent on a RAM-rich VM. The result: a long-
-            // lived page's normal alloc/free churn (parse, layout, GC, media) accumulates as
-            // resident pages without bound until RAM + swap are exhausted and the machine wedges.
-            // Restore the missing mechanism with a background scavenger of our own -- the exact WK1
-            // analog of the WebContent scavenger -- that periodically returns free pages to the OS
-            // off the main thread at low QoS, so it never competes with rendering and adds no main-
-            // thread stall. This bounds memory the way stock WebKit did, without throttling or
-            // disabling the live page the clip exists to display.
-            Thread::create("WebKit1 Memory Scavenger"_s, [] {
-                while (true) {
-                    WTF::sleep(3_s);
-                    WTF::releaseFastMallocFreeMemory();
-                }
-            }, ThreadType::Unknown, Thread::QOS::Utility)->detach();
-
-            // The scavenger above only returns *already-freed* pages. The other half of the #20
-            // WebContent fix is just as necessary in WK1: drive WebCore's memory-usage policy from
-            // the process footprint. The OS DISPATCH_SOURCE_TYPE_MEMORYPRESSURE source is silent on
-            // a RAM-rich VM, so without this the engine never learns it is under pressure and never
-            // caps its memory cache / decoded-image cache -- a heavy live page (e.g. an ad-laden
-            // news site in a Web Clip) then grows the resident footprint without bound. This poll
-            // only maintains the policy (Conservative at 0.70, Strict at 0.85 of the 1000 MB base),
-            // which the engine reads to size those caches down; it deliberately does not reclaim on
-            // the main thread (see measurementTimerFired), so it adds no scroll/interaction stall.
-            // killThresholdFraction is an unreachable x100 and no kill callback is installed: we
-            // never terminate the process on footprint (that reintroduces process-churn crashes on
-            // 10.9), we only bound it. Mirrors WebProcess.cpp.
-            memoryPressureHandler.setConfiguration(MemoryPressureHandler::Configuration { static_cast<uint64_t>(1000) * 1024 * 1024, 0.70, 0.85, std::optional<double>(100.0), 20_s });
-            memoryPressureHandler.setShouldUsePeriodicMemoryMonitor(true);
         });
     }
 }
