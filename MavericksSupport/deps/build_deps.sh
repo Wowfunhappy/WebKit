@@ -13,7 +13,7 @@
 #   libxml2 2.13.6 (shared)             -> WebCore XML/SVG parsing, in place of 10.9's
 #                                          crash-prone system libxml2 2.9.0
 #   GLib + GStreamer (GLIB_VER/GST_VER)  -> the media runtime (core, plugins-base/
-#     (+ codecs, OpenSSL, libnice, ...)     good/bad, gst-libav on FFmpeg 7.1.2 with
+#     (+ codecs, OpenSSL, libnice, ...)     good/bad, gst-libav on FFmpeg 8.1.2 with
 #                                          dav1d AV1 decode, libvpx VP8/VP9) that
 #                                          MediaPlayerPrivateGStreamer drives; built
 #                                          shared with @rpath install names
@@ -998,14 +998,22 @@ fi
 ( cd "$d" && "$MESON" compile -C b -j 2 > /tmp/depslog-gstbad-compile.log 2>&1 \
   && "$MESON" install -C b > /tmp/depslog-gstbad-install.log 2>&1 ) || exit 1
 
-echo "==== FFmpeg 7.1.2 ===="
+echo "==== FFmpeg 8.1.2 ===="
 # Apple-framework codepaths stay off: decoding runs through FFmpeg's own codecs so
 # behavior is identical on every 10.9 install. libdav1d supplies AV1 inside FFmpeg,
 # surfaced as gst-libav's avdec_libdav1d (see the dav1d note above).
 # FFmpeg's configure ignores the LDFLAGS environment, so the gap archive rides in
 # --extra-ldflags here.
-d=$(get https://ffmpeg.org/releases/ffmpeg-7.1.2.tar.xz ffmpeg)
+d=$(get https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz ffmpeg)
 if prepare "$d"; then
+    # The hevc decoder's VPS-extension parser answers the non-standard extension Apple's
+    # VideoToolbox writes for HEVC-with-alpha with AVERROR_INVALIDDATA, which drops the VPS
+    # and with it every frame of the stream. Upstream commit eedf8f0165fe keeps the already
+    # parsed alpha-layer topology on that path, so both layers decode. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/ffmpeg-hevc-alpha-videotoolbox-vps.patch" \
+        > /tmp/depslog-ffmpeg-patch.log 2>&1 && patch -p1 < "$HERE/patches/ffmpeg-hevc-alpha-videotoolbox-vps.patch" \
+        >> /tmp/depslog-ffmpeg-patch.log 2>&1 ) \
+      || { echo "FFmpeg hevc-alpha VPS patch failed to apply"; cat /tmp/depslog-ffmpeg-patch.log; exit 1; }
     ( cd "$d" && ./configure --cc="$CC" --prefix="$STAGE" --install-name-dir='@rpath' \
         --enable-shared --disable-static --disable-programs --disable-doc --disable-debug \
         --disable-audiotoolbox --disable-videotoolbox --disable-securetransport \
@@ -1030,6 +1038,14 @@ if prepare "$d"; then
         > /tmp/depslog-gstlibav-patch.log 2>&1 && patch -p1 < "$HERE/patches/gst-libav-register-libdav1d.patch" \
         >> /tmp/depslog-gstlibav-patch.log 2>&1 ) \
       || { echo "gst-libav libdav1d patch failed to apply"; cat /tmp/depslog-gstlibav-patch.log; exit 1; }
+    # avviddec installs no get_format callback, so avcodec_default_get_format() takes the
+    # LAST software format FFmpeg offers -- for an HEVC stream with an alpha layer that is
+    # the plain yuv420p, and the alpha layer is never decoded. The patch selects the first
+    # software format, as the ffmpeg tool does. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-libav-avviddec-select-first-software-format.patch" \
+        > /tmp/depslog-gstlibav-patch2.log 2>&1 && patch -p1 < "$HERE/patches/gst-libav-avviddec-select-first-software-format.patch" \
+        >> /tmp/depslog-gstlibav-patch2.log 2>&1 ) \
+      || { echo "gst-libav get_format patch failed to apply"; cat /tmp/depslog-gstlibav-patch2.log; exit 1; }
     # gst-libav's option set has no "examples"; it takes the shared options minus that one.
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release -Dtests=disabled \
         -Ddoc=disabled > /tmp/depslog-gstlibav-setup.log 2>&1 ) || exit 1
@@ -1147,7 +1163,7 @@ collect_dylib() {  # collect_dylib <staged-real-file> <dest-dir> <rpath-to-libdi
   # here, BEFORE the -id rewrite below replaces it. (Reading it from the copy after
   # the rewrite yields the file name instead of the majored name, the majored name
   # then never exists in the deployed tree, and every dependent -- gst-libav on
-  # libavcodec.61.dylib first among them -- fails to load.)
+  # libavcodec.62.dylib first among them -- fails to load.)
   id=$(otool -D "$f" | tail -1)
   idbase=$(basename "$id"); filebase=$(basename "$f")
   case "$idbase" in *.dylib) : ;; *) idbase="$filebase" ;; esac
@@ -1155,7 +1171,7 @@ collect_dylib() {  # collect_dylib <staged-real-file> <dest-dir> <rpath-to-libdi
   cp "$f" "$out"
   "$INT" -id "@rpath/$idbase" "$out" || exit 1
   normalize "$out" "$rp"
-  # the original on-disk name (e.g. libavcodec.61.19.101.dylib) aliases the canonical
+  # the original on-disk name (e.g. libavcodec.62.28.102.dylib) aliases the canonical
   # majored name
   if [ "$filebase" != "$idbase" ]; then ln -sf "$idbase" "$destdir/$filebase"; fi
 }
