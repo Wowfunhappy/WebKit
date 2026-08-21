@@ -40,7 +40,27 @@ _stale_builds() {
         _is_ours "$_p" && continue
         [ "$(_script_of "$_p")" = "$SELF" ] && echo "$_p"
     done
-    for _p in $(pgrep -x ninja 2>/dev/null); do _is_ours "$_p" || echo "$_p"; done
+    # A ninja is this build's only when it runs in $BUILD (ninja -C chdirs there); deps/build_deps.sh's
+    # meson builds and other trees run their own.
+    for _p in $(pgrep -x ninja 2>/dev/null); do
+        _is_ours "$_p" && continue
+        [ -n "$BUILD_P" ] && [ "$(lsof -a -d cwd -Fn -p "$_p" 2>/dev/null | sed -n 's/^n//p' | head -1)" = "$BUILD_P" ] && echo "$_p"
+    done
+}
+BUILD_P="$(cd "$BUILD" 2>/dev/null && pwd -P)"
+# A configure of THIS tree: cmake itself, naming $BUILD. The `cmake -E <tool>` helpers and `-P` install
+# steps ninja runs inside build steps are not configures, and other trees' configures (deps/build_deps.sh)
+# are not this build's.
+_configuring() {
+    local _p
+    for _p in $(pgrep -x cmake 2>/dev/null); do
+        case "$(ps -o command= -p "$_p" 2>/dev/null)" in
+            *" -E "*|*" -P "*) ;;
+            *"$BUILD"*) return 0;;
+            *"$BUILD_P"*) [ -n "$BUILD_P" ] && return 0;;
+        esac
+    done
+    return 1
 }
 _waited=0; _tries=0; _stopped=""; TAKEOVER=""
 while :; do
@@ -50,7 +70,7 @@ while :; do
         echo "### a build is already running (pids: $(echo $_stale)) -> stopping it first"
         _stopped="$(echo $_stale)"
     fi
-    if [ -n "$(pgrep -x cmake 2>/dev/null)" ] && [ "$_waited" -lt 1200 ]; then
+    if _configuring && [ "$_waited" -lt 1200 ]; then
         [ $((_waited % 30)) = 0 ] && echo "###   cmake configure in flight — waiting it out (${_waited}s)"
         sleep 5; _waited=$((_waited + 5)); continue
     fi
