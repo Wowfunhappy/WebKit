@@ -51,6 +51,7 @@ for arg in "$@"; do
 done
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG=/tmp/wk_build.log                                # the one build log; every compile below appends
 REPO="$(cd "$HERE/../.." && pwd)"                   # repo root
 TC="${MAVERICKS_CLANG:-$REPO/MavericksSupport/toolchain/build/clang}"
 CMAKE="${MAVERICKS_CMAKE:-$REPO/MavericksSupport/toolchain/build/cmake/bin/cmake}"
@@ -716,21 +717,21 @@ if prepare "$d"; then
       && tar xzf proxy-libintl-0.4.tar.gz && rm -rf proxy-libintl && mv proxy-libintl-0.4 proxy-libintl ) || exit 1
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Ddefault_library=shared -Dbuildtype=release \
         -Dtests=false -Dglib_debug=disabled -Dman-pages=disabled -Ddocumentation=false \
-        -Dintrospection=disabled > /tmp/depslog-glib-setup.log 2>&1 ) || exit 1
+        -Dintrospection=disabled >> "$LOG" 2>&1 ) || exit 1
     prepared "$d"
 fi
-( cd "$d" && "$MESON" compile -C b -j 2 > /tmp/depslog-glib-compile.log 2>&1 \
-  && "$MESON" install -C b > /tmp/depslog-glib-install.log 2>&1 ) || exit 1
+( cd "$d" && "$MESON" compile -C b -j 2 >> "$LOG" 2>&1 \
+  && "$MESON" install -C b >> "$LOG" 2>&1 ) || exit 1
 
 echo "==== orc / ogg / vorbis / opus / flac ===="
 d=$(get https://gstreamer.freedesktop.org/src/orc/orc-0.4.41.tar.xz orc)
 if prepare "$d"; then
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release -Dtests=disabled \
-        -Dexamples=disabled > /tmp/depslog-orc-setup.log 2>&1 ) || exit 1
+        -Dexamples=disabled >> "$LOG" 2>&1 ) || exit 1
     prepared "$d"
 fi
-( cd "$d" && "$MESON" compile -C b -j 2 > /tmp/depslog-orc-compile.log 2>&1 \
-  && "$MESON" install -C b > /tmp/depslog-orc-install.log 2>&1 ) || exit 1
+( cd "$d" && "$MESON" compile -C b -j 2 >> "$LOG" 2>&1 \
+  && "$MESON" install -C b >> "$LOG" 2>&1 ) || exit 1
 d=$(get https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.gz ogg)
 if prepare "$d"; then
     ( cd "$d" && ./configure -q --prefix="$STAGE" --disable-static ) || exit 1
@@ -770,11 +771,11 @@ if prepare "$d"; then
            --disable-examples --disable-tools --disable-docs --disable-unit-tests \
            --as=nasm \
            --extra-cflags="-isysroot $SDK -mmacosx-version-min=10.9" \
-           --extra-cxxflags="-isysroot $SDK -mmacosx-version-min=10.9" > /tmp/depslog-vpx-setup.log 2>&1 ) || exit 1
+           --extra-cxxflags="-isysroot $SDK -mmacosx-version-min=10.9" >> "$LOG" 2>&1 ) || exit 1
     prepared "$d"
 fi
-( cd "$d/b" && make -s -j2 > /tmp/depslog-vpx-compile.log 2>&1 \
-  && make -s install > /tmp/depslog-vpx-install.log 2>&1 ) || exit 1
+( cd "$d/b" && make -s -j2 >> "$LOG" 2>&1 \
+  && make -s install >> "$LOG" 2>&1 ) || exit 1
 # libvpx's makefile stamps a BARE install name (libvpx.9.dylib) instead of the staged
 # path, so consumers (libgstvpx) record a bare LC_LOAD_DYLIB that normalize()'s
 # "^$STAGE/lib/" rewrite never matches and 10.9 dyld can never resolve. Stamp the
@@ -795,11 +796,11 @@ echo "==== libxml2 2.13.6 ===="
 d=$(get https://download.gnome.org/sources/libxml2/2.13/libxml2-2.13.6.tar.xz libxml2)
 if prepare "$d"; then
     ( cd "$d" && ./configure -q --prefix="$STAGE" --disable-static --without-python --without-lzma \
-        > /tmp/depslog-libxml2-setup.log 2>&1 ) || exit 1
+        >> "$LOG" 2>&1 ) || exit 1
     prepared "$d"
 fi
-( cd "$d" && make -s -j2 > /tmp/depslog-libxml2-compile.log 2>&1 \
-  && make -s install > /tmp/depslog-libxml2-install.log 2>&1 ) || exit 1
+( cd "$d" && make -s -j2 >> "$LOG" 2>&1 \
+  && make -s install >> "$LOG" 2>&1 ) || exit 1
 
 echo "==== dav1d 1.4.3 ===="
 # FFmpeg links it (--enable-libdav1d) for AV1 via the libdav1d wrapper codec, which
@@ -808,11 +809,11 @@ echo "==== dav1d 1.4.3 ===="
 d=$(get https://downloads.videolan.org/pub/videolan/dav1d/1.4.3/dav1d-1.4.3.tar.xz dav1d)
 if prepare "$d"; then
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release \
-        -Denable_tools=false -Denable_tests=false > /tmp/depslog-dav1d-setup.log 2>&1 ) || exit 1
+        -Denable_tools=false -Denable_tests=false >> "$LOG" 2>&1 ) || exit 1
     prepared "$d"
 fi
-( cd "$d" && "$MESON" compile -C b -j 2 > /tmp/depslog-dav1d-compile.log 2>&1 \
-  && "$MESON" install -C b > /tmp/depslog-dav1d-install.log 2>&1 ) || exit 1
+( cd "$d" && "$MESON" compile -C b -j 2 >> "$LOG" 2>&1 \
+  && "$MESON" install -C b >> "$LOG" 2>&1 ) || exit 1
 
 echo "==== libavif 1.3.0 ===="
 # WebCore's AVIFImageDecoder (USE_AVIF): 10.9's ImageIO predates AVIF entirely. Decode only --
@@ -833,9 +834,9 @@ if ! built libavif install/lib/libavif.a; then
            -DAVIF_CODEC_DAV1D=SYSTEM -DAVIF_LIBYUV=OFF \
            -DAVIF_BUILD_APPS=OFF -DAVIF_BUILD_TESTS=OFF -DAVIF_BUILD_EXAMPLES=OFF \
            -DAVIF_BUILD_MAN_PAGES=OFF \
-           -DCMAKE_INSTALL_PREFIX="$STAGE" .. > /tmp/depslog-avif-setup.log 2>&1 \
-      && "$NINJA" -j2 > /tmp/depslog-avif-compile.log 2>&1 \
-      && "$NINJA" install > /tmp/depslog-avif-install.log 2>&1 ) || exit 1
+           -DCMAKE_INSTALL_PREFIX="$STAGE" .. >> "$LOG" 2>&1 \
+      && "$NINJA" -j2 >> "$LOG" 2>&1 \
+      && "$NINJA" install >> "$LOG" 2>&1 ) || exit 1
     finished libavif "$d"
 fi
 # libavif builds happily with NO codec at all, and then every AVIF fails to decode at runtime
@@ -857,11 +858,11 @@ echo "==== libsrtp ===="
 d=$(get https://github.com/cisco/libsrtp/archive/refs/tags/v2.6.0.tar.gz srtp)
 if prepare "$d"; then
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release \
-        -Ddefault_library=shared > /tmp/depslog-srtp-setup.log 2>&1 ) || exit 1
+        -Ddefault_library=shared >> "$LOG" 2>&1 ) || exit 1
     prepared "$d"
 fi
-( cd "$d" && "$MESON" compile -C b -j 2 > /tmp/depslog-srtp-compile.log 2>&1 \
-  && "$MESON" install -C b > /tmp/depslog-srtp-install.log 2>&1 ) || exit 1
+( cd "$d" && "$MESON" compile -C b -j 2 >> "$LOG" 2>&1 \
+  && "$MESON" install -C b >> "$LOG" 2>&1 ) || exit 1
 
 echo "==== webrtc-audio-processing ===="
 # Echo cancellation / noise suppression for getUserMedia audio (gst's webrtcdsp).
@@ -880,11 +881,11 @@ if prepare "$d"; then
            if [ -n "$su" ] && [ ! -f "$sf" ]; then fetch_cached "$su" "$sf" || exit 1; fi
            if [ -n "$pu" ] && [ ! -f "$pf" ]; then fetch_cached "$pu" "$pf" || exit 1; fi
          done ) || { echo "  FATAL: webrtc-audio-processing wrap pre-cache failed"; exit 1; }
-    ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release > /tmp/depslog-webrtcap-setup.log 2>&1 ) || exit 1
+    ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release >> "$LOG" 2>&1 ) || exit 1
     prepared "$d"
 fi
-( cd "$d" && "$MESON" compile -C b -j 2 > /tmp/depslog-webrtcap-compile.log 2>&1 \
-  && "$MESON" install -C b > /tmp/depslog-webrtcap-install.log 2>&1 ) || exit 1
+( cd "$d" && "$MESON" compile -C b -j 2 >> "$LOG" 2>&1 \
+  && "$MESON" install -C b >> "$LOG" 2>&1 ) || exit 1
 
 echo "==== GStreamer $GST_VER (core) ===="
 # -Dc_std=gnu11: GStreamer 1.28's project() sets c_std=gnu11,c11 (a meson fallback list),
@@ -898,11 +899,11 @@ d=$(get https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-$GST_VER.tar.x
 if prepare "$d"; then
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
         -Dtools=enabled -Dbenchmarks=disabled -Dlibunwind=disabled -Ddbghelp=disabled \
-        -Dbash-completion=disabled > /tmp/depslog-gstcore-setup.log 2>&1 ) || exit 1
+        -Dbash-completion=disabled >> "$LOG" 2>&1 ) || exit 1
     prepared "$d"
 fi
-( cd "$d" && "$MESON" compile -C b -j 2 > /tmp/depslog-gstcore-compile.log 2>&1 \
-  && "$MESON" install -C b > /tmp/depslog-gstcore-install.log 2>&1 ) || exit 1
+( cd "$d" && "$MESON" compile -C b -j 2 >> "$LOG" 2>&1 \
+  && "$MESON" install -C b >> "$LOG" 2>&1 ) || exit 1
 
 # The plugins named -Denabled below are the ones whose absence would break a feature this port
 # ships, so a missing dependency fails the
@@ -916,25 +917,25 @@ if prepare "$d"; then
     # an encrypted one stops at the change. This gives urisourcebin the reset decodebin3 already performs
     # on the parsebin it owns. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-urisourcebin-reset-parsebin-on-caps-change.patch" \
-        > /tmp/depslog-gstbase-patch.log 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-base-urisourcebin-reset-parsebin-on-caps-change.patch" \
-        >> /tmp/depslog-gstbase-patch.log 2>&1 ) \
-      || { echo "gst-plugins-base urisourcebin parsebin-reset patch failed to apply"; cat /tmp/depslog-gstbase-patch.log; exit 1; }
+        >> "$LOG" 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-base-urisourcebin-reset-parsebin-on-caps-change.patch" \
+        >> "$LOG" 2>&1 ) \
+      || { echo "gst-plugins-base urisourcebin parsebin-reset patch failed to apply"; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
-        -Dogg=enabled -Dvorbis=enabled -Dopus=enabled -Dorc=enabled > /tmp/depslog-gstbase-setup.log 2>&1 ) || exit 1
+        -Dogg=enabled -Dvorbis=enabled -Dopus=enabled -Dorc=enabled >> "$LOG" 2>&1 ) || exit 1
     prepared "$d"
 fi
-( cd "$d" && "$MESON" compile -C b -j 2 > /tmp/depslog-gstbase-compile.log 2>&1 \
-  && "$MESON" install -C b > /tmp/depslog-gstbase-install.log 2>&1 ) || exit 1
+( cd "$d" && "$MESON" compile -C b -j 2 >> "$LOG" 2>&1 \
+  && "$MESON" install -C b >> "$LOG" 2>&1 ) || exit 1
 
 echo "==== gst-plugins-good ===="
 d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-$GST_VER.tar.xz gstgood)
 if prepare "$d"; then
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS \
-        -Dvpx=enabled -Dflac=enabled -Dosxaudio=enabled -Dosxvideo=enabled -Dorc=enabled > /tmp/depslog-gstgood-setup.log 2>&1 ) || exit 1
+        -Dvpx=enabled -Dflac=enabled -Dosxaudio=enabled -Dosxvideo=enabled -Dorc=enabled >> "$LOG" 2>&1 ) || exit 1
     prepared "$d"
 fi
-( cd "$d" && "$MESON" compile -C b -j 2 > /tmp/depslog-gstgood-compile.log 2>&1 \
-  && "$MESON" install -C b > /tmp/depslog-gstgood-install.log 2>&1 ) || exit 1
+( cd "$d" && "$MESON" compile -C b -j 2 >> "$LOG" 2>&1 \
+  && "$MESON" install -C b >> "$LOG" 2>&1 ) || exit 1
 
 echo "==== libnice ===="
 # libnice sits between gst core (its own "nice" ICE-transport gst plugin needs
@@ -946,11 +947,11 @@ d=$(get https://libnice.freedesktop.org/releases/libnice-0.1.23.tar.gz nice)
 if prepare "$d"; then
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release -Dtests=disabled \
         -Dexamples=disabled -Dgtk_doc=disabled -Dintrospection=disabled -Dgupnp=disabled \
-        -Dgstreamer=enabled -Dcrypto-library=openssl > /tmp/depslog-nice-setup.log 2>&1 ) || exit 1
+        -Dgstreamer=enabled -Dcrypto-library=openssl >> "$LOG" 2>&1 ) || exit 1
     prepared "$d"
 fi
-( cd "$d" && "$MESON" compile -C b -j 2 > /tmp/depslog-nice-compile.log 2>&1 \
-  && "$MESON" install -C b > /tmp/depslog-nice-install.log 2>&1 ) || exit 1
+( cd "$d" && "$MESON" compile -C b -j 2 >> "$LOG" 2>&1 \
+  && "$MESON" install -C b >> "$LOG" 2>&1 ) || exit 1
 
 echo "==== gst-plugins-bad ===="
 # sctp (WebRTC datachannels) builds from the usrsctp copy bundled in the tarball's
@@ -962,41 +963,41 @@ if prepare "$d"; then
     # base64url ufrag/pwd (Google Meet) don't fail set-remote-description. See
     # patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-ice-credential-charset.patch" \
-        > /tmp/depslog-gstbad-patch.log 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-bad-ice-credential-charset.patch" \
-        >> /tmp/depslog-gstbad-patch.log 2>&1 ) \
-      || { echo "gst-plugins-bad ICE patch failed to apply"; cat /tmp/depslog-gstbad-patch.log; exit 1; }
+        >> "$LOG" 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-bad-ice-credential-charset.patch" \
+        >> "$LOG" 2>&1 ) \
+      || { echo "gst-plugins-bad ICE patch failed to apply"; exit 1; }
     # vtenc wraps its source pixel buffers around raw GstMemory without stating
     # their colorimetry, and 10.9's VideoToolbox cannot color-match an untagged source: every frame
     # fails with kVTInsufficientSourceColorDataErr (-12917), so WebRTC outbound H.264 encodes nothing.
     # This tags those buffers from the negotiated caps. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtenc-tag-source-colorimetry.patch" \
-        > /tmp/depslog-gstbad-patch2.log 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-bad-vtenc-tag-source-colorimetry.patch" \
-        >> /tmp/depslog-gstbad-patch2.log 2>&1 ) \
-      || { echo "gst-plugins-bad vtenc colorimetry patch failed to apply"; cat /tmp/depslog-gstbad-patch2.log; exit 1; }
+        >> "$LOG" 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-bad-vtenc-tag-source-colorimetry.patch" \
+        >> "$LOG" 2>&1 ) \
+      || { echo "gst-plugins-bad vtenc colorimetry patch failed to apply"; exit 1; }
     # vtdec_hw advertises codecs the machine cannot hardware-decode; the -8973
     # session failure then lands outside decodebin3's candidate window and kills playbin3 (MSE)
     # pipelines that avdec could have played. This gates its getcaps on a per-codec RequireHardware
     # session probe. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtdec-hw-hardware-caps-probe.patch" \
-        > /tmp/depslog-gstbad-patch3.log 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-bad-vtdec-hw-hardware-caps-probe.patch" \
-        >> /tmp/depslog-gstbad-patch3.log 2>&1 ) \
-      || { echo "gst-plugins-bad vtdec_hw caps-probe patch failed to apply"; cat /tmp/depslog-gstbad-patch3.log; exit 1; }
+        >> "$LOG" 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-bad-vtdec-hw-hardware-caps-probe.patch" \
+        >> "$LOG" 2>&1 ) \
+      || { echo "gst-plugins-bad vtdec_hw caps-probe patch failed to apply"; exit 1; }
     # vtdec's static sink template advertises VP9, AV1 and HEVC, which 10.9's
     # VideoToolbox has no decoder for on any hardware; the template is what WebKit's registry
     # scanner answers isTypeSupported/MediaCapabilities from, and powerEfficient follows the matched
     # factory's Hardware klass, so the claim routes sites onto streams this machine decodes in
     # software or not at all. This removes the three entries. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtdec-109-sink-template-codecs.patch" \
-        > /tmp/depslog-gstbad-patch4.log 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-bad-vtdec-109-sink-template-codecs.patch" \
-        >> /tmp/depslog-gstbad-patch4.log 2>&1 ) \
-      || { echo "gst-plugins-bad vtdec sink-template patch failed to apply"; cat /tmp/depslog-gstbad-patch4.log; exit 1; }
+        >> "$LOG" 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-bad-vtdec-109-sink-template-codecs.patch" \
+        >> "$LOG" 2>&1 ) \
+      || { echo "gst-plugins-bad vtdec sink-template patch failed to apply"; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
         -Dwebrtc=enabled -Dwebrtcdsp=enabled -Ddtls=enabled -Dsrtp=enabled -Dsctp=enabled \
-        -Dapplemedia=enabled -Dwebp=disabled -Dorc=enabled > /tmp/depslog-gstbad-setup.log 2>&1 ) || exit 1
+        -Dapplemedia=enabled -Dwebp=disabled -Dorc=enabled >> "$LOG" 2>&1 ) || exit 1
     prepared "$d"
 fi
-( cd "$d" && "$MESON" compile -C b -j 2 > /tmp/depslog-gstbad-compile.log 2>&1 \
-  && "$MESON" install -C b > /tmp/depslog-gstbad-install.log 2>&1 ) || exit 1
+( cd "$d" && "$MESON" compile -C b -j 2 >> "$LOG" 2>&1 \
+  && "$MESON" install -C b >> "$LOG" 2>&1 ) || exit 1
 
 echo "==== FFmpeg 8.1.2 ===="
 # Apple-framework codepaths stay off: decoding runs through FFmpeg's own codecs so
@@ -1011,9 +1012,9 @@ if prepare "$d"; then
     # and with it every frame of the stream. Upstream commit eedf8f0165fe keeps the already
     # parsed alpha-layer topology on that path, so both layers decode. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/ffmpeg-hevc-alpha-videotoolbox-vps.patch" \
-        > /tmp/depslog-ffmpeg-patch.log 2>&1 && patch -p1 < "$HERE/patches/ffmpeg-hevc-alpha-videotoolbox-vps.patch" \
-        >> /tmp/depslog-ffmpeg-patch.log 2>&1 ) \
-      || { echo "FFmpeg hevc-alpha VPS patch failed to apply"; cat /tmp/depslog-ffmpeg-patch.log; exit 1; }
+        >> "$LOG" 2>&1 && patch -p1 < "$HERE/patches/ffmpeg-hevc-alpha-videotoolbox-vps.patch" \
+        >> "$LOG" 2>&1 ) \
+      || { echo "FFmpeg hevc-alpha VPS patch failed to apply"; exit 1; }
     ( cd "$d" && ./configure --cc="$CC" --prefix="$STAGE" --install-name-dir='@rpath' \
         --enable-shared --disable-static --disable-programs --disable-doc --disable-debug \
         --disable-audiotoolbox --disable-videotoolbox --disable-securetransport \
@@ -1035,24 +1036,24 @@ if prepare "$d"; then
     # admits the libdav1d wrapper (the dav1d built above, inside FFmpeg) as avdec_libdav1d.
     # See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-libav-register-libdav1d.patch" \
-        > /tmp/depslog-gstlibav-patch.log 2>&1 && patch -p1 < "$HERE/patches/gst-libav-register-libdav1d.patch" \
-        >> /tmp/depslog-gstlibav-patch.log 2>&1 ) \
-      || { echo "gst-libav libdav1d patch failed to apply"; cat /tmp/depslog-gstlibav-patch.log; exit 1; }
+        >> "$LOG" 2>&1 && patch -p1 < "$HERE/patches/gst-libav-register-libdav1d.patch" \
+        >> "$LOG" 2>&1 ) \
+      || { echo "gst-libav libdav1d patch failed to apply"; exit 1; }
     # avviddec installs no get_format callback, so avcodec_default_get_format() takes the
     # LAST software format FFmpeg offers -- for an HEVC stream with an alpha layer that is
     # the plain yuv420p, and the alpha layer is never decoded. The patch selects the first
     # software format, as the ffmpeg tool does. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-libav-avviddec-select-first-software-format.patch" \
-        > /tmp/depslog-gstlibav-patch2.log 2>&1 && patch -p1 < "$HERE/patches/gst-libav-avviddec-select-first-software-format.patch" \
-        >> /tmp/depslog-gstlibav-patch2.log 2>&1 ) \
-      || { echo "gst-libav get_format patch failed to apply"; cat /tmp/depslog-gstlibav-patch2.log; exit 1; }
+        >> "$LOG" 2>&1 && patch -p1 < "$HERE/patches/gst-libav-avviddec-select-first-software-format.patch" \
+        >> "$LOG" 2>&1 ) \
+      || { echo "gst-libav get_format patch failed to apply"; exit 1; }
     # gst-libav's option set has no "examples"; it takes the shared options minus that one.
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release -Dtests=disabled \
-        -Ddoc=disabled > /tmp/depslog-gstlibav-setup.log 2>&1 ) || exit 1
+        -Ddoc=disabled >> "$LOG" 2>&1 ) || exit 1
     prepared "$d"
 fi
-( cd "$d" && "$MESON" compile -C b -j 2 > /tmp/depslog-gstlibav-compile.log 2>&1 \
-  && "$MESON" install -C b > /tmp/depslog-gstlibav-install.log 2>&1 ) || exit 1
+( cd "$d" && "$MESON" compile -C b -j 2 >> "$LOG" 2>&1 \
+  && "$MESON" install -C b >> "$LOG" 2>&1 ) || exit 1
 
 echo "==== gap archive coverage ===="
 # Every image the archive force-loads into was linked after the archive itself: the drop above took

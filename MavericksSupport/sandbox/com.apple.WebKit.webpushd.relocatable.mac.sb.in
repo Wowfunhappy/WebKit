@@ -10,8 +10,9 @@
 ; of capabilities upstream grants, narrowed to what this port's daemon actually does: hold the
 ; WebSocket to the Mozilla push service, keep the push database, and hand pushes to Safari.
 ;
-; This is the RELOCATABLE profile, which is the one that gets applied: OptionsMac.cmake sets
-; ENABLE_RELOCATABLE_WEBPUSHD, so applySandbox() in WebPushDaemonMain.mm looks for
+; This is the RELOCATABLE profile, which is the one that gets applied:
+; MavericksSupport/cmake/OptionsMacMavericks.cmake sets ENABLE_RELOCATABLE_WEBPUSHD, so
+; applySandbox() in WebPushDaemonMain.mm looks for
 ; com.apple.WebKit.webpushd.relocatable.mac.sb and the database is PushDatabase.relocatable.db.
 ;
 ; Copyright (C) 2024 Apple Inc. All rights reserved.

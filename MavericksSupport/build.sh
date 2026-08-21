@@ -94,7 +94,7 @@ while :; do
         echo "### a build is already running (pids: $(echo $_stale)) -> stopping it first"
         _stopped="$(echo $_stale)"
     fi
-    if _configuring && [ "$_waited" -lt 1200 ]; then
+    if _configuring; then
         [ $((_waited % 30)) = 0 ] && echo "###   cmake configure in flight — waiting it out (${_waited}s)"
         sleep 5; _waited=$((_waited + 5)); continue
     fi
@@ -169,7 +169,7 @@ PRE_WEBCORE="$(poly_hash libpolyfill_methods.a)"
 PRE_JSC="$(poly_hash libwtf_compat.a)"
 PRE_WEBKIT="$(poly_hash libpolyfill_webkit.a)"
 echo "### building polyfill archives (MavericksSupport/polyfill/build-polyfill.sh)"
-if bash "$ROOT/MavericksSupport/polyfill/build-polyfill.sh" > /tmp/wk_polyfill.log 2>&1; then
+if bash "$ROOT/MavericksSupport/polyfill/build-polyfill.sh" >> "$LOG" 2>&1; then
     RELINK=""
     if [ "$PRE_ALL" != "$(poly_hash libpolyfill.a)$(poly_hash libwk_marker.a)" ]; then
         RELINK="JavaScriptCore WebCore WebKit WebKitLegacy"
@@ -187,9 +187,8 @@ if bash "$ROOT/MavericksSupport/polyfill/build-polyfill.sh" > /tmp/wk_polyfill.l
 else
     # A stale archive would link a call site against an old selector map and crash at runtime.
     echo "==================== POLYFILL BUILD FAILED — ABORTING (would link a STALE polyfill) ===================="
-    echo "### see /tmp/wk_polyfill.log:"
-    grep -nE "error:|warning:.*wk_|undefined" /tmp/wk_polyfill.log | head -20
-    tail -20 /tmp/wk_polyfill.log
+    grep -nE "error:|warning:.*wk_|undefined" "$LOG" | head -20
+    tail -20 "$LOG"
     exit 1
 fi
 

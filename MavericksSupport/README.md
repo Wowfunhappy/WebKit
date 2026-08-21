@@ -15,8 +15,8 @@ polyfills for genuinely-missing-on-10.9 symbols, and the build/install scripts.
 > Otherwise it's committed** (source, or a binary we genuinely can't rebuild).
 
 You never have to consult `.gitignore` to know which is which — it's visible from
-the directory a file lives in (`vendor/` = committed binary, `scripts/`/`src/` =
-source, `build/` = regenerable artifact).
+the directory a file lives in (`vendor/` = committed binary, `scripts/`/`source/`/
+`polyfill/` = source, `build/` = regenerable artifact).
 
 ## Layout
 
@@ -33,10 +33,12 @@ MavericksSupport/
 ├── source/                     out-of-tree WebKit source the overlays add to the build (WKViewMavericks.mm, webpushd, …)
 ├── scripts/                    stage-frameworks.sh (the build's last phase: assemble WebKitBuild/Release/staged),
 │                               framework-layout.sh (sourced: the installed layout, shared by stage + install),
-│                               check-absent-references.sh (build gate), check-backport-markers.sh (divergence gate),
+│                               check-absent-references.sh and check-gap-archive-current.sh (build gates),
+│                               check-backport-markers.sh (divergence gate),
 │                               run-layout-tests.sh (--wk1 | --wk2), build-localized-strings.py
 ├── polyfill/                   the polyfill layer -- see polyfill/README.md
-├── sandbox/                    the sandbox profiles 10.9's sandbox can compile + check-sandbox-profiles.sh (build gate)
+├── sandbox/                    the sandbox profiles 10.9's sandbox can compile, and scripts/ (check-sandbox-profiles.sh,
+│                               the build gate; check-sandbox-applied.sh; watch-sandbox-denials.sh)
 ├── host-abi/                   the symbols Safari 7 binds from our frameworks + check-abi-gap.sh (build gate)
 ├── sdk/                        patch-sdk.sh: the two edits the build needs in the macOS SDK (run by bootstrap.sh)
 ├── demangler/                  the demangler guard (_Z -> _z rename so symbolication can't crash), run by staging
@@ -66,9 +68,12 @@ everything else is committed.
    `REBUILD DONE (rc=0)`.
 
 4. **Install** onto the 10.9 target: `sudo bash MavericksSupport/install.sh`. Installing copies the
-   staged tree into `/System`; the one thing outside our own frameworks it touches is the Dashboard
-   widget plists' `AllowInternetPlugins` flag, which the Dock reads to pick the DashboardClient
-   architecture before any of our code runs.
+   staged tree into `/System`, and reaches two things outside our own frameworks. It clears the
+   `com.apple.webkit.webpushd.relocatable` job from the invoking user's launchd session, so the
+   daemon serving the previous framework is gone. And because the Dock picks the DashboardClient
+   architecture before any of our code runs, it clears the `AllowInternetPlugins` flag in each
+   installed widget's `Info.plist` and the recorded `32bit` flags in each user's
+   `com.apple.dashboard` preferences, then restarts the Dock to pick that up.
 
 To run layout tests against the build tree (never the installed system), use
 `bash MavericksSupport/scripts/run-layout-tests.sh --wk1|--wk2 <tests...>` — the port flag is
@@ -79,7 +84,7 @@ mandatory, and the script's header lists the one-time driver-build prereqs.
 - `libpolyfill.a` — the C functions and data constants: the macports-legacy libc gap-fills plus the
   framework entry points 10.9 lacks or gets wrong. Force-loaded into every shipped framework
   (`WEBKIT_FRAMEWORK` in `Source/cmake/WebKitMacros.cmake`), which is what makes a polyfill win
-  deterministically; also listed plainly by `OptionsMac.cmake` for the build-time tools.
+  deterministically; also listed plainly by `cmake/OptionsMacMavericks.cmake` for the build-time tools.
 - `libpolyfill_methods.a` — the ObjC method polyfills + the selref-scope mechanism, force-loaded into
   WebCore (`Source/WebCore/CMakeLists.txt`).
 - `libpolyfill_classes.dylib` — the ObjC class polyfills, one shared definition each.

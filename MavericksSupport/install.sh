@@ -14,7 +14,6 @@ OTOOL="$(wk_find_otool)"
 LIPO="$(wk_find_lipo)"
 
 BACKUP_ROOT="${BACKUP_ROOT:-$STOCK_BACKUP/replaced-original}"
-OLD_PRIVRT=/System/Library/WebKitPrivateRuntime   # nothing references this; cleared below
 
 backup() {
     local path="$1"
@@ -61,11 +60,6 @@ for bundle in $WK_INSTALL_ROOTS; do
     chown -R root:wheel "$bundle"
     echo "  installed."
 done
-# The frameworks carry their own runtime, so this standalone dir has no users.
-if [ -d "$OLD_PRIVRT" ]; then
-    rm -rf "$OLD_PRIVRT"
-    echo "  removed $OLD_PRIVRT"
-fi
 
 # ---------------------------------------------------------------------------
 # Web Push daemon: the webpushd binary rides inside the WK2 framework (staged with it above), and
@@ -74,12 +68,7 @@ fi
 # the daemon serving the previous framework is gone and the next Safari launch registers afresh —
 # the webpushd analog of the stale WebContent trap.
 echo "### Clearing the webpushd launchd job"
-WEBPUSHD_BIN=/System/Library/PrivateFrameworks/WebKit2.framework/Versions/A/Daemons/webpushd
 WEBPUSHD_LABEL=com.apple.webkit.webpushd.relocatable
-if [ ! -x "$WEBPUSHD_BIN" ]; then
-    echo "  ERROR: $WEBPUSHD_BIN is missing from the installed framework." >&2
-    echo "         Web Push cannot work without it." >&2
-fi
 # Only this install's invoking user has a reachable launchd session; any other logged-in user's
 # session keeps its job until logout and registers afresh on the next Safari launch after that.
 if [ -n "${SUDO_USER:-}" ]; then
@@ -90,16 +79,6 @@ if [ -n "${SUDO_USER:-}" ]; then
     fi
 else
     echo "  no SUDO_USER, so any job in a live session stays until that session ends"
-fi
-# A LaunchAgent on disk would register a job under the same label and start the daemon at every
-# login, whether or not a browser wants it.
-WEBPUSHD_AGENT=/Library/LaunchAgents/$WEBPUSHD_LABEL.plist
-if [ -f "$WEBPUSHD_AGENT" ]; then
-    if [ -n "${SUDO_USER:-}" ]; then
-        sudo -u "$SUDO_USER" launchctl unload "$WEBPUSHD_AGENT" 2>/dev/null || true
-    fi
-    rm -f "$WEBPUSHD_AGENT"
-    echo "  removed $WEBPUSHD_AGENT"
 fi
 
 # ---------------------------------------------------------------------------

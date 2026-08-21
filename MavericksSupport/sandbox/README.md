@@ -17,17 +17,15 @@ name. Feeding the generated `com.apple.WebProcess.sb` from `Source/WebKit/WebPro
 
     line 88: unbound variable: nvram*
 
-and `initializeSandbox()` `CRASH()`es rather than continue when a profile will not apply — which is
-why every child process on this port used to run unsandboxed.
+and `initializeSandbox()` `CRASH()`es rather than continue when a profile will not apply.
 
 So the profiles applied here are the last ones upstream itself wrote for this OS, recovered from
-git history rather than authored: `aab061ff1301` (2015-11-30), the revision immediately before
+git history: `aab061ff1301` (2015-11-30), the revision immediately before
 `c33fad6a4d19` "[Mac] WebKit contains dead source code for OS X Mavericks and earlier" deleted
 10.9 support.
 
 `com.apple.WebProcess.sb.in` and `com.apple.WebKit.NetworkProcess.sb.in` are **byte-identical to
-that revision** — no header, no reformatting, no hand-resolved conditionals. That is deliberate,
-and it is what makes the paragraph above a check rather than a claim:
+that revision** — no header, no reformatting, no hand-resolved conditionals:
 
 ```
 git show aab061ff1301:Source/WebKit2/WebProcess/com.apple.WebProcess.sb.in \
@@ -41,14 +39,12 @@ git show aab061ff1301:Source/WebKit2/NetworkProcess/mac/com.apple.WebKit.Network
 Their three `__MAC_OS_X_VERSION_MIN_REQUIRED` conditionals resolve themselves: the CMake rule
 passes `-mmacosx-version-min=10.9`, which pins `__MAC_OS_X_VERSION_MIN_REQUIRED` to 1090 and drops
 the 10.10+ `com.apple.iconservices` names, the 10.11+ `com.apple.nesessionmanager.flow-divert-token`
-name, and the 10.10+ `xattr-regex` spelling in favour of 10.9's `xattr`. That flag is load-bearing,
-not decoration — the rule invokes a bare `clang` off `PATH`, so without it the deployment target
-comes from whichever compiler is found, and a 10.10 answer emits an `xattr-regex` rule that 10.9's
-sandbox cannot compile.
+name, and the 10.10+ `xattr-regex` spelling in favour of 10.9's `xattr`. The rule invokes a bare
+`clang` off `PATH`, and that flag is what sets the deployment target the preprocessor sees.
 
 `com.apple.WebKit.webpushd.relocatable.mac.sb.in` has no such ancestor — webpushd postdates 10.9
 entirely — so it is upstream's current relocatable profile re-expressed in this OS's vocabulary.
-Its own header comment records what that re-expression changed.
+Its own header comment names each substitution.
 
 ## Changing a profile
 

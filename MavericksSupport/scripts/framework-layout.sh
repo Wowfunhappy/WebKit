@@ -157,6 +157,11 @@ wk_verify_tree() {
         [ -f "$pre$f" ] || { echo "  MISSING XPC service executable: $pre$f" >&2; bad=1; }
     done
 
+    # The Web Push daemon: it rides inside WebKit2.framework, and WebKit submits its launchd job
+    # from WebsiteDataStoreCocoa.mm by this path, so a tree without it has no Web Push.
+    f="$WEBKIT2_BUNDLE/Versions/A/Daemons/webpushd"
+    [ -x "$pre$f" ] || { echo "  MISSING Web Push daemon: $pre$f" >&2; bad=1; }
+
     # Sandbox profiles. AuxiliaryProcess::initializeSandbox() and webpushd's applySandbox() look
     # these up BY NAME under WebKit2.framework's Resources and CRASH()/RELEASE_ASSERT rather than
     # continue when the file is not there, so a missing profile is a child process that dies at
@@ -215,5 +220,5 @@ com.apple.WebKit.webpushd.relocatable.mac.sb"
         echo "### FAILED: $label is not a complete WebKit product (see the errors above)." >&2
         return 1
     fi
-    echo "  verified: $label is complete (4 framework binaries fat with i386, 9 XPC services, private runtime + GStreamer, single unwinder)"
+    echo "  verified: $label is complete (4 framework binaries fat with i386, 9 XPC services, webpushd, private runtime + GStreamer, single unwinder)"
 }
