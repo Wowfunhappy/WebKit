@@ -23,6 +23,7 @@ click, a key press, or a hardware/manual step.
 | `datalist-test.html` | `<input list>` suggestion dropdown appears and a pick fires `change` | manual, banner | — |
 | `dnd-test.html` | HTML5 drag-and-drop events and `dropEffect` between two elements | manual, banner | — |
 | `find-many-test.html` | Cmd-F over many matches ("target" in every paragraph): highlight count and scroll-to-match | manual, visual | — |
+| `fixed-background-parallax-test.html` | a `background-attachment: fixed` stripe pattern stays anchored to the viewport under isolated wheel notches while the page burns 8ms per rAF; any single-frame displacement flips the stripe colour under a fixed screen point | visual, manual | notched wheel or a synthetic line-unit `CGEventCreateScrollWheelEvent` ~180ms apart |
 | `fixed-test.html` | `position:fixed` stays pinned while scrolling; title reports scrollWidth/scrollY/computed position | title + visual | — |
 | `forms.html` | Form controls and the scroll-corner render | visual | — |
 | `fullscreen/fullscreen-test.html` | element `requestFullscreen` / exit and the `:fullscreen` styles | manual, banner | — |
