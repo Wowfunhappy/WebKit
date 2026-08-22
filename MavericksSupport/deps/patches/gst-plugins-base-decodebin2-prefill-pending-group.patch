@@ -1,0 +1,50 @@
+# decodebin sizes a multiqueue that is not posting buffering messages with the
+# play-time limits -- five buffers. In a buffering pipeline an adaptive demuxer's
+# next variant is built as a pending group whose queue holds everything that group
+# will play until the active group has drained, so the switch completes with a
+# handful of buffers behind it and the buffering reset that runs at switch
+# completion starts the queue in buffering mode near zero: a burst of
+# low-percentage buffering messages follows every variant switch, and an
+# application that follows the buffering contract pauses playback on them.
+#
+# This extends the buffering-mode arm of decodebin_set_queue_size_full to every
+# queue of a buffering pipeline, so a pending group's queue takes the same limits
+# as the posting one and fills across the drain interval. The two special cases
+# the play-time arm carried for buffering pipelines become unreachable.
+#
+# Applied by build_deps with patch -p1.
+--- a/gst/playback/gstdecodebin2.c
++++ b/gst/playback/gstdecodebin2.c
+@@ -3820,9 +3820,11 @@
+ 
+   GST_DEBUG_OBJECT (multiqueue, "use buffering %d", use_buffering);
+ 
+-  if (preroll || use_buffering) {
++  if (preroll || use_buffering || dbin->use_buffering) {
+     /* takes queue limits, initially we only queue up up to the max bytes limit,
+-     * with a default of 2MB. we use the same values for buffering mode. */
++     * with a default of 2MB. we use the same values for buffering mode, and
++     * for every queue of a buffering pipeline: a pending group's queue holds
++     * everything that group will play until the active group has drained. */
+     if (preroll || (max_bytes = dbin->max_size_bytes) == 0)
+       max_bytes = AUTO_PREROLL_SIZE_BYTES;
+     if (preroll || (max_buffers = dbin->max_size_buffers) == 0)
+@@ -3837,16 +3839,11 @@
+   } else {
+     /* update runtime limits. At runtime, we try to keep the amount of buffers
+      * in the queues as low as possible (but at least 5 buffers). */
+-    if (dbin->use_buffering)
+-      max_bytes = 0;
+-    else if ((max_bytes = dbin->max_size_bytes) == 0)
++    if ((max_bytes = dbin->max_size_bytes) == 0)
+       max_bytes = AUTO_PLAY_SIZE_BYTES;
+     if ((max_buffers = dbin->max_size_buffers) == 0)
+       max_buffers = AUTO_PLAY_SIZE_BUFFERS;
+-    /* this is a multiqueue with disabled buffering, don't limit max_time */
+-    if (dbin->use_buffering)
+-      max_time = 0;
+-    else if ((max_time = dbin->max_size_time) == 0)
++    if ((max_time = dbin->max_size_time) == 0)
+       max_time = AUTO_PLAY_SIZE_TIME;
+   }
+ 

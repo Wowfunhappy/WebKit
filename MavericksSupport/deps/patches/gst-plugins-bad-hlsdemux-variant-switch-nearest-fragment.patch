@@ -1,0 +1,35 @@
+# On a variant switch in a VOD playlist, gst_hls_demux_update_playlist carries the
+# stream position into the new playlist and takes the fragment that contains it.
+# That position is gst_m3u8_advance_fragment's output -- the END of the fragment
+# just played, a boundary on the old variant's timeline -- and fragment durations
+# differ between variants by frame rounding (7.992 s against 8.008 s in the same
+# presentation), so whenever the new variant's fragments run longer the boundary
+# lands inside the fragment just played and the switch refetches and decodes it:
+# the media for the position actually playing arrives a whole fragment fetch late
+# and the pipeline runs dry at the switch. RFC 8216 4.3.3.2 rules out matching by
+# Media Sequence Number across variants and directs clients to the relative
+# position on the playlist timeline.
+#
+# This matches the carried-over position to the fragment whose start is nearest,
+# the rule the element's own seek handler applies under GST_SEEK_FLAG_SNAP_NEAREST.
+# An exact fragment start, which the initial load and every seek carry, resolves
+# as before.
+#
+# Applied by build_deps with patch -p1.
+--- a/ext/hls/gsthlsdemux.c
++++ b/ext/hls/gsthlsdemux.c
+@@ -1748,8 +1748,12 @@
+       GstM3U8MediaFile *file = walk->data;
+ 
+       sequence = file->sequence;
+-      if (current_pos <= target_pos
+-          && target_pos < current_pos + file->duration) {
++      /* The position carried over from another variant is a fragment boundary
++       * in that variant's timeline, and fragment durations differ between
++       * variants by frame rounding, so match the fragment whose start is
++       * nearest, as a SNAP_NEAREST seek does. */
++      if (current_pos >= target_pos
++          || target_pos - current_pos < file->duration / 2) {
+         break;
+       }
+       current_pos += file->duration;

@@ -899,6 +899,10 @@ GSTOPTS="-Dbuildtype=release -Dtests=disabled -Dexamples=disabled -Ddoc=disabled
 # on-box verification of the shipped runtime (webrtcbin present, plugins load).
 d=$(get https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-$GST_VER.tar.xz gstcore)
 if prepare "$d"; then
+    # multiqueue: report the queue's current buffering level. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gstreamer-multiqueue-report-current-buffering-level.patch" \
+        && patch -p1 < "$HERE/patches/gstreamer-multiqueue-report-current-buffering-level.patch" ) \
+      || { echo "gstreamer multiqueue buffering-level patch failed to apply"; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
         -Dtools=enabled -Dbenchmarks=disabled -Dlibunwind=disabled -Ddbghelp=disabled \
         -Dbash-completion=disabled ) || exit 1
@@ -921,6 +925,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-urisourcebin-reset-parsebin-on-caps-change.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-base-urisourcebin-reset-parsebin-on-caps-change.patch" ) \
       || { echo "gst-plugins-base urisourcebin parsebin-reset patch failed to apply"; exit 1; }
+    # decodebin: size a pending decode group's queue with the buffering limits. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-decodebin2-prefill-pending-group.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-base-decodebin2-prefill-pending-group.patch" ) \
+      || { echo "gst-plugins-base decodebin2 pending-group patch failed to apply"; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
         -Dogg=enabled -Dvorbis=enabled -Dopus=enabled -Dorc=enabled ) || exit 1
     prepared "$d"
@@ -988,6 +996,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtdec-109-sink-template-codecs.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-vtdec-109-sink-template-codecs.patch" ) \
       || { echo "gst-plugins-bad vtdec sink-template patch failed to apply"; exit 1; }
+    # hlsdemux: resync a variant switch to the nearest fragment start. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-hlsdemux-variant-switch-nearest-fragment.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-hlsdemux-variant-switch-nearest-fragment.patch" ) \
+      || { echo "gst-plugins-bad hlsdemux variant-switch patch failed to apply"; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
         -Dwebrtc=enabled -Dwebrtcdsp=enabled -Ddtls=enabled -Dsrtp=enabled -Dsctp=enabled \
         -Dapplemedia=enabled -Dwebp=disabled -Dorc=enabled ) || exit 1

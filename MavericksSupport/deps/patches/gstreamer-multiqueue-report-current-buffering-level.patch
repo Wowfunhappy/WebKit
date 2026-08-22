@@ -1,0 +1,111 @@
+# GstMultiQueue's buffering report has two faults for an application that acts on the
+# level rather than on the mere presence of a message.
+#
+# It clamps the percentage to the highest value reached during the current buffering
+# episode, so a queue whose episode begins partly full and whose source then falls below
+# the content bitrate reports its starting level once and reports nothing more while
+# draining to empty. Measured on an HLS variant switch under a 25 KB/s cap: the group's
+# multiqueue posts 53% at 43.6 s and posts nothing for the following 45 s, throughout
+# which the audio ring buffer runs dry -- the pipeline plays silence instead of pausing,
+# because the level the application acts on stopped describing the queue.
+#
+# It also reports whichever single queue update_buffering was called for, while the
+# message it posts is one element-wide value. With a full video queue and an empty audio
+# queue the element alternates between their levels, so a consumer with watermarks
+# crosses them repeatedly: measured, 1040 posts peaking at 299 per second and eleven
+# pause/resume pairs inside two seconds.
+#
+# The level the message carries is therefore taken from the emptiest queue -- a sink
+# whose queue is dry stalls playback whatever the others hold, and queues that cannot run
+# dry (EOS, segment-done, unlinked, sparse) already return MAX_BUFFERING_LEVEL from
+# get_buffering_level, so they never lower it. It agrees with the aggregation one level
+# up: decodebin reports the minimum across the elements it tracks.
+#
+# Whether an episode is over is a separate question from how full the element is, and it
+# is decided by the FULLEST queue, which is what upstream's scan over the queues already
+# expressed. single_queue_check_full blocks the upstream thread as soon as any one queue
+# reaches its limit, and the emptiest queue cannot grow behind that block -- so an
+# element with one queue at the high watermark is as full as it will ever get, and while
+# an application is paused for buffering nothing drains to release it. The scan is
+# retained on both sides: an episode ends when the fullest queue reaches the high
+# watermark, and completion posts 100 so the application resumes; an episode begins only
+# when no queue is at the high watermark and the emptiest is below the low one. Ending on
+# the fullest queue is upstream's own termination condition, which computes its
+# percentage from the queue that reached the watermark.
+#
+# queue2, playbin's buffering element for progressive media, likewise sets its percentage
+# from the current level on every update while buffering and ends the episode at 100%.
+#
+# Applied by build_deps with patch -p1.
+--- a/plugins/elements/gstmultiqueue.c
++++ b/plugins/elements/gstmultiqueue.c
+@@ -1473,13 +1473,33 @@
+ static void
+ update_buffering (GstMultiQueue * mq, GstSingleQueue * sq)
+ {
+-  gint buffering_level, percent;
++  gint buffering_level, fullest_level, percent;
+ 
+   /* nothing to dowhen we are not in buffering mode */
+   if (!mq->use_buffering)
+     return;
+ 
+-  buffering_level = get_buffering_level (mq, sq);
++  /* The message is one value for the whole element, so the level it carries is that
++   * of the emptiest queue: a sink whose queue is dry stalls playback whatever the
++   * others hold. Queues that cannot run dry - EOS, segment-done, unlinked, sparse -
++   * report the maximum from get_buffering_level and so never lower it. The fullest
++   * queue decides whether the element can still fill: once one is at the high
++   * watermark it blocks the upstream thread, and the emptiest queue cannot grow
++   * behind it. */
++  {
++    GList *iter;
++
++    buffering_level = MAX_BUFFERING_LEVEL;
++    fullest_level = 0;
++    for (iter = mq->queues; iter; iter = g_list_next (iter)) {
++      gint level = get_buffering_level (mq, (GstSingleQueue *) iter->data);
++
++      if (level < buffering_level)
++        buffering_level = level;
++      if (level > fullest_level)
++        fullest_level = level;
++    }
++  }
+ 
+   /* scale so that if buffering_level equals the high watermark,
+    * the percentage is 100% */
+@@ -1489,28 +1509,16 @@
+     percent = 100;
+ 
+   if (mq->buffering) {
+-    if (buffering_level >= mq->high_watermark) {
++    if (fullest_level >= mq->high_watermark) {
++      /* the element is as full as it can get: buffering is complete */
+       mq->buffering = FALSE;
++      percent = 100;
+     }
+-    /* make sure it increases */
+-    percent = MAX (mq->buffering_percent, percent);
+ 
+     SET_PERCENT (mq, percent);
+   } else {
+-    GList *iter;
+-    gboolean is_buffering = TRUE;
+-
+-    for (iter = mq->queues; iter; iter = g_list_next (iter)) {
+-      GstSingleQueue *oq = (GstSingleQueue *) iter->data;
+-
+-      if (get_buffering_level (mq, oq) >= mq->high_watermark) {
+-        is_buffering = FALSE;
+-
+-        break;
+-      }
+-    }
+-
+-    if (is_buffering && buffering_level < mq->low_watermark) {
++    if (fullest_level < mq->high_watermark
++        && buffering_level < mq->low_watermark) {
+       mq->buffering = TRUE;
+       SET_PERCENT (mq, percent);
+     }

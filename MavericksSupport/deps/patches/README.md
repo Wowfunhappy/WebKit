@@ -84,3 +84,32 @@ A stream whose media type changes mid-play stops at the change. The case that re
 decodebin3 already answers this for the parsebin *it* owns: on a caps event its chain does not accept, `gst_decodebin_input_reset_parsebin()` sets that parsebin to `GST_STATE_NULL` and syncs it back, and it re-autoplugs from the new caps — here, plugging a CENC decryptor ahead of the parser. urisourcebin owns a parsebin too, and `uridecodebin3` sets `parse-streams=TRUE` on it unconditionally, so in a playbin3 pipeline (which WebKit uses for every MSE player) the parsing happens in urisourcebin and decodebin3's own input is the `identity` passthrough. Nothing resets urisourcebin's parsebin, so the reconfiguration decodebin3 assumes exists never runs.
 
 The patch gives urisourcebin the same reset, driven from the pad feeding parsebin rather than from parsebin's own sink: the reset deactivates that sink pad, so a probe holding its stream lock would deadlock, which is also why decodebin3 performs the reset from its ghost sink. parsebin answers accept-caps from its current chain (`gst_parse_chain_accept_caps`), and with no chain built yet the query falls through to the pad template and accepts, so the first caps of a stream never trigger a reset.
+
+## gst-plugins-base-decodebin2-prefill-pending-group.patch
+
+**Target:** `gst-plugins-base-1.28.5`, `gst/playback/gstdecodebin2.c`
+**Applied to:** libgstplayback (decodebin)
+
+An adaptive demuxer switches variants by exposing a new set of pads, and decodebin builds them a new group that waits in `next_groups` until the active group drains. Everything the pending group will play sits behind its multiqueue until the switch, but `decodebin_set_queue_size_full` sizes a queue that is not posting buffering messages with the play-time limits - five buffers - so the pending queue holds a handful of buffers when the switch completes and the buffering reset that runs then starts it in buffering mode near zero: a burst of low-percentage buffering messages follows every variant switch, and an application that follows the buffering contract pauses playback on them.
+
+The patch extends the buffering-mode arm of `decodebin_set_queue_size_full` to every queue of a buffering pipeline (`dbin->use_buffering`), so a pending group's queue takes the same limits as the posting one - the application's `max-size-*` properties, with the 8 MB / 5 s preroll defaults where those are unset - and the two special cases the play-time arm carried for buffering pipelines become unreachable and go. A pending queue then fills across the drain interval, its first buffering report after the switch is at or above the high watermark, and playback continues; a genuinely starved pipeline still reports low percentages and still pauses. Non-buffering pipelines keep the five-buffer play-time cap.
+
+## gst-plugins-bad-hlsdemux-variant-switch-nearest-fragment.patch
+
+**Target:** `gst-plugins-bad-1.28.5`, `ext/hls/gsthlsdemux.c`
+**Applied to:** libgsthls (hlsdemux)
+
+On a variant switch in a VOD playlist, `gst_hls_demux_update_playlist` carries the stream position over to the new playlist and picks the fragment that contains it. That position is a fragment boundary in the old variant's timeline - the end of the fragment just played - and fragment durations differ between variants by frame rounding (7.992 s against 8.008 s in the same presentation), so whenever the new variant's fragments run longer the boundary lands inside the fragment just played and the switch refetches and decodes it from the start: the data for the position that is actually playing arrives one full fragment fetch late, and the pipeline runs dry at the switch. RFC 8216 §4.3.3.2 rules out matching by Media Sequence Number and directs clients to the relative position on the playlist timeline.
+
+The patch matches the carried-over position to the fragment whose start is nearest, the rule the element's own seek handler applies under `GST_SEEK_FLAG_SNAP_NEAREST`. An exact fragment start, which is what the initial load and every seek carry, resolves as before.
+
+## gstreamer-multiqueue-report-current-buffering-level.patch
+
+**Target:** `gstreamer-1.28.5`, `plugins/elements/gstmultiqueue.c`
+**Applied to:** libgstcoreelements (multiqueue)
+
+`update_buffering` reports a level an application cannot act on. It clamps the percentage to the highest value of the current buffering episode (`percent = MAX (mq->buffering_percent, percent)`), and an episode ends only at the high watermark, so a queue whose episode begins partly full and whose source delivers below the content bitrate reports its starting level once and nothing more while draining to empty - measured on an HLS variant switch under a 25 KB/s cap, 53% posted once and silence for the next 45 s while the audio ring ran dry. It also reports the level of whichever single queue the call was made for, though the message is element-wide, so a full video queue and an empty audio queue make the element alternate between their levels: measured, 1040 posts peaking at 299 per second and eleven pause/resume pairs inside two seconds.
+
+The patch drops the clamp and takes the reported level from the emptiest queue, which is what an element-wide message means - a sink whose queue is dry stalls playback whatever the others hold. Queues that cannot run dry (EOS, segment-done, unlinked, sparse) already report `MAX_BUFFERING_LEVEL`, so they never lower it, and this agrees with the aggregation immediately above: decodebin reports the minimum across the elements it tracks.
+
+How full the element is and whether the episode is over are separate questions, and the second is decided by the fullest queue - the term upstream's scan over the queues already expressed, which the patch keeps on both sides of the episode. `single_queue_check_full` blocks the upstream thread as soon as one queue reaches its limit and the emptiest queue cannot grow behind that block, so an element with a queue at the high watermark is as full as it will ever get; with the application paused for buffering, nothing drains to release it, and an episode that waited for every queue would never end. An episode therefore ends when the fullest queue reaches the high watermark, posting 100 so the application resumes, and begins only when no queue is at the high watermark and the emptiest is below the low one. `queue2`, playbin's buffering element for progressive media, likewise sets its percentage from the current level on every update and ends the episode at 100%.
