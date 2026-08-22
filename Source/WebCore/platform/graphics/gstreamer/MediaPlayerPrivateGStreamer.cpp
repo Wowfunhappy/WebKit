@@ -3531,6 +3531,24 @@ void MediaPlayerPrivateGStreamer::createGSTPlayBin(const URL& url)
 #endif
     registerActivePipeline(m_pipeline);
 
+    // MAVERICKS_BACKPORT: give playbin's buffering queues limits spanning a whole HLS segment. An HLS
+    // fMP4 segment carries each track as one run inside a single mdat, so a demuxer reaching the
+    // second track has already emitted a whole segment of the first, and the queues between them must
+    // hold a full segment for the trailing track to keep flowing; at the five-second, two-megabyte
+    // defaults the leading queue caps on whichever limit binds first, the demuxer's one streaming
+    // thread blocks on it, and the trailing track starves at the sink. The Apple HLS authoring
+    // specification targets six-second segments; fifteen seconds holds a ten-second segment under
+    // the same 150% margin GstMultiQueue applies to a measured interleave, and forty megabytes covers
+    // that window at the specification's highest video tier, 20 Mb/s HDR HEVC, so the time limit
+    // stays the binding one. These are limits, not allocations: a queue holds at most the stream's
+    // own rate across the time window. The properties belong on the playbin: it propagates its
+    // buffering parameters onto uridecodebin at every group activation, overwriting anything set on
+    // uridecodebin or its decodebin directly.
+    if (m_isLegacyPlaybin) {
+        g_object_set(m_pipeline.get(), "buffer-duration", static_cast<gint64>(15 * GST_SECOND),
+            "buffer-size", static_cast<int>(40 * MB), nullptr);
+    }
+
     if (isMediaStream) {
         auto clock = adoptGRef(gst_system_clock_obtain());
         gst_pipeline_use_clock(GST_PIPELINE(m_pipeline.get()), clock.get());
