@@ -1053,6 +1053,14 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-libav-avviddec-select-first-software-format.patch" \
         && patch -p1 < "$HERE/patches/gst-libav-avviddec-select-first-software-format.patch" ) \
       || { echo "gst-libav get_format patch failed to apply"; exit 1; }
+    # avviddec marks each incoming frame decode-only until get_buffer2 requests a buffer for
+    # it, and clears that only inside get_buffer2. FFmpeg calls get_buffer2 only for decoders
+    # allocating through ff_get_buffer, which libdav1d (no AV_CODEC_CAP_DR1, own dav1d pool) does
+    # not, so avviddec's copy fallback supplies the buffer while finish_frame still drops every
+    # AV1 frame. The patch clears the flag once that fallback has the buffer. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-libav-avviddec-clear-decode-only-on-copied-output.patch" \
+        && patch -p1 < "$HERE/patches/gst-libav-avviddec-clear-decode-only-on-copied-output.patch" ) \
+      || { echo "gst-libav decode-only patch failed to apply"; exit 1; }
     # gst-libav's option set has no "examples"; it takes the shared options minus that one.
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release -Dtests=disabled \
         -Ddoc=disabled ) || exit 1

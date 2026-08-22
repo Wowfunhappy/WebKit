@@ -52,6 +52,17 @@ With the template claiming what the machine then denies, the scanner reported de
 
 gst-libav's decoder registration skips every FFmpeg decoder whose name starts with `lib`, on the stated premise that "we have native gstreamer plugins for all of those libraries anyway". This runtime has no native AV1 decoder for that rule to point at: gst-plugins-bad 1.28 carries no dav1d wrapper (`dav1ddec` lives in gst-plugins-rs, which is not part of this build), its `ext/aom` needs a libaom this build does not vendor, and FFmpeg's native `av1` decoder is hardware-only (gst-libav skips it by name for exactly that reason). The FFmpeg built here links dav1d (`--enable-libdav1d`), so the wrapper codec is present and fully functional software decode. The patch admits `libdav1d` through the external-library skip, registering `avdec_libdav1d` (rank marginal, like the other avdec video decoders) — the runtime's AV1 decoder for `<video>`, MSE and WebCodecs. The required-artifacts gate asks the registry for the element by name so a regression fails the build rather than reverting AV1 to a parser with no decoder.
 
+## gst-libav-avviddec-clear-decode-only-on-copied-output.patch
+
+**Target:** `gst-libav-1.28.5`, `ext/libav/gstavviddec.c`
+**Applied to:** libgstlibav (`avdec_libdav1d`, and any other decoder that allocates its own frames)
+
+`gst_ffmpegviddec_handle_frame()` flags every incoming `GstVideoCodecFrame` `GST_VIDEO_CODEC_FRAME_FLAG_DECODE_ONLY` — "treat frame as void until a buffer is requested for it" — and `gst_ffmpegviddec_get_buffer2()` is the only place that clears it. libavcodec calls `AVCodecContext.get_buffer2` only for decoders that allocate through `ff_get_buffer()`; `ff_libdav1d_decoder` declares no `AV_CODEC_CAP_DR1` and serves dav1d's picture allocator from its own `av_buffer_pool` (`libdav1d_picture_allocator()` in `libavcodec/libdav1d.c`), so for `avdec_libdav1d` the callback never runs. `gst_ffmpegviddec_video_frame()` finds the frame has no direct-rendered buffer and takes its own fallback — `get_output_buffer()` allocates from the decoder's pool and copies the picture in — but the frame still carries the flag, and `gst_video_decoder_finish_frame()` drops it on `!frame->output_buffer || GST_VIDEO_CODEC_FRAME_IS_DECODE_ONLY (frame)`. Every frame is discarded, so the element emits nothing, never prerolls, and errors "No valid frames decoded before end of stream" at EOS. In a page that is a `<video>` spinning forever at `readyState 0` with `networkState 2` and no `error` — every AV1 stream, whatever the container.
+
+The patch clears the flag once that fallback has produced the buffer. This is the transition `get_buffer2()` already performs, unconditionally, for every DR1 decoder, so it gives decoders that allocate their own frames the same behavior rather than a new one; on the direct-rendering path the clear is idempotent. `GST_FFMPEG_VIDEO_CODEC_FRAME_FLAG_ALLOCATED`, which `get_buffer2()` sets alongside, is deliberately not mirrored: its readers are the ghost-frame sweep further down (which tests `DECODE_ONLY`) and the input-frame unset after it, neither of which consults it on this path.
+
+Upstream master is byte-identical here. The path is unreachable upstream because the `lib*` skip that `gst-libav-register-libdav1d.patch` opens never registers a non-DR1 wrapper decoder in the first place.
+
 ## ffmpeg-hevc-alpha-videotoolbox-vps.patch
 
 **Target:** `ffmpeg-8.1.2`, `libavcodec/hevc/ps.c`
