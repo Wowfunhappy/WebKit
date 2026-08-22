@@ -84,20 +84,17 @@ void RemoteLayerWithInProcessRenderingBackingStore::clearBackingStore()
 
 static std::optional<ImageBufferBackendHandle> handleFromBuffer(ImageBuffer& buffer)
 {
-    // MAVERICKS_BACKPORT: 10.9 uses WebCore's plain ImageBufferIOSurfaceBackend, which is not an ImageBufferBackendHandleSharing; when the sharing downcast fails, derive the backend handle directly from the IOSurface send right so the layer can still receive contents.
-    auto* backendSharing = buffer.toBackendSharing();
-    auto* sharing = dynamicDowncast<ImageBufferBackendHandleSharing>(backendSharing);
-    auto* surface = buffer.surface();
-    if (sharing) {
-        auto h = sharing->takeBackendHandle(SharedMemory::Protection::ReadOnly);
-        return h;
-    }
+    auto* sharing = dynamicDowncast<ImageBufferBackendHandleSharing>(buffer.toBackendSharing());
+    // return sharing ? sharing->takeBackendHandle(SharedMemory::Protection::ReadOnly) : std::nullopt;
+    if (sharing)
+        return sharing->takeBackendHandle(SharedMemory::Protection::ReadOnly);
 #if HAVE(IOSURFACE)
-    if (surface) {
-        auto sendRight = surface->createSendRight();
-        return ImageBufferBackendHandle(WTF::move(sendRight));
-    }
-#endif
+    // MAVERICKS_BACKPORT: the IOSurface backend here is WebCore's plain ImageBufferIOSurfaceBackend
+    // (the shareable subclass that implements ImageBufferBackendHandleSharing is GPU-process-only),
+    // so the downcast above misses it; its send right is the same handle that subclass would hand out.
+    if (auto* surface = buffer.surface())
+        return ImageBufferBackendHandle(surface->createSendRight());
+#endif // MAVERICKS_BACKPORT: closes the IOSurface send-right branch above.
     return std::nullopt;
 }
 
@@ -276,6 +273,16 @@ void RemoteLayerWithInProcessRenderingBackingStore::ensureFrontBuffer()
 void RemoteLayerWithInProcessRenderingBackingStore::prepareToDisplay()
 {
     ASSERT(!m_frontBufferFlushers.size());
+
+    // MAVERICKS_BACKPORT: a layer whose owner delegates display (a WebGL canvas, and any other
+    // context reaching CanvasAsLayerContents) is filled by its display delegate rather than painted:
+    // needsDisplay() answers true for it unconditionally and paintContents() returns without drawing,
+    // so performDelegatedLayerDisplay() is what calls the delegate and lets it hand over its surface.
+    // Only RemoteLayerWithRemoteRenderingBackingStore calls it, and that class is GPU-process-only;
+    // with rendering in process this is the backing store every layer gets, so the call belongs here
+    // too, in the same position as the sibling's.
+    if (performDelegatedLayerDisplay())
+        return;
 
     RefPtr collection = backingStoreCollection();
     if (!collection) {

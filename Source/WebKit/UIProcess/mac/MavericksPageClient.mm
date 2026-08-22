@@ -4,8 +4,8 @@
 // WebPageProxy with this PageClient in place of the upstream WKWebView + WebViewImpl +
 // PageClientImpl stack (PageClientImpl is `final` and tightly coupled to WebViewImpl). It inherits
 // the Cocoa-common behavior from PageClientImplCocoa and implements the view-geometry, layer
-// hosting (TiledCoreAnimation), and coordinate-transform pieces directly against the backing
-// NSView; the remaining PageClient surface is stubbed.
+// hosting, and coordinate-transform pieces directly against the backing NSView; the remaining
+// PageClient surface is stubbed.
 //
 // The free functions at the bottom of this file are WKViewMavericks.mm's entry points into it.
 
@@ -17,6 +17,7 @@
 #import "LayerTreeContext.h"
 #import "NativeWebKeyboardEvent.h"
 #import "PageClientImplCocoa.h"
+#import "RemoteLayerTreeDrawingAreaProxyMac.h"
 #import "RemoteLayerTreeNode.h"
 #import "TiledCoreAnimationDrawingAreaProxy.h"
 #import "ViewSnapshotStore.h"
@@ -57,6 +58,7 @@
 #import "WKFullScreenWindowController.h"
 // MAVERICKS_BACKPORT: declares -[WKView createFullScreenWindow], sent below to the NSView-typed view.
 #import "WKViewPrivate.h"
+#import <wtf/NumberOfCores.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 #endif
 #import <WebCore/DestinationColorSpace.h>
@@ -775,7 +777,28 @@ private:
 
 Ref<DrawingAreaProxy> MavericksPageClient::createDrawingAreaProxy(WebProcessProxy& process)
 {
-    return TiledCoreAnimationDrawingAreaProxy::create(*m_page, process);
+#if ENABLE(TILED_CA_DRAWING_AREA)
+    // MAVERICKS_BACKPORT: WebViewImpl's own drawing-area choice (WebViewImpl::WebViewImpl seeds
+    // m_drawingAreaType from it), reached here because this page client stands in for WebViewImpl on
+    // Safari 7's WKView path.
+    auto useRemoteLayerTree = [&]() {
+        bool result = false;
+#if ENABLE(REMOTE_LAYER_TREE_ON_MAC_BY_DEFAULT)
+        result = WTF::numberOfPhysicalProcessorCores() >= 4 || m_page->configuration().lockdownModeEnabled();
+#endif
+        if (RetainPtr<id> useRemoteLayerTreeBoolean = [[NSUserDefaults standardUserDefaults] objectForKey:@"WebKit2UseRemoteLayerTreeDrawingArea"])
+            result = [useRemoteLayerTreeBoolean boolValue];
+
+        if (protect(m_page->preferences())->siteIsolationEnabled())
+            result = true;
+
+        return result;
+    };
+
+    if (!useRemoteLayerTree())
+        return TiledCoreAnimationDrawingAreaProxy::create(*m_page, process);
+#endif
+    return RemoteLayerTreeDrawingAreaProxyMac::create(*m_page, process);
 }
 
 WebCore::IntSize MavericksPageClient::viewSize()

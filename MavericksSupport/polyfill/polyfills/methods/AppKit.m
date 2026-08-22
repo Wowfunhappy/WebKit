@@ -1557,24 +1557,32 @@ WK_POLYFILL_SEL("setContentTintColor:", "wk_setContentTintColor:");
 // (ScrollerMac/ScrollbarThemeMac/ScrollbarsControllerMac/PopupMenu) is faithful, defaulting to
 // LeftToRight when unset. (Vertical-scrollbar-on-left is positioned by WebCore geometry independently.)
 // NSScrollerImp is SPI (absent from public AppKit headers), so declare it here.
+@protocol WKPolyfillScrollerImpDelegate <NSObject>
+- (BOOL)shouldUseLayerPerPartForScrollerImp:(id)scrollerImp;
+@end
 @interface NSScrollerImp : NSObject
-- (CALayer *)layer;   // real 10.9 NSScrollerImp accessor (the layer WebKit assigns it via -setLayer:)
+- (id)delegate;
+- (CALayer *)knobLayer;
+- (void)setKnobLayer:(CALayer *)layer;
+- (CALayer *)trackLayer;
+- (void)setTrackLayer:(CALayer *)layer;
+- (CALayer *)_makeScrollerPartLayer;
+- (void)_setupCommonLayerProperties:(CALayer *)layer;
+- (void)_updateLayerGeometry;
+- (double)knobAlpha;
+- (double)trackAlpha;
 @end
 static const void *const wk_uildScrollerKey = &wk_uildScrollerKey;
 static const void *const wk_uildMenuKey = &wk_uildMenuKey;
 @interface NSScrollerImp (WKPolyfillScope)
 - (void)wk_setUserInterfaceLayoutDirection:(NSInteger)direction;
 - (NSInteger)wk_userInterfaceLayoutDirection;
-// -[NSScrollerImp setNeedsDisplay:] (a later-macOS addition). On 10.9 the scroller imp WebKit uses (e.g.
-// NSRegularOverlayScrollerImp) does not respond to it, so an unconditional send would raise
-// doesNotRecognizeSelector (ScrollbarsControllerMac::invalidateScrollbarPartLayers and
-// ScrollerMac::setNeedsDisplay both send it; the latter killed WebContent in a loop on Slack's dark
-// theme). The modern method marks the imp's backing for redraw; on 10.9 the imp draws into the layer
-// WebKit assigns it (-[NSScrollerImp setLayer:], present here), so marking THAT layer dirty is the
-// faithful 10.9 equivalent — exactly what ScrollerMac's fallback did by hand. -layer is nil in the WK1
-// path (no imp layer set), where [nil setNeedsDisplay] is a harmless no-op and the repaint comes from
-// ScrollbarThemeMac::paint. (GAP_FILL: 10.9 lacks -setNeedsDisplay: on NSScrollerImp — the build gate
-// confirms the absence — and the body always runs.)
+// -[NSScrollerImp setNeedsDisplay:] (a later-macOS addition; ScrollbarsControllerMac::invalidate-
+// ScrollbarPartLayers and ScrollerMac::setNeedsDisplay both send it). The modern method invalidates
+// what the imp draws, which is the knob and track layers -setLayer: builds above. Both are nil on the
+// WK1 path, where no layer is assigned and the repaint comes from ScrollbarThemeMac::paint;
+// [nil setNeedsDisplay] is a no-op there. (GAP_FILL: 10.9 lacks -setNeedsDisplay: on NSScrollerImp
+// — the build gate confirms the absence — and the body always runs.)
 - (void)wk_setNeedsDisplay:(BOOL)flag;
 @end
 @implementation NSScrollerImp (WKPolyfillScope)
@@ -1582,7 +1590,13 @@ static const void *const wk_uildMenuKey = &wk_uildMenuKey;
 { objc_setAssociatedObject(self, wk_uildScrollerKey, @(direction), OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
 - (NSInteger)wk_userInterfaceLayoutDirection
 { NSNumber *v = objc_getAssociatedObject(self, wk_uildScrollerKey); return v ? [v integerValue] : NSUserInterfaceLayoutDirectionLeftToRight; }
-- (void)wk_setNeedsDisplay:(BOOL)flag { if (flag) [[self layer] setNeedsDisplay]; }
+- (void)wk_setNeedsDisplay:(BOOL)flag
+{
+    if (!flag)
+        return;
+    [[self knobLayer] setNeedsDisplay];
+    [[self trackLayer] setNeedsDisplay];
+}
 @end
 WK_POLYFILL_SEL("setNeedsDisplay:", "wk_setNeedsDisplay:");
 @interface NSMenu (WKPolyfillScopeUILD)
@@ -1597,6 +1611,64 @@ WK_POLYFILL_SEL("setNeedsDisplay:", "wk_setNeedsDisplay:");
 @end
 WK_POLYFILL_SEL("setUserInterfaceLayoutDirection:", "wk_setUserInterfaceLayoutDirection:");
 WK_POLYFILL_SEL("userInterfaceLayoutDirection", "wk_userInterfaceLayoutDirection");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSScrollerImp setLayer:] and the layer-per-part pipeline.
+//
+// A scroller imp handed a layer builds a track layer and a knob layer as sublayers of it and keeps
+// their opacity and geometry in step with trackAlpha/knobAlpha/doubleValue. 10.9 has that whole
+// pipeline; what differs is the question asked before running it. 10.9's -setLayer: reads its own
+// `scroller` ivar and asks `[[scroller class] isCompatibleWithOverlayScrollers]`, while modern AppKit
+// asks the imp's delegate -shouldUseLayerPerPartForScrollerImp:. An imp built the way ScrollerMac
+// builds one (+scrollerImpWithStyle:controlSize:horizontal:replacingScrollerImp:nil) has no
+// NSScroller, so on 10.9 the gate answers NO and the part layers are never made -- the assigned layer
+// stays empty. WebScrollerImpDelegateMac answers the delegate question YES.
+//
+// Run the construction the real -setLayer: performs past its gate, asking the delegate instead. Both
+// -addSublayer: are unconditional because the call-through has just removed the part layers from
+// whichever layer hosted them before (ScrollerMac::setHostLayer rehosts a live imp).
+@interface NSScrollerImp (WKPolyfillScopeLayerPerPart)
+- (void)wk_setLayer:(CALayer *)layer;
+@end
+
+@implementation NSScrollerImp (WKPolyfillScopeLayerPerPart)
+
+- (void)wk_setLayer:(CALayer *)layer
+{
+    typedef void (*WKSetLayerFn)(id, SEL, CALayer *);
+    SEL publicSelector = sel_registerName("setLayer:");
+    ((WKSetLayerFn)wk_replaces_call_through_class(self, [NSScrollerImp class], _cmd, publicSelector))
+        (self, publicSelector, layer);
+
+    if (!layer)
+        return;
+
+    id<WKPolyfillScrollerImpDelegate> delegate = (id<WKPolyfillScrollerImpDelegate>)[self delegate];
+    if (![delegate respondsToSelector:@selector(shouldUseLayerPerPartForScrollerImp:)]
+        || ![delegate shouldUseLayerPerPartForScrollerImp:self])
+        return;
+
+    if (![self trackLayer]) {
+        CALayer *track = [self _makeScrollerPartLayer];
+        [self _setupCommonLayerProperties:track];
+        [track setOpacity:[self trackAlpha]];
+        [self setTrackLayer:track];
+    }
+    [layer addSublayer:[self trackLayer]];
+
+    if (![self knobLayer]) {
+        CALayer *knob = [self _makeScrollerPartLayer];
+        [self _setupCommonLayerProperties:knob];
+        [knob setOpacity:[self knobAlpha]];
+        [self setKnobLayer:knob];
+    }
+    [layer addSublayer:[self knobLayer]];
+
+    [self _updateLayerGeometry];
+}
+
+@end
+WK_POLYFILL_SEL_REPLACES("setLayer:", "wk_setLayer:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSPopover showRelativeToRect:ofView:preferredEdge:] and the anchor window's first responder.
