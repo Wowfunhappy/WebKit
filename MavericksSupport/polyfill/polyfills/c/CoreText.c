@@ -480,15 +480,55 @@ WK_POLYFILL_REPLACES("CoreText", CGFloat, CTFontGetSize, (CTFontRef font))
     return WK_ORIGINAL(CTFontGetSize) ? WK_ORIGINAL(CTFontGetSize)(font) : 0;
 }
 
+// The "none" request rides the descriptor the way wk_font_request rides a font. CTFontDescriptorRef
+// is toll-free bridged to NSFontDescriptor, so the record lives and dies with the descriptor.
+static const void *wk_opticalSizeIsDefaultKey(void)
+{
+    return (const void *)sel_registerName("wk_opticalSizeIsDefault");
+}
+
+static CTFontDescriptorRef wk_markOpticalSizeDefault(CTFontDescriptorRef descriptor)
+{
+    if (descriptor)
+        objc_setAssociatedObject((id)(void *)descriptor, wk_opticalSizeIsDefaultKey(),
+                                 (id)kCFBooleanTrue, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return descriptor;
+}
+
+static bool wk_opticalSizeIsDefault(CTFontDescriptorRef descriptor)
+{
+    return descriptor && objc_getAssociatedObject((id)(void *)descriptor, wk_opticalSizeIsDefaultKey()) != NULL;
+}
+
+// An optical size of "none" is a request 10.9 has no attribute value for, so the descriptor entry
+// points below leave it off the descriptor and mark it instead (the block on the optical size states
+// why). A descriptor answers for what it was asked for, so the two readers put the request back.
+WK_POLYFILL_REPLACES("CoreText", CFDictionaryRef, CTFontDescriptorCopyAttributes, (CTFontDescriptorRef descriptor))
+{
+    CFDictionaryRef attributes = WK_ORIGINAL(CTFontDescriptorCopyAttributes)
+        ? WK_ORIGINAL(CTFontDescriptorCopyAttributes)(descriptor) : NULL;
+    if (!wk_opticalSizeIsDefault(descriptor))
+        return attributes;
+    CFMutableDictionaryRef named = attributes
+        ? CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, attributes)
+        : CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    if (attributes)
+        CFRelease(attributes);
+    if (named)
+        CFDictionarySetValue(named, kCTFontOpticalSizeAttribute, CFSTR("none"));
+    return named;
+}
+
 // A descriptor's own attributes -- the set it CARRIES. CTFontDescriptorCopyAttribute answers by
 // MATCHING, so a descriptor holding nothing but a weight still answers kCTFontNameAttribute with the
 // default face's name; only this entry point separates what a caller asked for from what a match
-// would supply.
+// would supply. It reads through CoreText's own implementation: the request this layer records on a
+// descriptor is answered above, and the readers here act on the record itself.
 static CFTypeRef wk_carriedAttribute(CTFontDescriptorRef descriptor, CFStringRef key)
 {
-    if (!descriptor)
+    if (!descriptor || !WK_ORIGINAL(CTFontDescriptorCopyAttributes))
         return NULL;
-    CFDictionaryRef attributes = CTFontDescriptorCopyAttributes(descriptor);
+    CFDictionaryRef attributes = WK_ORIGINAL(CTFontDescriptorCopyAttributes)(descriptor);
     if (!attributes)
         return NULL;
     CFTypeRef value = CFDictionaryGetValue(attributes, key);
@@ -502,15 +542,22 @@ static CFTypeRef wk_carriedAttribute(CTFontDescriptorRef descriptor, CFStringRef
 // font's advances and tracking are looked up at. The CFString forms "auto" and "none" are a later
 // convention, and this CoreText reads the attribute as a number whatever it holds, so a string
 // leaves the optical size uninitialized and every metric derived from it follows. Measured on-host
-// at 19.8pt: Apple Color Emoji advances -5.3e8 rather than 22.88, a different value each run; the
-// scalable faces installed here carry no optical axis, so their metrics are the same either way.
+// at 19.8pt: Apple Color Emoji advances -5.3e8 rather than 22.88, a different value each run. The
+// points named are their own state, distinct from naming none: Hoefler Text advances 29.360 at 40pt
+// with no optical size named, 30.360 at 6 and 28.630 at 40; faces with no tracking table measure the
+// same at every value.
 //
 // "auto" is the point size the font is realized at, and it stays "auto": a copy taken at another
-// size looks the optical size up at THAT size, and the attribute reads back as the string. "none" is
-// the optical axis at its default, which is the state a font realized with no such attribute is
-// already in, so that form is dropped. The resolution happens where a font is realized because that
-// is where the point size is known, and because CoreText's own cascade fallback copies its
-// attributes from the realized font.
+// size looks the optical size up at THAT size, and the attribute reads back as the string. The
+// resolution happens where a font is realized because that is where the point size is known, and
+// because CoreText's own cascade fallback copies its attributes from the realized font.
+//
+// "none" is the optical axis at its default, which is the state of a descriptor that names no
+// optical size at all, so the descriptor entry points below leave that form off the descriptor they
+// build and mark the descriptor with the request instead. CoreText has no way to take an attribute
+// back out of a descriptor -- a copy only ever adds -- and assembling a replacement from
+// CTFontDescriptorCopyAttributes keeps the attributes and nothing else, where a descriptor minted
+// from data is identified by the CGFont it is bound to.
 typedef enum {
     WK_OPTICAL_SIZE_UNNAMED,        // the attributes carry none
     WK_OPTICAL_SIZE_EXPLICIT,       // a size in points, which 10.9 takes as it stands
@@ -518,14 +565,25 @@ typedef enum {
     WK_OPTICAL_SIZE_DEFAULT         // "none"
 } wk_optical_size_request;
 
+// Whether an attributes dictionary names the axis default: a CFString other than "auto", which is
+// every spelling of the request the descriptor entry points below do not carry through.
+static bool wk_attributesNameOpticalSizeDefault(CFDictionaryRef attributes)
+{
+    CFTypeRef value = attributes && CFGetTypeID(attributes) == CFDictionaryGetTypeID()
+        ? CFDictionaryGetValue(attributes, kCTFontOpticalSizeAttribute) : NULL;
+    return value && CFGetTypeID(value) == CFStringGetTypeID() && !CFEqual((CFStringRef)value, CFSTR("auto"));
+}
+
 static wk_optical_size_request wk_opticalSizeRequest(CTFontDescriptorRef descriptor)
 {
+    if (wk_opticalSizeIsDefault(descriptor))
+        return WK_OPTICAL_SIZE_DEFAULT;
     CFTypeRef value = wk_carriedAttribute(descriptor, kCTFontOpticalSizeAttribute);
     if (!value)
         return WK_OPTICAL_SIZE_UNNAMED;
-    wk_optical_size_request request = WK_OPTICAL_SIZE_EXPLICIT;
-    if (CFGetTypeID(value) == CFStringGetTypeID())
-        request = CFEqual((CFStringRef)value, CFSTR("auto")) ? WK_OPTICAL_SIZE_POINT_SIZE : WK_OPTICAL_SIZE_DEFAULT;
+    // "auto" is the one string form a descriptor built through this layer carries.
+    wk_optical_size_request request = CFGetTypeID(value) == CFStringGetTypeID()
+        ? WK_OPTICAL_SIZE_POINT_SIZE : WK_OPTICAL_SIZE_EXPLICIT;
     CFRelease(value);
     return request;
 }
@@ -568,37 +626,28 @@ static CGFloat wk_resolvedPointSize(CTFontDescriptorRef descriptor, CGFloat size
     return resolved;
 }
 
-// The descriptor to realize through: the caller's attributes with the optical size written in as
-// `points`, or with it taken out for the axis default. `descriptor` may be NULL, which is how a copy
+// The descriptor to realize through: the caller's with the optical size written in as `points`. A
+// copy carries everything the source descriptor is, its CGFont binding included, where a descriptor
+// assembled from CTFontDescriptorCopyAttributes carries only what that dictionary holds and realizes
+// as whichever installed face the attributes match. `descriptor` may be NULL, which is how a copy
 // carries its source's "auto" forward without any attributes of its own.
-static CTFontDescriptorRef wk_descriptorWithOpticalSize(CTFontDescriptorRef descriptor, wk_optical_size_request request, CGFloat points)
+static CTFontDescriptorRef wk_descriptorWithOpticalSize(CTFontDescriptorRef descriptor, CGFloat points)
 {
-    CFDictionaryRef attributes = descriptor ? CTFontDescriptorCopyAttributes(descriptor) : NULL;
-    CFMutableDictionaryRef resolved = attributes
-        ? CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, attributes)
-        : CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    if (attributes)
-        CFRelease(attributes);
-    if (!resolved)
+    CFNumberRef number = CFNumberCreate(kCFAllocatorDefault, kCFNumberCGFloatType, &points);
+    if (!number)
         return NULL;
-
-    CFNumberRef number = request == WK_OPTICAL_SIZE_POINT_SIZE
-        ? CFNumberCreate(kCFAllocatorDefault, kCFNumberCGFloatType, &points) : NULL;
-    if (number) {
-        CFDictionarySetValue(resolved, kCTFontOpticalSizeAttribute, number);
-        CFRelease(number);
-    } else
-        CFDictionaryRemoveValue(resolved, kCTFontOpticalSizeAttribute);
-
-    CTFontDescriptorRef result = CTFontDescriptorCreateWithAttributes(resolved);
-    CFRelease(resolved);
+    const void *keys[] = { kCTFontOpticalSizeAttribute };
+    const void *values[] = { number };
+    CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFRelease(number);
+    if (!attributes)
+        return NULL;
+    CTFontDescriptorRef result = descriptor
+        ? CTFontDescriptorCreateCopyWithAttributes(descriptor, attributes)
+        : CTFontDescriptorCreateWithAttributes(attributes);
+    CFRelease(attributes);
     return result;
-}
-
-// Whether a request has to be written into the descriptor before 10.9 sees it.
-static bool wk_opticalSizeNeedsResolving(wk_optical_size_request request)
-{
-    return request == WK_OPTICAL_SIZE_POINT_SIZE || request == WK_OPTICAL_SIZE_DEFAULT;
 }
 
 // The attribute form of the same two answers. The size a system fallback face is read back at is
@@ -606,8 +655,22 @@ static bool wk_opticalSizeNeedsResolving(wk_optical_size_request request)
 // UnrealizedCoreTextFont::getSize() takes it from CTFontCopyAttribute (UnrealizedCoreTextFont.cpp:62)
 // and realizes the fallback at it, so a `font-size: 0` cluster outside the primary font — CJK, kana,
 // emoji, symbols — stays at size 0 through the fallback.
+//
+// kCTFontUserInstalledAttribute answers whether a font was installed onto this system rather than
+// shipped with it. 10.9's CoreText has no such attribute -- the key above is this layer's -- and the
+// font's own URL is where its provenance is recorded. This OS ships its faces in two directories:
+// /System/Library/Fonts holds the system and UI faces, /Library/Fonts the other 231 it installs
+// (Andale Mono, PT Mono, Osaka-Mono, Courier New, Arial and the rest). A font installed afterwards
+// lives elsewhere -- ~/Library/Fonts, /Network/Library/Fonts, a file registered at runtime -- and a
+// font built from data carries no URL at all, having never been installed from a file. Defined after
+// the replacement below, which is where the URL lookup reaches CoreText's own implementation.
+static bool wk_fontIsUserInstalled(CTFontRef font);
+
 WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontCopyAttribute, (CTFontRef font, CFStringRef attribute))
 {
+    if (font && attribute && CFEqual(attribute, kCTFontUserInstalledAttribute))
+        return CFRetain(wk_fontIsUserInstalled(font) ? (CFTypeRef)kCFBooleanTrue : (CFTypeRef)kCFBooleanFalse);
+
     wk_font_request request;
     bool recorded = attribute && wk_recordedFontRequest(font, &request);
     if (attribute && (recorded || wk_fontScalesToNothing(font))) {
@@ -625,6 +688,26 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontCopyAttribute, (CTFontRef font
     if (attribute && CFEqual(attribute, kCTFontOpticalSizeAttribute) && wk_opticalSizeFollowsPointSize(font))
         return CFRetain(CFSTR("auto"));
     return WK_ORIGINAL(CTFontCopyAttribute) ? WK_ORIGINAL(CTFontCopyAttribute)(font, attribute) : NULL;
+}
+
+static bool wk_fontIsUserInstalled(CTFontRef font)
+{
+    if (!WK_ORIGINAL(CTFontCopyAttribute))
+        return false;
+    CFTypeRef url = WK_ORIGINAL(CTFontCopyAttribute)(font, kCTFontURLAttribute);
+    if (!url)
+        return true;
+    bool shippedWithTheSystem = false;
+    if (CFGetTypeID(url) == CFURLGetTypeID()) {
+        CFStringRef path = CFURLCopyFileSystemPath((CFURLRef)url, kCFURLPOSIXPathStyle);
+        if (path) {
+            shippedWithTheSystem = CFStringHasPrefix(path, CFSTR("/System/Library/Fonts/"))
+                || CFStringHasPrefix(path, CFSTR("/Library/Fonts/"));
+            CFRelease(path);
+        }
+    }
+    CFRelease(url);
+    return !shippedWithTheSystem;
 }
 
 static bool wk_descriptorScalesToNothing(CTFontDescriptorRef descriptor)
@@ -690,8 +773,8 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithFontDescriptor,
     const CGAffineTransform *requested = matrix;
     CGAffineTransform composed;
     wk_optical_size_request opticalSize = wk_opticalSizeRequest(descriptor);
-    CTFontDescriptorRef resolved = wk_opticalSizeNeedsResolving(opticalSize)
-        ? wk_descriptorWithOpticalSize(descriptor, opticalSize, wk_resolvedPointSize(descriptor, size, 12.0)) : NULL;
+    CTFontDescriptorRef resolved = opticalSize == WK_OPTICAL_SIZE_POINT_SIZE
+        ? wk_descriptorWithOpticalSize(descriptor, wk_resolvedPointSize(descriptor, size, 12.0)) : NULL;
     if (resolved)
         descriptor = resolved;
     matrix = wk_fontMatrixForRequest(wk_descriptorScalesToNothing(descriptor), descriptor, size, matrix, NULL, &composed);
@@ -713,8 +796,8 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithFontDescriptorAndOpt
     const CGAffineTransform *requested = matrix;
     CGAffineTransform composed;
     wk_optical_size_request opticalSize = wk_opticalSizeRequest(descriptor);
-    CTFontDescriptorRef resolved = wk_opticalSizeNeedsResolving(opticalSize)
-        ? wk_descriptorWithOpticalSize(descriptor, opticalSize, wk_resolvedPointSize(descriptor, size, 12.0)) : NULL;
+    CTFontDescriptorRef resolved = opticalSize == WK_OPTICAL_SIZE_POINT_SIZE
+        ? wk_descriptorWithOpticalSize(descriptor, wk_resolvedPointSize(descriptor, size, 12.0)) : NULL;
     if (resolved)
         descriptor = resolved;
     matrix = wk_fontMatrixForRequest(wk_descriptorScalesToNothing(descriptor), descriptor, size, matrix, NULL, &composed);
@@ -1042,8 +1125,8 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateCopyWithAttributes,
     wk_optical_size_request opticalSize = wk_opticalSizeRequest(attributes);
     if (opticalSize == WK_OPTICAL_SIZE_UNNAMED && wk_opticalSizeFollowsPointSize(font))
         opticalSize = WK_OPTICAL_SIZE_POINT_SIZE;
-    CTFontDescriptorRef resolved = wk_opticalSizeNeedsResolving(opticalSize)
-        ? wk_descriptorWithOpticalSize(attributes, opticalSize, wk_resolvedPointSize(attributes, size, CTFontGetSize(font))) : NULL;
+    CTFontDescriptorRef resolved = opticalSize == WK_OPTICAL_SIZE_POINT_SIZE
+        ? wk_descriptorWithOpticalSize(attributes, wk_resolvedPointSize(attributes, size, CTFontGetSize(font))) : NULL;
     if (resolved)
         attributes = resolved;
     CTFontRef copy = WK_ORIGINAL(CTFontCreateCopyWithAttributes)
@@ -1115,6 +1198,9 @@ static float wk_normalize_ct_weight(float value)
 WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontDescriptorCopyAttribute,
                      (CTFontDescriptorRef descriptor, CFStringRef attribute))
 {
+    if (descriptor && attribute && CFEqual(attribute, kCTFontOpticalSizeAttribute)
+        && wk_opticalSizeIsDefault(descriptor))
+        return CFRetain(CFSTR("none"));
     CFTypeRef value = WK_ORIGINAL(CTFontDescriptorCopyAttribute)
         ? WK_ORIGINAL(CTFontDescriptorCopyAttribute)(descriptor, attribute) : NULL;
     if (value || !descriptor || !attribute)
@@ -1595,18 +1681,37 @@ static CFArrayRef wk_featureSettingsNormalized(CFTypeRef settings)
     return wk_featureSettingsAsAAT(settings);
 }
 
-// The attributes dictionary with its feature settings normalized, or NULL when nothing needed it.
-static CFDictionaryRef wk_attributesWithNormalizedFeatures(CFDictionaryRef attributes)
+// The attributes dictionary as 10.9 takes it -- feature settings in the AAT dictionary form and no
+// optical size naming the axis default -- or NULL when nothing needed rewriting.
+static CFDictionaryRef wk_attributesAsTaken(CFDictionaryRef attributes)
 {
     if (!attributes || CFGetTypeID(attributes) != CFDictionaryGetTypeID())
         return NULL;
     CFArrayRef normalized = wk_featureSettingsNormalized(CFDictionaryGetValue(attributes, kCTFontFeatureSettingsAttribute));
-    if (!normalized)
+    bool namesOpticalSizeDefault = wk_attributesNameOpticalSizeDefault(attributes);
+    if (!normalized && !namesOpticalSizeDefault)
         return NULL;
     CFMutableDictionaryRef result = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, attributes);
-    if (result)
-        CFDictionarySetValue(result, kCTFontFeatureSettingsAttribute, normalized);
-    CFRelease(normalized);
+    if (result) {
+        if (normalized)
+            CFDictionarySetValue(result, kCTFontFeatureSettingsAttribute, normalized);
+        if (namesOpticalSizeDefault)
+            CFDictionaryRemoveValue(result, kCTFontOpticalSizeAttribute);
+    }
+    if (normalized)
+        CFRelease(normalized);
+    return result;
+}
+
+// The axis-default request as it stands on the descriptor a caller gets back: named by the
+// attributes, else the source descriptor's own when the attributes name no optical size.
+static CTFontDescriptorRef wk_carryOpticalSizeDefault(CTFontDescriptorRef result, CTFontDescriptorRef source,
+                                                      CFDictionaryRef attributes)
+{
+    bool named = attributes && CFGetTypeID(attributes) == CFDictionaryGetTypeID()
+        && CFDictionaryGetValue(attributes, kCTFontOpticalSizeAttribute);
+    if (named ? wk_attributesNameOpticalSizeDefault(attributes) : wk_opticalSizeIsDefault(source))
+        wk_markOpticalSizeDefault(result);
     return result;
 }
 
@@ -1615,8 +1720,11 @@ static CFDictionaryRef wk_attributesWithNormalizedFeatures(CFDictionaryRef attri
 // settings it is given onto the original's — 10.9 and newer CoreText alike — and from 10.12 a caller
 // subtracts instead: kCFNull for the whole kCTFontFeatureSettingsAttribute value clears every setting
 // the original holds, and a kCFNull selector or value in one element clears that element's feature type
-// alone. 10.9 has no subtracting form, so the merged result is assembled here and realized through
-// CTFontDescriptorCreateWithAttributes, which takes the settings as stated rather than merging them.
+// alone. 10.9 has no subtracting form, and a merge states a feature type's LAST entry: measured on this
+// host, Hoefler Text carrying {type 1, selector 3} shapes "fi" as two glyphs, and a copy restating
+// {type 1, selector 2} over it shapes one. So a clear is expressed as what it means — the cleared types
+// restated at the selector they sit at when nothing has set them — and the copy carries the original's
+// identity, its CGFont binding included, the way every other copy here does.
 // ---------------------------------------------------------------------------------------------------
 
 static bool wk_arrayHoldsInt(CFArrayRef array, int wanted)
@@ -1667,76 +1775,114 @@ static CFArrayRef wk_featureSettingClears(CFDictionaryRef attributes, bool *clea
     return types;
 }
 
-// A settings array with every entry naming one of the cleared feature types removed.
-static CFArrayRef wk_featureSettingsWithoutTypes(CFTypeRef settings, CFArrayRef clearedTypes)
+// The selector a feature type sits at when nothing has set it: the one its entry in the font's own
+// feature list marks kCTFontFeatureSelectorDefaultKey. A type whose feature list marks none has no
+// default to state -- 249 of the 1433 feature types the 502 faces installed here offer are in that
+// position, 49 of them offering more than one selector -- and a type with no default to state is left
+// alone rather than set to one of the selectors it happens to list.
+static bool wk_defaultFeatureSelector(CTFontRef font, int type, int *selector)
 {
-    CFMutableArrayRef kept = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
-    if (!kept || !settings || CFGetTypeID(settings) != CFArrayGetTypeID())
-        return kept;
-    CFIndex count = CFArrayGetCount((CFArrayRef)settings);
-    for (CFIndex i = 0; i < count; i++) {
+    CFArrayRef features = font ? CTFontCopyFeatures(font) : NULL;
+    if (!features)
+        return false;
+    bool found = false;
+    for (CFIndex i = 0, count = CFArrayGetCount(features); i < count && !found; i++) {
+        CFTypeRef entry = CFArrayGetValueAtIndex(features, i);
+        int entryType = 0;
+        if (!entry || CFGetTypeID(entry) != CFDictionaryGetTypeID()
+            || !wk_intFromNumber(CFDictionaryGetValue((CFDictionaryRef)entry, kCTFontFeatureTypeIdentifierKey), &entryType)
+            || entryType != type)
+            continue;
+        CFTypeRef selectors = CFDictionaryGetValue((CFDictionaryRef)entry, kCTFontFeatureTypeSelectorsKey);
+        if (!selectors || CFGetTypeID(selectors) != CFArrayGetTypeID())
+            continue;
+        for (CFIndex j = 0, selectorCount = CFArrayGetCount((CFArrayRef)selectors); j < selectorCount && !found; j++) {
+            CFTypeRef offered = CFArrayGetValueAtIndex((CFArrayRef)selectors, j);
+            int identifier = 0;
+            if (!offered || CFGetTypeID(offered) != CFDictionaryGetTypeID()
+                || CFDictionaryGetValue((CFDictionaryRef)offered, kCTFontFeatureSelectorDefaultKey) != kCFBooleanTrue
+                || !wk_intFromNumber(CFDictionaryGetValue((CFDictionaryRef)offered, kCTFontFeatureSelectorIdentifierKey), &identifier))
+                continue;
+            *selector = identifier;
+            found = true;
+        }
+    }
+    CFRelease(features);
+    return found;
+}
+
+// The feature types a settings array names.
+static CFArrayRef wk_featureSettingTypes(CFTypeRef settings)
+{
+    CFMutableArrayRef types = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+    if (!types || !settings || CFGetTypeID(settings) != CFArrayGetTypeID())
+        return types;
+    for (CFIndex i = 0, count = CFArrayGetCount((CFArrayRef)settings); i < count; i++) {
         CFTypeRef element = CFArrayGetValueAtIndex((CFArrayRef)settings, i);
         int type = 0;
-        if (element && CFGetTypeID(element) == CFDictionaryGetTypeID()
-            && wk_intFromNumber(CFDictionaryGetValue((CFDictionaryRef)element, kCTFontFeatureTypeIdentifierKey), &type)
-            && wk_arrayHoldsInt(clearedTypes, type))
+        if (!element || CFGetTypeID(element) != CFDictionaryGetTypeID()
+            || !wk_intFromNumber(CFDictionaryGetValue((CFDictionaryRef)element, kCTFontFeatureTypeIdentifierKey), &type)
+            || wk_arrayHoldsInt(types, type))
             continue;
-        CFArrayAppendValue(kept, element);
+        CFNumberRef number = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &type);
+        if (number) {
+            CFArrayAppendValue(types, number);
+            CFRelease(number);
+        }
     }
-    return kept;
+    return types;
 }
 
-// A copy replaces every attribute it is given except the two it merges — the feature settings above and
-// the variation axes here, which merge per axis with the new dictionary's entries winning.
-static void wk_copyAttributeUnlessMerged(const void *key, const void *value, void *result)
+// One AAT setting: this feature type at this selector.
+static CFDictionaryRef wk_featureSetting(int type, int selector)
 {
-    if (key && !CFEqual(key, kCTFontFeatureSettingsAttribute) && !CFEqual(key, kCTFontVariationAttribute))
-        CFDictionarySetValue((CFMutableDictionaryRef)result, key, value);
+    CFNumberRef typeNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &type);
+    CFNumberRef selectorNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &selector);
+    CFDictionaryRef setting = NULL;
+    if (typeNumber && selectorNumber) {
+        const void *keys[] = { kCTFontFeatureTypeIdentifierKey, kCTFontFeatureSelectorIdentifierKey };
+        const void *values[] = { typeNumber, selectorNumber };
+        setting = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 2,
+            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    }
+    if (typeNumber)
+        CFRelease(typeNumber);
+    if (selectorNumber)
+        CFRelease(selectorNumber);
+    return setting;
 }
 
-static void wk_setVariationAxis(const void *key, const void *value, void *axes)
+// Every cleared feature type restated at its default selector, for the types that have one. `clearsAll`
+// names the types the original itself carries; anything the original does not set is already at its
+// default and needs no entry. The selectors come from the original realized, which is the only thing
+// that knows them.
+static CFArrayRef wk_featureSettingsAtTheirDefaults(CTFontDescriptorRef original, bool clearsAll, CFArrayRef clearedTypes)
 {
-    CFDictionarySetValue((CFMutableDictionaryRef)axes, key, value);
-}
-
-static void wk_mergeVariationAxes(CFMutableDictionaryRef merged, CFDictionaryRef attributes)
-{
-    CFTypeRef added = CFDictionaryGetValue(attributes, kCTFontVariationAttribute);
-    if (!added || CFGetTypeID(added) != CFDictionaryGetTypeID())
-        return;
-    CFTypeRef base = CFDictionaryGetValue(merged, kCTFontVariationAttribute);
-    CFMutableDictionaryRef axes = base && CFGetTypeID(base) == CFDictionaryGetTypeID()
-        ? CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, (CFDictionaryRef)base)
-        : CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    if (!axes)
-        return;
-    CFDictionaryApplyFunction((CFDictionaryRef)added, wk_setVariationAxis, axes);
-    CFDictionarySetValue(merged, kCTFontVariationAttribute, axes);
-    CFRelease(axes);
-}
-
-static void wk_copyFeatureSettingsUnlessCleared(CFMutableDictionaryRef merged, CFDictionaryRef attributes,
-                                                bool clearsAll, CFArrayRef clearedTypes)
-{
-    CFArrayRef kept = clearsAll ? NULL
-        : wk_featureSettingsWithoutTypes(CFDictionaryGetValue(merged, kCTFontFeatureSettingsAttribute), clearedTypes);
-    CFArrayRef added = wk_featureSettingsAsAAT(CFDictionaryGetValue(attributes, kCTFontFeatureSettingsAttribute));
+    CFTypeRef carried = wk_carriedAttribute(original, kCTFontFeatureSettingsAttribute);
+    CFArrayRef carriedTypes = wk_featureSettingTypes(carried);
+    if (carried)
+        CFRelease(carried);
+    CFArrayRef types = clearsAll ? (CFArrayRef)CFRetain(carriedTypes) : (CFArrayRef)CFRetain(clearedTypes);
     CFMutableArrayRef settings = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
-    if (settings) {
-        if (kept)
-            CFArrayAppendArray(settings, kept, CFRangeMake(0, CFArrayGetCount(kept)));
-        if (added)
-            CFArrayAppendArray(settings, added, CFRangeMake(0, CFArrayGetCount(added)));
-        if (CFArrayGetCount(settings))
-            CFDictionarySetValue(merged, kCTFontFeatureSettingsAttribute, settings);
-        else
-            CFDictionaryRemoveValue(merged, kCTFontFeatureSettingsAttribute);
-        CFRelease(settings);
+    CTFontRef realized = (settings && CFArrayGetCount(types)) ? CTFontCreateWithFontDescriptor(original, 12.0, NULL) : NULL;
+    for (CFIndex i = 0; realized && i < CFArrayGetCount(types); i++) {
+        int type = 0;
+        int selector = 0;
+        if (!wk_intFromNumber(CFArrayGetValueAtIndex(types, i), &type)
+            || (!clearsAll && !wk_arrayHoldsInt(carriedTypes, type))
+            || !wk_defaultFeatureSelector(realized, type, &selector))
+            continue;
+        CFDictionaryRef setting = wk_featureSetting(type, selector);
+        if (setting) {
+            CFArrayAppendValue(settings, setting);
+            CFRelease(setting);
+        }
     }
-    if (kept)
-        CFRelease(kept);
-    if (added)
-        CFRelease(added);
+    if (realized)
+        CFRelease(realized);
+    CFRelease(types);
+    CFRelease(carriedTypes);
+    return settings;
 }
 
 // The three entry points a caller-supplied attributes dictionary reaches CoreText through. Attributes
@@ -1744,24 +1890,24 @@ static void wk_copyFeatureSettingsUnlessCleared(CFMutableDictionaryRef merged, C
 // exactly as given.
 WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateWithAttributes, (CFDictionaryRef attributes))
 {
-    CFDictionaryRef rewritten = wk_attributesWithNormalizedFeatures(attributes);
+    CFDictionaryRef rewritten = wk_attributesAsTaken(attributes);
     CTFontDescriptorRef result = WK_ORIGINAL(CTFontDescriptorCreateWithAttributes)
         ? WK_ORIGINAL(CTFontDescriptorCreateWithAttributes)(rewritten ? rewritten : attributes) : NULL;
     if (rewritten)
         CFRelease(rewritten);
-    return result;
+    return wk_carryOpticalSizeDefault(result, NULL, attributes);
 }
 
 // CTFontDescriptorOptions is CoreText SPI (PAL/pal/spi/cf/CoreTextSPI.h), a uint32_t option set.
 WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateWithAttributesAndOptions,
                      (CFDictionaryRef attributes, uint32_t options))
 {
-    CFDictionaryRef rewritten = wk_attributesWithNormalizedFeatures(attributes);
+    CFDictionaryRef rewritten = wk_attributesAsTaken(attributes);
     CTFontDescriptorRef result = WK_ORIGINAL(CTFontDescriptorCreateWithAttributesAndOptions)
         ? WK_ORIGINAL(CTFontDescriptorCreateWithAttributesAndOptions)(rewritten ? rewritten : attributes, options) : NULL;
     if (rewritten)
         CFRelease(rewritten);
-    return result;
+    return wk_carryOpticalSizeDefault(result, NULL, attributes);
 }
 
 // The copy entry point is the one that merges, so it is the one a clear directive subtracts from: with
@@ -1772,34 +1918,40 @@ WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateCopy
 {
     bool clearsAll = false;
     CFArrayRef clearedTypes = wk_featureSettingClears(attributes, &clearsAll);
-    CFMutableDictionaryRef merged = NULL;
+    CFDictionaryRef rewritten = NULL;
     if (original && (clearsAll || clearedTypes)) {
-        CFDictionaryRef originalAttributes = CTFontDescriptorCopyAttributes(original);
-        merged = originalAttributes
-            ? CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, originalAttributes) : NULL;
-        if (originalAttributes)
-            CFRelease(originalAttributes);
-    }
-    if (merged) {
-        wk_copyFeatureSettingsUnlessCleared(merged, attributes, clearsAll, clearedTypes);
-        wk_mergeVariationAxes(merged, attributes);
-        CFDictionaryApplyFunction(attributes, wk_copyAttributeUnlessMerged, merged);
+        // The cleared types first, so the caller's own settings win where they name one too.
+        CFArrayRef defaults = wk_featureSettingsAtTheirDefaults(original, clearsAll, clearedTypes);
+        CFArrayRef stated = wk_featureSettingsAsAAT(CFDictionaryGetValue(attributes, kCTFontFeatureSettingsAttribute));
+        CFMutableArrayRef settings = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+        if (settings && defaults)
+            CFArrayAppendArray(settings, defaults, CFRangeMake(0, CFArrayGetCount(defaults)));
+        if (settings && stated)
+            CFArrayAppendArray(settings, stated, CFRangeMake(0, CFArrayGetCount(stated)));
+        CFMutableDictionaryRef named = settings
+            ? CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, attributes) : NULL;
+        if (named) {
+            CFDictionarySetValue(named, kCTFontFeatureSettingsAttribute, settings);
+            if (wk_attributesNameOpticalSizeDefault(attributes))
+                CFDictionaryRemoveValue(named, kCTFontOpticalSizeAttribute);
+        }
+        rewritten = named;
+        if (settings)
+            CFRelease(settings);
+        if (stated)
+            CFRelease(stated);
+        if (defaults)
+            CFRelease(defaults);
     }
     if (clearedTypes)
         CFRelease(clearedTypes);
-    if (merged) {
-        CTFontDescriptorRef result = WK_ORIGINAL(CTFontDescriptorCreateWithAttributes)
-            ? WK_ORIGINAL(CTFontDescriptorCreateWithAttributes)(merged) : NULL;
-        CFRelease(merged);
-        return result;
-    }
-
-    CFDictionaryRef rewritten = wk_attributesWithNormalizedFeatures(attributes);
+    if (!rewritten)
+        rewritten = wk_attributesAsTaken(attributes);
     CTFontDescriptorRef result = WK_ORIGINAL(CTFontDescriptorCreateCopyWithAttributes)
         ? WK_ORIGINAL(CTFontDescriptorCreateCopyWithAttributes)(original, rewritten ? rewritten : attributes) : NULL;
     if (rewritten)
         CFRelease(rewritten);
-    return result;
+    return wk_carryOpticalSizeDefault(result, original, attributes);
 }
 
 // libFontParser's FPFont* system font parser, which WebCore uses to split a downloaded font file

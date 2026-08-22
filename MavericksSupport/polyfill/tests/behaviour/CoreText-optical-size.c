@@ -11,6 +11,10 @@
 //           size, so a copy taken at another size measures like a direct realization at that size and
 //           still reports the request.
 //   "none"  measures the same as no optical size at all.
+// And whichever form it names, the font realized is still the one the descriptor describes: a
+// descriptor minted from font data is bound to a CGFont rather than named by its attributes, and a
+// font carrying that binding has no file URL, where one CoreText matched from an attributes
+// dictionary does.
 // Every repeat measures the same, because the defect this covers reads uninitialized memory.
 //
 // The probe links libpolyfill.a the way WebKit does, so the functions it calls are the archive's.
@@ -18,6 +22,7 @@
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
 #include <math.h>
+#include <stdbool.h>
 #include <stdio.h>
 
 static int failures;
@@ -101,6 +106,32 @@ static CTFontRef fontFromCopy(CFTypeRef opticalSize, CGFloat size)
     return copy;
 }
 
+// A descriptor over the bytes of a font file, which is the shape CSS @font-face data takes.
+static CTFontDescriptorRef descriptorFromFontData(const char *path)
+{
+    FILE *file = fopen(path, "rb");
+    if (!file)
+        return NULL;
+    CFMutableDataRef data = CFDataCreateMutable(kCFAllocatorDefault, 0);
+    UInt8 buffer[65536];
+    size_t read;
+    while ((read = fread(buffer, 1, sizeof buffer, file)))
+        CFDataAppendBytes(data, buffer, (CFIndex)read);
+    fclose(file);
+    CTFontDescriptorRef descriptor = CTFontManagerCreateFontDescriptorFromData(data);
+    CFRelease(data);
+    return descriptor;
+}
+
+static bool fontCarriesAFileURL(CTFontRef font)
+{
+    CFTypeRef url = font ? CTFontCopyAttribute(font, kCTFontURLAttribute) : NULL;
+    if (!url)
+        return false;
+    CFRelease(url);
+    return true;
+}
+
 static double measure(CTFontRef font)
 {
     double advance = emojiAdvance(font);
@@ -171,6 +202,27 @@ int main(void)
           && CFEqual((CFStringRef)reportedByCopy, CFSTR("auto")), "a resized copy reports \"auto\" too");
     if (reportedByCopy)
         CFRelease(reportedByCopy);
+
+    // The realization a descriptor minted from data goes through keeps that descriptor's binding,
+    // whichever form of the attribute it carries.
+    CTFontDescriptorRef fromData = descriptorFromFontData("/System/Library/Fonts/Symbol.ttf");
+    check(fromData != NULL, "a descriptor over font data");
+    CFTypeRef opticalSizes[] = { NULL, CFSTR("auto"), CFSTR("none"), points };
+    const char *spellings[] = { "no optical size", "\"auto\"", "\"none\"", "the point size" };
+    for (unsigned i = 0; fromData && i < sizeof(opticalSizes) / sizeof(opticalSizes[0]); ++i) {
+        CFDictionaryRef attributes = opticalSizeAttributes(opticalSizes[i]);
+        CTFontDescriptorRef merged = CTFontDescriptorCreateCopyWithAttributes(fromData, attributes);
+        CTFontRef font = merged ? CTFontCreateWithFontDescriptor(merged, size, NULL) : NULL;
+        snprintf(what, sizeof what, "a font built from data keeps its binding under %s", spellings[i]);
+        check(font && !fontCarriesAFileURL(font), what);
+        if (font)
+            CFRelease(font);
+        if (merged)
+            CFRelease(merged);
+        CFRelease(attributes);
+    }
+    if (fromData)
+        CFRelease(fromData);
 
     if (resized)
         CFRelease(resized);
