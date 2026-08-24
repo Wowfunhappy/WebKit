@@ -1,0 +1,19 @@
+--- a/sys/osxaudio/gstosxcoreaudiohal.c	2026-08-24 14:07:19.000000000 -0400
++++ b/sys/osxaudio/gstosxcoreaudiohal.c	2026-08-24 14:51:36.000000000 -0400
+@@ -1092,10 +1092,12 @@
+             format.mChannelsPerFrame, caps))
+       goto done;
+ 
+-    // Attempt to configure the requested frame size if smaller than the device's
+-    // This will apparently modify the size for all audio devices in the current process so should
+-    // be done conservatively
+-    if (frame_size != 0) {
++    /* kAudioDevicePropertyBufferFrameSize is the size every audio unit in this process that drives
++     * this device is handed. A source sizes its own record buffer from it, so it asks for the packet
++     * it wants; a sink takes the size it finds, because it serves whatever slice the unit is handed
++     * (see gst_osx_audio_sink_io_proc) and the host it plays under chooses that size for the whole
++     * process. */
++    if (core_audio->is_src) {
+       guint32 cur_frame_size;
+       status = AudioUnitGetProperty (core_audio->audiounit, kAudioDevicePropertyBufferFrameSize, kAudioUnitScope_Global, 0,     /* N/A for global */
+           &cur_frame_size, &propertySize);
