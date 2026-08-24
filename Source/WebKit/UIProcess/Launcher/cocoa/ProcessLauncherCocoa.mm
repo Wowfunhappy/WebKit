@@ -300,6 +300,19 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
     SUPPRESS_RETAINPTR_CTOR_ADOPT auto initializationMessage = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
     _CFBundleSetupXPCBootstrap(initializationMessage.get());
     xpc_connection_set_bootstrap(m_xpcConnection.get(), initializationMessage.get());
+
+    // MAVERICKS_BACKPORT: 10.9's launchd does not read the _ProcessType key in the service plists, so
+    // every service here launches as TASK_APPTYPE_DAEMON_ADAPTIVE: Darwin-background -- throttled CPU
+    // and I/O priority, rate-limited timer coalescing -- except while it holds an importance boost.
+    // This is the boost upstream's launcher sends ahead of the bootstrap of an adaptive service
+    // (255198@main): this process is an importance donor, so 10.9's libxpc attaches an importance
+    // assertion to the message on receipt and ends it only when the message is disposed, and the
+    // service keeps the message for its lifetime (XPCServiceEventHandler).
+    {
+        SUPPRESS_RETAINPTR_CTOR_ADOPT auto preBootstrapMessage = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
+        xpc_dictionary_set_string(preBootstrapMessage.get(), "message-name", "pre-bootstrap");
+        xpc_connection_send_message(m_xpcConnection.get(), preBootstrapMessage.get());
+    }
 #endif
 
     // Create the listening port.

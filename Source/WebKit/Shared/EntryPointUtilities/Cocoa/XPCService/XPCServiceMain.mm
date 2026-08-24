@@ -181,6 +181,11 @@ void XPCServiceEventHandler(xpc_connection_t peer)
             RELEASE_LOG_ERROR(IPC, "XPCServiceEventHandler: 'message-name' is not present in the XPC dictionary");
             return;
         }
+        // MAVERICKS_BACKPORT: the importance boost sent ahead of the bootstrap; see ProcessLauncherCocoa.mm.
+        if (messageName == "pre-bootstrap"_s) {
+            setPriorityBoostMessage(OSObjectPtr<xpc_object_t> { event });
+            return;
+        }
         if (messageName == "bootstrap"_s) {
             WTF::initialize();
 
