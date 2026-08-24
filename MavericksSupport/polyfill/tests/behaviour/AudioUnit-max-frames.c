@@ -10,7 +10,7 @@
 // initialized must raise the declaration in place, which the probe triggers by setting the unit's own
 // kAudioOutputUnitProperty_CurrentDevice; 10.9 accepts the maximum on an initialized and running unit,
 // which the probe also asserts. AUHAL restates the declaration as the device's buffer frame size from
-// its own device listener whenever any client changes that size, and the HAL delivers that notification
+// its own device listener whenever anything in this process changes that size, and the HAL delivers it
 // on this process's main run loop: the probe lowers the default device's buffer under a running unit
 // the way a second osxaudio sink does, pumps the run loop, raises it again, and requires the ceiling to
 // have held throughout and no render to have failed.
@@ -193,7 +193,7 @@ int main(void)
     // An AUHAL whose client format runs at a different rate from its device: initialize RECOMPUTES
     // the declaration, scaling it by the rate ratio, so a unit declared before initialize can come out
     // carrying a few hundred frames. This is the case the HAL then kills with
-    // kAudioUnitErr_TooManyFramesToProcess once any client raises the shared device buffer size.
+    // kAudioUnitErr_TooManyFramesToProcess once the process's buffer frame size goes above it.
     AudioDeviceID defaultOutput = kAudioDeviceUnknown;
     UInt32 defaultOutputSize = sizeof(defaultOutput);
     AudioObjectPropertyAddress defaultOutputAddress = { kAudioHardwarePropertyDefaultOutputDevice,

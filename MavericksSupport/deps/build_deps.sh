@@ -543,22 +543,19 @@ echo "==== 10.9 gap archive ===="
 #                       is the bare trap, and GLib's g_get_monotonic_time (every GStreamer clock
 #                       read) calls it before each mach_absolute_time; this reads the trap once and
 #                       answers from a cache
-#   audiounit_max_frames  a deliberate OVERRIDE of AudioUnitInitialize: 10.9 leaves an output unit's
-#                       kAudioUnitProperty_MaximumFramesPerSlice at the device buffer size of the
-#                       moment, so any client raising that shared size makes every later render fail
-#                       with kAudioUnitErr_TooManyFramesToProcess -- silencing osxaudiosink and
-#                       wedging the process on the CAMutex the failure path takes. This declares the
-#                       top of every output device's supported range and holds it there from two
-#                       listeners on the unit: the unit moving to another device, and AUHAL restating
-#                       the property as the device's current buffer size, which it does on every
-#                       initialized unit each time any client changes that size; AudioUnitUninitialize
-#                       and AudioComponentInstanceDispose come with it as the units it tracks
+#   audiounit_max_frames  a deliberate OVERRIDE of AudioUnitInitialize: 10.9's AUHAL keeps an output
+#                       unit's kAudioUnitProperty_MaximumFramesPerSlice at the DEVICE's current
+#                       buffer frame size, restating it on every initialized unit driving that
+#                       device each time anything in the process changes that size, and delivering
+#                       the restatement after the HAL is already rendering the new size -- so each
+#                       change leaves a window in which a render exceeds the declaration and fails
+#                       with kAudioUnitErr_TooManyFramesToProcess, which on 10.9 also enters the
+#                       CAMutex deadlock in AUHAL's error path. This declares the top of every
+#                       output device's supported range instead, and holds it there from two
+#                       listeners on the unit: the unit moving to another device, and AUHAL
+#                       restating the property; AudioUnitUninitialize and
+#                       AudioComponentInstanceDispose come with it as the units it tracks
 #
-# shared/jit.c is deliberately NOT here: its mmap override is a deliberate replacement of a
-# function 10.9 HAS, wanted only where a caller passes MAP_JIT -- WebKit's JIT. Nothing in this
-# dependency set does (glib, gstreamer, ffmpeg and libffi contain no reference to it), so
-# shadowing mmap in every media binary would be gratuitous. Its pthread_jit half, which IS a
-# pure gap and IS weak-imported here, lives in shared/pthread_jit.c and is listed above.
 SHARED="$REPO/MavericksSupport/polyfill/polyfills/shared"
 GAPDIR="$SCRATCH/gap"
 # The archive persists between runs -- its mtime is what the coverage gate before the collect step

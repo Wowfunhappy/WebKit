@@ -2,56 +2,55 @@
  * AudioUnitInitialize, and the two calls that end a unit's life -- DELIBERATE OVERRIDES of functions
  * 10.9 has.
  *
- * kAudioUnitProperty_MaximumFramesPerSlice is the largest render the unit promises it can serve. On
- * an output unit 10.9 leaves it at whatever kAudioDevicePropertyBufferFrameSize happened to be when
- * the unit was initialized. That size belongs to the DEVICE and is shared by every client in the
- * process and on the machine, so any of them may raise it afterwards -- WebKit's own
- * MediaSessionManagerCocoa::updateSessionState() asks AudioSession for kLowPowerVideoBufferSize
- * (4096 frames) as soon as a media session exists. The HAL then asks the unit for more frames than
- * it declared and every render fails with kAudioUnitErr_TooManyFramesToProcess (-10874); the unit
- * never recovers and its audio stops for good. Newer CoreAudio keeps the declaration at or above the
- * buffer frame size of the device the unit drives, for the life of the unit, and that is the contract
- * this supplies -- as a superset, the top of every OUTPUT device's supported range, because a
+ * kAudioUnitProperty_MaximumFramesPerSlice is the largest render an audio unit promises it can
+ * serve, and on an output unit 10.9's AUHAL maintains it itself, as the CURRENT buffer frame size of
+ * the device the unit drives: AUHAL::Initialize states it, scaled by the client/device rate ratio,
+ * and AUHAL::DeviceListener('fsiz') -> AUConverterBase::SetupAllConverters -> SetMaxFramesPerSlice
+ * restates it on every initialized unit whenever anything in the process changes that size. That
+ * size reaches every unit in this process driving that device, and no further -- a unit in another
+ * process, or on another device, keeps its own (measured on 10.9). AudioSession owns it here, and
+ * MediaSessionManagerCocoa::updateSessionState() moves it between kLowPowerVideoBufferSize (4096
+ * frames) for audible video, AudioUtilities::renderQuantumSize for Web Audio, and a 20 ms power of
+ * two while capturing.
+ *
+ * A restatement reaches the unit after the HAL is already rendering the new size, so each change
+ * leaves a window in which the unit is asked for more frames than it declares: that render fails
+ * with kAudioUnitErr_TooManyFramesToProcess (-10874) and the cycle is silent. On 10.9 the failure is
+ * also the entry to a three-way deadlock -- AUBase::DoRender reports the error through
+ * AUHAL::PropertyChanged from the IO thread while it holds the HAL IO-context lock, which blocks on
+ * AUHAL's CAMutex, which the CoreAudio dispatch queue holds inside the device-property listener the
+ * same size change triggered, and that listener is itself waiting on the HAL IO-context lock. Every
+ * later thread that touches the unit joins the pile-up.
+ *
+ * Newer CoreAudio keeps the declaration at or above the buffer frame size of the device the unit
+ * drives, for the life of the unit, and that is the contract this supplies -- as a superset, the top
+ * of every OUTPUT device's supported range. The HAL clamps a write of a device's buffer frame size
+ * to that device's own range, whoever makes it (measured on 10.9: a write above the top reads back
+ * as the top), so no size a caller can ask for outgrows the declaration. A
  * kAudioUnitSubType_DefaultOutput unit -- what AudioOutputUnitAdaptor::configure creates -- follows
- * the default output device and can move to any of them. A unit that does move is declared again
- * against the device it now drives, from a listener on its own
- * kAudioOutputUnitProperty_CurrentDevice. 10.9 accepts the property on a unit that is initialized and
- * even one that is running (measured: set while rendering, st=0, LastRenderError stays 0), so that
- * later raise reaches units that are already playing.
- *
- * AUHAL itself overwrites the declaration from a second direction: its listener on the device's
- * kAudioDevicePropertyBufferFrameSize restates MaximumFramesPerSlice as the device's CURRENT buffer
- * frame size on every initialized unit whenever any client changes that size
- * (AUHAL::DeviceListener -> AUConverterBase::SetupAllConverters -> SetMaxFramesPerSlice, in the 10.9
- * CoreAudio component). gst-plugins-good's osxaudio lowers the shared device buffer to its 10 ms packet
- * -- 441, 480 or 220 frames by content rate -- so every other running output unit in the process
- * drops to that, and WebKit's next raise to 4096 reaches the IO thread before the raise's own
- * notification reaches the unit: one render of 4096 frames against a declaration of 441. The unit
- * publishes each restatement through kAudioUnitProperty_MaximumFramesPerSlice, synchronously, on the
- * thread that made it, and accepts the nested set that follows, so the ceiling is declared again from
- * a listener on that property and is back in place before AUHAL's own listener returns.
- *
- * That failing render is also the entry to a three-way deadlock on 10.9: AUBase::DoRender reports
- * the error through AUHAL::PropertyChanged from the IO thread while it holds the HAL IO-context
- * lock, which blocks on AUHAL's CAMutex, which the CoreAudio dispatch queue holds inside the
- * device-property listener the same size change triggered -- and that listener is itself waiting on
- * the HAL IO-context lock. Every later thread that touches the unit joins the pile-up.
+ * the default output device and can move to any of them, so a unit that does move
+ * is declared again against the device it now drives, from a listener on its own
+ * kAudioOutputUnitProperty_CurrentDevice. AUHAL's restatements are met by a second listener, on
+ * kAudioUnitProperty_MaximumFramesPerSlice itself: 10.9 publishes each restatement through that
+ * property synchronously, on the thread that made it, and accepts the nested set that follows, so
+ * the ceiling is back in place before AUHAL's own listener returns. 10.9 accepts the property on a
+ * unit that is initialized and even one that is running (measured: set while rendering, st=0,
+ * LastRenderError stays 0), so both raises reach units that are already playing.
  *
  * Correct for any caller: the unit is asked for its own device (kAudioOutputUnitProperty_CurrentDevice),
  * which answers for AUHAL and DefaultOutput alike. A unit that does not carry that property holds no
  * device, is not what the HAL hands a device-sized slice to, and is left alone. An existing larger
  * declaration is left alone too.
  *
- * Initialize restates the property too, scaling it by the ratio between the client format's rate and
- * the device's; the listener above answers that restatement from inside it, and the value is read
- * back afterwards to report a unit that came out below the ceiling anyway.
+ * The listener answers Initialize's own restatement from inside it, and the value is read back
+ * afterwards to report a unit that came out below the ceiling anyway.
  *
  * The declaration is auxiliary: this override forwards to the real AudioUnitInitialize
  * unconditionally and answers with ITS status. A machine with no readable output device -- audio
  * disabled, every device unplugged, or a hot-unplug landing between the device-list read and the
  * range read -- must still initialize its units, so a status from this file's own property traffic is
- * never allowed to become the initialize's answer. It is reported on stderr instead of discarded, and
- * the unit is tracked anyway so the next device change retries it.
+ * never allowed to become the initialize's answer. It goes to syslog, and the unit is tracked anyway
+ * so the next device change retries it.
  *
  * AudioUnitUninitialize and AudioComponentInstanceDispose are here rather than with the rest of the
  * re-homed entry points in polyfills/c/AudioToolbox.c because they are this file's other half: they
