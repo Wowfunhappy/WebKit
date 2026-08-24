@@ -59,12 +59,14 @@ static inline uint32_t *word(const os_unfair_lock *lock)
 static uint64_t adaptive_spin_ticks(void)
 {
 	static uint64_t ticks;
-	if (!ticks) {
+	uint64_t cached = __atomic_load_n(&ticks, __ATOMIC_RELAXED);
+	if (!cached) {
 		mach_timebase_info_data_t timebase;
 		mach_timebase_info(&timebase);
-		ticks = ADAPTIVE_SPIN_USECS * 1000ull * timebase.denom / timebase.numer;
+		cached = ADAPTIVE_SPIN_USECS * 1000ull * timebase.denom / timebase.numer;
+		__atomic_store_n(&ticks, cached, __ATOMIC_RELAXED);
 	}
-	return ticks;
+	return cached;
 }
 
 static inline bool acquire(uint32_t *w, uint32_t self, uint32_t *owner)

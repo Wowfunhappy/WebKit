@@ -119,84 +119,75 @@ static void *wk_symbol_in_image(const char *image, const char *symbol)
 
 #pragma clang diagnostic pop
 
-/* One address each, resolved on first use and kept. A racing second caller resolves the same
- * address out of the same image, so an unsynchronized write publishes a value already equal to
- * what any other thread would have written. */
+/* One address each, resolved on first use and kept. */
+static void *wk_cached_symbol(void **slot, const char *image, const char *symbol)
+{
+    void *address = __atomic_load_n(slot, __ATOMIC_RELAXED);
+    if (!address) {
+        address = wk_symbol_in_image(image, symbol);
+        __atomic_store_n(slot, address, __ATOMIC_RELAXED);
+    }
+    return address;
+}
+
 static wk_audio_unit_initialize_fn wk_system_audio_unit_initialize(void)
 {
-    static wk_audio_unit_initialize_fn cached;
-    if (!cached)
-        cached = (wk_audio_unit_initialize_fn)wk_symbol_in_image(kWKAudioUnitImage, "_AudioUnitInitialize");
-    return cached;
+    static void *cached;
+    return (wk_audio_unit_initialize_fn)wk_cached_symbol(&cached, kWKAudioUnitImage, "_AudioUnitInitialize");
 }
 
 static wk_audio_unit_get_property_fn wk_system_audio_unit_get_property(void)
 {
-    static wk_audio_unit_get_property_fn cached;
-    if (!cached)
-        cached = (wk_audio_unit_get_property_fn)wk_symbol_in_image(kWKAudioUnitImage, "_AudioUnitGetProperty");
-    return cached;
+    static void *cached;
+    return (wk_audio_unit_get_property_fn)wk_cached_symbol(&cached, kWKAudioUnitImage, "_AudioUnitGetProperty");
 }
 
 static wk_audio_unit_add_property_listener_fn wk_system_audio_unit_add_property_listener(void)
 {
-    static wk_audio_unit_add_property_listener_fn cached;
-    if (!cached)
-        cached = (wk_audio_unit_add_property_listener_fn)wk_symbol_in_image(kWKAudioUnitImage,
-            "_AudioUnitAddPropertyListener");
-    return cached;
+    static void *cached;
+    return (wk_audio_unit_add_property_listener_fn)wk_cached_symbol(&cached, kWKAudioUnitImage,
+        "_AudioUnitAddPropertyListener");
 }
 
 static wk_audio_unit_remove_property_listener_fn wk_system_audio_unit_remove_property_listener(void)
 {
-    static wk_audio_unit_remove_property_listener_fn cached;
-    if (!cached)
-        cached = (wk_audio_unit_remove_property_listener_fn)wk_symbol_in_image(kWKAudioUnitImage,
-            "_AudioUnitRemovePropertyListenerWithUserData");
-    return cached;
+    static void *cached;
+    return (wk_audio_unit_remove_property_listener_fn)wk_cached_symbol(&cached, kWKAudioUnitImage,
+        "_AudioUnitRemovePropertyListenerWithUserData");
 }
 
 static wk_audio_unit_set_property_fn wk_system_audio_unit_set_property(void)
 {
-    static wk_audio_unit_set_property_fn cached;
-    if (!cached)
-        cached = (wk_audio_unit_set_property_fn)wk_symbol_in_image(kWKAudioUnitImage, "_AudioUnitSetProperty");
-    return cached;
+    static void *cached;
+    return (wk_audio_unit_set_property_fn)wk_cached_symbol(&cached, kWKAudioUnitImage, "_AudioUnitSetProperty");
 }
 
 static wk_audio_object_get_property_data_fn wk_system_audio_object_get_property_data(void)
 {
-    static wk_audio_object_get_property_data_fn cached;
-    if (!cached)
-        cached = (wk_audio_object_get_property_data_fn)wk_symbol_in_image(kWKCoreAudioImage,
-            "_AudioObjectGetPropertyData");
-    return cached;
+    static void *cached;
+    return (wk_audio_object_get_property_data_fn)wk_cached_symbol(&cached, kWKCoreAudioImage,
+        "_AudioObjectGetPropertyData");
 }
 
 static wk_audio_object_get_property_data_size_fn wk_system_audio_object_get_property_data_size(void)
 {
-    static wk_audio_object_get_property_data_size_fn cached;
-    if (!cached)
-        cached = (wk_audio_object_get_property_data_size_fn)wk_symbol_in_image(kWKCoreAudioImage,
-            "_AudioObjectGetPropertyDataSize");
-    return cached;
+    static void *cached;
+    return (wk_audio_object_get_property_data_size_fn)wk_cached_symbol(&cached, kWKCoreAudioImage,
+        "_AudioObjectGetPropertyDataSize");
 }
 
 static wk_audio_unit_uninitialize_fn wk_system_audio_unit_uninitialize(void)
 {
-    static wk_audio_unit_uninitialize_fn cached;
-    if (!cached)
-        cached = (wk_audio_unit_uninitialize_fn)wk_symbol_in_image(kWKAudioUnitImage, "_AudioUnitUninitialize");
-    return cached;
+    static void *cached;
+    return (wk_audio_unit_uninitialize_fn)wk_cached_symbol(&cached, kWKAudioUnitImage,
+        "_AudioUnitUninitialize");
 }
 
 static wk_audio_component_instance_dispose_fn wk_system_audio_component_instance_dispose(void)
 {
-    static wk_audio_component_instance_dispose_fn cached;
-    if (!cached)
-        cached = (wk_audio_component_instance_dispose_fn)wk_symbol_in_image(kWKAudioUnitImage,
-            "_AudioComponentInstanceDispose");
-    return cached;
+    static void *cached;
+    return (wk_audio_component_instance_dispose_fn)wk_cached_symbol(&cached, kWKAudioUnitImage,
+        "_AudioComponentInstanceDispose");
 }
 
 static const AudioObjectPropertyAddress kWKFrameSizeRangeAddress = {

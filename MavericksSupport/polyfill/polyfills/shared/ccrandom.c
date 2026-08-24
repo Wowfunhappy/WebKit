@@ -25,14 +25,32 @@
 
 #include <stddef.h>
 #include <dlfcn.h>
+#include <pthread.h>
 
 typedef int (*MavCCRandomCopyBytes)(const void *rng, void *bytes, size_t count);
 
-int CCRandomGenerateBytes(void *bytes, size_t count) {
-	static MavCCRandomCopyBytes copyBytes;
-	static const void *defaultRNG;
-	static int resolved;
+static MavCCRandomCopyBytes copyBytes;
+static const void *defaultRNG;
 
+/* pthread_once rather than a flag beside the pointers: WebCrypto draws from arbitrary threads,
+ * and a plain guard publishes the flag before the addresses it guards, so a second thread could
+ * see the resolution done and copyBytes still null and report kCCParamError from a symbol that
+ * resolved. pthread_once is in libSystem on 10.9. */
+static pthread_once_t resolve_once = PTHREAD_ONCE_INIT;
+
+static void resolve(void)
+{
+	copyBytes = (MavCCRandomCopyBytes)dlsym(RTLD_DEFAULT, "CCRandomCopyBytes");
+	/* kCCRandomDefault is `const CCRandomRef` -- a pointer VARIABLE naming the default
+	 * RNG, so dlsym hands back its address and the value is one dereference in.
+	 * Measured on this host: the dereferenced value, the slot address and NULL all
+	 * return kCCSuccess with full-entropy output, NULL being CommonCrypto's own
+	 * default-RNG fallback; pass the real value and let NULL stand in if it is absent. */
+	void *slot = dlsym(RTLD_DEFAULT, "kCCRandomDefault");
+	defaultRNG = slot ? *(const void **)slot : NULL;
+}
+
+int CCRandomGenerateBytes(void *bytes, size_t count) {
 	if (count == 0) {
 		return 0; /* kCCSuccess */
 	}
@@ -40,17 +58,7 @@ int CCRandomGenerateBytes(void *bytes, size_t count) {
 		return -4300; /* kCCParamError */
 	}
 
-	if (!resolved) {
-		copyBytes = (MavCCRandomCopyBytes)dlsym(RTLD_DEFAULT, "CCRandomCopyBytes");
-		/* kCCRandomDefault is `const CCRandomRef` -- a pointer VARIABLE naming the default
-		 * RNG, so dlsym hands back its address and the value is one dereference in.
-		 * Measured on this host: the dereferenced value, the slot address and NULL all
-		 * return kCCSuccess with full-entropy output, NULL being CommonCrypto's own
-		 * default-RNG fallback; pass the real value and let NULL stand in if it is absent. */
-		void *slot = dlsym(RTLD_DEFAULT, "kCCRandomDefault");
-		defaultRNG = slot ? *(const void **)slot : NULL;
-		resolved = 1;
-	}
+	pthread_once(&resolve_once, resolve);
 	if (copyBytes == NULL) {
 		return -4300; /* kCCParamError: no source to draw from */
 	}
