@@ -1671,6 +1671,41 @@ WK_POLYFILL_SEL("userInterfaceLayoutDirection", "wk_userInterfaceLayoutDirection
 WK_POLYFILL_SEL_REPLACES("setLayer:", "wk_setLayer:");
 
 // ---------------------------------------------------------------------------------------------------
+// -[NSScrollerImp setDelegate:] — the imp keeps its delegate alive.
+//
+// 10.9 stores the delegate as a bare unretained ivar (the setter is a single objc_assign_ivar) and
+// draws through it with no liveness check: -drawLayer:inContext: → -_unsafeRectForPart: loads the ivar
+// and sends -convertRectToBacking:. Modern AppKit guarantees that reference cannot dangle, and WebCore
+// leans on the guarantee: ScrollerMac::attach() frees the current WebScrollerImpDelegateMac and builds
+// a fresh imp on every ScrollableAreaParams commit, while the superseded imp lives on until
+// NSScrollerImpPair's deferred main-thread swap releases it — with its track/knob part layers still in
+// the host layer and holding it as their CALayer delegate, so it still draws.
+//
+// Retaining the delegate alongside the assign store restores the guarantee: the delegate lives as long
+// as any imp referencing it, and an invalidated delegate answers every scroller-imp delegate message
+// inertly (WebCore nils its back-references before releasing). The association is released when the
+// imp deallocates, which is also when 10.9's -[NSScrollerImp dealloc] removes the part layers from
+// their superlayer and nils their layer delegates.
+static const void *const wk_scrollerImpDelegateKey = &wk_scrollerImpDelegateKey;
+@interface NSScrollerImp (WKPolyfillScopeDelegate)
+- (void)wk_setDelegate:(id)delegate;
+@end
+
+@implementation NSScrollerImp (WKPolyfillScopeDelegate)
+
+- (void)wk_setDelegate:(id)delegate
+{
+    typedef void (*WKSetDelegateFn)(id, SEL, id);
+    SEL publicSelector = sel_registerName("setDelegate:");
+    ((WKSetDelegateFn)wk_replaces_call_through_class(self, [NSScrollerImp class], _cmd, publicSelector))
+        (self, publicSelector, delegate);
+    objc_setAssociatedObject(self, wk_scrollerImpDelegateKey, delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+@end
+WK_POLYFILL_SEL_REPLACES("setDelegate:", "wk_setDelegate:");
+
+// ---------------------------------------------------------------------------------------------------
 // -[NSPopover showRelativeToRect:ofView:preferredEdge:] and the anchor window's first responder.
 //
 // 10.9's NSPopover, as part of presenting, runs -[NSWindow _makeParentWindowHaveFirstResponder:] and
