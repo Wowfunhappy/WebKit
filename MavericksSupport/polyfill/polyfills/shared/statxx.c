@@ -14,7 +14,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* MP support header */
 #include "LegacySupport.h"
 
 /* Common setup for all versions of *stat*() calls provided here */

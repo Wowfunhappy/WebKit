@@ -1,12 +1,10 @@
 /*
  * Wrapper/replacement for <stdlib.h>, adding aligned_alloc (C11, added to macOS
- * in 10.15) which the 10.9 SDK lacks. Backed by shared/aligned_alloc.c. Custom
- * (non-MacPorts) polyfill, following the wrapper convention of the other headers.
+ * in 10.15) which the 10.9 SDK lacks. Backed by shared/aligned_alloc.c.
  */
 #ifndef _MAVERICKS_STDLIB_H_
 #define _MAVERICKS_STDLIB_H_
 
-/* MP support header */
 #include "LegacySupport.h"
 
 /* Include the primary system stdlib.h (provides size_t etc.) */

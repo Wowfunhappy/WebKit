@@ -23,21 +23,10 @@ rm -f "$WK_BUILD_STAMP"
 # --- What this build links against ------------------------------------------------------------
 # deps/build_deps.sh replaces deps/build/{include,lib,bin} wholesale when it finishes, and every
 # link below reads from there. It force-loads the polyfill's shared/ sources into the whole media
-# runtime as well, and nothing here relinks that: an edit to one of them parts those dylibs from the
-# copy libpolyfill.a gives the frameworks. The audit at the end proves that over the staged product;
-# the source half below reads only the sources and the deps build's manifest.
+# runtime as well, so an edit to one of them parts those dylibs from the copy libpolyfill.a gives
+# the frameworks; the currency check below the takeover reads only the sources and the deps build's
+# manifest, and relinks on a stale answer. The audit at the end proves it over the staged product.
 DEPS_LOCK="$ROOT/MavericksSupport/deps/work/.lock"
-DEPS_PID="$(cat "$DEPS_LOCK/pid" 2>/dev/null || true)"
-if [ -n "$DEPS_PID" ] && kill -0 "$DEPS_PID" 2>/dev/null; then
-    echo "==================== A DEPS BUILD IS RUNNING — ABORTING ===================="
-    echo "### $DEPS_LOCK is held by pid $DEPS_PID; rerun when it is done."
-    exit 1
-fi
-echo "### gap archive currency (MavericksSupport/scripts/check-gap-archive-current.sh --sources-only)"
-if ! bash "$ROOT/MavericksSupport/scripts/check-gap-archive-current.sh" --sources-only; then
-    echo "==================== GAP SOURCES ARE AHEAD OF THE DEPS BUILD — ABORTING ===================="
-    exit 1
-fi
 
 # --- Take over from an in-flight build --------------------------------------------------------
 # One build dir, one log, one build at a time. A running cmake configure is waited out (it rewrites
@@ -94,7 +83,18 @@ _configuring() {
     done
     return 1
 }
-_waited=0; _tries=0; _stopped=""; TAKEOVER=""
+# The lock holder is the build_deps.sh a stale build.sh started; killing it mid-collect leaves
+# deps/build torn, so it is waited out instead.
+_relinking_deps() {
+    local _holder _a _p
+    _holder="$(cat "$DEPS_LOCK/pid" 2>/dev/null || true)"
+    [ -n "$_holder" ] && kill -0 "$_holder" 2>/dev/null || return 1
+    for _a in $(_ancestry "$_holder"); do
+        for _p in $1; do [ "$_a" = "$_p" ] && return 0; done
+    done
+    return 1
+}
+_waited=0; _tries=0; _stopped=""; _waitedfor=""; TAKEOVER=""
 while :; do
     _stale="$(_stale_builds | sort -un)"
     [ -n "$_stale" ] || break
@@ -103,7 +103,13 @@ while :; do
         _stopped="$(echo $_stale)"
     fi
     if _configuring; then
+        _waitedfor="cmake configure"
         [ $((_waited % 30)) = 0 ] && echo "###   cmake configure in flight — waiting it out (${_waited}s)"
+        sleep 5; _waited=$((_waited + 5)); continue
+    fi
+    if _relinking_deps "$_stale"; then
+        _waitedfor="deps relink"
+        [ $((_waited % 30)) = 0 ] && echo "###   its deps relink is in flight — waiting it out (${_waited}s)"
         sleep 5; _waited=$((_waited + 5)); continue
     fi
     for _p in $_stale; do kill $(_family "$_p") 2>/dev/null; done
@@ -117,10 +123,33 @@ done
 if [ -n "$_stopped" ]; then
     echo "###   in-flight build stopped"
     TAKEOVER="### took over from the build already running (pids: $_stopped)"
-    [ "$_waited" -gt 0 ] && TAKEOVER="$TAKEOVER, after waiting ${_waited}s for its cmake configure"
+    [ "$_waited" -gt 0 ] && TAKEOVER="$TAKEOVER, after waiting ${_waited}s for its $_waitedfor"
 fi
 : > "$LOG"   # the one truncation of the run; everything below appends
 [ -n "$TAKEOVER" ] && echo "$TAKEOVER"
+
+# The relink runs here, after the takeover: it replaces deps/build/{include,lib,bin} wholesale, so
+# no other WebKit build may be linking from it. This one has not compiled anything yet, and names
+# itself so the deps build does not count it as a link in flight. A deps build no build.sh owns is
+# someone running build_deps.sh directly, and this build cannot proceed under it.
+DEPS_PID="$(cat "$DEPS_LOCK/pid" 2>/dev/null || true)"
+if [ -n "$DEPS_PID" ] && kill -0 "$DEPS_PID" 2>/dev/null; then
+    echo "==================== A DEPS BUILD IS RUNNING — ABORTING ===================="
+    echo "### $DEPS_LOCK is held by pid $DEPS_PID; rerun when it is done."
+    exit 1
+fi
+echo "### gap archive currency (MavericksSupport/scripts/check-gap-archive-current.sh --sources-only)"
+if ! bash "$ROOT/MavericksSupport/scripts/check-gap-archive-current.sh" --sources-only; then
+    echo "### relinking the deps build (MavericksSupport/deps/build_deps.sh)"
+    if ! WK_BUILD_AWAITING_DEPS=$$ bash "$ROOT/MavericksSupport/deps/build_deps.sh"; then
+        echo "==================== DEPS RELINK FAILED — ABORTING ===================="
+        exit 1
+    fi
+    if ! bash "$ROOT/MavericksSupport/scripts/check-gap-archive-current.sh" --sources-only; then
+        echo "==================== GAP SOURCES ARE AHEAD OF THE DEPS BUILD — ABORTING ===================="
+        exit 1
+    fi
+fi
 
 # One ccache for every build of this checkout, and direct mode: WebKit regenerates DerivedSources
 # headers with fresh timestamps every build, so trusting include content over mtime is what lets
@@ -217,21 +246,26 @@ fi
 
 [ -x "$CCACHE" ] && "$CCACHE" -z >/dev/null   # per-build ccache stats
 
+# The counts below read the log back, and the deps relink and the polyfill build have already
+# appended to it. This is where ninja's own output starts; _ninja_log emits exactly that span.
+NINJA_LOG_START=$(( $(wc -l < "$LOG") + 1 ))
+_ninja_log() { tail -n +"$NINJA_LOG_START" "$LOG"; }
+
 # -k 0: keep going after the first failure so a link stage surfaces ALL undefined symbols at once.
 "$NINJA" -C "$BUILD" -k 0 2>&1
 RC=$?
 
 echo "==================== COMPILE/LINK PHASE DONE (rc=$RC) — staging still to run ===================="
-echo "$(grep -oE '^\[[0-9]+/[0-9]+\]' "$LOG" | tail -1)  FAILED=$(grep -c '^FAILED:' "$LOG")"
-echo "dups=$(grep -c 'duplicate symbol' "$LOG")  undefined=$(grep -c 'undefined symbol' "$LOG")"
+echo "$(_ninja_log | grep -oE '^\[[0-9]+/[0-9]+\]' | tail -1)  FAILED=$(_ninja_log | grep -c '^FAILED:')"
+echo "dups=$(_ninja_log | grep -c 'duplicate symbol')  undefined=$(_ninja_log | grep -c 'undefined symbol')"
 echo "--- frameworks built (binary present = linked) ---"
 for fw in JavaScriptCore WebCore WebKit WebKitLegacy; do
     [ -e "$BUILD/lib/$fw.framework/$fw" ] && echo "  LINKED  $fw" || echo "  ------  $fw  (no binary)"
 done
 echo "--- distinct undefined symbols (if any) ---"
-grep 'undefined symbol' "$LOG" | sed -E 's/.*undefined symbol:? *//' | sort -u | head -40
+_ninja_log | grep 'undefined symbol' | sed -E 's/.*undefined symbol:? *//' | sort -u | head -40
 echo "--- distinct error lines ---"
-grep -E 'error:|file not found|FAILED:' "$LOG" | grep -vE 'warning:' | sed -E 's/^[0-9]+\.[0-9]+ //' | sort -u | head -40
+_ninja_log | grep -E 'error:|file not found|FAILED:' | grep -vE 'warning:' | sed -E 's/^[0-9]+\.[0-9]+ //' | sort -u | head -40
 
 # --- Staging + audits -------------------------------------------------------------------------
 # stage-frameworks.sh turns the linked frameworks into the complete installable product under

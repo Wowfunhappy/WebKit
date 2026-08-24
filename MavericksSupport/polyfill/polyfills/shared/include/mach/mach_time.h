@@ -14,13 +14,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _MACPORTS_MACH_TIME_H_
-#define _MACPORTS_MACH_TIME_H_
+#ifndef _MAVERICKS_MACH_TIME_H_
+#define _MAVERICKS_MACH_TIME_H_
 
-/* MP support header */
 #include "LegacySupport.h"
-
-/* Do our SDK-related setup */
 
 /* Include the primary system mach/mach_time.h */
 #include_next <mach/mach_time.h>
@@ -34,4 +31,4 @@ uint64_t mach_continuous_approximate_time(void);
 
 __MP__END_DECLS
 
-#endif /* _MACPORTS_MACH_TIME_H_ */
+#endif /* _MAVERICKS_MACH_TIME_H_ */

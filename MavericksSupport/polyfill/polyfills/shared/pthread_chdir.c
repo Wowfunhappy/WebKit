@@ -15,16 +15,15 @@
  * SUCH DAMAGE.
  */
 
-/* MP support header */
 #include "LegacySupport.h"
 
 /*
  * The pthread_[f]chdir_np() functions are available as syscalls starting
- * in 10.5, but not as functions until 10.12.  This provides the missing
- * function wrappers where needed.
+ * in 10.5, but not as functions until 10.12.  These are the missing
+ * function wrappers.
  */
 
-#define _MACPORTS_LEGACY_PTHREAD_CHDIR 1
+#define _MAVERICKS_PTHREAD_CHDIR 1
 #include <pthread.h>
 #include <unistd.h>
 
@@ -42,13 +41,7 @@ pthread_fchdir_np(int fd)
   return syscall(SYS___pthread_fchdir, fd);
 }
 
-/*
- * Provide a per-thread fchdir() for the ATCALL code if possible, but
- * fall back to the (thread-unsafe) process-level version if not (10.4).
- */
-
-#define _MACPORTS_LEGACY_PTHREAD_CHDIR 1
-#include <pthread.h>
+/* The per-thread fchdir() the ATCALL code uses. */
 
 int
 __mpls_best_fchdir(int dirfd)

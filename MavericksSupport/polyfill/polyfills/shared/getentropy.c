@@ -15,7 +15,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// MP support header
 #include "LegacySupport.h"
 
 #include <fcntl.h>

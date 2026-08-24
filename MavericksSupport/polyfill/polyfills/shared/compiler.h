@@ -14,8 +14,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef __MACPORTS_COMPILER_H
-#define __MACPORTS_COMPILER_H
+#ifndef __MAVERICKS_COMPILER_H
+#define __MAVERICKS_COMPILER_H
 
 /* Macros for compiler-specific features */
 
@@ -34,4 +34,4 @@
   #define MPLS_SLOWPATH(x) (x)
 #endif
 
-#endif /* __MACPORTS_COMPILER_H */
+#endif /* __MAVERICKS_COMPILER_H */

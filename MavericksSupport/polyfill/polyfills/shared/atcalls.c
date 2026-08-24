@@ -32,7 +32,6 @@
   */
 
 
-/* MP support header */
 #include "LegacySupport.h"
 
 #include <assert.h>

@@ -14,13 +14,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _MACPORTS_TIME_H_
-#define _MACPORTS_TIME_H_
+#ifndef _MAVERICKS_TIME_H_
+#define _MAVERICKS_TIME_H_
 
-/* MP support header */
 #include "LegacySupport.h"
-
-/* Do our SDK-related setup */
 
 /* Include the primary system time.h */
 #include_next <time.h>
@@ -94,4 +91,4 @@ __MP__END_DECLS
 
 #endif /* __DARWIN_C_LEVEL ... */
 
-#endif /* _MACPORTS_TIME_H_ */
+#endif /* _MAVERICKS_TIME_H_ */

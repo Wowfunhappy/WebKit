@@ -15,10 +15,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* MP support header */
 #include "LegacySupport.h"
-
-/* Do our SDK-related setup */
 
 /*
  * Implementation behavior largely follows these man page descriptions:

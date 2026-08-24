@@ -14,13 +14,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _MACPORTS_PTHREAD_H_
-#define _MACPORTS_PTHREAD_H_
+#ifndef _MAVERICKS_PTHREAD_H_
+#define _MAVERICKS_PTHREAD_H_
 
-/* MP support header */
 #include "LegacySupport.h"
-
-/* Do our SDK-related setup */
 
 /* Include the primary system pthread.h */
 #include_next <pthread.h>
@@ -34,10 +31,10 @@ __MP__BEGIN_DECLS
 
 /*
  * pthread_[f]chdir_np() exist as syscalls on 10.9 but have no prototypes.
- * As upstream does, only expose them when the client opts in, to avoid
- * conflicts on SDKs/OSes that declare them.
+ * Exposed only when the client opts in, to avoid conflicts on SDKs that
+ * declare them.
  */
-#if defined(_MACPORTS_LEGACY_PTHREAD_CHDIR) && _MACPORTS_LEGACY_PTHREAD_CHDIR
+#if defined(_MAVERICKS_PTHREAD_CHDIR) && _MAVERICKS_PTHREAD_CHDIR
 
 int pthread_chdir_np(const char* path);
 int pthread_fchdir_np(int fd);
@@ -46,4 +43,4 @@ int pthread_fchdir_np(int fd);
 
 __MP__END_DECLS
 
-#endif /* _MACPORTS_PTHREAD_H_ */
+#endif /* _MAVERICKS_PTHREAD_H_ */

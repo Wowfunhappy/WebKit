@@ -14,26 +14,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _MACPORTS_SYS_FCNTL_H_
-#define _MACPORTS_SYS_FCNTL_H_
+#ifndef _MAVERICKS_SYS_FCNTL_H_
+#define _MAVERICKS_SYS_FCNTL_H_
 
-/* MP support header */
 #include "LegacySupport.h"
-
-/* Do our SDK-related setup */
 
 /* Include the primary system sys/fcntl.h */
 #include_next <sys/fcntl.h>
-
-/* replace missing (<10.7) O_CLOEXEC definition with 0, which works
- * but does not replace the full function of that flag
- * this is the commonly done fix in MacPorts (see gtk3, for example)
- * FIXME - this could use a proper fix, if possible
- */
-
-#ifndef O_CLOEXEC
-#define O_CLOEXEC 0
-#endif
 
 #if __DARWIN_C_LEVEL >= 200809L
 
@@ -53,4 +40,4 @@ __MP__END_DECLS
 
 #endif /* __DARWIN_C_LEVEL >= 200809L */
 
-#endif /* _MACPORTS_SYS_FCNTL_H_ */
+#endif /* _MAVERICKS_SYS_FCNTL_H_ */

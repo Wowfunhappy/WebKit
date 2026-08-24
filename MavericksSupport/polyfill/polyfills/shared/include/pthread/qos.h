@@ -5,8 +5,7 @@
  * (10.9 has no QoS scheduling classes; callers use these only as scheduling
  * hints).
  *
- * QOS_CLASS_* values are Apple's standard constants. Custom (non-MacPorts)
- * polyfill.
+ * QOS_CLASS_* values are Apple's standard constants.
  */
 #ifndef _MAVERICKS_PTHREAD_QOS_H_
 #define _MAVERICKS_PTHREAD_QOS_H_

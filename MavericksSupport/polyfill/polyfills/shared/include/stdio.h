@@ -15,15 +15,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _MACPORTS_STDIO_H_
-#define _MACPORTS_STDIO_H_
+#ifndef _MAVERICKS_STDIO_H_
+#define _MAVERICKS_STDIO_H_
 
-/* MP support header */
 #include "LegacySupport.h"
-
-/* Do our SDK-related setup */
-
-/* Work around recent compilers that treat undefineds as errors. */
 
 /* Include the primary system stdio.h */
 #include_next <stdio.h>
@@ -31,4 +26,4 @@
 /* Extend Apple's 10.10+ include of sys/stdio.h to earlier versions. */
 #include <sys/stdio.h>
 
-#endif /* _MACPORTS_STDIO_H_ */
+#endif /* _MAVERICKS_STDIO_H_ */

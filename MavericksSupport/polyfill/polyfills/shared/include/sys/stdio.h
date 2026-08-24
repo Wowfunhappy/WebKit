@@ -15,13 +15,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _MACPORTS_SYS_STDIO_H_
-#define _MACPORTS_SYS_STDIO_H_
+#ifndef _MAVERICKS_SYS_STDIO_H_
+#define _MAVERICKS_SYS_STDIO_H_
 
-/* MP support header */
 #include "LegacySupport.h"
-
-/* Do our SDK-related setup */
 
 /*
  * Include the primary system sys/stdio.h (10.10+ only)
@@ -42,4 +39,4 @@ __MP__END_DECLS
 
 #endif /* __DARWIN_C_LEVEL >= 200809L */
 
-#endif /* _MACPORTS_SYS_STDIO_H_ */
+#endif /* _MAVERICKS_SYS_STDIO_H_ */

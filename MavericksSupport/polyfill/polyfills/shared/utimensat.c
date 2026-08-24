@@ -28,7 +28,6 @@
   * Version 2.0.
   */
 
-// MP support header
 #include "LegacySupport.h"
 
 #include <sys/types.h>

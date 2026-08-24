@@ -14,8 +14,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _MACPORTS_SYS_ATTR_H_
-#define _MACPORTS_SYS_ATTR_H_
+#ifndef _MAVERICKS_SYS_ATTR_H_
+#define _MAVERICKS_SYS_ATTR_H_
 
 /* Simple wrapper to add VOL_CAP_INT_CLONE (from 10.12+) */
 
@@ -26,4 +26,4 @@
 #define VOL_CAP_INT_CLONE 0x00010000
 #endif
 
-#endif /* _MACPORTS_SYS_ATTR_H_ */
+#endif /* _MAVERICKS_SYS_ATTR_H_ */

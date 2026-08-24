@@ -14,13 +14,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _MACPORTS_DIRENT_H_
-#define _MACPORTS_DIRENT_H_
+#ifndef _MAVERICKS_DIRENT_H_
+#define _MAVERICKS_DIRENT_H_
 
-/* MP support header */
 #include "LegacySupport.h"
-
-/* Do our SDK-related setup */
 
 /* Include the primary system dirent.h */
 #include_next <dirent.h>
@@ -68,8 +65,4 @@ __mpls_scandir(const char *dirnam, struct dirent ***namelist,
 
 #endif /* __DARWIN_C_LEVEL >= 200809L */
 
-/* Provide a testable condition for the scandir signature issue. */
-/* 10.9 already has the modern scandir/alphasort signatures. */
-#define _MACPORTS_LEGACY_OLD_SCANDIR 0
-
-#endif /* _MACPORTS_DIRENT_H_ */
+#endif /* _MAVERICKS_DIRENT_H_ */

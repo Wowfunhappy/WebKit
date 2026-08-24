@@ -74,13 +74,10 @@
  *  All Rights Reserved
  */
 
-#ifndef _MACPORTS_UNISTD_H_
-#define _MACPORTS_UNISTD_H_
+#ifndef _MAVERICKS_UNISTD_H_
+#define _MAVERICKS_UNISTD_H_
 
-/* MP support header */
 #include "LegacySupport.h"
-
-/* Do our SDK-related setup */
 
 /* Include the primary system unistd.h */
 #include_next <unistd.h>
@@ -91,4 +88,4 @@
 
 #endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
 
-#endif /* _MACPORTS_UNISTD_H_ */
+#endif /* _MAVERICKS_UNISTD_H_ */

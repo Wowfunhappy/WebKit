@@ -14,13 +14,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _MACPORTS_SYS_STAT_H_
-#define _MACPORTS_SYS_STAT_H_
+#ifndef _MAVERICKS_SYS_STAT_H_
+#define _MAVERICKS_SYS_STAT_H_
 
-/* MP support header */
 #include "LegacySupport.h"
-
-/* Do our SDK-related setup */
 
 /* Include the primary system sys/stat.h */
 #include_next <sys/stat.h>
@@ -73,4 +70,4 @@ __MP__END_DECLS
 
 #endif /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
 
-#endif /* _MACPORTS_SYS_STAT_H_ */
+#endif /* _MAVERICKS_SYS_STAT_H_ */

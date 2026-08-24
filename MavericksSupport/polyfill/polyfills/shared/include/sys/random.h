@@ -14,13 +14,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _MACPORTS_SYS_RANDOM_H_
-#define _MACPORTS_SYS_RANDOM_H_
+#ifndef _MAVERICKS_SYS_RANDOM_H_
+#define _MAVERICKS_SYS_RANDOM_H_
 
-/* MP support header */
 #include "LegacySupport.h"
-
-/* Do our SDK-related setup */
 
 /*
  * In the systems that need this, sys/random.h requires the u_int typedef,
@@ -51,4 +48,4 @@ __MP__BEGIN_DECLS
 extern int getentropy(void *buf, size_t buflen);
 __MP__END_DECLS
 
-#endif /* _MACPORTS_SYS_RANDOM_H_ */
+#endif /* _MAVERICKS_SYS_RANDOM_H_ */

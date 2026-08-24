@@ -83,7 +83,7 @@ mandatory, and the script's header lists the one-time driver-build prereqs.
 
 ## `polyfill/build/` contents
 
-- `libpolyfill.a` — the C functions and data constants: the macports-legacy libc gap-fills plus the
+- `libpolyfill.a` — the C functions and data constants: the libc gap-fills plus the
   framework entry points 10.9 lacks or gets wrong. Force-loaded into every shipped framework
   (`WEBKIT_FRAMEWORK` in `Source/cmake/WebKitMacros.cmake`), which is what makes a polyfill win
   deterministically; also listed plainly by `cmake/OptionsMacMavericks.cmake` for the build-time tools.

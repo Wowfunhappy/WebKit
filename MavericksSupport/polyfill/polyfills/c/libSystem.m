@@ -831,11 +831,6 @@ WK_POLYFILL_REPLACES(NULL, long, sysconf, (int name))
     return WK_ORIGINAL(sysconf) ? WK_ORIGINAL(sysconf)(name) : -1;
 }
 
-// The name macports-legacy-support gives the same call, kept so a binary built against that library
-// resolves here rather than pulling in a second sysconf.
-long macports_legacy_sysconf(int name);
-long macports_legacy_sysconf(int name) { return sysconf(name); }
-
 #pragma mark - notify
 
 // notify_is_valid_token (10.10+) asks whether a notify token is still live. 10.9's notify has no

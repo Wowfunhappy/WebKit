@@ -14,13 +14,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _MACPORTS_SYS_UNISTD_H_
-#define _MACPORTS_SYS_UNISTD_H_
+#ifndef _MAVERICKS_SYS_UNISTD_H_
+#define _MAVERICKS_SYS_UNISTD_H_
 
-/* MP support header */
 #include "LegacySupport.h"
-
-/* Do our SDK-related setup */
 
 /* Include the primary system sys/unistd.h */
 #include_next <sys/unistd.h>
@@ -107,4 +104,4 @@ __MP__END_DECLS
 
 #endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
 
-#endif /* _MACPORTS_SYS_UNISTD_H_ */
+#endif /* _MAVERICKS_SYS_UNISTD_H_ */

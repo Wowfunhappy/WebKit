@@ -146,9 +146,11 @@ _webkit_build_pids() {
             && echo "$p"
     done
 }
+# A build.sh that is blocked invoking this script has linked nothing yet and names itself in
+# WK_BUILD_AWAITING_DEPS; every other one is a link in flight.
 _refuse_under_webkit_build() {
     local pids
-    pids="$(_webkit_build_pids | sort -un | tr '\n' ' ')"
+    pids="$(_webkit_build_pids | sort -un | awk -v self="${WK_BUILD_AWAITING_DEPS:-}" '$0 != self' | tr '\n' ' ')"
     [ -n "${pids// /}" ] || return 0
     echo "FATAL: a WebKit build is running (pids: $pids) and links from $DEST." >&2
     echo "       Rerun when it is done." >&2
@@ -522,7 +524,6 @@ echo "==== 10.9 gap archive ===="
 #   atcalls         openat + the *at() family (via per-thread chdir emulation)
 #   utimensat       utimensat/futimens
 #   fdopendir       fdopendir$INODE64 and friends
-#   dirfuncs_compat internal opendir/readdir helpers for fdopendir
 #   statxx          fstatat/fstatat$INODE64/fstatat64
 #   getentropy      getentropy
 #   pthread_chdir   __mpls_best_fchdir closure for atcalls (private helpers)
@@ -562,7 +563,7 @@ GAPDIR="$SCRATCH/gap"
 # reads. The objects do not, so a source dropped from GAP_SHARED leaves nothing for `ar` to pick up.
 GAPOBJ="$GAPDIR/obj"
 mkdir -p "$GAPDIR"; rm -rf "$GAPOBJ"; mkdir -p "$GAPOBJ"
-GAP_SHARED="time atcalls utimensat fdopendir dirfuncs_compat statxx getentropy pthread_chdir os_unfair_lock mkostemp os_version aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit mach_timebase_info audiounit_max_frames"
+GAP_SHARED="time atcalls utimensat fdopendir statxx getentropy pthread_chdir os_unfair_lock mkostemp os_version aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit mach_timebase_info audiounit_max_frames"
 GAPCFLAGS="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -fvisibility=hidden -O2 -I$SHARED/include"
 ( for s in $GAP_SHARED; do
     "$TC/bin/clang" $GAPCFLAGS -MD -MF "$GAPOBJ/$s.d" -c "$SHARED/$s.c" -o "$GAPOBJ/$s.o" || exit 1

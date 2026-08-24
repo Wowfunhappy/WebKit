@@ -31,8 +31,8 @@
   * Version 2.0.
   */
 
-#ifndef _MACPORTS_ATCALLS_H_
-#define _MACPORTS_ATCALLS_H_
+#ifndef _MAVERICKS_ATCALLS_H_
+#define _MAVERICKS_ATCALLS_H_
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -69,4 +69,4 @@ int __mpls_best_fchdir(int dirfd);
 
 #define ATCALL(fd, p, what)  _ATCALL(fd, p, -1, what)
 
-#endif /* _MACPORTS_ATCALLS_H_ */
+#endif /* _MAVERICKS_ATCALLS_H_ */

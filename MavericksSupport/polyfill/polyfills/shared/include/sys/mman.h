@@ -15,10 +15,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _MACPORTS_MMAN_H_
-#define _MACPORTS_MMAN_H_
+#ifndef _MAVERICKS_MMAN_H_
+#define _MAVERICKS_MMAN_H_
 
-/* MP support header */
 #include "LegacySupport.h"
 
 /* Include the primary system sys/mman.h */
@@ -30,4 +29,4 @@
 #define MAP_ANONYMOUS MAP_ANON
 #endif
 
-#endif /* _MACPORTS_MMAN_H_ */
+#endif /* _MAVERICKS_MMAN_H_ */

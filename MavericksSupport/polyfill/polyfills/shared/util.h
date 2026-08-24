@@ -16,7 +16,6 @@
 
 /* This (conditionally) contains miscellaneous global utility features. */
 
-/* MP support header */
 #include "LegacySupport.h"
 
 #include <dlfcn.h>
