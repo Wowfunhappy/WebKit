@@ -39,6 +39,12 @@ if [ ! -d "$WK_STAGE_ROOT" ]; then
     echo "       Build it first: bash MavericksSupport/build.sh" >&2
     exit 1
 fi
+if [ ! -f "$WK_STAGE_ROOT/.build-complete" ]; then
+    echo "ERROR: $WK_STAGE_ROOT has no .build-complete stamp, so it is left over from a build that" >&2
+    echo "       did not finish. Installing it would put stale code on the system." >&2
+    echo "       Rebuild it: bash MavericksSupport/build.sh" >&2
+    exit 1
+fi
 wk_verify_tree "$WK_STAGE_ROOT" "the staged tree ($WK_STAGE_ROOT)" || {
     echo "       Rebuild it: bash MavericksSupport/build.sh" >&2
     exit 1; }
