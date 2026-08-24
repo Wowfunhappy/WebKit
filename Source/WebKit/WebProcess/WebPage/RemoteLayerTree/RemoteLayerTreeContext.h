@@ -97,19 +97,12 @@ public:
 
     void adoptLayersFromContext(RemoteLayerTreeContext&);
 
-    // MAVERICKS_BACKPORT: WebPage::ensureRemoteRenderingBackendProxy()/gpuProcessConnectionWasDestroyed() exist
-    // only under ENABLE(GPU_PROCESS) (off on this in-process port); the restore dropped HEAD's guard.
-#if ENABLE(GPU_PROCESS)
     RemoteRenderingBackendProxy& ensureRemoteRenderingBackendProxy();
-#endif // MAVERICKS_BACKPORT: close the GPU_PROCESS guard on ensureRemoteRenderingBackendProxy() (see above).
 
     bool useDynamicContentScalingDisplayListsForDOMRendering() const { return m_useDynamicContentScalingDisplayListsForDOMRendering; }
     void setUseDynamicContentScalingDisplayListsForDOMRendering(bool useDynamicContentScalingDisplayLists) { m_useDynamicContentScalingDisplayListsForDOMRendering = useDynamicContentScalingDisplayLists; }
 
-    // MAVERICKS_BACKPORT: gpuProcessConnectionWasDestroyed() exists only under ENABLE(GPU_PROCESS) (off on this in-process port).
-#if ENABLE(GPU_PROCESS)
     void gpuProcessConnectionWasDestroyed();
-#endif // MAVERICKS_BACKPORT: close the GPU_PROCESS guard on gpuProcessConnectionWasDestroyed() (see above).
 
 #if PLATFORM(IOS_FAMILY)
     bool canShowWhileLocked() const;

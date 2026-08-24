@@ -1,0 +1,116 @@
+; The GPU-process sandbox profile for this port.
+;
+; Like the webpushd profile beside it, this one has no Mavericks-era upstream ancestor to
+; recover: the GPU process postdates 10.9 by a decade, so upstream never wrote a version of it
+; in this OS's sandbox vocabulary. Feeding upstream's own
+; Source/WebKit/GPUProcess/mac/com.apple.WebKit.GPUProcess.sb.in to 10.9's real compiler fails
+; at `line 88: unbound variable: nvram*`, and initializeSandbox() CRASH()es rather than launch a
+; process whose profile will not apply.
+;
+; It is therefore written in the vocabulary 10.9's compiler accepts -- `(import "system.sb")`,
+; `iokit-open` rather than iokit-open-service/iokit-open-user-client, no with-filter, no
+; file-map-executable, no message filters -- and grants what this port's GPU process actually
+; does: DOM and canvas rasterization, and WebGL. Media playback, capture and WebRTC codecs all stay
+; in the web process, where this port's GStreamer engine lives (UseGPUProcessForMediaEnabled,
+; CaptureVideoInGPUProcessEnabled and WebRTCPlatformCodecsInGPUProcessEnabled are all false for
+; USE(GSTREAMER)), so upstream's AVFoundation playback, capture and codec grants -- and the camera,
+; microphone and TCC rules that go with them -- have no counterpart here.
+;
+; The font, ColorSync and CoreGraphics rules are the ones the recovered 10.9 WebProcess profile
+; carries, because rasterizing is the work that moved: the same CoreText and CoreGraphics paths
+; run here now instead of there.
+;
+; Copyright (C) 2024 Apple Inc. All rights reserved.
+;
+; Redistribution and use in source and binary forms, with or without
+; modification, are permitted provided that the following conditions
+; are met:
+; 1. Redistributions of source code must retain the above copyright
+;    notice, this list of conditions and the following disclaimer.
+; 2. Redistributions in binary form must reproduce the above copyright
+;    notice, this list of conditions and the following disclaimer in the
+;    documentation and/or other materials provided with the distribution.
+;
+; THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+; AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+; THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+; PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+; BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+; CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+; SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+; INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+; CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+; ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+; THE POSSIBILITY OF SUCH DAMAGE.
+
+(version 1)
+(deny default (with partial-symbolication))
+(allow system-audit file-read-metadata)
+
+(import "system.sb")
+
+(define (home-regex home-relative-regex)
+  (regex (string-append "^" (regex-quote (param "HOME_DIR")) home-relative-regex)))
+(define (home-subpath home-relative-subpath)
+  (subpath (string-append (param "HOME_DIR") home-relative-subpath)))
+(define (home-literal home-relative-literal)
+  (literal (string-append (param "HOME_DIR") home-relative-literal)))
+
+;; The frameworks this process loads, including a debug installation outside /System.
+(allow file-read*
+       (subpath "/Library/Frameworks")
+       (subpath "/Library/Managed Preferences")
+       (subpath (param "WEBKIT2_FRAMEWORK_DIR")))
+
+;; Fonts and the text/graphics preferences CoreText and CoreGraphics read while rasterizing.
+(allow file-read*
+       (subpath "/Library/Fonts")
+       (home-subpath "/Library/Fonts")
+       (literal "/Library/Preferences/.GlobalPreferences.plist")
+       (home-literal "/Library/Preferences/.GlobalPreferences.plist")
+       (home-regex #"/Library/Preferences/ByHost/\.GlobalPreferences\.")
+       (home-literal "/Library/Preferences/com.apple.ATS.plist")
+       (home-literal "/Library/Preferences/com.apple.CoreGraphics.plist")
+       (home-literal "/.CFUserTextEncoding"))
+
+;; Scratch space: the font cache and the temporary files CoreGraphics maps.
+(allow file-read* file-write* (subpath (param "DARWIN_USER_CACHE_DIR")))
+(allow file-read* file-write* (subpath (param "DARWIN_USER_TEMP_DIR")))
+
+;; Graphics hardware: IOSurface is the backing store this process draws into and hands back, and
+;; WebGL runs here, so ANGLE creates CGL contexts and CoreVM compiles their shaders. system.sb's
+;; own macro is the 10.9 spelling of that whole set (IOAccelerator, IOSurfaceRootUserClient,
+;; IOSurfaceSendRight, com.apple.cvmsServ, the OpenGL preference domains).
+(system-graphics)
+
+;; CGL reaches the window server to pick a renderer and to learn the display configuration, and it
+;; only gets that far once the process has checked in with LaunchServices: on this OS a process that
+;; cannot reach launchservicesd has no window-server session, and CGLChoosePixelFormat then finds no
+;; renderer at all (EGL_Initialize fails EGL_NOT_INITIALIZED out of DisplayCGL). Upstream reaches
+;; launchservicesd through the per-session extension GPUProcessProxy::platformInitializeGPUProcess-
+;; Parameters issues; that extension does not apply here, so the grant is static, as it is in this
+;; port's WebProcess profile.
+(allow mach-lookup
+       (global-name "com.apple.windowserver.active")
+       (global-name "com.apple.coreservices.launchservicesd")
+       (global-name "com.apple.window_proxies"))
+
+;; ColorSync's shared memory, named as 10.9 names it.
+(allow ipc-posix-shm*
+    (ipc-posix-name "_CS_GSHMEMLOCK"))
+
+;; The services a rasterizing process talks to: fonts, colour, logging and notifications.
+(allow mach-lookup
+       (global-name "com.apple.FontServer")
+       (global-name "com.apple.FontObjectsServer")
+       (global-name "com.apple.CoreServices.coreservicesd")
+       (global-name "com.apple.system.logger")
+       (global-name "com.apple.system.notification_center")
+       (global-name "com.apple.system.opendirectoryd.membership")
+       (global-name-regex #"^com.apple.distributed_notifications"))
+
+;; Preferences this process reads for itself.
+(allow user-preference-read
+       (preference-domain "kCFPreferencesAnyApplication")
+       (preference-domain "com.apple.WebKit"))
+

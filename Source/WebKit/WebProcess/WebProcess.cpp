@@ -1596,8 +1596,7 @@ void WebProcess::gpuProcessConnectionDidBecomeUnresponsive()
     protect(parentProcessConnection())->send(Messages::WebProcessProxy::GPUProcessConnectionDidBecomeUnresponsive(m_gpuProcessConnection->identifier()), 0);
 }
 
-// MAVERICKS_BACKPORT: also gate on ENABLE(GPU_PROCESS) — libWebRTC HW codecs run via the GPU process, which is off here.
-#if PLATFORM(COCOA) && USE(LIBWEBRTC) && ENABLE(GPU_PROCESS)
+#if PLATFORM(COCOA) && USE(LIBWEBRTC)
 LibWebRTCCodecs& WebProcess::libWebRTCCodecs()
 {
     if (!m_libWebRTCCodecs)

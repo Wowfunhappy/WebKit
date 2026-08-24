@@ -470,8 +470,6 @@
 #if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
 #include "RemoteAudioSessionConfiguration.h"
 #include "RemoteMediaSessionManagerProxy.h"
-// MAVERICKS_BACKPORT: stub GPUProcessProxy declarations (GPU process is OFF on this port).
-#include "GPUProcessProxyStub.h"
 #endif
 
 #define MESSAGE_CHECK(process, assertion) MESSAGE_CHECK_BASE(assertion, process->connection())
@@ -14661,10 +14659,6 @@ std::optional<IPC::Connection::AsyncReplyID> WebPageProxy::drawRectToImage(WebFr
         return sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::DrawRectToImage(frameID, printInfo, rect, imageSize), WTF::move(callback));
     }
 
-    // MAVERICKS_BACKPORT: the GPU-process snapshot path (and the DrawPrinting*ToSnapshot messages it
-    // sends) is defined #if ENABLE(GPU_PROCESS); GPU process is OFF in this port. With it off the guard
-    // above always takes the non-GPU return, so this tail is unreachable — guard it to match.
-#if ENABLE(GPU_PROCESS)
     auto snapshotIdentifier = RemoteSnapshotIdentifier::generate();
     Ref gpuProcess = GPUProcessProxy::getOrCreate();
     auto snapshotCallback = [weakGPUProcess = WeakPtr { gpuProcess }, snapshotIdentifier, callback = WTF::move(callback), rootFrameIdentifier = frameID, imageSize](bool success) mutable {
@@ -14684,12 +14678,6 @@ std::optional<IPC::Connection::AsyncReplyID> WebPageProxy::drawRectToImage(WebFr
     if (m_isPerformingDOMPrintOperation)
         return sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::DrawPrintingRectToSnapshotDuringDOMPrintOperation(snapshotIdentifier, frameID, printInfo, rect, imageSize), WTF::move(snapshotCallback), IPC::SendOption::DispatchMessageEvenWhenWaitingForUnboundedSyncReply);
     return sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::DrawPrintingRectToSnapshot(snapshotIdentifier, frameID, printInfo, rect, imageSize), WTF::move(snapshotCallback));
-// MAVERICKS_BACKPORT: GPU process is OFF in this port, so this tail is unreachable; satisfy the return.
-#else
-    ASSERT_NOT_REACHED();
-    callback({ });
-    return std::nullopt;
-#endif
 }
 
 std::optional<IPC::Connection::AsyncReplyID> WebPageProxy::drawPagesToPDF(WebFrameProxy& frame, const PrintInfo& printInfo, uint32_t first, uint32_t count, CompletionHandler<void(API::Data*)>&& callback)
@@ -14703,10 +14691,6 @@ std::optional<IPC::Connection::AsyncReplyID> WebPageProxy::drawPagesToPDF(WebFra
         return sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::DrawPagesToPDF(frameID, printInfo, first, count),  toAPIDataSharedBufferCallback(WTF::move(callback)));
     }
 
-    // MAVERICKS_BACKPORT: the GPU-process snapshot path (and the DrawPrinting*ToSnapshot messages it
-    // sends) is defined #if ENABLE(GPU_PROCESS); GPU process is OFF in this port. With it off the guard
-    // above always takes the non-GPU return, so this tail is unreachable — guard it to match.
-#if ENABLE(GPU_PROCESS)
     auto snapshotIdentifier = RemoteSnapshotIdentifier::generate();
     Ref gpuProcess = GPUProcessProxy::getOrCreate();
     auto snapshotCallback = [weakGPUProcess = WeakPtr { gpuProcess }, snapshotIdentifier, callback = WTF::move(callback), rootFrameIdentifier = frameID](std::optional<FloatSize> result) mutable {
@@ -14726,12 +14710,6 @@ std::optional<IPC::Connection::AsyncReplyID> WebPageProxy::drawPagesToPDF(WebFra
     if (m_isPerformingDOMPrintOperation)
         return sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::DrawPrintingPagesToSnapshotDuringDOMPrintOperation(snapshotIdentifier, frameID, printInfo, first, count), WTF::move(snapshotCallback), IPC::SendOption::DispatchMessageEvenWhenWaitingForUnboundedSyncReply);
     return sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::DrawPrintingPagesToSnapshot(snapshotIdentifier, frameID, printInfo, first, count), WTF::move(snapshotCallback));
-// MAVERICKS_BACKPORT: GPU process is OFF in this port, so this tail is unreachable; satisfy the return.
-#else
-    ASSERT_NOT_REACHED();
-    callback(nullptr);
-    return std::nullopt;
-#endif
 }
 #elif PLATFORM(GTK)
 void WebPageProxy::drawPagesForPrinting(WebFrameProxy& frame, const PrintInfo& printInfo, CompletionHandler<void(std::optional<SharedMemory::Handle>&&, ResourceError&&)>&& callback)
@@ -17026,9 +17004,7 @@ void WebPageProxy::setOrientationForMediaCapture(WebCore::IntDegrees orientation
         return;
 
 #if ENABLE(MEDIA_STREAM)
-#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS)
-    // MAVERICKS_BACKPORT: WebProcessPool::gpuProcess() only exists with GPU_PROCESS. With it off, capture
-    // runs in-process and there is no GPU process to forward capture orientation to.
+#if PLATFORM(COCOA)
     RefPtr gpuProcess = m_configuration->processPool().gpuProcess();
     if (gpuProcess && protect(preferences())->captureVideoInGPUProcessEnabled())
         gpuProcess->setOrientationForMediaCapture(orientation);

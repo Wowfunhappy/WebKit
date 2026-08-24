@@ -60,8 +60,9 @@ XPCSERVICES=$WEBKIT2_BUNDLE/Versions/A/XPCServices
 STOCK_BACKUP="${STOCK_BACKUP:-$(dirname "$WK_REPO")/stock-webkit-backup}"
 
 # macOS 10.9's QuickLook launches the FIXED helper-service set the 2014 stock WebKit shipped, so the
-# product ships all nine bundles: the two services modern WebKit builds, plus seven identity-renamed
-# clones. Each entry is "<base service>:<clone name>". See the cloning step in stage-frameworks.sh.
+# product ships those nine bundles -- Networking and WebContent plus seven identity-renamed clones --
+# alongside the GPU service. Each entry is "<base service>:<clone name>". See the cloning step in
+# stage-frameworks.sh.
 WK_XPC_VARIANTS="Networking:Networking.Development
 WebContent:WebContent.Development
 WebContent:OfflineStorage
@@ -69,6 +70,10 @@ WebContent:OfflineStorage.Development
 WebContent:Plugin.32
 WebContent:Plugin.64
 WebContent:Plugin.Development"
+
+# The service names launchd resolves, in the spelling xpc_connection_create() passes and
+# /System/Library/Caches/com.apple.xpchelper.cache records.
+WK_XPC_SERVICES="$(for n in Networking WebContent GPU $(echo "$WK_XPC_VARIANTS" | sed 's/^[^:]*://'); do echo "com.apple.WebKit.$n"; done)"
 
 # Absolute install_name each framework binary advertises (matches Safari's LC_LOAD_DYLIB).
 # macOS 10.9 ships bash 3.2 (no associative arrays), so this is a function keyed by the
@@ -150,10 +155,10 @@ wk_verify_tree() {
     [ -f "$pre$GST_DEPLOY/libgstreamer-1.0.0.dylib" ] || {
         echo "  MISSING GStreamer runtime: $pre$GST_DEPLOY/libgstreamer-1.0.0.dylib" >&2; bad=1; }
 
-    # The full stock XPC service set: the two real services plus the seven clones QuickLook
-    # resolves before it will render a web preview.
-    for n in Networking WebContent $(echo "$WK_XPC_VARIANTS" | sed 's/^[^:]*://'); do
-        f="$XPCSERVICES/com.apple.WebKit.$n.xpc/Contents/MacOS/com.apple.WebKit.$n"
+    # Networking, WebContent and GPU, plus the seven identity-renamed clones QuickLook resolves
+    # before it will render a web preview.
+    for svc in $WK_XPC_SERVICES; do
+        f="$XPCSERVICES/$svc.xpc/Contents/MacOS/$svc"
         [ -f "$pre$f" ] || { echo "  MISSING XPC service executable: $pre$f" >&2; bad=1; }
     done
 
@@ -171,6 +176,7 @@ wk_verify_tree() {
     local profiles_dir="$WEBKIT2_BUNDLE/Versions/A/Resources"
     local expected_profiles="com.apple.WebProcess.sb
 com.apple.WebKit.NetworkProcess.sb
+com.apple.WebKit.GPUProcess.sb
 com.apple.WebKit.webpushd.relocatable.mac.sb"
     for n in $expected_profiles; do
         [ -f "$pre$profiles_dir/$n" ] || {
@@ -220,5 +226,5 @@ com.apple.WebKit.webpushd.relocatable.mac.sb"
         echo "### FAILED: $label is not a complete WebKit product (see the errors above)." >&2
         return 1
     fi
-    echo "  verified: $label is complete (4 framework binaries fat with i386, 9 XPC services, webpushd, private runtime + GStreamer, single unwinder)"
+    echo "  verified: $label is complete (4 framework binaries fat with i386, 10 XPC services, webpushd, private runtime + GStreamer, single unwinder)"
 }

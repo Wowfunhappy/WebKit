@@ -508,12 +508,15 @@ bool ensureGStreamerInitialized()
 {
     // WARNING: Please note this function can be called from any thread, for instance when creating
     // a WebCodec element from a JS Worker.
-    // MAVERICKS_BACKPORT: widened from upstream's RELEASE_ASSERT(isInWebProcess()). The invariant is
-    // that the media engine initializes in a process that renders web content; on the GStreamer ports
-    // only the WebProcess does, while here WebKitLegacy hosts render in-process as well — Dictionary's
-    // panel, Mail's inline attachments, Dashboard web clips — and GStreamer is their media engine too.
-    // !processType() is a non-auxiliary application process, so the NetworkProcess and GPUProcess still
-    // trip this.
+    // MAVERICKS_BACKPORT: widened from upstream's RELEASE_ASSERT(isInWebProcess()). Upstream's
+    // invariant is that GStreamer initializes only in the WebProcess, which holds for ports whose
+    // only in-process renderer is the WebProcess. WebKitLegacy hosts render in-process too
+    // (Dictionary's panel, Mail's inline attachments, Dashboard web clips); !processType() is a
+    // non-auxiliary application process, so the NetworkProcess and the GPU process still trip this.
+    // That is the intended reach: media playback, capture and WebRTC codecs all stay in the web
+    // process here (UseGPUProcessForMediaEnabled, CaptureVideoInGPUProcessEnabled and
+    // WebRTCPlatformCodecsInGPUProcessEnabled are all false for USE(GSTREAMER)), and the GPU process
+    // reconstructs a frame the web process shares as a VideoFrameCV, never a VideoFrameGStreamer.
     RELEASE_ASSERT(isInWebProcess() || !processType());
     static std::once_flag onceFlag;
     static bool isGStreamerInitialized;

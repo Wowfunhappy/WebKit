@@ -336,12 +336,12 @@ MAVERICKS_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES 
 # in a unified bundle stay in Source/, where their list position decides which files share a bundle.
 list(APPEND WebCore_SOURCES
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/cocoa/MavericksBackportWebCoreGlue.mm
-    ${MAVERICKS_SUPPORT}/source/WebCore/platform/mediastream/libwebrtc/WebRTCCodecStubs109.mm
 )
 if (USE_GSTREAMER)
     list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES "${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer")
     list(APPEND WebCore_SOURCES
         ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/VideoLayerGStreamerCocoa.mm
+        ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/VideoFrameGStreamerCocoa.mm
     )
 endif ()
 

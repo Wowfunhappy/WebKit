@@ -68,6 +68,26 @@ for bundle in $WK_INSTALL_ROOTS; do
 done
 
 # ---------------------------------------------------------------------------
+# XPC service inventory. 10.9 resolves an xpc_connection_create() name for a service under /System
+# through /System/Library/Caches/com.apple.xpchelper.cache, which the OS builds once at install time
+# and never revisits. A service this port ships that stock 10.9 never had -- com.apple.WebKit.GPU --
+# is absent from that cache, so launchd answers the connection with an error, ProcessLauncher reports
+# a pid of 0, and GPUProcessProxy treats every launch as a crash. xpchelper regenerates the cache
+# from what is on disk.
+echo "### Rebuilding the system XPC service cache"
+/usr/libexec/xpchelper --rebuild-cache
+# Match on the recorded executable path rather than the service name: the cache interns the names
+# adjacent to other fields, so a name is not a line of its own, and one service name is a prefix of
+# another's ("...Networking" of "...Networking.Development").
+for svc in $WK_XPC_SERVICES; do
+    if [ "$(strings /System/Library/Caches/com.apple.xpchelper.cache | grep -Fc "$XPCSERVICES/$svc.xpc/Contents/MacOS/$svc")" = 0 ]; then
+        echo "ERROR: $svc is missing from the rebuilt XPC service cache." >&2
+        exit 1
+    fi
+done
+echo "  cache holds all $(set -- $WK_XPC_SERVICES; echo $#) WebKit services"
+
+# ---------------------------------------------------------------------------
 # Web Push daemon: the webpushd binary rides inside the WK2 framework (staged with it above), and
 # WebKit submits its launchd job when a browser session that uses push starts up
 # (UIProcess/WebsiteData/Cocoa/WebsiteDataStoreCocoa.mm). Clear the job this login session holds, so

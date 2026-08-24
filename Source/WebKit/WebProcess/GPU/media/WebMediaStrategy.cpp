@@ -168,14 +168,7 @@ void WebMediaStrategy::enableMockMediaSource()
 void WebMediaStrategy::nativeImageFromVideoFrame(const WebCore::VideoFrame& frame, CompletionHandler<void(std::optional<RefPtr<WebCore::NativeImage>>&&)>&& completionHandler)
 {
     // FIXME: Move out of sync IPC.
-    // MAVERICKS_BACKPORT: WebProcess::ensureGPUProcessConnection() only exists under ENABLE(GPU_PROCESS) (off
-    // on this in-process port); the video frame's native image is served in-process elsewhere, so signal none.
-#if ENABLE(GPU_PROCESS)
     completionHandler(protect(protect(WebProcess::singleton().ensureGPUProcessConnection())->videoFrameObjectHeapProxy())->getNativeImage(frame));
-#else // MAVERICKS_BACKPORT: GPU_PROCESS is off — no GPU connection, so signal no native image (nullopt); see above.
-    UNUSED_PARAM(frame);
-    completionHandler(std::nullopt);
-#endif
 }
 #endif
 

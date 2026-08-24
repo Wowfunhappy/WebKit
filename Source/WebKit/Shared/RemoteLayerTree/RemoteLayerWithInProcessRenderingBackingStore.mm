@@ -28,22 +28,11 @@
 
 #import "DynamicContentScalingBifurcatedImageBuffer.h"
 #import "ImageBufferShareableBitmapBackend.h"
-// MAVERICKS_BACKPORT: the shareable mapped-IOSurface backend is GPU-process-only; on 10.9 alias the name to WebCore's plain ImageBufferIOSurfaceBackend so the in-process path still has a usable IOSurface backend.
-#if ENABLE(GPU_PROCESS) && HAVE(IOSURFACE)
 #import "ImageBufferShareableMappedIOSurfaceBackend.h"
-#else
-#import <WebCore/ImageBufferIOSurfaceBackend.h>
-namespace WebKit {
-using ImageBufferShareableMappedIOSurfaceBackend = WebCore::ImageBufferIOSurfaceBackend;
-}
-#endif
 #import "Logging.h"
 #import "PlatformCALayerRemote.h"
 #import "PrepareBackingStoreBuffersData.h"
-// MAVERICKS_BACKPORT: remote image-buffer-set proxy is GPU-process-only; not present in the in-process-only 10.9 build.
-#if ENABLE(GPU_PROCESS)
 #import "RemoteImageBufferSetProxy.h"
-#endif
 #import "RemoteLayerBackingStoreCollection.h"
 #import "RemoteLayerTreeContext.h"
 #import <WebCore/GraphicsContext.h>
@@ -84,21 +73,8 @@ void RemoteLayerWithInProcessRenderingBackingStore::clearBackingStore()
 
 static std::optional<ImageBufferBackendHandle> handleFromBuffer(ImageBuffer& buffer)
 {
-    // MAVERICKS_BACKPORT: 10.9 uses WebCore's plain ImageBufferIOSurfaceBackend, which is not an ImageBufferBackendHandleSharing; when the sharing downcast fails, derive the backend handle directly from the IOSurface send right so the layer can still receive contents.
-    auto* backendSharing = buffer.toBackendSharing();
-    auto* sharing = dynamicDowncast<ImageBufferBackendHandleSharing>(backendSharing);
-    auto* surface = buffer.surface();
-    if (sharing) {
-        auto h = sharing->takeBackendHandle(SharedMemory::Protection::ReadOnly);
-        return h;
-    }
-#if HAVE(IOSURFACE)
-    if (surface) {
-        auto sendRight = surface->createSendRight();
-        return ImageBufferBackendHandle(WTF::move(sendRight));
-    }
-#endif
-    return std::nullopt;
+    auto* sharing = dynamicDowncast<ImageBufferBackendHandleSharing>(buffer.toBackendSharing());
+    return sharing ? sharing->takeBackendHandle(SharedMemory::Protection::ReadOnly) : std::nullopt;
 }
 
 std::optional<ImageBufferBackendHandle> RemoteLayerWithInProcessRenderingBackingStore::frontBufferHandle() const

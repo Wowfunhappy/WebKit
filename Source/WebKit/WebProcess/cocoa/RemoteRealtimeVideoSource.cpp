@@ -31,11 +31,6 @@
 #include "RemoteRealtimeMediaSourceInlines.h"
 #include "UserMediaCaptureManager.h"
 #include "UserMediaCaptureManagerProxyMessages.h"
-// MAVERICKS_BACKPORT: remoteVideoFrameAvailable calls VideoFrame::presentationTime() and
-// presentationSize(), and RealtimeMediaSource.h only forward-declares the class. This port's
-// source list packs the unified-source bundles differently, so the definition no longer arrives
-// through a bundle-mate.
-#include <WebCore/VideoFrame.h>
 
 namespace WebKit {
 using namespace WebCore;

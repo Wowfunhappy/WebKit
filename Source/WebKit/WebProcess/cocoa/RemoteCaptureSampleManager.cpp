@@ -150,14 +150,11 @@ void RemoteCaptureSampleManager::didUpdateSourceConnection(IPC::Connection& conn
     setConnection(&connection);
 }
 
-// MAVERICKS_BACKPORT: the backport runs without a GPU process, so the RemoteVideoFrameObjectHeapProxy path does not exist; guard this setter under ENABLE(GPU_PROCESS) so it compiles out on 10.9.
-#if ENABLE(GPU_PROCESS)
 void RemoteCaptureSampleManager::setVideoFrameObjectHeapProxy(RefPtr<RemoteVideoFrameObjectHeapProxy>&& proxy)
 {
     Locker lock(m_videoFrameObjectHeapProxyLock);
     m_videoFrameObjectHeapProxy = WTF::move(proxy);
 }
-#endif // MAVERICKS_BACKPORT: setVideoFrameObjectHeapProxy is GPU-process-only (GPU_PROCESS off on 10.9)
 
 void RemoteCaptureSampleManager::audioStorageChanged(WebCore::RealtimeMediaSourceIdentifier identifier, ConsumerSharedCARingBuffer::Handle&& handle, const WebCore::CAAudioStreamDescription& description, IPC::Semaphore&& semaphore, const MediaTime& mediaTime, uint64_t frameChunkSize)
 {
@@ -171,8 +168,6 @@ void RemoteCaptureSampleManager::audioStorageChanged(WebCore::RealtimeMediaSourc
     iterator->value->setStorage(WTF::move(handle), description, WTF::move(semaphore), mediaTime, frameChunkSize);
 }
 
-// MAVERICKS_BACKPORT: the RemoteVideoFrameProxy delivery path requires a GPU process, which the backport does not run; guard this handler under ENABLE(GPU_PROCESS) so it compiles out on 10.9. Capture frames instead arrive via videoFrameAvailableCV below.
-#if ENABLE(GPU_PROCESS)
 void RemoteCaptureSampleManager::videoFrameAvailable(RealtimeMediaSourceIdentifier identifier, RemoteVideoFrameProxy::Properties&& properties, VideoFrameTimeMetadata metadata)
 {
     ASSERT(!WTF::isMainRunLoop());
@@ -189,7 +184,6 @@ void RemoteCaptureSampleManager::videoFrameAvailable(RealtimeMediaSourceIdentifi
     }
     Ref { iterator->value }->remoteVideoFrameAvailable(WTF::move(videoFrame), metadata);
 }
-#endif // ENABLE(GPU_PROCESS) — MAVERICKS_BACKPORT: GPU-process frame delivery dead on 10.9; frames arrive via videoFrameAvailableCV below
 
 void RemoteCaptureSampleManager::videoFrameAvailableCV(RealtimeMediaSourceIdentifier identifier, RetainPtr<CVPixelBufferRef>&& pixelBuffer, WebCore::VideoFrame::Rotation rotation, bool mirrored, MediaTime presentationTime, WebCore::VideoFrameTimeMetadata metadata)
 {

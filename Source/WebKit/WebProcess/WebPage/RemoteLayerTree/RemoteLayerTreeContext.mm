@@ -238,9 +238,6 @@ void RemoteLayerTreeContext::animationDidEnd(WebCore::PlatformLayerIdentifier la
         RefPtr { it->value.get() }->animationEnded(key);
 }
 
-// MAVERICKS_BACKPORT: these GPU-process accessors are ENABLE(GPU_PROCESS)-only (WebPage::ensureRemoteRendering-
-// BackendProxy() does not exist with it off); the restore dropped HEAD's guard.
-#if ENABLE(GPU_PROCESS)
 RemoteRenderingBackendProxy& RemoteLayerTreeContext::ensureRemoteRenderingBackendProxy()
 {
     return protect(webPage())->ensureRemoteRenderingBackendProxy();
@@ -250,6 +247,5 @@ void RemoteLayerTreeContext::gpuProcessConnectionWasDestroyed()
 {
     m_backingStoreCollection->gpuProcessConnectionWasDestroyed();
 }
-#endif // MAVERICKS_BACKPORT: close the GPU_PROCESS guard on these GPU-process accessors (see above).
 
 } // namespace WebKit

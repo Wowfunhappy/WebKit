@@ -29,25 +29,6 @@ list(APPEND ANGLE_DEFINITIONS
     # desktop GL entry points load and the FunctionsGL pointers stay null — caps
     # generation then calls a null genTextures/genFramebuffers and crashes WebContent.
     ANGLE_ENABLE_GL_DESKTOP_BACKEND
-    # MAVERICKS_BACKPORT: this port runs WebGL in Workers in-process (there is no GPU process here,
-    # see WebWorkerClient::createGraphicsContextGL), so GL entry points ARE called from more than one
-    # thread. ANGLE's contract for that is explicit: without ANGLE_ENABLE_SHARE_CONTEXT_LOCK,
-    # SCOPED_SHARE_CONTEXT_LOCK() expands to NOTHING (libGLESv2/global_state.h) and "the client needs
-    # to use gl calls in a threadsafe way" — the global mutex ANGLE always takes covers EGL entry
-    # points only. This client cannot make that promise, so the lock is enabled.
-    #
-    # Note this is NOT what keeps two threads off one real GL context: the CGL backend virtualizes one
-    # CGLContextObj + RendererGL per EGLDisplay, and CGL forbids a context being current on two
-    # threads at once, which no lock inside ANGLE repairs (measured: with only this lock, concurrent
-    # main-thread + worker WebGL still aborted in Apple's GLEngine). That is solved by giving each
-    # thread its own EGLDisplay — see initializeEGLDisplay in GraphicsContextGLCocoa.mm.
-    #
-    # ANGLE_FORCE_CONTEXT_CHECK_EVERY_CALL is deliberately NOT set. It exists for contexts that share
-    # a RendererGL, which per-thread displays never do, and it compares against the process-global
-    # g_LastContext (global_state.cpp), so with two threads drawing it would call
-    # Context::dirtyAllState() on effectively every GL entry point — a full state re-sync per call,
-    # degrading the very concurrency this configuration exists to provide.
-    ANGLE_ENABLE_SHARE_CONTEXT_LOCK
 )
 
 list(APPEND ANGLEGLESv2_LIBRARIES

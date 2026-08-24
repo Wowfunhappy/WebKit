@@ -116,7 +116,12 @@ bool defaultAppleMailPaginationQuirkEnabled()
 #if ENABLE(MEDIA_STREAM)
 bool defaultCaptureAudioInGPUProcessEnabled()
 {
-#if ENABLE(GPU_PROCESS_BY_DEFAULT)
+    // MAVERICKS_BACKPORT: also require !USE(GSTREAMER), the term
+    // CaptureVideoInGPUProcessEnabled carries in UnifiedWebPreferences.yaml. GPU-process audio capture
+    // reaches UserMediaCaptureManagerProxySourceProxy::audioSamplesAvailable, which stores through
+    // downcast<WebAudioBufferList>(audioData); this port's samples are GStreamerAudioData and the
+    // downcast traps.
+#if ENABLE(GPU_PROCESS_BY_DEFAULT) && !USE(GSTREAMER)
     return true;
 #else
     return false;

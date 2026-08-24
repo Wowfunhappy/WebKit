@@ -30,10 +30,7 @@
 #import "GraphicsLayerCARemote.h"
 #import "MessageSenderInlines.h"
 #import "PlatformCALayerRemote.h"
-// MAVERICKS_BACKPORT: GPU process is disabled on this port; only import its proxy header when GPU_PROCESS is enabled.
-#if ENABLE(GPU_PROCESS)
 #import "RemoteImageBufferSetProxy.h"
-#endif
 #import "RemoteLayerBackingStoreCollection.h"
 #import "RemoteLayerTreeCommitBundle.h"
 #import "RemoteLayerTreeContext.h"
@@ -115,13 +112,10 @@ void RemoteLayerTreeDrawingArea::setPreferredFramesPerSecond(FramesPerSecond pre
     send(Messages::RemoteLayerTreeDrawingAreaProxy::SetPreferredFramesPerSecond(preferredFramesPerSecond));
 }
 
-// MAVERICKS_BACKPORT: GPU process is disabled on this port; this handler only exists when GPU_PROCESS is enabled.
-#if ENABLE(GPU_PROCESS)
 void RemoteLayerTreeDrawingArea::gpuProcessConnectionWasDestroyed()
 {
     m_remoteLayerTreeContext->gpuProcessConnectionWasDestroyed();
 }
-#endif // MAVERICKS_BACKPORT: ENABLE(GPU_PROCESS)
 
 void RemoteLayerTreeDrawingArea::updateRootLayers()
 {
@@ -458,11 +452,7 @@ void RemoteLayerTreeDrawingArea::displayDidRefresh(MonotonicTime start)
 
     auto wasWaitingForBackingStoreSwap = std::exchange(m_waitingForBackingStoreSwap, false);
 
-    // MAVERICKS_BACKPORT: GPU process is disabled here; with no remote rendering the IOSurface-GC transaction must always run, so the guard is compiled out.
-#if ENABLE(GPU_PROCESS)
-    if (!WebProcess::singleton().shouldUseRemoteRenderingFor(WebCore::RenderingPurpose::DOM))
-#endif
-    {
+    if (!WebProcess::singleton().shouldUseRemoteRenderingFor(WebCore::RenderingPurpose::DOM)) {
         // This empty transaction serves to trigger CA's garbage collection of IOSurfaces. See <rdar://problem/16110687>
         [CATransaction begin];
         [CATransaction commit];
