@@ -5,7 +5,7 @@
 # thing that settles it is asking the kernel about the live processes, which is what sandbox_check()
 # does. Run this with Safari open on a page.
 #
-# Reports every WebContent / Networking / webpushd process it finds, and fails if any of them is
+# Reports every WebContent / Networking / GPU / webpushd process it finds, and fails if any of them is
 # unconfined or answers "permitted" to something its profile must deny.
 set -u
 
@@ -38,7 +38,7 @@ pidsForProcess() # $1 = exact executable basename
 
 status=0
 found=0
-for process in com.apple.WebKit.WebContent com.apple.WebKit.Networking webpushd; do
+for process in com.apple.WebKit.WebContent com.apple.WebKit.Networking com.apple.WebKit.GPU webpushd; do
     pids="$(pidsForProcess "$process")"
     if [ -z "$pids" ]; then
         echo "== $process: not running"

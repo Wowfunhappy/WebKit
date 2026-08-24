@@ -25,17 +25,6 @@
 
 #pragma once
 
-// MAVERICKS_BACKPORT: SwapBuffersDisplayRequirement is needed without the GPU process too --
-// ImageBufferSet drives the in-process RemoteLayerBackingStore swap on this port -- so it sits
-// above the guard. The IPC payload structs below remain GPU-process-only.
-namespace WebKit {
-enum class SwapBuffersDisplayRequirement : uint8_t {
-    NeedsFullDisplay,
-    NeedsNormalDisplay,
-    NeedsNoDisplay
-};
-} // namespace WebKit
-
 #if ENABLE(GPU_PROCESS)
 
 #include "BufferIdentifierSet.h"
@@ -50,14 +39,11 @@ class TextStream;
 
 namespace WebKit {
 
-// MAVERICKS_BACKPORT: SwapBuffersDisplayRequirement is defined above the ENABLE(GPU_PROCESS) guard at
-// the top of this file instead of here, so the in-process swap path can see it. Upstream's text, in
-// place:
-// enum class SwapBuffersDisplayRequirement : uint8_t {
-//     NeedsFullDisplay,
-//     NeedsNormalDisplay,
-//     NeedsNoDisplay
-// };
+enum class SwapBuffersDisplayRequirement : uint8_t {
+    NeedsFullDisplay,
+    NeedsNormalDisplay,
+    NeedsNoDisplay
+};
 
 struct ImageBufferSetPrepareBufferForDisplayInputData {
     ImageBufferSetIdentifier remoteBufferSet;

@@ -199,9 +199,9 @@ target_link_options(WebKit PRIVATE "SHELL:-weak_framework Metal")
 # --------------------------------------------------------------------------
 list(REMOVE_ITEM WebKit_MESSAGES_IN_FILES
     UIProcess/Cocoa/VideoFullscreenManagerProxy
-    # AudioSessionRoutingArbitratorProxy.messages.in is EnabledBy=UseGPUProcessForMediaEnabled, a
-    # preference that only exists when ENABLE(GPU_PROCESS) is on; with it off the generated receiver
-    # references a SharedPreferencesForWebProcess member that was never emitted.
+    # ENABLE_ROUTING_ARBITRATION is off (AVAudioRoutingArbiter is absent at this deployment target),
+    # so AudioSessionRoutingArbitratorProxy is withheld from Sources.txt below and there is nothing
+    # for the generated receiver to call.
     UIProcess/Media/AudioSessionRoutingArbitratorProxy
     WebProcess/cocoa/VideoFullscreenManager
 )

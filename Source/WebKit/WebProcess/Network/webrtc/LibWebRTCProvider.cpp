@@ -90,8 +90,7 @@ void LibWebRTCProvider::disableNonLocalhostConnections()
     WebProcess::singleton().libWebRTCNetwork().disableNonLocalhostConnections();
 }
 
-// MAVERICKS_BACKPORT: also gate on ENABLE(GPU_PROCESS) — libWebRTCCodecs() lives in the GPU process, which is disabled on 10.9, so this hardware-decoder query is compiled out.
-#if PLATFORM(COCOA) && USE(LIBWEBRTC) && ENABLE(GPU_PROCESS)
+#if PLATFORM(COCOA) && USE(LIBWEBRTC)
 bool LibWebRTCProvider::isSupportingVP9HardwareDecoder() const
 {
     return WebProcess::singleton().libWebRTCCodecs().isSupportingVP9HardwareDecoder();
@@ -201,8 +200,7 @@ RefPtr<RTCDataChannelRemoteHandlerConnection> LibWebRTCProvider::createRTCDataCh
 void LibWebRTCProvider::setLoggingLevel(WTFLogLevel level)
 {
     WebCore::LibWebRTCProvider::setLoggingLevel(level);
-    // MAVERICKS_BACKPORT: also gate on ENABLE(GPU_PROCESS) — libWebRTCCodecs() lives in the GPU process (disabled on 10.9), so skip forwarding the log level to it.
-#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS)
+#if PLATFORM(COCOA)
     protect(WebProcess::singleton().libWebRTCCodecs())->setLoggingLevel(level);
 #endif
 }

@@ -76,9 +76,7 @@ private:
 
     webrtc::scoped_refptr<webrtc::PeerConnectionInterface> createPeerConnection(WebCore::ScriptExecutionContextIdentifier, webrtc::PeerConnectionObserver&, webrtc::PacketSocketFactory*, webrtc::PeerConnectionInterface::RTCConfiguration&&) final;
 
-#if PLATFORM(COCOA) && USE(LIBWEBRTC) && ENABLE(GPU_PROCESS)
-    // MAVERICKS_BACKPORT: these overrides call WebProcess::libWebRTCCodecs() (GPU-process only). With
-    // GPU_PROCESS off, drop the overrides so the WebCore base defaults are used (software VP9).
+#if PLATFORM(COCOA) && USE(LIBWEBRTC)
     bool isSupportingVP9HardwareDecoder() const final;
     void setVP9HardwareSupportForTesting(std::optional<bool>) final;
 #endif

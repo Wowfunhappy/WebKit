@@ -28,7 +28,7 @@ enum sandbox_filter_type {
 extern const enum sandbox_filter_type SANDBOX_CHECK_NO_REPORT;
 extern int sandbox_check(pid_t, const char *operation, enum sandbox_filter_type, ...);
 
-/* Probes a correctly applied WebContent/Networking profile denies. Each is outside every path
+/* Probes a correctly applied WebContent/Networking/GPU profile denies. Each is outside every path
    those profiles grant, so a "permitted" answer means the process is not really confined. */
 static const struct {
     const char *operation;

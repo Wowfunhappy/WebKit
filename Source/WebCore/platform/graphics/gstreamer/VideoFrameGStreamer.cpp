@@ -203,7 +203,6 @@ RefPtr<VideoFrame> VideoFrame::createFromPixelBuffer(Ref<PixelBuffer>&& pixelBuf
     return VideoFrameGStreamer::createFromPixelBuffer(WTF::move(pixelBuffer), { }, 1, { }, WTF::move(colorSpace));
 }
 
-
 RefPtr<VideoFrame> VideoFrame::fromNativeImage(NativeImage& image)
 {
     ensureVideoFrameDebugCategoryInitialized();
@@ -801,6 +800,7 @@ RefPtr<NativeImage> VideoFrameGStreamer::copyNativeImage() const
     return NativeImage::create(image->image());
 }
 #endif // PLATFORM(COCOA)
+
 GRefPtr<GstSample> VideoFrameGStreamer::resizedSample(const IntSize& destinationSize)
 {
     return convert(static_cast<GstVideoFormat>(pixelFormat()), destinationSize);

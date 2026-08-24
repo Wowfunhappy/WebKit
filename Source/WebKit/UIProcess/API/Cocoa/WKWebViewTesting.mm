@@ -750,11 +750,6 @@ static void dumpCALayer(TextStream& ts, CALayer *layer, bool traverse)
 
 - (void)_gpuToWebProcessConnectionCountForTesting:(void(^)(NSUInteger))completionHandler
 {
-#if !ENABLE(GPU_PROCESS)
-    // MAVERICKS_BACKPORT: the 10.9 build runs without a GPU process, so there are no
-    // GPU-to-web-process connections to count.
-    completionHandler(0);
-#else
     RefPtr gpuProcess = _page->configuration().processPool().gpuProcess();
     if (!gpuProcess) {
         completionHandler(0);
@@ -764,8 +759,6 @@ static void dumpCALayer(TextStream& ts, CALayer *layer, bool traverse)
     gpuProcess->webProcessConnectionCountForTesting([completionHandler = makeBlockPtr(completionHandler)](uint64_t count) {
         completionHandler(count);
     });
-    // MAVERICKS_BACKPORT: closes the !ENABLE(GPU_PROCESS) branch above (no GPU process on 10.9).
-#endif // ENABLE(GPU_PROCESS)
 }
 
 - (void)_setConnectedToHardwareConsoleForTesting:(BOOL)connected

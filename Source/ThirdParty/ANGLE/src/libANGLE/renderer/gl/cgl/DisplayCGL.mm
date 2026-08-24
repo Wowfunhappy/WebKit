@@ -188,20 +188,6 @@ egl::Error DisplayCGL::initialize(egl::Display *display)
 
         if (mPixelFormat == nullptr)
         {
-            // MAVERICKS_BACKPORT: no accelerated 3.2-Core renderer in the VM. Fall back to the software
-            // (GenericFloat) renderer.
-            std::vector<CGLPixelFormatAttribute> swAttribs;
-            swAttribs.push_back(kCGLPFAOpenGLProfile);
-            swAttribs.push_back(static_cast<CGLPixelFormatAttribute>(kCGLOGLPVersion_3_2_Core));
-            swAttribs.push_back(kCGLPFARendererID);
-            swAttribs.push_back(static_cast<CGLPixelFormatAttribute>(kCGLRendererGenericFloatID));
-            swAttribs.push_back(static_cast<CGLPixelFormatAttribute>(0));
-            GLint swVS = 0;
-            CGLChoosePixelFormat(swAttribs.data(), &mPixelFormat, &swVS);
-        }
-
-        if (mPixelFormat == nullptr)
-        {
             return egl::Error(EGL_NOT_INITIALIZED, "Could not create the context's pixel format.");
         }
     }

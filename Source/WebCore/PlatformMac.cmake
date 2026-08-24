@@ -208,6 +208,9 @@ list(APPEND WebCore_SOURCES
     platform/cf/MediaAccessibilitySoftLink.cpp
     platform/cf/SharedBufferCF.cpp
 
+    # MAVERICKS_BACKPORT: SharedVideoFrameInfo carries video frames over IPC for the GPU process;
+    # upstream's Xcode target compiles the directory, so its CMake list never names this file.
+    platform/cocoa/SharedVideoFrameInfo.mm
     platform/cocoa/ContentFilterUnblockHandlerCocoa.mm
     platform/cocoa/CoreVideoSoftLink.cpp
     platform/cocoa/FileMonitorCocoa.mm
@@ -344,6 +347,9 @@ list(APPEND WebCore_SOURCES
     platform/graphics/cv/GraphicsContextGLCVCocoa.mm
     platform/graphics/cv/ImageRotationSessionVT.mm
     platform/graphics/cv/PixelBufferConformerCV.cpp
+    # MAVERICKS_BACKPORT: PixelBufferConformerCV's pixel-format constructor lives in the .mm beside
+    # the .cpp, and the GPU process's video path calls it.
+    platform/graphics/cv/PixelBufferConformerCV.mm
 
     platform/graphics/mac/ColorMac.mm
     platform/graphics/mac/FloatPointMac.mm
@@ -593,6 +599,11 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/audio/cocoa/MediaSessionManagerCocoa.h
     platform/audio/cocoa/WebAudioBufferList.h
 
+    # MAVERICKS_BACKPORT: GPUConnectionToWebProcess.cpp includes this alongside
+    # MediaSessionManagerCocoa.h for all of PLATFORM(COCOA); the header guards its own body with
+    # PLATFORM(IOS_FAMILY), so on Mac it contributes nothing but still has to resolve.
+    platform/audio/ios/MediaSessionManagerIOS.h
+
     platform/audio/mac/SharedRoutingArbitrator.h
 
     platform/cf/MediaAccessibilitySoftLink.h
@@ -735,6 +746,15 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/mediastream/cocoa/AudioMediaStreamTrackRendererUnit.h
 
     platform/mediastream/mac/RealtimeIncomingVideoSourceCocoa.h
+
+    # MAVERICKS_BACKPORT: the GPU process includes these for all of PLATFORM(COCOA) while each
+    # guards its own body more narrowly, so they contribute nothing to this build but still have to
+    # resolve. AVAudioSessionCaptureDeviceManager.h is ENABLE(MEDIA_STREAM) && PLATFORM(IOS_FAMILY)
+    # (RemoteAudioSessionProxy.cpp, RemoteAudioMediaStreamTrackRendererInternalUnitManager.cpp);
+    # MediaPlayerPrivateMediaStreamAVFObjC.h is ENABLE(MEDIA_STREAM) && USE(AVFOUNDATION), and this
+    # port's media engine is GStreamer (RemoteMediaPlayerManager.cpp).
+    platform/mediastream/ios/AVAudioSessionCaptureDeviceManager.h
+    platform/graphics/avfoundation/objc/MediaPlayerPrivateMediaStreamAVFObjC.h
     platform/mediastream/mac/RealtimeVideoUtilities.h
     platform/mediastream/mac/WebAudioSourceProviderCocoa.h
 

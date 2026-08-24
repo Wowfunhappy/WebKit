@@ -1332,7 +1332,14 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     [self _wk_updateIntrinsicDeviceScaleFactor];
 }
 
-// push the hosting window's display ID to WebPageProxy (see -viewDidMoveToWindow).
+// push the hosting window's display ID to WebPageProxy (see -viewDidMoveToWindow). Also called
+// when a process launch builds a new drawing area, whose m_displayID starts empty
+// (MavericksPageClient::didRelaunchProcess).
+- (void)_mavericksPushWindowScreen
+{
+    [self _wk_windowDidChangeScreen:nil];
+}
+
 - (void)_wk_windowDidChangeScreen:(NSNotification *)notification
 {
     UNUSED_PARAM(notification);

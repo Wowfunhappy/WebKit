@@ -222,8 +222,6 @@ void WebPage::platformInitialize(const WebPageCreationParameters& parameters)
     platformInitializeAccessibility(shouldInitializeAccessibility ? ShouldInitializeNSAccessibility::Yes : ShouldInitializeNSAccessibility::No);
 
 #if ENABLE(MEDIA_STREAM)
-// MAVERICKS_BACKPORT: GPU process is disabled here; the #else branch routes capture entirely in-process (see the detailed note below).
-#if ENABLE(GPU_PROCESS)
     protect(WebProcess::singleton().userMediaCaptureManager())->setupCaptureProcesses(parameters.shouldCaptureAudioInUIProcess, parameters.shouldCaptureAudioInGPUProcess, parameters.shouldCaptureVideoInUIProcess, parameters.shouldCaptureVideoInGPUProcess, parameters.shouldCaptureDisplayInUIProcess, parameters.shouldCaptureDisplayInGPUProcess,
 #if ENABLE(WEB_RTC)
         m_page->settings().webRTCRemoteVideoFrameEnabled()
@@ -231,16 +229,6 @@ void WebPage::platformInitialize(const WebPageCreationParameters& parameters)
         false
 #endif // ENABLE(WEB_RTC)
     );
-#else
-    // MAVERICKS_BACKPORT: there is no GPU process and no UIProcess capture-manager proxy
-    // (UserMediaCaptureManagerProxy is instantiated only in the GPU process), so the only working
-    // capture path is in the WebProcess itself. Pass all capture-process flags false so
-    // UserMediaCaptureManager::setupCaptureProcesses does NOT register the Remote capture factory —
-    // RealtimeMediaSourceCenter then keeps its default in-process factories (AVVideoCaptureSource /
-    // CoreAudioCaptureSource, which compile on 10.9). The WebProcess still receives a camera sandbox
-    // extension because captureVideoInGPUProcessEnabled() is false (see UserMediaProcessManager).
-    protect(WebProcess::singleton().userMediaCaptureManager())->setupCaptureProcesses(false, false, false, false, false, false, false);
-#endif // ENABLE(GPU_PROCESS)
 #endif // ENABLE(MEDIA_STREAM)
 #if USE(LIBWEBRTC)
     LibWebRTCCodecs::setCallbacks(m_page->settings().webRTCPlatformCodecsInGPUProcessEnabled(), m_page->settings().webRTCRemoteVideoFrameEnabled());
@@ -1810,14 +1798,7 @@ void WebPage::drawRectToImage(FrameIdentifier frameID, const PrintInfo& printInf
 #if USE(CG)
     if (coreFrame) {
         ASSERT(coreFrame->document()->printing() || pdfDocumentForPrintingFrame(coreFrame.get()));
-        // MAVERICKS_BACKPORT: upstream uses ImageOption::Local + the chrome client, relying on the client's
-        // ShareableLocalSnapshot buffer being shareable so createHandle() can ship the rendered page to the
-        // UIProcess WKPrintingView. On 10.9 that purpose yields a non-ShareableBitmap backend, so
-        // createHandle() returns nullopt and the print preview comes back blank (the page IS painted — the
-        // bitmap just never crosses IPC). Force an explicit ShareableBitmap backend (client=nullptr ->
-        // ImageBufferShareableBitmapBackend) so the handle transfers; print rendering is a software paint
-        // that works fine on a CPU ShareableBitmap.
-        image = WebImage::create(imageSize, ImageOption::Shareable, DestinationColorSpace::SRGB(), nullptr);
+        image = WebImage::create(imageSize, ImageOption::Local, DestinationColorSpace::SRGB(), &m_page->chrome().client());
         if (!image || !image->context()) {
             ASSERT_NOT_REACHED();
             return completionHandler({ });
@@ -1899,8 +1880,6 @@ void WebPage::drawPrintContextPagesToGraphicsContext(GraphicsContext& context, c
     }
 }
 
-// MAVERICKS_BACKPORT: the remote-snapshot print path depends on the GPU process; gate it out since GPU_PROCESS is disabled on this port.
-#if ENABLE(GPU_PROCESS)
 void WebPage::drawPrintingRectToSnapshot(RemoteSnapshotIdentifier snapshotIdentifier, WebCore::FrameIdentifier frameID, const PrintInfo& printInfo, const WebCore::IntRect& rect, const WebCore::IntSize& imageSize, CompletionHandler<void(bool)>&& completionHandler)
 {
     RefPtr frame = WebProcess::singleton().webFrame(frameID);
@@ -1988,7 +1967,6 @@ void WebPage::drawPrintingPagesToSnapshot(RemoteSnapshotIdentifier snapshotIdent
     remoteRenderingBackend->sinkSnapshotRecorderIntoSnapshotFrame(WTF::move(m_remoteSnapshotState->recorder), frameID, Ref { m_remoteSnapshotState->callback }->chain());
     m_remoteSnapshotState = std::nullopt;
 }
-#endif // MAVERICKS_BACKPORT: ENABLE(GPU_PROCESS) — the remote-snapshot print path exists only with a GPU process, which is disabled here.
 
 void WebPage::handleAlternativeTextUIResult(const String& result)
 {

@@ -15,6 +15,11 @@ LOG=/tmp/wk_build.log
 # FAILED/dups/undefined counts below read it back. Run this bare and tail the log.
 exec >> "$LOG" 2>&1
 
+# install.sh installs the staged tree, which survives a failed build. This stamp is the freshness
+# signal: cleared here, written back only after a successful link, staging and audit run below.
+WK_BUILD_STAMP="$BUILD/staged/.build-complete"
+rm -f "$WK_BUILD_STAMP"
+
 # --- What this build links against ------------------------------------------------------------
 # deps/build_deps.sh replaces deps/build/{include,lib,bin} wholesale when it finishes, and every
 # link below reads from there. It force-loads the polyfill's shared/ sources into the whole media
@@ -249,6 +254,7 @@ done
 
 echo "==================== REBUILD DONE (rc=$RC) ===================="
 if [ "$RC" = 0 ]; then
+    date +%s > "$WK_BUILD_STAMP"
     echo "### the staged product is complete and installable: sudo bash MavericksSupport/install.sh"
 else
     echo "### NOT installable — see the errors above"

@@ -42,9 +42,10 @@ the 10.10+ `com.apple.iconservices` names, the 10.11+ `com.apple.nesessionmanage
 name, and the 10.10+ `xattr-regex` spelling in favour of 10.9's `xattr`. The rule invokes a bare
 `clang` off `PATH`, and that flag is what sets the deployment target the preprocessor sees.
 
-`com.apple.WebKit.webpushd.relocatable.mac.sb.in` has no such ancestor — webpushd postdates 10.9
-entirely — so it is upstream's current relocatable profile re-expressed in this OS's vocabulary.
-Its own header comment names each substitution.
+`com.apple.WebKit.webpushd.relocatable.mac.sb.in` and `com.apple.WebKit.GPUProcess.sb.in` have no
+such ancestor — webpushd and the GPU process both postdate 10.9 entirely — so each is upstream's
+current profile re-expressed in this OS's vocabulary, granting what this port's copy of that process
+actually does. Their own header comments name the substitutions.
 
 ## Changing a profile
 
@@ -56,7 +57,7 @@ Two things to know before editing:
 
 * **A profile that will not compile takes the browser down.** `initializeSandbox()` `CRASH()`es on
   a profile it cannot apply, so a typo here is a WebContent process that dies at launch, not a
-  warning. `scripts/check-sandbox-profiles.sh` compiles all three against 10.9's real compiler with
+  warning. `scripts/check-sandbox-profiles.sh` compiles all four against 10.9's real compiler with
   the same named parameters WebKit passes; run it before building.
 * **Denials are the source of truth.** `scripts/watch-sandbox-denials.sh` tails the kernel and
   sandboxd denial stream while you drive the browser. Reproduce the broken feature, read what was

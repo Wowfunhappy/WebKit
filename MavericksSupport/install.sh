@@ -39,6 +39,12 @@ if [ ! -d "$WK_STAGE_ROOT" ]; then
     echo "       Build it first: bash MavericksSupport/build.sh" >&2
     exit 1
 fi
+if [ ! -f "$WK_STAGE_ROOT/.build-complete" ]; then
+    echo "ERROR: $WK_STAGE_ROOT has no .build-complete stamp, so it is left over from a build that" >&2
+    echo "       did not finish. Installing it would put stale code on the system." >&2
+    echo "       Rebuild it: bash MavericksSupport/build.sh" >&2
+    exit 1
+fi
 wk_verify_tree "$WK_STAGE_ROOT" "the staged tree ($WK_STAGE_ROOT)" || {
     echo "       Rebuild it: bash MavericksSupport/build.sh" >&2
     exit 1; }
@@ -60,6 +66,26 @@ for bundle in $WK_INSTALL_ROOTS; do
     chown -R root:wheel "$bundle"
     echo "  installed."
 done
+
+# ---------------------------------------------------------------------------
+# XPC service inventory. 10.9 resolves an xpc_connection_create() name for a service under /System
+# through /System/Library/Caches/com.apple.xpchelper.cache, which the OS builds once at install time
+# and never revisits. A service this port ships that stock 10.9 never had -- com.apple.WebKit.GPU --
+# is absent from that cache, so launchd answers the connection with an error, ProcessLauncher reports
+# a pid of 0, and GPUProcessProxy treats every launch as a crash. xpchelper regenerates the cache
+# from what is on disk.
+echo "### Rebuilding the system XPC service cache"
+/usr/libexec/xpchelper --rebuild-cache
+# Match on the recorded executable path rather than the service name: the cache interns the names
+# adjacent to other fields, so a name is not a line of its own, and one service name is a prefix of
+# another's ("...Networking" of "...Networking.Development").
+for svc in $WK_XPC_SERVICES; do
+    if [ "$(strings /System/Library/Caches/com.apple.xpchelper.cache | grep -Fc "$XPCSERVICES/$svc.xpc/Contents/MacOS/$svc")" = 0 ]; then
+        echo "ERROR: $svc is missing from the rebuilt XPC service cache." >&2
+        exit 1
+    fi
+done
+echo "  cache holds all $(set -- $WK_XPC_SERVICES; echo $#) WebKit services"
 
 # ---------------------------------------------------------------------------
 # Web Push daemon: the webpushd binary rides inside the WK2 framework (staged with it above), and

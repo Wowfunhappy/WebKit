@@ -142,18 +142,23 @@ void MainThreadSharedTimer::setFireInterval(Seconds interval)
 #if PLATFORM(IOS_FAMILY)
         CFRunLoopAddTimer(WebThreadRunLoop(), sharedTimer().get(), kCFRunLoopCommonModes);
 #else
-        // MAVERICKS_BACKPORT: install the shared timer on the main run loop (CFRunLoopGetMain) rather than the
-        // calling thread's current run loop, and fold the existing-timer reschedule into an else branch so the
-        // timer is created/added exactly once on 10.9.
-        CFRunLoopAddTimer(CFRunLoopGetMain(), sharedTimer().get(), kCFRunLoopCommonModes); // MAVERICKS_BACKPORT: main run loop, not the current thread's.
+        // MAVERICKS_BACKPORT: addRunLoopMode() below adds this same timer to CFRunLoopGetMain() when
+        // a WK1 host registers a private mode, and a CFRunLoopTimer belongs to one run loop, so both
+        // sites have to name the same one. Naming the main run loop here says which.
+        // CFRunLoopAddTimer(CFRunLoopGetCurrent(), sharedTimer().get(), kCFRunLoopCommonModes);
+        CFRunLoopAddTimer(CFRunLoopGetMain(), sharedTimer().get(), kCFRunLoopCommonModes);
 
         // MAVERICKS_BACKPORT: also install in any app-registered private modes (see addRunLoopMode).
         for (auto& mode : extraTimerRunLoopModes())
             CFRunLoopAddTimer(CFRunLoopGetMain(), sharedTimer().get(), mode.get());
 #endif
-        setupPowerObserver(); // MAVERICKS_BACKPORT: runs once in the create-timer branch; the reschedule is the else below.
-    } else // MAVERICKS_BACKPORT: folded so the timer is created and added exactly once.
-        CFRunLoopTimerSetNextFireDate(sharedTimer().get(), fireDate);
+
+        setupPowerObserver();
+
+        return;
+    }
+
+    CFRunLoopTimerSetNextFireDate(sharedTimer().get(), fireDate);
 }
 
 void MainThreadSharedTimer::stop()

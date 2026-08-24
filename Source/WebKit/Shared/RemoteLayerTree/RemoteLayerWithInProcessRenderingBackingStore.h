@@ -25,10 +25,7 @@
 
 #pragma once
 
-// MAVERICKS_BACKPORT: ImageBufferSet builds without the GPU process on this port (see
-// Shared/graphics/ImageBufferSet.h); upstream reaches it through RemoteImageBufferSet.h,
-// which is GPU-process-only.
-#include "ImageBufferSet.h"
+#include "RemoteImageBufferSet.h"
 #include "RemoteLayerBackingStore.h"
 #include <WebCore/DynamicContentScalingResourceCache.h>
 #include <wtf/TZoneMalloc.h>

@@ -63,13 +63,42 @@ WK_POLYFILL_SEL("invalidateFences", "wk_invalidateFences");
 // only a plain CALayer, which lacks the selector on 10.9, gets this body.)
 - (void)wk_setCornerCurve:(NSString *)curve;
 - (void)wk_setContentsFormat:(NSString *)format;
+// -[CALayer setInheritsTiming:] (10.15+) chooses whether a layer's animations read their time base
+// from the superlayer's CAMediaTiming or keep their own. PlatformCAAnimationRemote passes NO after
+// adding an animation, so a remote layer tree's animation clocks do not drift with the timing of the
+// hosting layers replicated above them. 10.9's CALayer has no such selector and its compositor has
+// only the inheriting behaviour, which is the identity mapping here: every layer the remote tree
+// hangs these animations under is a WKCompositingLayer left at CAMediaTiming's defaults (beginTime 0,
+// speed 1, timeOffset 0), so the inherited time base and an independent one are the same clock.
+- (void)wk_setInheritsTiming:(BOOL)inheritsTiming;
 @end
 @implementation CALayer (WKPolyfillScope)
 - (void)wk_setCornerCurve:(NSString *)curve { (void)curve; }
 - (void)wk_setContentsFormat:(NSString *)format { (void)format; }
+- (void)wk_setInheritsTiming:(BOOL)inheritsTiming { (void)inheritsTiming; }
 @end
 WK_POLYFILL_SEL("setCornerCurve:", "wk_setCornerCurve:");
 WK_POLYFILL_SEL("setContentsFormat:", "wk_setContentsFormat:");
+WK_POLYFILL_SEL("setInheritsTiming:", "wk_setInheritsTiming:");
+
+// ---------------------------------------------------------------------------------------------------
+// -[CAAnimation setPreferredFrameRateRange:] and -[CAAnimation setHighFrameRateReason:] (macOS 12+)
+// hint the compositor toward a higher refresh rate on variable-refresh displays and tag why.
+// PlatformCAAnimationRemote sends both on every animation it builds. 10.9 drives fixed-refresh
+// displays only — there is no rate to vary and no arbiter to hear the reason — so accepting the hint
+// and leaving the animation on the display's one cadence is the whole of what this OS can do with it.
+// CAHighFrameRateReason is a uint32_t (WebKit's CAFrameRateRangeUtilities.h builds it with
+// CAHighFrameRateReasonMake).
+@interface CAAnimation (WKPolyfillScope)
+- (void)wk_setPreferredFrameRateRange:(CAFrameRateRange)range;
+- (void)wk_setHighFrameRateReason:(uint32_t)reason;
+@end
+@implementation CAAnimation (WKPolyfillScope)
+- (void)wk_setPreferredFrameRateRange:(CAFrameRateRange)range { (void)range; }
+- (void)wk_setHighFrameRateReason:(uint32_t)reason { (void)reason; }
+@end
+WK_POLYFILL_SEL("setPreferredFrameRateRange:", "wk_setPreferredFrameRateRange:");
+WK_POLYFILL_SEL("setHighFrameRateReason:", "wk_setHighFrameRateReason:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[CALayer usesWebKitBehavior] (10.13+) selects the compositor semantics WebKit is written against.

@@ -129,6 +129,7 @@
 - (void)_mavericksSetAccessibilityWebProcessToken:(NSData *)token processIdentifier:(pid_t)pid;
 - (void)_mavericksUpdateRemoteAccessibilityRegistration:(BOOL)registerProcess;
 - (void)_mavericksRegisterUIProcessAccessibilityTokens;
+- (void)_mavericksPushWindowScreen;
 @end
 
 // MAVERICKS_BACKPORT: 10.9 AppKit SPI consulted by viewLayerHostingMode() — whether the window's
@@ -1071,6 +1072,13 @@ void MavericksPageClient::didRelaunchProcess()
     // nothing about this view, so re-send the UI-process tokens (upstream's didRelaunchProcess does
     // exactly this).
     [m_view _mavericksRegisterUIProcessAccessibilityTokens];
+    // MAVERICKS_BACKPORT: and re-push the window's display, the other half of upstream's
+    // WebViewImpl::didRelaunchProcess ("Make sure DisplayID is set"). This process launch built a
+    // new DrawingAreaProxy, whose own m_displayID starts empty: WebPageProxy::windowScreenDidChange
+    // forwards to whichever drawing area exists when the view enters a window, and for a page whose
+    // process starts afterwards that is none. RemoteLayerTreeDrawingAreaProxyMac::displayLink()
+    // dereferences that optional on the first wheel event.
+    [m_view _mavericksPushWindowScreen];
 }
 void MavericksPageClient::preferencesDidChange()
 { }

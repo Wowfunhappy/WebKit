@@ -844,9 +844,15 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
         VERBATIM)
     list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebKit.NetworkProcess.sb)
 
-    if (ENABLE_GPU_PROCESS) # MAVERICKS_BACKPORT: the GPU-process sandbox profile is only built when that process is.
-        add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb COMMAND
-            grep -o "^[^;]*" ${WEBKIT_DIR}/GPUProcess/mac/com.apple.WebKit.GPUProcess.sb.in | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb
+    if (ENABLE_GPU_PROCESS)
+        # MAVERICKS_BACKPORT: build MavericksSupport's profile. Upstream's own GPUProcess/mac
+        # profile does not compile here -- 10.9's sandbox compiler stops at `unbound variable:
+        # nvram*` -- and initializeSandbox() CRASH()es on a profile it cannot apply. See
+        # MavericksSupport/sandbox/README.md.
+        add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb
+            # MAVERICKS_BACKPORT: source the profile from MavericksSupport (see the note above).
+            COMMAND grep -o "^[^;]*" ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.GPUProcess.sb.in | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb
+            DEPENDS ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.GPUProcess.sb.in
             VERBATIM)
         list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb)
     endif ()

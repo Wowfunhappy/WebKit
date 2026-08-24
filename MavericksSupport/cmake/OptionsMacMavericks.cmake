@@ -26,12 +26,11 @@ add_compile_definitions(WEBKIT_BUNDLE_VERSION="${WEBKIT_MAC_VERSION}")
 #   UNIFIED_PDF/PDF_PLUGIN        download path instead.
 #   PREDEFINED_COLOR_SPACE_       10.9 CoreGraphics has no Display-P3 named color space, so canvas
 #   DISPLAY_P3                    must not advertise 'display-p3' either.
-#   REMOTE_LAYER_TREE_ON_MAC_     compositing goes through TiledCoreAnimation here.
-#   BY_DEFAULT
-#   ROUTING_ARBITRATION           AudioSessionRoutingArbitratorProxy.messages.in is EnabledBy
-#                                 UseGPUProcessForMediaEnabled, whose preference carries
-#                                 `condition: ENABLE(GPU_PROCESS)` — off, so the message receiver
-#                                 does not generate.
+#   ROUTING_ARBITRATION           SharedRoutingArbitrator drives AVAudioRoutingArbiter, a class 10.9's
+#                                 AVFoundation does not export (verified with nm), reached through a
+#                                 non-optional SOFT_LINK_CLASS_FOR_SOURCE. The proxy and its Cocoa
+#                                 implementation are withheld from the source lists for the same
+#                                 reason (WebKitPlatformMavericks.cmake).
 #   SERVER_PRECONNECT             10.9 cannot warm a connection without transferring: a task flagged
 #                                 _preconnect performs a full GET when resumed, fetching every main
 #                                 resource twice and rotating a per-response Set-Cookie session out
@@ -46,7 +45,6 @@ add_compile_definitions(
     ENABLE_UNIFIED_PDF=0
     ENABLE_PDF_PLUGIN=0
     ENABLE_PREDEFINED_COLOR_SPACE_DISPLAY_P3=0
-    ENABLE_REMOTE_LAYER_TREE_ON_MAC_BY_DEFAULT=0
     ENABLE_ROUTING_ARBITRATION=0
     ENABLE_SERVER_PRECONNECT=0
     ENABLE_DNS_SERVER_FOR_TESTING=0
@@ -90,22 +88,14 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_DASHBOARD_SUPPORT PRIVATE ON)
 # CDMProxyClearKey + webkitclearkey decryptor element.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_ENCRYPTED_MEDIA PRIVATE ON)
 
-# OFF as a port architecture decision, not an absent capability -- IOSurface sharing
-# works here (see the restored IOSurface path). This port ships no GPU-process XPC service, and its media
-# stack is GStreamer in the web process, so there is no GPU process to move canvas or media to. Turning it
-# on means building and launching that service, which is its own piece of work.
-# See [[webkit-mavericks-multiprocess]].
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_GPU_PROCESS PRIVATE OFF)
-
-# FALSE, following ENABLE_GPU_PROCESS above. PlatformEnableCocoa.h defines this 1
-# for every Cocoa port under `#if !defined(...)`, which upstream never contradicts because its Cocoa
-# ports all build the GPU process; defining it here preempts that. It selects the default value of the
-# "do X in the GPU process" preferences -- CaptureVideoInGPUProcessEnabled, WebRTCPlatformCodecsIn-
-# GPUProcessEnabled, UseGPUProcessForCanvasRenderingEnabled and friends -- and those defaults are read
-# outside `#if ENABLE(GPU_PROCESS)`: UserMediaProcessManager::willCreateMediaStream issues the camera
-# and microphone sandbox extensions to WebContent only when capture is NOT in the GPU process, so a
-# true here left a capturing WebContent with no camera extension to hold.
-SET_AND_EXPOSE_TO_BUILD(ENABLE_GPU_PROCESS_BY_DEFAULT FALSE)
+# ON, matching the 1 PlatformEnableCocoa.h gives `ENABLE(MEDIA_SOURCE) && ENABLE(GPU_PROCESS)`.
+# The two sides of MediaProvider have to agree and only this value makes them: PlatformEnableCocoa.h
+# turns this on, which the C++ side sees, while preprocess-idls.pl is handed FEATURE_DEFINES, which
+# WEBKIT_OPTION_END builds from the declared WebKit options alone -- so an undeclared flag reaches the
+# headers but not the IDL, HTMLMediaElement.idl's MediaProvider union stays three-membered while the
+# C++ one grows a fourth, and JSHTMLMediaElement is asked to convert between them. Declaring it puts
+# it in FEATURE_DEFINES, so both sides of that union agree.
+WEBKIT_OPTION_DEFINE(ENABLE_MEDIA_SOURCE_IN_WORKERS "Toggle MediaSource in Workers support" PRIVATE ON)
 
 # OFF — Web Inspector extensions are not part of the 10.9 drop-in scope.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_INSPECTOR_EXTENSIONS PRIVATE OFF)

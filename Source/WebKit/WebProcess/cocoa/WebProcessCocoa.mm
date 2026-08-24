@@ -980,10 +980,10 @@ void WebProcess::platformInitializeProcess(const AuxiliaryProcessInitializationP
     WebCore::PublicSuffixStore::singleton().enablePublicSuffixCache();
 
 #if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: upstream denies the WebContent process its WindowServer connection here
-    // (CGSSetDenyWindowServerConnections(true), with a RELEASE_ASSERT on success). This port draws
-    // through TiledCoreAnimation in WebContent, which requires that connection, so the call is
-    // omitted. Everything else in this block is upstream.
+    // Deny the WebContent process access to the WindowServer.
+    // This call will not succeed if there are open WindowServer connections at this point.
+    auto retval = CGSSetDenyWindowServerConnections(true);
+    RELEASE_ASSERT(retval == kCGErrorSuccess);
 #if ENABLE(LAUNCHSERVICES_SANDBOX_EXTENSION_BLOCKING)
     setApplicationIsDaemon();
 #endif

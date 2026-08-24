@@ -1765,7 +1765,14 @@ CaptureVideoInGPUProcessEnabled:
   exposed: [ WebKit ]
   defaultValue:
     WebKit:
-      "ENABLE(GPU_PROCESS_BY_DEFAULT)": true
+      # MAVERICKS_BACKPORT: narrowed with the same `&& !USE(GSTREAMER)` term UseGPUProcessForMediaEnabled
+      # already carries upstream. GPU-process capture marshals audio through
+      # UserMediaCaptureManagerProxySourceProxy, which stores samples with
+      # downcast<WebAudioBufferList>(audioData) -- a CoreAudio type. This port captures through
+      # RealtimeMediaSourceCenterGStreamer (RealtimeMediaSourceCenterMac.cpp is withheld), whose
+      # PlatformAudioData is GStreamerAudioData, so that downcast traps. Capture runs in the web
+      # process here, as it does on the other GStreamer-capture ports.
+      "ENABLE(GPU_PROCESS_BY_DEFAULT) && !USE(GSTREAMER)": true
       default: false
 
 CaretBrowsingEnabled:
@@ -5381,7 +5388,13 @@ MediaSourceUseRemoteAudioVideoRenderer:
     WebKitLegacy:
       default: false
     WebKit:
-      default: true
+      # MAVERICKS_BACKPORT: narrowed with the same `&& !USE(GSTREAMER)` term UseGPUProcessForMediaEnabled
+      # carries upstream. This pref routes MSE through the GPU-process AudioVideoRenderer, an AVFObjC
+      # path: WebPage::updatePreferences feeds it to enableRemoteRenderer(AVFoundationMSE), and
+      # MediaPlayer::load then pins m_activeEngineIdentifier to AVFoundationMSE. This port registers
+      # only the GStreamer engines, so the pin leaves every MSE attach with no matching engine.
+      "!USE(GSTREAMER)": true
+      default: false
     WebCore:
       default: true
   sharedPreferenceForWebProcess: true
@@ -9821,7 +9834,9 @@ WebRTCPlatformCodecsInGPUProcessEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      "ENABLE(GPU_PROCESS_BY_DEFAULT)": true
+      # MAVERICKS_BACKPORT: the GPU-process codec path is LibWebRTCCodecs, which is
+      # USE(LIBWEBRTC)-only; this port's WebRTC backend is GStreamer's webrtcbin.
+      "ENABLE(GPU_PROCESS_BY_DEFAULT) && USE(LIBWEBRTC)": true
       default: false
     WebCore:
       default: false

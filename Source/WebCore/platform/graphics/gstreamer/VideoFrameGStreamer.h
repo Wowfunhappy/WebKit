@@ -34,6 +34,12 @@
 
 typedef struct _GstSample GstSample;
 
+// MAVERICKS_BACKPORT: for the locked CVPixelBuffer cache pixelBuffer() builds (see below).
+#if PLATFORM(COCOA)
+#include <wtf/Lock.h>
+#include <wtf/RetainPtr.h>
+#endif
+
 namespace WebCore {
 
 class PixelBuffer;
@@ -119,6 +125,17 @@ private:
     // MAVERICKS_BACKPORT: see VideoFrame::copyNativeImage(). The shared Cocoa definition (VideoFrameCV)
     // assumes a CVPixelBuffer; this override converts the decoded GstSample to a CGImage instead.
     RefPtr<NativeImage> copyNativeImage() const final;
+
+    // MAVERICKS_BACKPORT: VideoFrame::pixelBuffer() answers null unless the frame is CoreVideo-backed,
+    // and every Cocoa consumer that moves a frame across a process boundary reaches for it --
+    // SharedVideoFrameWriter::writeBuffer() and UserMediaCaptureManagerProxy's VideoFrameAvailableCV
+    // among them. Wrap this frame's pixels in a CVPixelBuffer so those paths carry GStreamer frames.
+    CVPixelBufferRef pixelBuffer() const final;
+    // VideoFrame is ThreadSafeRefCounted and UserMediaCaptureManagerProxy reaches pixelBuffer() from
+    // a background thread, so the lazy build is locked: two racing builds would map the same
+    // GstVideoFrame twice and unmap it twice.
+    mutable Lock m_cvPixelBufferLock;
+    mutable RetainPtr<CVPixelBufferRef> m_cvPixelBuffer WTF_GUARDED_BY_LOCK(m_cvPixelBufferLock);
 #endif
     Ref<VideoFrame> clone() final;
 

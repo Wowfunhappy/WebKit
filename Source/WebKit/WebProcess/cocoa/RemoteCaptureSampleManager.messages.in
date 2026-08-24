@@ -29,10 +29,7 @@
 ]
 messages -> RemoteCaptureSampleManager {
     AudioStorageChanged(WebCore::RealtimeMediaSourceIdentifier id, struct WebKit::ConsumerSharedCARingBufferHandle storageHandle, WebCore::CAAudioStreamDescription description, IPC::Semaphore captureSemaphore, MediaTime mediaTime, uint64_t frameChunkSize);
-    # MAVERICKS_BACKPORT: the RemoteVideoFrameProxy delivery path needs a GPU process, which the backport does not run; guard this message under ENABLE(GPU_PROCESS) so it is not generated on 10.9 (frames arrive via VideoFrameAvailableCV instead).
-#if ENABLE(GPU_PROCESS)
     VideoFrameAvailable(WebCore::RealtimeMediaSourceIdentifier id, struct WebKit::RemoteVideoFrameProxyProperties sample, struct WebCore::VideoFrameTimeMetadata metadata)
-#endif
     VideoFrameAvailableCV(WebCore::RealtimeMediaSourceIdentifier id, RetainPtr<CVPixelBufferRef> pixelBuffer, enum:uint16_t WebCore::VideoFrameRotation rotation, bool mirrored, MediaTime presentationTime, struct WebCore::VideoFrameTimeMetadata metadata)
 
 }

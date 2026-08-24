@@ -29,6 +29,7 @@ WEBKIT_DIR="$REPO/Source/WebKit"
 
 PROFILES="com.apple.WebProcess
 com.apple.WebKit.NetworkProcess
+com.apple.WebKit.GPUProcess
 com.apple.WebKit.webpushd.relocatable.mac"
 
 # The upstream revision the two recovered profiles were taken from: the commit immediately before

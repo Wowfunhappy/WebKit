@@ -582,8 +582,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     WebKit::setLockdownModeEnabledGloballyForTesting(std::nullopt);
 }
 
-// MAVERICKS_BACKPORT: GPU process is off on 10.9; guard these GPUProcessProxy-backed testing methods out so they don't reference an unbuilt proxy.
-#if ENABLE(GPU_PROCESS)
 + (void)_setEnableMetalDebugDeviceInNewGPUProcessesForTesting:(BOOL)enable
 {
     WebKit::GPUProcessProxy::setEnableMetalDebugDeviceInNewGPUProcessesForTesting(enable);
@@ -607,28 +605,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         return gpuProcess->isMetalShaderValidationEnabledForTesting();
     return WebKit::GPUProcessProxy::isMetalShaderValidationEnabledInNewGPUProcessesForTesting();
 }
-#else // MAVERICKS_BACKPORT: WKProcessPoolPrivate.h declares these four unconditionally, so guarding
-// only the bodies leaves declared SPI with no implementation -- a caller would take an unrecognized
-// selector rather than a defined answer. Answer degraded instead: with no GPU process there is no
-// Metal device to instrument, so the setters are no-ops and the queries are NO.
-+ (void)_setEnableMetalDebugDeviceInNewGPUProcessesForTesting:(BOOL)enable
-{
-}
-
-+ (void)_setEnableMetalShaderValidationInNewGPUProcessesForTesting:(BOOL)enable
-{
-}
-
-+ (BOOL)_isMetalDebugDeviceEnabledInGPUProcessForTesting
-{
-    return NO;
-}
-
-+ (BOOL)_isMetalShaderValidationEnabledInGPUProcessForTesting
-{
-    return NO;
-}
-#endif // ENABLE(GPU_PROCESS) — MAVERICKS_BACKPORT: GPU process is off on 10.9; the GPUProcessProxy testing methods above are guarded out
 
 - (BOOL)_isCookieStoragePartitioningEnabled
 {
@@ -714,8 +690,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     return WebKit::toAPI(protect(protect(*_processPool)->supplement<WebKit::WebNotificationManagerProxy>()).get());
 }
 
-// MAVERICKS_BACKPORT: GPU process is off on 10.9; guard the GPU process-info accessor out (GPUProcessProxy isn't built).
-#if ENABLE(GPU_PROCESS)
 + (_WKProcessInfo *)_gpuProcessInfo
 {
     RetainPtr<_WKProcessInfo> result;
@@ -727,14 +701,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
     return result.autorelease();
 }
-#else // MAVERICKS_BACKPORT: see the Metal testing methods above -- the declaration in
-// WKProcessPoolPrivate.h is unconditional, so the selector has to exist. With no GPU process there
-// is no process to report on, which is exactly what upstream returns when one has not been created.
-+ (_WKProcessInfo *)_gpuProcessInfo
-{
-    return nil;
-}
-#endif // ENABLE(GPU_PROCESS) — MAVERICKS_BACKPORT: GPU process is off on 10.9; the _gpuProcessInfo accessor above is guarded out
 
 + (NSArray<_WKProcessInfo *> *)_networkingProcessInfo
 {
