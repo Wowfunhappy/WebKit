@@ -2,6 +2,16 @@
 
 When merging from upstream, pay attention to the following.
 
+## Use the toolchain's git
+
+`MavericksSupport/toolchain/build/git/bin/git` is git 2.45.4; the host's `/usr/bin/git` is
+1.9.5. The merge itself is the reason: 1.9.5 predates the `ort` merge engine and its rename
+detection, `git merge-tree`, and wire protocol v2. Put it first on `PATH` for the duration:
+
+```
+export PATH="$PWD/MavericksSupport/toolchain/build/git/bin:$PATH"
+```
+
 ## `MAVERICKS_BACKPORT` comments
 
 ```

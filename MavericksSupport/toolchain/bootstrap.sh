@@ -15,7 +15,7 @@ BUILD="$HERE/build"
 SCRIPTS="$HERE/scripts"
 mkdir -p "$BUILD"
 
-echo "### [1/7] assemble build/clang from vendor/clang"
+echo "### [1/8] assemble build/clang from vendor/clang"
 CLANG_OUT="$BUILD/clang"
 if [ ! -x "$CLANG_OUT/bin/clang-22" ]; then
     rm -rf "$CLANG_OUT"; mkdir -p "$CLANG_OUT/bin"
@@ -45,11 +45,12 @@ else
     echo "    already present, skipping"
 fi
 
-echo "### [2/7] cctools"; [ -x "$BUILD/cctools/bin/otool" ]   || "$SCRIPTS/build_cctools.sh"
-echo "### [3/7] python3"; [ -x "$BUILD/python3/bin/python3" ] || "$SCRIPTS/build_python3.sh"
-echo "### [4/7] nasm";    [ -x "$BUILD/nasm/bin/nasm" ]       || "$SCRIPTS/build_nasm.sh"
-echo "### [5/7] ninja";   [ -x "$BUILD/ninja/bin/ninja" ]     || "$SCRIPTS/build_ninja.sh"
-echo "### [6/7] cmake";   [ -x "$BUILD/cmake/bin/cmake" ]     || "$SCRIPTS/build_cmake.sh"
-echo "### [7/7] ccache";  [ -x "$BUILD/ccache/bin/ccache" ]   || "$SCRIPTS/build_ccache.sh"
+echo "### [2/8] cctools"; [ -x "$BUILD/cctools/bin/otool" ]   || "$SCRIPTS/build_cctools.sh"
+echo "### [3/8] python3"; [ -x "$BUILD/python3/bin/python3" ] || "$SCRIPTS/build_python3.sh"
+echo "### [4/8] nasm";    [ -x "$BUILD/nasm/bin/nasm" ]       || "$SCRIPTS/build_nasm.sh"
+echo "### [5/8] ninja";   [ -x "$BUILD/ninja/bin/ninja" ]     || "$SCRIPTS/build_ninja.sh"
+echo "### [6/8] cmake";   [ -x "$BUILD/cmake/bin/cmake" ]     || "$SCRIPTS/build_cmake.sh"
+echo "### [7/8] ccache";  [ -x "$BUILD/ccache/bin/ccache" ]   || "$SCRIPTS/build_ccache.sh"
+echo "### [8/8] git";     [ -x "$BUILD/git/bin/git" ]         || "$SCRIPTS/build_git.sh"
 
 echo "### toolchain ready under $BUILD"

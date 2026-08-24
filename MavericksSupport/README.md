@@ -42,7 +42,7 @@ MavericksSupport/
 ├── host-abi/                   the symbols Safari 7 binds from our frameworks + check-abi-gap.sh (build gate)
 ├── sdk/                        patch-sdk.sh: the two edits the build needs in the macOS SDK (run by bootstrap.sh)
 ├── demangler/                  the demangler guard (_Z -> _z rename so symbolication can't crash), run by staging
-├── toolchain/                  the in-tree compiler + helper build tools (vendor/ committed, build/ regenerated)
+├── toolchain/                  the in-tree compiler + helper build tools, incl. a modern git (vendor/ committed, build/ regenerated)
 ├── deps/                       third-party libraries WebKit links: build/ regenerated, work/ builds it (see deps/README.md)
 ├── docs/                       prose: upstream-merge notes + the private WebKit ABI reference
 └── tests/                      manual test pages (see tests/README.md)
@@ -60,7 +60,7 @@ and install prefix, and that build's own ccache.
    `MacOSX26.1.sdk` as a **sibling of this checkout** (or set `MAVERICKS_SDK`).
 
 2. **Bootstrap** (once): `bash MavericksSupport/bootstrap.sh` — unpacks the in-tree clang and builds
-   python3/nasm/ninja/cmake/ccache into `toolchain/build/`, applies the SDK patches, builds the
+   python3/nasm/ninja/cmake/ccache/git into `toolchain/build/`, applies the SDK patches, builds the
    third-party libraries into `deps/build/` and the polyfill archives into `polyfill/build/`. Budget
    a couple of hours for a cold run.
 
