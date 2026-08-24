@@ -73,7 +73,8 @@ LIBDIR="$ROOT/WebKitBuild/Release/lib"
 BINDIR="$ROOT/WebKitBuild/Release/bin"
 POLYBUILD="$ROOT/MavericksSupport/polyfill/build"
 WKTR_DIR="$ROOT/Tools/WebKitTestRunner"
-INT="${INSTALL_NAME_TOOL:-install_name_tool}"
+. "$ROOT/MavericksSupport/scripts/cctools.sh"
+INT="$CCTOOLS/install_name_tool"
 
 # install_name_tool over a file this script just copied. A failure is the Mach-O being unwritable or
 # out of load-command padding, and the copy would keep the install name it was built with.
@@ -164,7 +165,7 @@ fi
 repoint_all() { # bin substr new
     local bin="$1" substr="$2" new="$3" dep deps loaded
     # otool's own status first: it exits 1 on a file it cannot read, which is not "no matching deps".
-    if ! loaded=$(/usr/bin/otool -L "$bin"); then
+    if ! loaded=$("$CCTOOLS/otool" -L "$bin"); then
         echo "ERROR: could not read the load commands of $bin" >&2
         exit 1
     fi

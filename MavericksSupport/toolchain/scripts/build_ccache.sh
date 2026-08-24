@@ -55,7 +55,8 @@ echo "### Building"
 make -j4
 
 echo "### Validate: no dependency on the host's libz"
-linked="$(otool -L ./ccache)"   # capture first, so a failing otool can't read as a pass
+. "$TOOLCHAIN/../scripts/cctools.sh"
+linked="$("$CCTOOLS/otool" -L ./ccache)"   # capture first, so a failing otool can't read as a pass
 echo "$linked" | grep -q libz && { echo "### FAIL: links host libz"; exit 1; } || echo "### no libz"
 
 echo "### Validate: compiling the same input twice yields a DIRECT cache hit"
@@ -71,7 +72,7 @@ direct=$(./ccache -s | awk '/cache hit \(direct\)/{print $NF}')
 [ "${direct:-0}" -ge 1 ] && echo "### direct mode works ($direct hit)" || { echo "### FAIL: no direct cache hit"; exit 1; }
 
 echo "### 10.9-self-sufficient? (no post-10.9 imports)"
-undefined="$(nm -u ./ccache)"   # capture first, so a failing nm can't read as a pass
+undefined="$("$CCTOOLS/nm" -u ./ccache)"   # capture first, so a failing nm can't read as a pass
 echo "$undefined" | grep -iE "getentropy|getrandom|clock_gettime|arc4random" \
     && { echo "### FAIL: post-10.9 symbol"; exit 1; } || echo "### 10.9-clean"
 

@@ -29,11 +29,6 @@ TC="${MAVERICKS_CLANG:-$WK_SUPPORT/toolchain/build/clang}"
 # alternate build of it.
 GST_SRC="${GST_SRC:-$WK_SUPPORT/deps/build/lib}"
 
-INT="$(wk_find_install_name_tool)"
-OTOOL="$(wk_find_otool)"
-LIPO="$(wk_find_lipo)"
-echo "### Tools: install_name_tool=$INT otool=$OTOOL lipo=$LIPO"
-
 # The staged twin of an installed path.
 s() { echo "$STAGE$1"; }
 
@@ -176,7 +171,7 @@ rewrite_rpath_deps() {
         case "$dep" in @rpath/*) ;; *) continue;; esac
         abs="$(absolute_for_rpath_dep "$dep")"
         if [ -n "$abs" ]; then
-            "$INT" -change "$dep" "$abs" "$bin"
+            "$INSTALL_NAME_TOOL" -change "$dep" "$abs" "$bin"
         else
             echo "  WARNING: unmapped @rpath dependency in $(basename "$bin"): $dep" >&2
         fi
@@ -188,7 +183,7 @@ rewrite_rpath_deps() {
 # failure here is the Mach-O being unwritable or out of load-command padding -- and the staged binary
 # would keep pointing at the path it shipped with.
 int_or_die() {
-    if ! "$INT" "$@"; then
+    if ! "$INSTALL_NAME_TOOL" "$@"; then
         echo "ERROR: install_name_tool $* failed" >&2
         exit 1
     fi
@@ -202,7 +197,7 @@ repoint_framework_dep() {
     local bin="$1" match="$2" new="$3" cur
     cur=$("$OTOOL" -L "$bin" | awk -v m="$match" 'index($1, m){print $1; exit}')
     [ -n "$cur" ] || return 0                 # this binary does not load that framework
-    if ! "$INT" -change "$cur" "$new" "$bin"; then
+    if ! "$INSTALL_NAME_TOOL" -change "$cur" "$new" "$bin"; then
         echo "ERROR: could not repoint $match to $new in $bin" >&2
         exit 1
     fi
@@ -240,7 +235,7 @@ strip_rpaths() {
     local rp
     while read -r rp; do
         [ -z "$rp" ] && continue
-        "$INT" -delete_rpath "$rp" "$bin" 2>/dev/null || true
+        "$INSTALL_NAME_TOOL" -delete_rpath "$rp" "$bin" 2>/dev/null || true
     done < <("$OTOOL" -l "$bin" | awk '/cmd LC_RPATH/{f=1} f && /path /{print $2; f=0}')
 }
 
@@ -489,7 +484,7 @@ if [ -d "$GST_SRC" ]; then
     # unwinder and leave that copy out of the product.
     find "$(s "$GST_DEPLOY")" -type f -name '*.dylib' | while read -r gstlib; do
         if "$OTOOL" -L "$gstlib" 2>/dev/null | grep -q '@rpath/libunwind.1.dylib'; then
-            "$INT" -change @rpath/libunwind.1.dylib "$SYSTEM_UNWINDER" "$gstlib"
+            "$INSTALL_NAME_TOOL" -change @rpath/libunwind.1.dylib "$SYSTEM_UNWINDER" "$gstlib"
         fi
     done
     rm -f "$(s "$GST_DEPLOY")/libunwind.1.dylib"
@@ -517,7 +512,7 @@ for name in JavaScriptCore:$JSC_BUNDLE/Versions/A/JavaScriptCore \
             WebKit:$WEBKIT_BUNDLE/Versions/A/WebKit \
             WebCore:$WEBCORE_BUNDLE/Versions/A/WebCore \
             WebKit2:$WEBKIT2_BUNDLE/Versions/A/WebKit2; do
-    "$INT" -id "$(id_path "${name%%:*}")" "$(s "${name#*:}")"
+    "$INSTALL_NAME_TOOL" -id "$(id_path "${name%%:*}")" "$(s "${name#*:}")"
 done
 while IFS= read -r f; do
     rewrite_rpath_deps "$f"

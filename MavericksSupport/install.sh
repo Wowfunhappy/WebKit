@@ -10,8 +10,6 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/scripts/framework-layout.sh"
-OTOOL="$(wk_find_otool)"
-LIPO="$(wk_find_lipo)"
 
 BACKUP_ROOT="${BACKUP_ROOT:-$STOCK_BACKUP/replaced-original}"
 

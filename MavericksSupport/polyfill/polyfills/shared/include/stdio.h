@@ -26,4 +26,9 @@
 /* Extend Apple's 10.10+ include of sys/stdio.h to earlier versions. */
 #include <sys/stdio.h>
 
+/* open_memstream arrived in 10.13; shared/open_memstream.c supplies it. */
+__MP__BEGIN_DECLS
+FILE *open_memstream(char **__bufp, size_t *__sizep);
+__MP__END_DECLS
+
 #endif /* _MAVERICKS_STDIO_H_ */

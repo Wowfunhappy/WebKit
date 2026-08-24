@@ -17,7 +17,7 @@ REPO="$(cd "$POLY/../.." && pwd)"
 TC="${MAVERICKS_CLANG:-$REPO/MavericksSupport/toolchain/build/clang}"
 SDK="${MAVERICKS_SDK:-$(dirname "$REPO")/MacOSX26.1.sdk}"
 CLANG="$TC/bin/clang"; CLANGXX="$TC/bin/clang++"; AR="$TC/bin/llvm-ar"
-NM=/Library/Developer/CommandLineTools/usr/bin/nm
+. "$REPO/MavericksSupport/scripts/cctools.sh"; NM="$CCTOOLS/nm"
 PF="$POLY/polyfills"; MECH="$POLY/mechanism"; OUT="$POLY/build"
 TMECH="$POLY/tests/mechanism"; TBEHAV="$POLY/tests/behaviour"; TGATES="$POLY/tests/gates"
 OBJ="$(mktemp -d -t polybuild)"; trap 'rm -rf "$OBJ"' EXIT
@@ -142,10 +142,10 @@ echo "### libpolyfill.a"
 # demotes every defined global in the members to private extern; the symbols stay visible to the nm-based
 # checks below and still satisfy the force_load link. One list feeds both the demotion and the archive.
 LIBPOLYFILL_MEMBERS=("$OBJ"/c/*.o "$OBJ/mech/wk_polyfill_runtime.o" "$OBJ"/shared/*.o)
-for o in "${LIBPOLYFILL_MEMBERS[@]}"; do nmedit -p "$o"; done
+for o in "${LIBPOLYFILL_MEMBERS[@]}"; do "$CCTOOLS/nmedit" -p "$o"; done
 ar_stable "$OUT/libpolyfill.a" "${LIBPOLYFILL_MEMBERS[@]}"
-leaked=$(/usr/bin/nm -m "$OUT/libpolyfill.a" 2>/dev/null \
-    | grep -v 'private external\|undefined\|non-external' | grep 'external' || true)
+leaked=$($NM -m "$OUT/libpolyfill.a" | grep -v 'private external\|undefined\|non-external' \
+    | grep 'external' || true)
 if [ -n "$leaked" ]; then
     echo "ERROR: libpolyfill.a still EXPORTS these symbols; every framework that force-loads it would" >&2
     echo "re-export them, shadowing the system flat-namespace-wide:" >&2

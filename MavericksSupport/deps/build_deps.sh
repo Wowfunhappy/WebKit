@@ -57,6 +57,7 @@ LOG=/tmp/wk_build.log
 # output, in order.
 exec >> "$LOG" 2>&1
 REPO="$(cd "$HERE/../.." && pwd)"                   # repo root
+. "$REPO/MavericksSupport/scripts/cctools.sh"
 TC="${MAVERICKS_CLANG:-$REPO/MavericksSupport/toolchain/build/clang}"
 CMAKE="${MAVERICKS_CMAKE:-$REPO/MavericksSupport/toolchain/build/cmake/bin/cmake}"
 NINJA="${MAVERICKS_NINJA:-$REPO/MavericksSupport/toolchain/build/ninja/bin/ninja}"
@@ -90,17 +91,24 @@ LIBFFI_REV=83d0cfd00d7d37af4b4349511d29f1f0512621b3
 # (and the system frameworks/headers) on the search path for every sub-build below.
 export SDKROOT="$SDK"
 
-# /usr/bin/make, gnumake, ar, etc. are xcode-select shims; when xcode-select points at
-# an Xcode.app whose Developer dir lacks the CLI tools (Xcode 6.2), every shim errors
-# with "unable to find utility". Prefer the CommandLineTools binaries directly so this
-# script is independent of the machine's current xcode-select state. The in-tree ninja
-# and nasm dirs join the PATH for meson and the assembly-heavy codec builds.
-export PATH="$(dirname "$NASM"):$(dirname "$NINJA"):/Library/Developer/CommandLineTools/usr/bin:$PATH"
+# /usr/bin/make, gnumake, ar, etc. are xcode-select shims that forward to whatever
+# developer dir is selected at the time. The toolchain's own cctools lead the PATH, and
+# the DEVELOPER_DIR below fixes where the remaining shims forward, so this script is
+# independent of the machine's current xcode-select state. The in-tree ninja and nasm
+# dirs join the PATH for meson and the assembly-heavy codec builds.
+export PATH="$(dirname "$NASM"):$(dirname "$NINJA"):$CCTOOLS:$PATH"
 # Same reason, for the sub-builds that reach a tool through `xcrun` rather than PATH (libavif's
 # static-library merge runs `xcrun libtool`). xcrun resolves against DEVELOPER_DIR, and with an
 # Xcode selected it first tries to read SDKROOT as an SDK NAME, fails on this absolute path, and
-# then reports the utility itself as missing. Pointing it at CommandLineTools resolves both.
-export DEVELOPER_DIR=/Library/Developer/CommandLineTools
+# then reports the utility itself as missing. Either developer dir carries the tools these
+# sub-builds ask xcrun for; this names whichever one is installed.
+if [ -d /Library/Developer/CommandLineTools ]; then
+    export DEVELOPER_DIR=/Library/Developer/CommandLineTools
+else
+    _devdir="$(xcode-select -p 2>/dev/null || true)"
+    if [ -n "$_devdir" ]; then export DEVELOPER_DIR="$_devdir"; fi
+    unset _devdir
+fi
 
 DEST="$HERE/build"                                 # gitignored output: include/ + lib/ + bin/, what WebKit links
 WORK="$HERE/work"                                  # gitignored workspace, read by this script alone
@@ -225,18 +233,16 @@ export OBJC="$CC"
 export OBJCXX="$CXX"
 export AR="$TC/bin/llvm-ar"
 export RANLIB="$TC/bin/llvm-ranlib"
-# Classic BSD nm from CommandLineTools: libtool's symbol-pipe probing only understands
-# its output, and the toolchain's llvm-nm binary does not run on this host (its libc++
-# lacks the libc++abi reexport it was linked against).
-export NM=/Library/Developer/CommandLineTools/usr/bin/nm
+# Classic BSD nm: libtool's symbol-pipe probing only understands its output.
+export NM="$CCTOOLS/nm"
 export MACOSX_DEPLOYMENT_TARGET=10.9
 export CFLAGS="-O2 -mmacosx-version-min=10.9"
 export CXXFLAGS="-O2 -mmacosx-version-min=10.9"
 export OBJCFLAGS="-O2 -mmacosx-version-min=10.9"
 export LDFLAGS="-mmacosx-version-min=10.9"
 
-INT=/Library/Developer/CommandLineTools/usr/bin/install_name_tool
-NMBIN=/Library/Developer/CommandLineTools/usr/bin/nm
+INT="$CCTOOLS/install_name_tool"
+NMBIN="$CCTOOLS/nm"
 
 # The clang-22 toolchain's clang.cfg/clang++.cfg add a default link set (libc++/
 # objc/frameworks). That is correct for building WebKit but breaks autotools/gnulib
@@ -594,7 +600,7 @@ GAP_SYMBOLS="$GAPDIR/gap-symbols.txt"
 # a build that strips its local symbols keeps. They identify the archive inside FFmpeg's stripped
 # dylibs, where the symbol table answers nothing.
 GAP_LITERALS="$GAPDIR/gap-literals.txt"
-strings -a "$GAP_A" | { grep '^\[wk_polyfill\] .\{40,\}' || true; } | sort -u > "$GAP_LITERALS"
+"$CCTOOLS/strings" -a "$GAP_A" | { grep '^\[wk_polyfill\] .\{40,\}' || true; } | sort -u > "$GAP_LITERALS"
 [ -s "$GAP_LITERALS" ] || { echo "  FATAL: no wk_polyfill diagnostic in the gap archive to identify it by"; exit 1; }
 # The rest of the compile's inputs: the objects depend on these as much as on the sources.
 GAP_BUILDINFO="$GAPDIR/gap-buildinfo.txt"
@@ -1143,7 +1149,7 @@ done
 normalize() {  # normalize <file> <rpath-to-libdir>: @rpath deps, strip abs rpaths, add LC_RPATH
   local f="$1" rp="$2" dep r
   # staged-prefix dependencies -> @rpath/<install-name basename>
-  otool -L "$f" | awk 'NR>1 {print $1}' | { grep "^$STAGE/lib/" || true; } | while read -r dep; do
+  "$CCTOOLS/otool" -L "$f" | awk 'NR>1 {print $1}' | { grep "^$STAGE/lib/" || true; } | while read -r dep; do
     "$INT" -change "$dep" "@rpath/$(basename "$dep")" "$f" || exit 1
   done
   # a stray system-libc++ reference repoints onto the deployed toolchain copy (the
@@ -1152,26 +1158,26 @@ normalize() {  # normalize <file> <rpath-to-libdir>: @rpath deps, strip abs rpat
   # NB: grep writes to /dev/null instead of -q throughout this script -- -q exits at
   # first match, the upstream otool then dies of SIGPIPE, and pipefail turns that
   # into a spurious failure status.
-  if otool -L "$f" | grep '/usr/lib/libc++\.1\.dylib' > /dev/null; then
+  if "$CCTOOLS/otool" -L "$f" | grep '/usr/lib/libc++\.1\.dylib' > /dev/null; then
     "$INT" -change /usr/lib/libc++.1.dylib "@rpath/libc++.1.dylib" "$f" || exit 1
   fi
-  if otool -L "$f" | grep '/usr/lib/libc++abi\.dylib' > /dev/null; then
+  if "$CCTOOLS/otool" -L "$f" | grep '/usr/lib/libc++abi\.dylib' > /dev/null; then
     "$INT" -change /usr/lib/libc++abi.dylib "@rpath/libc++abi.1.dylib" "$f" || exit 1
   fi
   # single-unwinder rule (see the C++ runtime staging comment above): the toolchain's
   # clang++.cfg links @rpath/libunwind.1.dylib; bind it to the system unwinder.
-  if otool -L "$f" | grep '@rpath/libunwind\.1\.dylib' > /dev/null; then
+  if "$CCTOOLS/otool" -L "$f" | grep '@rpath/libunwind\.1\.dylib' > /dev/null; then
     "$INT" -change @rpath/libunwind.1.dylib /usr/lib/system/libunwind.dylib "$f" || exit 1
   fi
   # drop every absolute LC_RPATH (staged libdir, toolchain libdir) so nothing points
   # off-tree; the gate below fails if any survives.
-  otool -l "$f" | awk '/LC_RPATH/{g=1} g&&/ path /{print $2; g=0}' | { grep "^/" || true; } | while read -r r; do
+  "$CCTOOLS/otool" -l "$f" | awk '/LC_RPATH/{g=1} g&&/ path /{print $2; g=0}' | { grep "^/" || true; } | while read -r r; do
     "$INT" -delete_rpath "$r" "$f" || exit 1
   done
   # each binary resolves its sibling @rpath dependencies from its own location at
   # load time (WebCore dlopens these by absolute path, so nothing above them supplies
   # an rpath).
-  if ! otool -l "$f" | awk '/LC_RPATH/{g=1} g&&/ path /{print $2; g=0}' | grep -x -F "$rp" > /dev/null; then
+  if ! "$CCTOOLS/otool" -l "$f" | awk '/LC_RPATH/{g=1} g&&/ path /{print $2; g=0}' | grep -x -F "$rp" > /dev/null; then
     "$INT" -add_rpath "$rp" "$f" || exit 1
   fi
 }
@@ -1182,7 +1188,7 @@ collect_dylib() {  # collect_dylib <staged-real-file> <dest-dir> <rpath-to-libdi
   # the rewrite yields the file name instead of the majored name, the majored name
   # then never exists in the deployed tree, and every dependent -- gst-libav on
   # libavcodec.62.dylib first among them -- fails to load.)
-  id=$(otool -D "$f" | tail -1)
+  id=$("$CCTOOLS/otool" -D "$f" | tail -1)
   idbase=$(basename "$id"); filebase=$(basename "$f")
   case "$idbase" in *.dylib) : ;; *) idbase="$filebase" ;; esac
   out="$destdir/$idbase"
@@ -1220,7 +1226,7 @@ for l in "$STAGE"/lib/*.dylib; do
     n=$((n+1))
   done
   [ -f "$real" ] || continue
-  cname=$(basename "$(otool -D "$real" | tail -1)")
+  cname=$(basename "$("$CCTOOLS/otool" -D "$real" | tail -1)")
   case "$cname" in *.dylib) : ;; *) cname=$(basename "$real") ;; esac
   if [ "$base" != "$cname" ] && [ ! -e "$DEST/lib/$base" ]; then
     ln -sf "$cname" "$DEST/lib/$base"
@@ -1425,7 +1431,7 @@ for f in $GATE_FILES; do
     }' | sort -u > "$GATE/und/$b.und"
   # Resolve each "(from X)" token to a loadable path through this binary's own load commands:
   # X is the install-name basename minus its version/extension tail.
-  otool -l "$f" | awk '$1=="cmd"{t=$2}
+  "$CCTOOLS/otool" -l "$f" | awk '$1=="cmd"{t=$2}
     $1=="name" && (t=="LC_LOAD_DYLIB"||t=="LC_LOAD_WEAK_DYLIB"||t=="LC_REEXPORT_DYLIB"){print $2}' \
     | sort -u > "$GATE/und/$b.deps"
   : > "$GATE/und/$b.pairs"
@@ -1442,11 +1448,11 @@ for f in $GATE_FILES; do
   awk '$1=="S" && $3!="-"{print $2 "\t" $3}' "$GATE/und/$b.pairs" >> "$GATE/all-strong.txt"
   awk '$1=="W" && $3!="-"{print $2 "\t" $3}' "$GATE/und/$b.pairs" >> "$GATE/all-weak.txt"
   awk '$3=="-"{print $2}' "$GATE/und/$b.pairs" >> "$GATE/unattributed.txt"
-  otool -l "$f" | awk '$1=="cmd"{t=$2}
+  "$CCTOOLS/otool" -l "$f" | awk '$1=="cmd"{t=$2}
     $1=="name" && (t=="LC_LOAD_DYLIB"||t=="LC_LOAD_WEAK_DYLIB"||t=="LC_REEXPORT_DYLIB"){print t, $2}' \
     >> "$GATE/sysdeps.txt"
   # (c) verified: no absolute build-machine LC_RPATH survives normalize
-  absrp=$(otool -l "$f" | awk '/LC_RPATH/{g=1} g&&/ path /{print $2; g=0}' | { grep '^/' || true; })
+  absrp=$("$CCTOOLS/otool" -l "$f" | awk '/LC_RPATH/{g=1} g&&/ path /{print $2; g=0}' | { grep '^/' || true; })
   if [ -n "$absrp" ]; then echo "absolute LC_RPATH in $b: $absrp" >> "$FAILS"; fi
   # (d) no text-relocation attributes: 10.9 dyld trusts S_ATTR_EXT_RELOC(0x200)/
   # S_ATTR_LOC_RELOC(0x100) on __text and takes its text-relocation path, which leaves the
@@ -1454,12 +1460,12 @@ for f in $GATE_FILES; do
   # (dlopen running the module initializers) dies with SIGBUS. The bits are wrong in a
   # deployed image whether they are genuine (non-PIC code) or inherited from an object file
   # (toolchain/patches/nasm-macho-object-reloc-attrs.patch keeps nasm from stamping them).
-  textflags=$(otool -l "$f" | awk '/sectname __text/{t=1} t&&/flags 0x/{print $2; exit}')
+  textflags=$("$CCTOOLS/otool" -l "$f" | awk '/sectname __text/{t=1} t&&/flags 0x/{print $2; exit}')
   if [ -n "$textflags" ] && [ $(( textflags & 0x300 )) -ne 0 ]; then
     echo "relocation attributes on __text in $b (flags $textflags)" >> "$FAILS"
   fi
   # no deployed binary may lean on the (pre-C++17) system libc++
-  if otool -L "$f" | grep '/usr/lib/libc++' > /dev/null; then
+  if "$CCTOOLS/otool" -L "$f" | grep '/usr/lib/libc++' > /dev/null; then
     echo "system libc++ reference in $b" >> "$FAILS"
   fi
 done

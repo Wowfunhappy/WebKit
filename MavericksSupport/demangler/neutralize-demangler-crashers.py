@@ -40,34 +40,18 @@ N_EXT = 0x01
 GMALLOC = "/usr/lib/libgmalloc.dylib"
 SUPPORT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# resolve a working compiler WITHOUT routing through the
-# /usr/bin/cc xcrun shim. That shim asks `xcodebuild -find <tool>`, which on 10.9
-# crashes when a modern Xcode.app is present and errors out when no Xcode/CLT is
-# installed at all -- either way the shim never yields a compiler. The real toolchain
-# binaries are directly invocable, so prefer them (env override, then the Xcode
-# default toolchain, then the /usr/bin shim as a last resort). The cctools lookup in
-# MavericksSupport/scripts/framework-layout.sh probes around the same shim.
-_XCODE_TC_BIN = ("/Applications/Xcode.app/Contents/Developer/Toolchains/"
-                 "XcodeDefault.xctoolchain/usr/bin")
+# The in-tree clang, the one the rest of this port compiles with. /usr/bin/cc is an xcrun shim
+# that asks `xcodebuild -find <tool>`, which on 10.9 crashes when a modern Xcode.app is present.
+_TOOLCHAIN_BIN = os.path.join(SUPPORT_DIR, os.pardir, "toolchain", "build", "clang", "bin")
 
-def resolve_compiler(basename, env_key):
-    candidates = [os.environ.get(env_key),
-                  os.path.join(_XCODE_TC_BIN, basename),
-                  os.path.join("/usr/bin", basename)]
-    for cc in candidates:
-        if not cc or not os.path.exists(cc):
-            continue
-        try:
-            devnull = open(os.devnull, "wb")
-            rc = subprocess.call([cc, "--version"], stdout=devnull, stderr=devnull)
-            devnull.close()
-        except OSError:
-            continue
-        if rc == 0:
-            return cc
-    sys.stderr.write("ERROR: no working compiler found for %s (tried %s)\n"
-                     % (basename, ", ".join(c for c in candidates if c)))
-    sys.exit(1)
+def resolve_compiler(basename):
+    cc = os.path.abspath(os.path.join(_TOOLCHAIN_BIN, basename))
+    if not os.path.exists(cc):
+        sys.stderr.write("ERROR: no %s in the toolchain at %s\n"
+                         "       Build it:  bash MavericksSupport/toolchain/bootstrap.sh\n"
+                         % (basename, _TOOLCHAIN_BIN))
+        sys.exit(1)
+    return cc
 
 # (environment-padding size, worker batch size, detector): varied to shift
 # the stack garbage and heap state the demangler bug is sensitive to.
@@ -89,8 +73,8 @@ UNATTRIBUTED_RETRIES = 3
 def build_scan_tools(workdir):
     worker = os.path.join(workdir, "demangler-crash-scan")
     freecheck = os.path.join(workdir, "freecheck.dylib")
-    cxx = resolve_compiler("clang++", "WK_DEMANGLER_CXX")
-    cc = resolve_compiler("clang", "WK_DEMANGLER_CC")
+    cxx = resolve_compiler("clang++")
+    cc = resolve_compiler("clang")
     subprocess.check_call([cxx, "-O2",
                            "-mmacosx-version-min=10.9", "-o", worker,
                            os.path.join(SUPPORT_DIR, "demangler-crash-scan.cpp")])

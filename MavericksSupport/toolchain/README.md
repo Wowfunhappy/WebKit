@@ -4,10 +4,10 @@ Everything needed to compile WebKit on a 10.9 host, organized so source vs. arti
 is obvious by location:
 
 - **`vendor/`** — COMMITTED binaries we can't practically rebuild quickly. Today that's
-  just clang: `clang-NN` + `lld` (bzip2-compressed), `llvm-ar/nm/objcopy`, the
+  just clang: `clang-NN` + `lld` (bzip2-compressed), `llvm-ar`, the
   `clang.cfg`/`clang++.cfg` link set, the resource headers, and the private
   `libc++`/`libc++abi`/`libunwind` dylibs.
-- **`scripts/`** — COMMITTED source: `build_{python3,nasm,ninja,cmake,ccache}.sh`.
+- **`scripts/`** — COMMITTED source: `build_{cctools,python3,nasm,ninja,cmake,ccache}.sh`.
 - **`patches/`** — COMMITTED patches the build scripts apply to the tools they build;
   each patch's header states the defect it fixes.
 - **`bootstrap.sh`** — assembles `build/` from `vendor/` + `scripts/`.
@@ -18,7 +18,7 @@ The clang `.cfg` files use clang's `<CFGDIR>` token (`-L/-rpath <CFGDIR>/../lib`
 toolchain is relocatable: it finds its own `libc++`/`libc++abi`/`libunwind` wherever it's
 unpacked.
 
-## Updating the helper tools (cmake / ninja / python3 / nasm / ccache)
+## Updating the helper tools (cctools / cmake / ninja / python3 / nasm / ccache)
 
 1. Bump `VERSION` (or `VER`) at the top of the relevant `scripts/build_*.sh`.
 2. `rm -rf build/<tool>` and re-run `bootstrap.sh` (or just that script).
@@ -38,16 +38,16 @@ The in-tree clang is the bootstrap compiler for the next one:
    shim for `__isPlatformVersionAtLeast`, as in `build_python3.sh`).
 
 2. **Re-vendor into `vendor/clang/`:**
-   - `bin/`: copy the new `clang-NN`, `lld`, `llvm-ar`, `llvm-nm`, `llvm-objcopy`
-     (dereference symlinks to the real binaries), then `bzip2 -9 -k` the two large ones
-     (`clang-NN`, `lld`) and keep only the `.bz2` committed; carry `clang.cfg`/`clang++.cfg`
-     forward (their `<CFGDIR>` paths are version-independent).
+   - `bin/`: copy the new `clang-NN`, `lld`, `llvm-ar` (dereference symlinks to the real
+     binaries), then `bzip2 -9 -k` the two large ones (`clang-NN`, `lld`) and keep only the
+     `.bz2` committed; carry `clang.cfg`/`clang++.cfg` forward (their `<CFGDIR>` paths are
+     version-independent).
    - `lib/`: copy `lib/clang/NN/include` (resource headers), the `compiler-rt` archives
      under `lib/clang/NN/lib/darwin`, and the real `libc++.1.0`/`libc++abi.1.0`/`libunwind.1.0`
      dylibs.
 
    `vendor/` commits no symlinks: `bootstrap.sh` regenerates the multi-call binary names
-   (`clang`/`clang++`/`ld64.lld`/`llvm-ranlib`/`llvm-strip`) and the dylib version chain
+   (`clang`/`clang++`/`ld64.lld`/`llvm-ranlib`) and the dylib version chain
    (`libX.dylib`->`libX.1.dylib`->`libX.1.0.dylib`) into `build/`.
 
 3. **Fix the version-specific references** when the major version changes (`NN`):

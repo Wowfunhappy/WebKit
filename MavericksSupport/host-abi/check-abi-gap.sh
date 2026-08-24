@@ -5,7 +5,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../scripts/framework-layout.sh"
-NM="${NM:-nm}"
+NM="$CCTOOLS/nm"
 rc=0
 
 check() {  # label, staged binary, contract file

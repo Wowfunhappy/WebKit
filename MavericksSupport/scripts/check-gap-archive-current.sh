@@ -28,7 +28,8 @@ SHARED="$REPO/MavericksSupport/polyfill/polyfills/shared"
 DEPS="$REPO/MavericksSupport/deps/build"
 BUILD_DEPS="$REPO/MavericksSupport/deps/build_deps.sh"
 TC="${MAVERICKS_CLANG:-$REPO/MavericksSupport/toolchain/build/clang}"
-NM=/Library/Developer/CommandLineTools/usr/bin/nm
+. "$HERE/cctools.sh"
+NM="$CCTOOLS/nm"
 SHASUM=/usr/bin/shasum
 
 REBUILD="Relink them:  bash MavericksSupport/deps/build_deps.sh"

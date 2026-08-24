@@ -56,7 +56,11 @@ endif ()
 set(CMAKE_AR      ${_TC}/bin/llvm-ar      CACHE FILEPATH "")
 set(CMAKE_RANLIB  ${_TC}/bin/llvm-ranlib  CACHE FILEPATH "")
 set(CMAKE_LINKER  ${_TC}/bin/ld64.lld     CACHE FILEPATH "")
-set(CMAKE_NM      ${_TC}/bin/llvm-nm      CACHE FILEPATH "")
+# The cctools toolchain/scripts/build_cctools.sh builds.
+set(_CC ${CMAKE_CURRENT_LIST_DIR}/../toolchain/build/cctools/bin)
+set(CMAKE_NM                ${_CC}/nm                CACHE FILEPATH "")
+set(CMAKE_STRIP             ${_CC}/strip             CACHE FILEPATH "")
+set(CMAKE_INSTALL_NAME_TOOL ${_CC}/install_name_tool CACHE FILEPATH "")
 
 # --- nasm (in-tree, built by toolchain/scripts/build_nasm.sh) -----------------
 # libwebrtc/libvpx assemble x86 .asm via nasm (macho64). The system CommandLineTools

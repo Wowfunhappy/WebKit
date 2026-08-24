@@ -89,35 +89,11 @@ id_path() {
 }
 
 # ---------------------------------------------------------------------------
-# cctools resolution. /usr/bin/{install_name_tool,lipo,otool} can be xcrun-style shims that
-# exec Xcode's xcodebuild — which crashes on 10.9 when a modern Xcode.app is present, and
-# errors out when no Xcode/CLT is installed at all. Never trust a candidate by name: probe
-# each one with a real invocation and take the first that actually works. Candidate order:
-# explicit env override, bare name from PATH (healthy CLT installs), MacPorts cctools
-# (mp-<name>), Xcode toolchain binary by absolute path (bypasses the broken shim).
-WK_XCTC=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin
-wk_probe_lipo()  { "$1" -info /usr/lib/dyld >/dev/null 2>&1; }
-wk_probe_otool() { "$1" -h /usr/lib/dyld >/dev/null 2>&1; }
-wk_probe_int()   {
-    _t="$(mktemp -t int_probe)" || return 1
-    cp /usr/lib/libz.1.dylib "$_t" 2>/dev/null || { rm -f "$_t"; return 1; }
-    "$1" -id /tmp/int_probe.dylib "$_t" >/dev/null 2>&1; _rc=$?
-    rm -f "$_t"; return $_rc
-}
-wk_resolve_tool() { # $1 = probe fn, $2 = friendly name, $3.. = candidates
-    _probe="$1"; _name="$2"; shift 2
-    for _cand in "$@"; do
-        [ -n "$_cand" ] || continue
-        _path="$(command -v "$_cand" 2>/dev/null || true)"
-        [ -n "$_path" ] || continue
-        if "$_probe" "$_path" 2>/dev/null; then echo "$_path"; return 0; fi
-    done
-    echo "framework-layout.sh: no working $_name found (tried: $*)" >&2
-    return 1
-}
-wk_find_install_name_tool() { wk_resolve_tool wk_probe_int install_name_tool "${INSTALL_NAME_TOOL:-}" install_name_tool mp-install_name_tool "$WK_XCTC/install_name_tool"; }
-wk_find_otool()             { wk_resolve_tool wk_probe_otool otool "${OTOOL:-}" otool mp-otool "$WK_XCTC/otool"; }
-wk_find_lipo()              { wk_resolve_tool wk_probe_lipo lipo "${LIPO:-}" lipo mp-lipo "$WK_XCTC/lipo"; }
+# cctools, by absolute path.
+. "$WK_SUPPORT/scripts/cctools.sh"
+INSTALL_NAME_TOOL="$CCTOOLS/install_name_tool"
+OTOOL="$CCTOOLS/otool"
+LIPO="$CCTOOLS/lipo"
 
 # ---------------------------------------------------------------------------
 # The gate that says a tree is a complete, loadable product. The stager runs it on the staged

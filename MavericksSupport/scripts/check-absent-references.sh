@@ -71,8 +71,10 @@ export LC_ALL=C   # sort and comm below must agree on ordering, and every symbol
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"            # MavericksSupport/scripts
 REPO="$(cd "$HERE/../.." && pwd)"                                # repo root
 STAGED="${1:-$REPO/WebKitBuild/Release/staged}"
-NM=/Library/Developer/CommandLineTools/usr/bin/nm
-DYLDINFO=/Library/Developer/CommandLineTools/usr/bin/dyldinfo
+. "$HERE/cctools.sh"
+NM="$CCTOOLS/nm"
+DYLDINFO="$CCTOOLS/dyldinfo"
+OTOOL="$CCTOOLS/otool"
 
 fail() { echo "  absent-reference check: FAILED -- $*"; exit 1; }
 
@@ -82,7 +84,7 @@ fail() { echo "  absent-reference check: FAILED -- $*"; exit 1; }
 [ -d "$STAGED" ] || fail "no staged tree at $STAGED"
 [ -x "$NM" ] || fail "nm not executable at $NM"
 [ -x "$DYLDINFO" ] || fail "dyldinfo not executable at $DYLDINFO"
-command -v otool >/dev/null || fail "otool not found"
+[ -x "$OTOOL" ] || fail "otool not executable at $OTOOL"
 
 WORK="$(mktemp -d -t absentrefs)"; trap 'rm -rf "$WORK"' EXIT
 
@@ -242,7 +244,7 @@ resolve_dep() {
 #    which resolves back to the image itself -- that is how a dylib's own exports enter its closure.
 # ---------------------------------------------------------------------------------------------------
 : > "$WORK/hdr.deps"; : > "$WORK/deps.raw"
-bulk "$WORK/binaries.nul" otool -L -arch all | awk -v bins="$WORK/binaries" -v hdrs="$WORK/hdr.deps" -v deps="$WORK/deps.raw" "
+bulk "$WORK/binaries.nul" "$OTOOL" -L -arch all | awk -v bins="$WORK/binaries" -v hdrs="$WORK/hdr.deps" -v deps="$WORK/deps.raw" "
     $HDRFN"'
     BEGIN { while ((getline l < bins) > 0) isimg[l] = 1; close(bins) }
     /^\// && /:$/ { cur = hdrpath($0); keep = (cur in isimg); if (keep && !(cur in hs)) { hs[cur] = 1; print cur > hdrs } next }
@@ -307,7 +309,7 @@ while [ -s "$WORK/libs.$round" ]; do
     ' >> "$WORK/exports"
     bulk_ok "dyldinfo -export" "the dependency libraries"
 
-    bulk "$WORK/libs.$round.nul" otool -l -arch all | awk -v libs="$WORK/libs.$round" "$HDRFN"'
+    bulk "$WORK/libs.$round.nul" "$OTOOL" -l -arch all | awk -v libs="$WORK/libs.$round" "$HDRFN"'
         BEGIN { while ((getline l < libs) > 0) want[l] = 1; close(libs) }
         /^\// && /:$/ { cur = hdrpath($0); keep = (cur in want); r = 0; next }
         !keep { next }
@@ -469,7 +471,7 @@ if [ -s "$WORK/missing" ]; then
     done < "$WORK/missing"
     nul_list "$WORK/ivimages"
     : > "$WORK/iv.unread"
-    bulk "$WORK/ivimages.nul" otool -Iv -arch all | awk -v missf="$WORK/missing" -v out="$WORK/findings.raw" \
+    bulk "$WORK/ivimages.nul" "$OTOOL" -Iv -arch all | awk -v missf="$WORK/missing" -v out="$WORK/findings.raw" \
                                                         -v staged="$STAGED" -v unread="$WORK/iv.unread" "$HDRFN"'
         BEGIN {
             slen = length(staged)

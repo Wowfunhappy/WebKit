@@ -15,7 +15,7 @@ BUILD="$HERE/build"
 SCRIPTS="$HERE/scripts"
 mkdir -p "$BUILD"
 
-echo "### [1/6] assemble build/clang from vendor/clang"
+echo "### [1/7] assemble build/clang from vendor/clang"
 CLANG_OUT="$BUILD/clang"
 if [ ! -x "$CLANG_OUT/bin/clang-22" ]; then
     rm -rf "$CLANG_OUT"; mkdir -p "$CLANG_OUT/bin"
@@ -27,12 +27,12 @@ if [ ! -x "$CLANG_OUT/bin/clang-22" ]; then
     # not preserve mtimes, so every fresh clone would otherwise hash a different compiler. It
     # changes only when the vendored clang does.
     touch -t 202606191815.21 "$CLANG_OUT/bin/clang-22" "$CLANG_OUT/bin/lld"
-    cp "$VENDOR/clang/bin/"{llvm-ar,llvm-nm,llvm-objcopy,clang.cfg,clang++.cfg} "$CLANG_OUT/bin/"
+    cp "$VENDOR/clang/bin/"{llvm-ar,clang.cfg,clang++.cfg} "$CLANG_OUT/bin/"
     # clang/lld/llvm tools are multi-call binaries invoked under several names; recreate
     # the name symlinks here so vendor/ never has to commit them.
     ( cd "$CLANG_OUT/bin"
       ln -sf clang-22 clang; ln -sf clang clang++; ln -sf lld ld64.lld
-      ln -sf llvm-ar llvm-ranlib; ln -sf llvm-objcopy llvm-strip )
+      ln -sf llvm-ar llvm-ranlib )
     cp -R "$VENDOR/clang/lib" "$CLANG_OUT/lib"
     # Recreate the dylib version chain (libX.dylib -> libX.1.dylib -> libX.1.0.dylib) that
     # -lc++/-lc++abi/-lunwind resolve against and the @rpath/libX.1.dylib install names need.
@@ -45,10 +45,11 @@ else
     echo "    already present, skipping"
 fi
 
-echo "### [2/6] python3"; [ -x "$BUILD/python3/bin/python3" ] || "$SCRIPTS/build_python3.sh"
-echo "### [3/6] nasm";    [ -x "$BUILD/nasm/bin/nasm" ]       || "$SCRIPTS/build_nasm.sh"
-echo "### [4/6] ninja";   [ -x "$BUILD/ninja/bin/ninja" ]     || "$SCRIPTS/build_ninja.sh"
-echo "### [5/6] cmake";   [ -x "$BUILD/cmake/bin/cmake" ]     || "$SCRIPTS/build_cmake.sh"
-echo "### [6/6] ccache";  [ -x "$BUILD/ccache/bin/ccache" ]   || "$SCRIPTS/build_ccache.sh"
+echo "### [2/7] cctools"; [ -x "$BUILD/cctools/bin/otool" ]   || "$SCRIPTS/build_cctools.sh"
+echo "### [3/7] python3"; [ -x "$BUILD/python3/bin/python3" ] || "$SCRIPTS/build_python3.sh"
+echo "### [4/7] nasm";    [ -x "$BUILD/nasm/bin/nasm" ]       || "$SCRIPTS/build_nasm.sh"
+echo "### [5/7] ninja";   [ -x "$BUILD/ninja/bin/ninja" ]     || "$SCRIPTS/build_ninja.sh"
+echo "### [6/7] cmake";   [ -x "$BUILD/cmake/bin/cmake" ]     || "$SCRIPTS/build_cmake.sh"
+echo "### [7/7] ccache";  [ -x "$BUILD/ccache/bin/ccache" ]   || "$SCRIPTS/build_ccache.sh"
 
 echo "### toolchain ready under $BUILD"
