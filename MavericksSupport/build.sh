@@ -26,7 +26,7 @@ rm -f "$WK_BUILD_STAMP"
 # runtime as well, and nothing here relinks that: an edit to one of them parts those dylibs from the
 # copy libpolyfill.a gives the frameworks. The audit at the end proves that over the staged product;
 # the source half below reads only the sources and the deps build's manifest.
-DEPS_LOCK="$ROOT/MavericksSupport/deps/.build-tree/.lock"
+DEPS_LOCK="$ROOT/MavericksSupport/deps/work/.lock"
 DEPS_PID="$(cat "$DEPS_LOCK/pid" 2>/dev/null || true)"
 if [ -n "$DEPS_PID" ] && kill -0 "$DEPS_PID" 2>/dev/null; then
     echo "==================== A DEPS BUILD IS RUNNING — ABORTING ===================="

@@ -1,11 +1,7 @@
-# Everything build_deps.sh produces: the libraries and headers WebKit links, the
-# gst-inspect/gst-launch debugging tools, and the script's own ccache. Artifacts.
+# What build_deps.sh produces and every WebKit link reads: the libraries and headers,
+# the gst-inspect/gst-launch debugging tools, and the gap-archive manifests. Artifacts.
 /build/
 
-# Source tarballs build_deps.sh downloads, kept so a rerun after a mid-script failure
-# does not fetch everything again. Fetch artifacts.
-/.tarball-cache/
-
-# The build trees, tools and install prefix build_deps.sh keeps between runs, so a rerun is
-# incremental. Artifacts.
-/.build-tree/
+# What build_deps.sh builds with: source tarballs, the per-package build trees, the install
+# prefix they stage into, and this script's own ccache. Artifacts.
+/work/

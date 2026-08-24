@@ -43,14 +43,16 @@ MavericksSupport/
 ├── sdk/                        patch-sdk.sh: the two edits the build needs in the macOS SDK (run by bootstrap.sh)
 ├── demangler/                  the demangler guard (_Z -> _z rename so symbolication can't crash), run by staging
 ├── toolchain/                  the in-tree compiler + helper build tools (vendor/ committed, build/ regenerated)
-├── deps/                       third-party libraries WebKit links (see deps/README.md)
+├── deps/                       third-party libraries WebKit links: build/ regenerated, work/ builds it (see deps/README.md)
 ├── docs/                       prose: upstream-merge notes + the private WebKit ABI reference
 └── tests/                      manual test pages (see tests/README.md)
 ```
 
-Every regenerable artifact lives in a gitignored `build/` (`toolchain/build`, `deps/build`,
-`polyfill/build`), beside the deps build's own gitignored tarball cache and build tree;
-everything else is committed.
+Every regenerable artifact lives in one of two gitignored places, and everything else is
+committed. Each component's `build/` (`toolchain/build`, `deps/build`, `polyfill/build`) holds
+what the rest of the tree consumes. `deps/work/` holds what the deps build is made *with* and
+nothing outside `deps/build_deps.sh` reads: the source tarballs, the per-package build trees
+and install prefix, and that build's own ccache.
 
 ## Building (a fresh clone)
 

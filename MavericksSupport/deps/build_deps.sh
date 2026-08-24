@@ -22,7 +22,8 @@
 # MavericksSupport/deps/build/{include,lib,bin} -- a gitignored artifact this script
 # regenerates. lib/ holds the static link libs plus the whole shared media runtime
 # (with lib/gstreamer-1.0 plugins); bin/ holds gst-inspect-1.0/gst-launch-1.0 for
-# on-box verification. Source tarballs cache in a gitignored dir next to this script.
+# on-box verification. Everything this script builds *with* -- source tarballs, build
+# trees, the install prefix and its ccache -- lives in the gitignored deps/work.
 #
 # Everything here compiles against the modern SDK with deployment target 10.9 (SDKROOT
 # below is clang's default -isysroot), so every libc symbol that postdates 10.9
@@ -35,9 +36,9 @@
 #
 # Usage: MavericksSupport/deps/build_deps.sh [--clean]   (or via MavericksSupport/bootstrap.sh)
 #
-# Sources, build trees and the install prefix persist in a gitignored tree beside this script, so a
-# rerun extracts and configures nothing it already has and each package's build system picks up where
-# it left off. --clean discards that tree (the tarball and ccache caches are elsewhere and survive).
+# Sources, build trees and the install prefix persist in work/, so a rerun extracts and configures
+# nothing it already has and each package's build system picks up where it left off. --clean discards
+# work/trees; the tarball and ccache caches sit beside it and survive.
 set -euo pipefail
 # NB: the 10.9 system bash (3.2) does NOT abort when a ( ... ) section subshell fails,
 # even under set -e / trap ERR -- hence the explicit `|| exit 1` on every section.
@@ -101,20 +102,21 @@ export PATH="$(dirname "$NASM"):$(dirname "$NINJA"):/Library/Developer/CommandLi
 # then reports the utility itself as missing. Pointing it at CommandLineTools resolves both.
 export DEVELOPER_DIR=/Library/Developer/CommandLineTools
 
-DEST="$HERE/build"                                 # gitignored artifact: include/ + lib/ + bin/ + ccache/
-# The build trees, the tools they need and the prefix they install into, kept between runs (gitignored)
+DEST="$HERE/build"                                 # gitignored output: include/ + lib/ + bin/, what WebKit links
+WORK="$HERE/work"                                  # gitignored workspace, read by this script alone
+# The build trees, the tools they need and the prefix they install into, kept between runs
 # so a rerun is incremental. That is what makes an edit to a gap-archive source a relink of the media
 # runtime rather than a rebuild of it: every object below is unchanged, only the archive force-loaded
 # into them moved.
-SCRATCH="$HERE/.build-tree"
-# Tarballs cache in a persistent (gitignored) dir so a rerun after a mid-script failure
+SCRATCH="$WORK/trees"
+# Tarballs cache in a persistent dir so a rerun after a mid-script failure
 # does not re-download everything.
-SRC="$HERE/.tarball-cache"
+SRC="$WORK/tarballs"
 STAGE="$SCRATCH/install"                            # full autotools install prefix
 mkdir -p "$SCRATCH"
 
-# One run owns the tree, and it holds the lock before it reads or discards anything in it.
-LOCK="$SCRATCH/.lock"
+# One run owns the workspace, and it holds the lock before it reads or discards anything in it.
+LOCK="$WORK/.lock"
 if ! mkdir "$LOCK" 2>/dev/null; then
     HOLDER="$(cat "$LOCK/pid" 2>/dev/null || true)"
     if [ -n "$HOLDER" ] && kill -0 "$HOLDER" 2>/dev/null; then
@@ -156,7 +158,7 @@ _refuse_under_webkit_build
 
 if [ -n "$CLEAN" ]; then
     echo "### --clean: discarding $SCRATCH"
-    find "$SCRATCH" -mindepth 1 -maxdepth 1 ! -name '.lock' -print0 | xargs -0 rm -rf
+    rm -rf "$SCRATCH"; mkdir -p "$SCRATCH"
 fi
 
 # The tree holds ONE version of every package, compiled by one toolchain, in build dirs keyed by
@@ -190,15 +192,15 @@ rm -rf "$RUN"; mkdir -p "$RUN"
 # bumped, so they neither need nor deserve room in the cache the WebKit tree churns through, and
 # keeping them apart means a WebKit-side eviction storm cannot throw away a GStreamer rebuild's worth
 # of objects (or the other way round). 1 GB holds the whole dependency set with room to spare. It sits
-# in build/, so it is gitignored with the rest of the artifacts and a normal rerun keeps it (the collect
-# step below only clears build/{include,lib,bin}).
+# in work/ beside the build trees rather than in the output tree, so neither --clean nor the collect
+# step below reaches it.
 #
 # CCACHE_BASEDIR rewrites absolute paths under the build tree to relative and CCACHE_NOHASHDIR keeps
 # the build directory out of the hash, so the cache still answers when the tree moves with the
 # checkout.
 CCACHE="${MAVERICKS_CCACHE:-$REPO/MavericksSupport/toolchain/build/ccache/bin/ccache}"
 if [ -x "$CCACHE" ]; then
-    export CCACHE_DIR="$DEST/ccache"
+    export CCACHE_DIR="$WORK/ccache"
     export CCACHE_BASEDIR="$SCRATCH"
     export CCACHE_NOHASHDIR=1
     mkdir -p "$CCACHE_DIR"
