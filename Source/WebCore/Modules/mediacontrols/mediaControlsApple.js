@@ -1002,18 +1002,13 @@ Controller.prototype = {
 
     setStatusHidden: function(hidden)
     {
-        // MAVERICKS_BACKPORT (#140): the timeline container grows to fill, so leaving it in the panel
-        // while the status display is up splits the free space between them. The two are alternatives:
-        // exactly one of them occupies the flexible middle of the panel.
         if (hidden) {
             this.controls.statusDisplay.classList.add(this.ClassNames.hidden);
-            this.controls.timelineBox.classList.remove(this.ClassNames.hidden);
             this.controls.currentTime.classList.remove(this.ClassNames.hidden);
             this.controls.timeline.classList.remove(this.ClassNames.hidden);
             this.controls.remainingTime.classList.remove(this.ClassNames.hidden);
         } else {
             this.controls.statusDisplay.classList.remove(this.ClassNames.hidden);
-            this.controls.timelineBox.classList.add(this.ClassNames.hidden);
             this.controls.currentTime.classList.add(this.ClassNames.hidden);
             this.controls.timeline.classList.add(this.ClassNames.hidden);
             this.controls.remainingTime.classList.add(this.ClassNames.hidden);
