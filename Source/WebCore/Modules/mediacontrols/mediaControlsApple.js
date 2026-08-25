@@ -266,8 +266,6 @@ Controller.prototype = {
         base.setAttribute('useragentpart', '-webkit-media-controls');
         this.listenFor(base, 'mousemove', this.handleWrapperMouseMove);
         this.listenFor(base, 'mouseout', this.handleWrapperMouseOut);
-        // MAVERICKS_BACKPORT (#68): QuickTime-style click-to-hide in full screen (below).
-        this.listenFor(base, 'click', this.handleWrapperClick);
         if (this.host.textTrackContainer)
             base.appendChild(this.host.textTrackContainer);
     },
@@ -644,19 +642,6 @@ Controller.prototype = {
         this.clearHideControlsTimer();
     },
 
-    // MAVERICKS_BACKPORT (#68): QuickTime-style — in full screen a click anywhere outside the control
-    // panel fades the controls out immediately, instead of waiting out the auto-hide timer. Gated to full
-    // screen because inline controls are shown on hover / while paused and would just reappear.
-    handleWrapperClick: function(event)
-    {
-        if (!this.isFullScreen())
-            return;
-        if (this.controls.panel.contains(event.target))
-            return;
-        this.hideControls();
-        this.clearHideControlsTimer();
-    },
-
     handleWrapperMouseUp: function(event)
     {
         this.isDragging = false;
@@ -1017,13 +1002,18 @@ Controller.prototype = {
 
     setStatusHidden: function(hidden)
     {
+        // MAVERICKS_BACKPORT (#140): the timeline container grows to fill, so leaving it in the panel
+        // while the status display is up splits the free space between them. The two are alternatives:
+        // exactly one of them occupies the flexible middle of the panel.
         if (hidden) {
             this.controls.statusDisplay.classList.add(this.ClassNames.hidden);
+            this.controls.timelineBox.classList.remove(this.ClassNames.hidden);
             this.controls.currentTime.classList.remove(this.ClassNames.hidden);
             this.controls.timeline.classList.remove(this.ClassNames.hidden);
             this.controls.remainingTime.classList.remove(this.ClassNames.hidden);
         } else {
             this.controls.statusDisplay.classList.remove(this.ClassNames.hidden);
+            this.controls.timelineBox.classList.add(this.ClassNames.hidden);
             this.controls.currentTime.classList.add(this.ClassNames.hidden);
             this.controls.timeline.classList.add(this.ClassNames.hidden);
             this.controls.remainingTime.classList.add(this.ClassNames.hidden);
@@ -1068,12 +1058,10 @@ Controller.prototype = {
             this.controls.captionButton.classList.add(this.ClassNames.hidden);
     },
 
-    // MAVERICKS_BACKPORT (#68): the fullscreen button drives the Element Fullscreen API
-    // (video.webkitRequestFullscreen), which the page must enable. Safari enables it,
-    // but embedders such as Mail leave it off, so the request silently does nothing
-    // there. Hide the button unless fullscreen is genuinely available:
-    // video.webkitSupportsFullscreen reflects Page::isDocumentFullscreenEnabled(), the
-    // same gate the request path checks, and it is how the modern controls decide too.
+    // MAVERICKS_BACKPORT (#68): show the fullscreen button only where the Element Fullscreen API
+    // (video.webkitRequestFullscreen) is available to the page. video.webkitSupportsFullscreen
+    // reflects Page::isDocumentFullscreenEnabled(), the gate the request path itself checks, and it
+    // is the condition MediaControlsApple::reset() showed the button on.
     updateFullscreenButton: function()
     {
         if (!this.isAudio() && this.video.webkitSupportsFullscreen)

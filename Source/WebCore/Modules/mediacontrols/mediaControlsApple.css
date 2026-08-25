@@ -29,7 +29,7 @@
  * classic `-webkit-media-controls-*` to `-internal-media-controls-*` — modern WebKit caps the number
  * of `-webkit-` pseudo-elements and directs UA-stylesheet-only ones to the `-internal-` prefix (the
  * root `::-webkit-media-controls` keeps its existing name); (2) the `:-webkit-full-page-media`
- * pseudo-class was removed (its rules, which only styled the standalone media document, are dropped);
+ * pseudo-class is spelled `:-internal-media-document`;
  * (3) the `:-webkit-animating-full-screen-transition` pseudo-class was renamed to the internal
  * `:-internal-animating-fullscreen-transition`; (4) the `media-closed-captions-container`
  * appearance keyword was removed (the container is fully styled in CSS regardless); and (5) the `#`
@@ -46,8 +46,28 @@ audio {
     height: 25px;
 }
 
-/* MAVERICKS_BACKPORT (#68): the :-webkit-full-page-media pseudo-class was removed upstream; its rules
-   (standalone media-document background/centering) are dropped. Embedded media is unaffected. */
+/* MAVERICKS_BACKPORT (#68): the pseudo-class that selects a standalone media document is spelled
+   `:-internal-media-document` here. Source/WebCore/css/html.css carries the body rule below. */
+/* body:-webkit-full-page-media {
+    background-color: rgb(38, 38, 38);
+} */
+
+video:-internal-media-document {
+    margin: auto;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+}
+
+video:-internal-media-document::-internal-media-controls-panel {
+    bottom: 0px;
+}
+
+video:-internal-media-document::-internal-media-controls-panel.no-video {
+    opacity: 1;
+}
 
 ::-webkit-media-controls {
     width: inherit;
@@ -221,8 +241,15 @@ audio::-internal-media-controls-panel .volume-box:active {
     width: 114px;
 }
 
-audio::-internal-media-controls-volume-slider,
-video::-internal-media-controls-volume-slider {
+/* MAVERICKS_BACKPORT (#68): the classic controls build both sliders from an <input type=range>, so
+   Source/WebCore/css/html.css's generic range rules compete with these part rules. Upstream scored a
+   pseudo-element at class level, which tied `input[type="range"]` and let the later sheet -- this one --
+   win; CSSSelector.cpp now scores it at element level (Match::PseudoElement -> ClassC), so the attribute
+   selector outranks a bare part chain and html.css's `margin: 2px` and native thumb leak in. Selecting
+   the same elements through an ancestor part plus `input[type="range"]` restores the classic values by
+   ordinary specificity. */
+audio::-internal-media-controls-panel .volume-box input[type="range"],
+video::-internal-media-controls-panel .volume-box input[type="range"] {
     -webkit-appearance: none;
     box-sizing: border-box;
     height: 10px;
@@ -246,11 +273,10 @@ video::-internal-media-controls-volume-slider {
     border: 1px solid rgba(0, 0, 0, 0.875);
 }
 
-video::-internal-media-controls-volume-slider::-webkit-slider-thumb,
-audio::-internal-media-controls-volume-slider::-webkit-slider-thumb {
-    /* MAVERICKS_BACKPORT (#68): !important so the classic thumb wins over html.css's native
-       `input[type="range"]::-webkit-slider-thumb { appearance: auto }` (see the timeline rule). */
-    -webkit-appearance: none !important;
+video::-internal-media-controls-panel .volume-box input[type="range"]::-webkit-slider-thumb,
+audio::-internal-media-controls-panel .volume-box input[type="range"]::-webkit-slider-thumb {
+    /* MAVERICKS_BACKPORT (#68): see the volume slider rule above for the selector shape. */
+    -webkit-appearance: none;
     width: 8px;
     height: 8px;
     border-radius: 4px;
@@ -267,10 +293,11 @@ audio::-internal-media-controls-volume-slider::-webkit-slider-thumb {
     );
     box-shadow: inset -1px 0 0 rgba(255, 255, 255, .5), 0 1px rgba(255, 255, 255, .14);
 }
-video::-internal-media-controls-volume-slider::-webkit-slider-thumb::-webkit-slider-thumb:active,
-video::-internal-media-controls-volume-slider::-webkit-slider-thumb:active::-webkit-slider-thumb,
-audio::-internal-media-controls-volume-slider::-webkit-slider-thumb::-webkit-slider-thumb:active,
-audio::-internal-media-controls-volume-slider::-webkit-slider-thumb:active::-webkit-slider-thumb {
+/* MAVERICKS_BACKPORT (#68): see the volume slider rule above for the selector shape. */
+video::-internal-media-controls-panel .volume-box input[type="range"]::-webkit-slider-thumb::-webkit-slider-thumb:active,
+video::-internal-media-controls-panel .volume-box input[type="range"]::-webkit-slider-thumb:active::-webkit-slider-thumb,
+audio::-internal-media-controls-panel .volume-box input[type="range"]::-webkit-slider-thumb::-webkit-slider-thumb:active,
+audio::-internal-media-controls-panel .volume-box input[type="range"]::-webkit-slider-thumb:active::-webkit-slider-thumb {
     background-image: -webkit-linear-gradient(
         right top,
         rgba(160, 160, 160, 1),
@@ -303,8 +330,7 @@ audio::-internal-media-controls-closed-captions-container {
     max-width: calc(100% - 48px); /* right + 10px */
     max-height: calc(100% - 39px); /* bottom + 10px */
     overflow-x: hidden;
-    /* MAVERICKS_BACKPORT (#68): auto, not scroll, so a short subtitle list gets no needless scrollbar. */
-    overflow-y: auto;
+    overflow-y: scroll;
     background-color: rgba(0, 0, 0, 0.85);
     border: 3px solid rgba(128, 128, 128, 0.75);
     border-radius: 10px;
@@ -347,7 +373,7 @@ audio::-internal-media-controls-closed-captions-container li {
     background-image: none;
     text-shadow: 0 1px 0 black;
     margin: 0;
-    padding-left: 24px; /* MAVERICKS_BACKPORT (#68): was 37px; trim the empty left gutter */
+    padding-left: 37px;
     padding-right: 35px;
     padding-top: 0.15em;
     padding-bottom: 0.2em;
@@ -380,7 +406,7 @@ audio::-internal-media-controls-closed-captions-container li.selected::before {
     top: 0.25em;
     width: 1.1em;
     height: 1.1em;
-    -webkit-margin-start: -18px; /* MAVERICKS_BACKPORT (#68): match the trimmed padding-left */
+    -webkit-margin-start: -20px;
     background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300"><polygon fill="rgb(163, 163, 163)" points="252.301,4.477 126.667,194.104 43.358,108.3 6.868,161.408 132.515,290.814 297.732,49.926"/></svg>');
     background-repeat: no-repeat;
 }
@@ -416,35 +442,34 @@ audio::-internal-media-controls-status-display {
     text-decoration: none;
     text-align: center;
 
-    -webkit-box-flex: 1;
+    /* MAVERICKS_BACKPORT (#140): the panel lays out as a modern flexbox, which reads `flex-grow`; the
+       2009 deprecated-box property below has no effect there. Growth and side margins are the values
+       stock Safari 7 gives this part. */
+    /* -webkit-box-flex: 1; */
+    -webkit-flex: 1 1 0;
+    margin-left: 10px;
+    margin-right: 10px;
 }
-video::-internal-media-controls-timeline,
-audio::-internal-media-controls-timeline {
-    /* MAVERICKS_BACKPORT (#68): the classic controls build the seek bar from an <input type=range>, and
-       modern WebKit's generic UA rules for range inputs (Source/WebCore/css/html.css) now cascade-BEAT
-       these `video::-internal-media-controls-*` part rules: a pseudo-element has type-level specificity (c)
-       while html.css's `input[type="range"]` selector carries an attribute (specificity b), and b outranks
-       c. So `input[type="range"] { margin: 2px }` and (on the thumb below) the native slider knob leak in,
-       nudging the seek bar off-centre and swapping the Aqua diamond thumb for a round native one. Force the
-       classic values to win with !important; min-height/min-width:0 stop the modern range's intrinsic
-       min-size from keeping the seek bar taller than its 9px track (which overflowed the column-flex
-       .thumbnail-track and rendered low) or wider than a narrow <audio> panel (which overflowed it). */
+/* MAVERICKS_BACKPORT (#68): see the volume slider rule above for the selector shape; min-height/min-width:0
+   stop the modern range's intrinsic min-size from keeping the seek bar taller than its 9px track (which
+   overflowed the column-flex .thumbnail-track and rendered low) or wider than a narrow <audio> panel. */
+video::-internal-media-controls-timeline-container input[type="range"],
+audio::-internal-media-controls-timeline-container input[type="range"] {
     -webkit-appearance: none;
     -webkit-flex: 1 1 0;
     height: 9px;
     min-height: 0;
     min-width: 0;
-    margin: 0 !important;
+    margin: 0;
 
     border-radius: 4.5px;
     background-color: rgb(74, 74, 74);
     box-shadow: inset -1px 0 0 rgba(0, 0, 0, .68), 0 1px rgba(255, 255, 255, .08);
 }
-video::-internal-media-controls-timeline::-webkit-slider-thumb,
-audio::-internal-media-controls-timeline::-webkit-slider-thumb {
-    /* MAVERICKS_BACKPORT (#68): !important so the Aqua diamond wins over html.css's
-       `input[type="range"]::-webkit-slider-thumb { appearance: auto }` (see the timeline rule above). */
-    -webkit-appearance: none !important;
+/* MAVERICKS_BACKPORT (#68): see the volume slider rule above for the selector shape. */
+video::-internal-media-controls-timeline-container input[type="range"]::-webkit-slider-thumb,
+audio::-internal-media-controls-timeline-container input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
     width:6px;
     height: 6px;
     background-color: white;
@@ -462,10 +487,11 @@ audio::-internal-media-controls-timeline::-webkit-slider-thumb {
         color-stop(1, rgba(144, 144, 144, 1))
     );
 }
-video::-internal-media-controls-timeline::-webkit-slider-thumb:active,
-video::-internal-media-controls-timeline:active::-webkit-slider-thumb,
-audio::-internal-media-controls-timeline::-webkit-slider-thumb:active,
-audio::-internal-media-controls-timeline:active::-webkit-slider-thumb,
+/* MAVERICKS_BACKPORT (#68): see the volume slider rule above for the selector shape. */
+video::-internal-media-controls-timeline-container input[type="range"]::-webkit-slider-thumb:active,
+video::-internal-media-controls-timeline-container input[type="range"]:active::-webkit-slider-thumb,
+audio::-internal-media-controls-timeline-container input[type="range"]::-webkit-slider-thumb:active,
+audio::-internal-media-controls-timeline-container input[type="range"]:active::-webkit-slider-thumb,
  {
     background-image: -webkit-gradient(
         linear,
@@ -615,7 +641,9 @@ video:-webkit-full-screen::-internal-media-controls-panel .volume-box {
     border: none;
 }
 
-video:-webkit-full-screen::-internal-media-controls-volume-slider {
+/* MAVERICKS_BACKPORT (#68): see the volume slider rule above for the selector shape; the full-screen
+   pseudo-class on top of the same tail keeps this override ahead of the base rule. */
+video:-webkit-full-screen::-internal-media-controls-panel .volume-box input[type="range"] {
     height: 6px;
     border-radius: 3px;
     background-image: -webkit-linear-gradient(top,
@@ -625,7 +653,8 @@ video:-webkit-full-screen::-internal-media-controls-volume-slider {
     box-shadow: inset -1px 0 0 rgba(0, 0, 0, .68), 0 1px rgba(255, 255, 255, .08);
 }
 
-video:-webkit-full-screen::-internal-media-controls-volume-slider::-webkit-slider-thumb {
+/* MAVERICKS_BACKPORT (#68): see the volume slider rule above for the selector shape. */
+video:-webkit-full-screen::-internal-media-controls-panel .volume-box input[type="range"]::-webkit-slider-thumb {
     width: 10px;
     height: 10px;
     border-radius: 5px;
