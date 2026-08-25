@@ -25,7 +25,7 @@
 /*
  * MAVERICKS_BACKPORT (#68): Classic Safari 7 / Mavericks HTML5 media-controls stylesheet, restored
  * from upstream WebKit d55388c. Changes from the upstream original are tagged MAVERICKS_BACKPORT and
- * track six things that changed after 2013: (1) the per-part pseudo-elements were renamed from the
+ * track seven things that changed after 2013: (1) the per-part pseudo-elements were renamed from the
  * classic `-webkit-media-controls-*` to `-internal-media-controls-*` — modern WebKit caps the number
  * of `-webkit-` pseudo-elements and directs UA-stylesheet-only ones to the `-internal-` prefix (the
  * root `::-webkit-media-controls` keeps its existing name); (2) the `:-webkit-full-page-media`
@@ -38,7 +38,9 @@
  * SVG there and every gradient-filled glyph failed to load (Safari 7 parsed it leniently); and (6) the
  * seek bar gets `min-height: 0` so the modern `<input type=range>` (which gained a
  * `::-webkit-slider-container` shadow wrapper after 2013) does not overflow its 9px column-flex track and
- * render below the panel's vertical centre.
+ * render below the panel's vertical centre; and (7) the text-track container and cue rules live in
+ * Modules/modern-media-controls/controls/text-tracks.css, which Style::UserAgentStyle adds alongside this
+ * sheet.
  */
 
 audio {
@@ -79,10 +81,25 @@ video:-internal-media-document::-internal-media-controls-panel.no-video {
     -webkit-flex-direction: column;
 }
 
-video::-webkit-media-text-track-container,
+/* MAVERICKS_BACKPORT (#137): the text-track container and the cue display tree are styled by
+   Modules/modern-media-controls/controls/text-tracks.css, which Style::UserAgentStyle adds beside this
+   sheet. It carries the container's `container-type: size` -- the query container that the cue box's
+   cqh/cqw geometry (VTTCueBox::applyCSSProperties) and its cqmin font size
+   (CaptionUserPreferencesMediaAF::captionsFontSizeCSS) resolve against -- and it selects the cue box by
+   the `cue` part that TextTrackCue::obtainCSSBoxes gives it. */
+/* video::-webkit-media-text-track-container,
 audio::-webkit-media-text-track-container {
     position: relative;
     -webkit-flex: 1 1 auto;
+} */
+
+/* MAVERICKS_BACKPORT (#137): the cue boxes are position: absolute and their top/left arrive in cqh/cqw
+   measured against this container, so it has to be their containing block. Upstream establishes that
+   with `.media-controls-container > * { position: absolute }` in
+   modern-media-controls/controls/media-controls.css; text-tracks.css leaves it to that rule, and
+   `container-type: size` adds only Style and Size containment (RenderStyle::usedContain), never Layout. */
+video::-webkit-media-text-track-container {
+    position: relative;
 }
 
 video::-internal-media-controls-panel,
@@ -746,7 +763,9 @@ video:-webkit-full-screen::-internal-media-controls-closed-captions-container {
     max-height: calc(100% - 124px); /* bottom + 10px */
 }
 
-video::-webkit-media-text-track-container {
+/* MAVERICKS_BACKPORT (#137): text-tracks.css carries these rules; see the note beside the container
+   rule near the top of this file. */
+/* video::-webkit-media-text-track-container {
     position: relative;
     width: 100%;
     overflow: hidden;
@@ -795,4 +814,4 @@ video::-webkit-media-text-track-container u {
 
 video::-webkit-media-text-track-container i {
     font-style: italic;
-}
+} */

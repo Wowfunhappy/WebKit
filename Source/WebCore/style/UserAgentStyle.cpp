@@ -98,10 +98,11 @@ StyleSheetContents* UserAgentStyle::imageControlsStyleSheet;
 #if ENABLE(ATTACHMENT_ELEMENT)
 StyleSheetContents* UserAgentStyle::attachmentStyleSheet;
 #endif
-// MAVERICKS_BACKPORT (#68): storage for the document-scope classic-media-controls sheet added by
+// MAVERICKS_BACKPORT (#68, #137): storage for the document-scope media sheets added by
 // ensureDefaultStyleSheetsForElement below.
 #if ENABLE(VIDEO) && PLATFORM(MAC)
 StyleSheetContents* UserAgentStyle::mediaControlsStyleSheet;
+StyleSheetContents* UserAgentStyle::mediaTextTracksStyleSheet;
 #endif
 
 static const MQ::MediaQueryEvaluator& screenEval()
@@ -234,6 +235,17 @@ void UserAgentStyle::ensureDefaultStyleSheetsForElement(const Element& element)
         if (!mediaControlsStyleSheet && (element.hasTagName(HTMLNames::videoTag) || element.hasTagName(HTMLNames::audioTag))) {
             mediaControlsStyleSheet = parseUASheet(StringImpl::createWithoutCopying(mediaControlsAppleUserAgentStyleSheet));
             addToDefaultStyle(*mediaControlsStyleSheet);
+        }
+
+        // MAVERICKS_BACKPORT (#137): text-tracks.css styles the text-track container and the WebVTT cue
+        // display tree. It carries the container's `container-type: size`, the query container that the cue
+        // box's cqh/cqw geometry (VTTCueBox::applyCSSProperties) and its cqmin font size
+        // (CaptionUserPreferencesMediaAF::captionsFontSizeCSS) resolve against.
+        // MavericksSupport/cmake/WebCorePlatformMavericks.cmake compiles it into
+        // mediaTextTracksUserAgentStyleSheet.
+        if (!mediaTextTracksStyleSheet && (element.hasTagName(HTMLNames::videoTag) || element.hasTagName(HTMLNames::audioTag))) {
+            mediaTextTracksStyleSheet = parseUASheet(StringImpl::createWithoutCopying(mediaTextTracksUserAgentStyleSheet));
+            addToDefaultStyle(*mediaTextTracksStyleSheet);
         }
 #endif
 

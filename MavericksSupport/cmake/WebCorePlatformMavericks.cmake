@@ -627,12 +627,27 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
 list(REMOVE_ITEM WebCore_PRIVATE_INCLUDE_DIRECTORIES "${WEBCORE_DIR}/accessibility/isolatedtree")
 list(INSERT WebCore_PRIVATE_INCLUDE_DIRECTORIES 0 "${WEBCORE_DIR}/accessibility/isolatedtree")
 
+# #137: the text-track container and the WebVTT cue display tree are styled by
+# modern-media-controls/controls/text-tracks.css, which upstream injects into the media element's shadow
+# root together with the rest of ModernMediaControls.css. The classic controls this port serves inject
+# nothing, so the sheet is compiled separately and Style::UserAgentStyle adds it at document scope.
+# make-css-file-arrays.pl derives the array name from the basename via (\w+)\.css, which stops at the
+# hyphen; copy it under a name that yields mediaTextTracksUserAgentStyleSheet.
+add_custom_command(
+    OUTPUT ${WebCore_DERIVED_SOURCES_DIR}/mediaTextTracks.css
+    DEPENDS ${WEBCORE_DIR}/Modules/modern-media-controls/controls/text-tracks.css
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${WEBCORE_DIR}/Modules/modern-media-controls/controls/text-tracks.css
+        ${WebCore_DERIVED_SOURCES_DIR}/mediaTextTracks.css
+    VERBATIM)
+
 list(APPEND WebCore_USER_AGENT_STYLE_SHEETS
     # #68: classic Safari 7 / Mavericks media-controls stylesheet.
     # make-css-file-arrays.pl derives the array name from the basename, so this emits
     # mediaControlsAppleUserAgentStyleSheet, which RenderThemeCocoa serves on the 10.9
     # deployment target instead of ModernMediaControlsUserAgentStyleSheet.
     ${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsApple.css
+    ${WebCore_DERIVED_SOURCES_DIR}/mediaTextTracks.css
 )
 
 # --------------------------------------------------------------------------
