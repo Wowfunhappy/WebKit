@@ -25,20 +25,19 @@ macro(find_package package)
 
         set(ICU_INCLUDE_DIRS ${CMAKE_BINARY_DIR}/ICU/Headers)
 
-        # MAVERICKS_BACKPORT: the system ICU (libicucore) is ICU 51 and lacks the
-        # modern Intl symbols JSC needs (ucfpos_*, udtitvfmt_*, ureldatefmt_*,
-        # ulistfmt_*, ...). Link the ICU 74.2 static libs deps/build_deps.sh builds
-        # instead. The bundled ICU headers above are 74.2, matching these libs.
-        if (EXISTS ${MAVERICKS_DEPS}/lib/libicuuc.a)
-            set(ICU_I18N_LIBRARY ${MAVERICKS_DEPS}/lib/libicui18n.a)
-            set(ICU_UC_LIBRARY   ${MAVERICKS_DEPS}/lib/libicuuc.a)
-            set(ICU_DATA_LIBRARY ${MAVERICKS_DEPS}/lib/libicudata.a)
-        else ()
-            # Apple just has a single tbd/dylib for ICU.
-            find_library(ICU_I18N_LIBRARY icucore)
-            find_library(ICU_UC_LIBRARY icucore)
-            find_library(ICU_DATA_LIBRARY icucore)
-        endif ()
+        # MAVERICKS_BACKPORT: the system ICU (libicucore) is ICU 51 and lacks the modern
+        # Intl symbols JSC needs (ucfpos_*, udtitvfmt_*, ureldatefmt_*, ulistfmt_*, ...).
+        # Link the ICU 74.2 static libs deps/build_deps.sh builds instead; its
+        # required-artifacts gate holds them present. The bundled ICU headers above are
+        # 74.2, matching these libs.
+        set(ICU_I18N_LIBRARY ${MAVERICKS_DEPS}/lib/libicui18n.a)
+        set(ICU_UC_LIBRARY   ${MAVERICKS_DEPS}/lib/libicuuc.a)
+        set(ICU_DATA_LIBRARY ${MAVERICKS_DEPS}/lib/libicudata.a)
+        # Apple just has a single tbd/dylib for ICU.
+        # MAVERICKS_BACKPORT: the system-ICU lookup the static libs above stand in for.
+        # find_library(ICU_I18N_LIBRARY icucore)
+        # find_library(ICU_UC_LIBRARY icucore)
+        # find_library(ICU_DATA_LIBRARY icucore)
 
         set(ICU_LIBRARIES ${ICU_UC_LIBRARY})
         set(ICU_FOUND ON)

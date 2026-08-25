@@ -101,6 +101,16 @@ set(Python_EXECUTABLE  "${_PY3}" CACHE FILEPATH "")
 set(Python3_EXECUTABLE "${_PY3}" CACHE FILEPATH "")
 set(PYTHON_EXECUTABLE  "${_PY3}" CACHE FILEPATH "")
 
+# --- ruby (in-tree, built by toolchain/scripts/build_ruby.sh) -----------------
+# offlineasm, the bytecode generators and the preferences/settings generators run on
+# Ruby (the 10.9 system only has 2.0).
+if (DEFINED ENV{MAVERICKS_RUBY})
+    set(_RUBY "$ENV{MAVERICKS_RUBY}")
+else ()
+    get_filename_component(_RUBY "${CMAKE_CURRENT_LIST_DIR}/../toolchain/build/ruby/bin/ruby" ABSOLUTE)
+endif ()
+set(Ruby_EXECUTABLE "${_RUBY}" CACHE FILEPATH "")
+
 # --- RTTI ---------------------------------------------------------------------
 # WebKit builds without RTTI; the CMake port spells that only for CXX, leaving ObjC++
 # with RTTI on. A .mm then references C++ typeinfos that the -fno-rtti .cpp definitions

@@ -60,7 +60,7 @@ and install prefix, and that build's own ccache.
    `MacOSX26.1.sdk` as a **sibling of this checkout** (or set `MAVERICKS_SDK`).
 
 2. **Bootstrap** (once): `bash MavericksSupport/bootstrap.sh` — unpacks the in-tree clang and builds
-   python3/nasm/ninja/cmake/ccache/git into `toolchain/build/`, applies the SDK patches, builds the
+   python3/ruby/nasm/ninja/cmake/ccache/git into `toolchain/build/`, applies the SDK patches, builds the
    third-party libraries into `deps/build/` and the polyfill archives into `polyfill/build/`. Budget
    a couple of hours for a cold run.
 
