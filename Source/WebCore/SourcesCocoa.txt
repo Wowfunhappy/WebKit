@@ -346,6 +346,8 @@ platform/cocoa/WebNSAttributedStringExtras.mm @nonARC
 platform/gamepad/cocoa/GameControllerGamepad.mm @nonARC
 platform/gamepad/cocoa/GameControllerGamepadProvider.mm @nonARC
 platform/gamepad/mac/Dualshock3HIDGamepad.cpp
+// MAVERICKS_BACKPORT: the DualShock 4's standard mapping, which upstream gets from GameController.framework.
+platform/gamepad/mac/Dualshock4HIDGamepad.cpp
 platform/gamepad/mac/GenericHIDGamepad.cpp
 platform/gamepad/mac/HIDGamepad.cpp
 platform/gamepad/mac/HIDGamepadElement.cpp

@@ -37,6 +37,8 @@ constexpr const uint64_t hidXAxisFullUsage = ((uint64_t)kHIDPage_GenericDesktop)
 constexpr const uint64_t hidYAxisFullUsage = ((uint64_t)kHIDPage_GenericDesktop) << 32 | kHIDUsage_GD_Y;
 constexpr const uint64_t hidZAxisFullUsage = ((uint64_t)kHIDPage_GenericDesktop) << 32 | kHIDUsage_GD_Z;
 constexpr const uint64_t hidRzAxisFullUsage = ((uint64_t)kHIDPage_GenericDesktop) << 32 | kHIDUsage_GD_Rz;
+constexpr const uint64_t hidRxAxisFullUsage = ((uint64_t)kHIDPage_GenericDesktop) << 32 | kHIDUsage_GD_Rx; // MAVERICKS_BACKPORT: the DualShock 4 reports its L2/R2 trigger pressures on Rx/Ry.
+constexpr const uint64_t hidRyAxisFullUsage = ((uint64_t)kHIDPage_GenericDesktop) << 32 | kHIDUsage_GD_Ry;
 
 constexpr const uint64_t hidAcceleratorFullUsage = ((uint64_t)kHIDPage_Simulation) << 32 | kHIDUsage_Sim_Accelerator;
 constexpr const uint64_t hidBrakeFullUsage = ((uint64_t)kHIDPage_Simulation) << 32 | kHIDUsage_Sim_Brake;

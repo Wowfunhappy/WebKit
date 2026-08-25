@@ -32,6 +32,7 @@
 #include <wtf/HexNumber.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/PrintStream.h>
+#include <wtf/RuntimeApplicationChecks.h> // MAVERICKS_BACKPORT: declares the isInWebProcess() branch in initializeCapturerDebugCategory().
 #include <wtf/glib/WTFGType.h>
 #include <wtf/text/MakeString.h>
 
