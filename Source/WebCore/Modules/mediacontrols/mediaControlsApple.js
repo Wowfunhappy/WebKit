@@ -142,6 +142,9 @@ Controller.prototype = {
         'Error': 'Error',
         'Exit Full Screen': 'Exit Full Screen',
         'Fast Forward': 'Fast Forward',
+        // MAVERICKS_BACKPORT (#140): mediaElementLiveBroadcastStateText(), the status the shipped
+        // controls showed for a live stream (LocalizedStrings.cpp:849).
+        'Live Broadcast': 'Live Broadcast',
         'Loading': 'Loading',
         'Maximum Volume': 'Maximum Volume',
         'Minimum Volume': 'Minimum Volume',
@@ -500,34 +503,52 @@ Controller.prototype = {
 
     handleLoadStart: function(event)
     {
-        this.controls.statusDisplay.innerText = this.UIString('Loading');
+        // MAVERICKS_BACKPORT (#140): route the event's string through updateStatusDisplay so text
+        // and visibility are set together, as MediaControlStatusDisplayElement::update() did.
+        // this.controls.statusDisplay.innerText = this.UIString('Loading');
+        this.updateStatusDisplay(this.UIString('Loading'));
         this.updateProgress();
     },
 
     handleError: function(event)
     {
-        this.controls.statusDisplay.innerText = this.UIString('Error');
+        // MAVERICKS_BACKPORT (#140): route the event's string through updateStatusDisplay so text
+        // and visibility are set together, as MediaControlStatusDisplayElement::update() did.
+        // this.controls.statusDisplay.innerText = this.UIString('Error');
+        this.updateStatusDisplay(this.UIString('Error'));
     },
 
     handleAbort: function(event)
     {
-        this.controls.statusDisplay.innerText = this.UIString('Aborted');
+        // MAVERICKS_BACKPORT (#140): route the event's string through updateStatusDisplay so text
+        // and visibility are set together, as MediaControlStatusDisplayElement::update() did.
+        // this.controls.statusDisplay.innerText = this.UIString('Aborted');
+        this.updateStatusDisplay(this.UIString('Aborted'));
     },
 
     handleSuspend: function(event)
     {
-        this.controls.statusDisplay.innerText = this.UIString('Suspended');
+        // MAVERICKS_BACKPORT (#140): route the event's string through updateStatusDisplay so text
+        // and visibility are set together, as MediaControlStatusDisplayElement::update() did.
+        // this.controls.statusDisplay.innerText = this.UIString('Suspended');
+        this.updateStatusDisplay(this.UIString('Suspended'));
     },
 
     handleStalled: function(event)
     {
-        this.controls.statusDisplay.innerText = this.UIString('Stalled');
+        // MAVERICKS_BACKPORT (#140): route the event's string through updateStatusDisplay so text
+        // and visibility are set together, as MediaControlStatusDisplayElement::update() did.
+        // this.controls.statusDisplay.innerText = this.UIString('Stalled');
+        this.updateStatusDisplay(this.UIString('Stalled'));
         this.updateProgress();
     },
 
     handleWaiting: function(event)
     {
-        this.controls.statusDisplay.innerText = this.UIString('Waiting');
+        // MAVERICKS_BACKPORT (#140): route the event's string through updateStatusDisplay so text
+        // and visibility are set together, as MediaControlStatusDisplayElement::update() did.
+        // this.controls.statusDisplay.innerText = this.UIString('Waiting');
+        this.updateStatusDisplay(this.UIString('Waiting'));
     },
 
     handleReadyStateChange: function(event)
@@ -548,6 +569,9 @@ Controller.prototype = {
     handleDurationChange: function(event)
     {
         this.updateDuration();
+        // MAVERICKS_BACKPORT (#140): duration is an input to the status state (live stream), and
+        // reset() computed both in one pass; a durationchange need not carry a readystatechange.
+        this.updateStatusDisplay();
         this.updateTime();
         this.updateProgress();
     },
@@ -891,6 +915,14 @@ Controller.prototype = {
     {
         this.controls.timeline.min = 0;
         this.controls.timeline.max = this.video.duration;
+        // MAVERICKS_BACKPORT (#140): MediaControlsApple::reset(), the C++ controls Safari 7 shipped,
+        // shows the timeline container on a finite duration and hides it otherwise, so before metadata
+        // arrives (duration NaN) and on a live stream (Infinity) the status display owns the panel's
+        // flexible middle. The JS controller this port serves in their place has no equivalent.
+        if (isFinite(this.video.duration))
+            this.controls.timelineBox.classList.remove(this.ClassNames.hidden);
+        else
+            this.controls.timelineBox.classList.add(this.ClassNames.hidden);
     },
 
     progressFillStyle: function(context)
@@ -997,7 +1029,36 @@ Controller.prototype = {
 
     updateReadyState: function()
     {
-        this.setStatusHidden(this.video.readyState > HTMLMediaElement.HAVE_NOTHING);
+        // this.setStatusHidden(this.video.readyState > HTMLMediaElement.HAVE_NOTHING);
+        this.updateStatusDisplay();
+    },
+
+    // MAVERICKS_BACKPORT (#140): MediaControlStatusDisplayElement::update() derived the status from
+    // current media state and set the element's text and visibility together, so the panel could never
+    // hold a visible empty status display. Here the text comes from media events alone while visibility
+    // came from readyState, so a controller built after the event -- or for an element that fires none,
+    // such as <video controls> with no src -- showed an empty status display holding the panel's
+    // flexible middle. Derive the same Loading state, keep an event's string while it still describes
+    // the current condition, and tie visibility to having text.
+    updateStatusDisplay: function(eventStatus)
+    {
+        var status = eventStatus || this.controls.statusDisplay.innerText;
+        if (this.video.readyState <= HTMLMediaElement.HAVE_METADATA) {
+            if (!status && this.video.currentSrc)
+                status = this.UIString('Loading');
+        } else if (this.isLiveStream())
+            status = this.UIString('Live Broadcast');
+        else
+            status = '';
+        this.controls.statusDisplay.innerText = status;
+        this.setStatusHidden(!status);
+    },
+
+    // MAVERICKS_BACKPORT (#140): MediaControlsApple's isLiveStream() is movieLoadType() == LiveStream,
+    // which MediaPlayerPrivateAVFoundation derives from std::isinf(duration()).
+    isLiveStream: function()
+    {
+        return this.video.duration === Infinity;
     },
 
     setStatusHidden: function(hidden)
