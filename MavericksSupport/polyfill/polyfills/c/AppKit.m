@@ -117,3 +117,46 @@ WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSWorkspaceAccessibilityDisplayOp
 // (pulled into every framework alongside the other stubs) satisfies the
 // reference with the correct -1.
 WK_POLYFILL_CONST("AppKit", CGFloat, NSViewNoIntrinsicMetric, -1);
+
+// --- NSInitializeCGFocusRingStyleForTime (absent on 10.9) ----------------
+// Fills a CGFocusRingStyle with AppKit's focus-ring parameters for `placement`, as of `time` seconds
+// into the ring's appearance animation. 10.9's ring does not animate, so every time answers the same
+// settled style. The values are the ones this OS's own -NSSetFocusRingStyle hands
+// CGStyleCreateFocusRingWithColor, read off that call: version 0, blue tint, alpha 0.8, radius 2,
+// threshold 0.5, zero bounds, no accumulation, and an ordering that tracks the placement.
+//
+// CoreGraphics' layout for the struct AppKit's callers pass; CGFocusRingStyle is in no public header.
+typedef int32_t PolyCGFocusRingTint;
+typedef int32_t PolyCGFocusRingOrdering;
+struct PolyCGFocusRingStyle {
+    unsigned int version;
+    PolyCGFocusRingTint tint;
+    PolyCGFocusRingOrdering ordering;
+    CGFloat alpha;
+    CGFloat radius;
+    CGFloat threshold;
+    CGRect bounds;
+    int accumulate;
+};
+enum { PolyCGFocusRingTintBlue = 0 };
+
+WK_POLYFILL_ABSENT("AppKit", BOOL, NSInitializeCGFocusRingStyleForTime,
+    (NSFocusRingPlacement placement, struct PolyCGFocusRingStyle *style, NSTimeInterval time))
+{
+    (void)time;
+    if (!style)
+        return NO;
+    switch (placement) {
+    case NSFocusRingBelow: style->ordering = 1; break;
+    case NSFocusRingAbove: style->ordering = 2; break;
+    default:              style->ordering = 0; break;
+    }
+    style->version = 0;
+    style->tint = PolyCGFocusRingTintBlue;
+    style->alpha = 0.8;
+    style->radius = 2;
+    style->threshold = 0.5;
+    style->bounds = CGRectZero;
+    style->accumulate = 0;
+    return YES;
+}

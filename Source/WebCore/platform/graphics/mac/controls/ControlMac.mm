@@ -314,25 +314,17 @@ void ControlMac::drawCellFocusRingInternal(GraphicsContext& context, const Float
     drawCellFocusRingInView(context, rect, cell, view.get());
 }
 
-// MAVERICKS_BACKPORT: defined in GraphicsContextCocoa.mm — renders the authentic native 10.9 focus ring
-// (NSSetFocusRingStyle) around a shape via a scratch bitmap, because the CGStyle focus ring does not
-// composite into WebKit's offscreen context on this OS.
-void wkCompositeNativeFocusRing(CGContextRef, CGRect, void (^)(void));
+// MAVERICKS_BACKPORT: defined in GraphicsContextCocoa.mm -- runs the drawing against a bitmap-backed
+// stand-in for the destination, because this OS's CoreGraphics drops a CGStyle from CoreAnimation's
+// asynchronous drawing context.
+void wkDrawInBitmapBackedContext(CGContextRef, void (^)(CGContextRef));
 
 void ControlMac::drawCellFocusRing(GraphicsContext& context, const FloatRect& rect, float deviceScaleFactor, const ControlStyle& style, NSCell *cell)
 {
-    // MAVERICKS_BACKPORT: upstream draws the control focus ring by setting a CGStyle focus ring and
-    // drawing the cell's focus-ring mask inside a transparency layer. On 10.9 that CGStyle ring does not
-    // render in WebKit's offscreen context (see wkCompositeNativeFocusRing) and looks modern rather than
-    // Aqua. Instead draw the cell's mask into a scratch bitmap under NSSetFocusRingStyle — which turns the
-    // mask into the authentic native ring around the exact control shape — and composite it.
-    UNUSED_PARAM(deviceScaleFactor);
-    wkCompositeNativeFocusRing(context.platformContext(), rect, ^{
-        RetainPtr view = m_controlFactory->drawingView(rect, style);
-        [cell drawFocusRingMaskWithFrame:rect inView:view.get()];
-    });
-/* MAVERICKS_BACKPORT: upstream implementation kept commented so upstream merges see the original text; not built on this 10.9 backport (the CGStyle focus ring does not composite into WebKit's offscreen context here — see above).
-    RetainPtr cgContext = context.platformContext();
+    // MAVERICKS_BACKPORT: rasterize upstream's own ring where CoreGraphics honours a CGStyle on this OS.
+    wkDrawInBitmapBackedContext(context.platformContext(), ^(CGContextRef scratch) {
+    GraphicsContextCG scratchContext(scratch);
+    RetainPtr cgContext = scratchContext.platformContext();
     CGContextStateSaver stateSaver(cgContext.get());
 
     CGFocusRingStyle focusRingStyle;
@@ -351,9 +343,9 @@ void ControlMac::drawCellFocusRing(GraphicsContext& context, const FloatRect& re
     CGContextSetStyle(cgContext.get(), cgStyle.get());
 
     CGContextBeginTransparencyLayerWithRect(cgContext.get(), rect, nullptr);
-    drawCellFocusRingInternal(context, rect, deviceScaleFactor, style, cell);
+    drawCellFocusRingInternal(scratchContext, rect, deviceScaleFactor, style, cell); // MAVERICKS_BACKPORT: the cell mask draws into the stand-in opened above.
     CGContextEndTransparencyLayer(cgContext.get());
-MAVERICKS_BACKPORT */
+    }); // MAVERICKS_BACKPORT: closes the bitmap-backed drawing block opened above.
 }
 
 void ControlMac::drawCellOrFocusRing(GraphicsContext& context, const FloatRect& rect, float deviceScaleFactor, const ControlStyle& style, NSCell *cell, bool drawCell)

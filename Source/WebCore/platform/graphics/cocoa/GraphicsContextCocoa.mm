@@ -100,85 +100,43 @@ ImageDrawResult GraphicsContext::drawMultiRepresentationHEIC(Image& image, const
 #endif
 
 #if USE(APPKIT)
-// MAVERICKS_BACKPORT: keyboard focus ring. Upstream draws it with CoreGraphics' CGStyle focus ring
-// (NSInitializeCGFocusRingStyleForTime -> CGStyleCreateFocusRingWithColor -> CGContextSetStyle -> fill).
-// That path is unusable on 10.9, verified on-device: the CGStyle focus ring does NOT composite into
-// WebKit's offscreen (WK2 / layer-backed) drawing context at all — it renders nothing there, while
-// ordinary drawing in the SAME context renders normally (10.9's focus-ring accumulation is a
-// window-server-composited effect that never reaches WebKit's offscreen surface; modern macOS draws it
-// directly into any context, which is why upstream needs no special handling). And where the CGStyle
-// ring DOES render (a standalone bitmap) it draws the flat MODERN ring, not the classic Mavericks Aqua
-// glow. The authentic Mavericks ring is AppKit's classic NSSetFocusRingStyle; it also does not composite
-// offscreen but DOES render into a standalone bitmap. So draw the native ring into a scratch bitmap and
-// composite it back. The scratch bitmap is filled in TWO passes (see wkCompositeNativeFocusRing): a plain
-// coverage pass that unions the shape/mask into one silhouette (a raw CGContext fill IS honored there,
-// since no focus-ring style is set yet), then a ring pass that draws that silhouette under
-// NSSetFocusRingStyle. So a caller holding a CGPath fills it straight into the coverage context — no
-// NSBezierPath conversion is needed (10.9 AppKit has no bezierPathWithCGPath: anyway).
-
-// Render the native AppKit focus ring around drawShape's silhouette into a scratch bitmap sized to
-// `bounds` (in `destination` user space) plus a glow margin, then composite the result into `destination`.
-void wkCompositeNativeFocusRing(CGContextRef destination, CGRect bounds, void (^drawShape)(void))
+// MAVERICKS_BACKPORT: CoreAnimation's asynchronous drawing hands -drawInContext: a deferred recording
+// context (CGContextGetType answers kCGContextTypeUnknown and CGBitmapContextGetData is null), and this
+// OS's CoreGraphics does not carry a CGStyle through that recording: ordinary drawing and
+// CGContextSetShadowWithColor replay from it, a focus ring is dropped. WK2 tile layers take
+// drawsAsynchronously from AcceleratedDrawingEnabled, which WebKit turns on, so the two focus-ring call
+// sites run their upstream drawing through here: it hands `draw` a bitmap-backed stand-in for the part
+// of `destination` its clip can show, and composites those pixels back one for one.
+void wkDrawInBitmapBackedContext(CGContextRef destination, void (^draw)(CGContextRef))
 {
-    if (CGRectIsEmpty(bounds))
+    CGRect clip = CGContextGetClipBoundingBox(destination);
+    if (CGRectIsEmpty(clip))
         return;
-    constexpr CGFloat glowMargin = 8; // room for the ~4px soft-blue Aqua bleed outside the shape
-    CGRect tile = CGRectInset(bounds, -glowMargin, -glowMargin);
-    // MAVERICKS_BACKPORT: render the scratch bitmaps at the destination's device scale so the ring is crisp
-    // on HiDPI/Retina — a 1x bitmap would be upsampled by the composite below and read blurry. Derive the
-    // scale from the destination CTM (covers both callers without threading deviceScaleFactor through).
-    CGSize deviceUnit = CGContextConvertSizeToDeviceSpace(destination, CGSizeMake(1, 1));
-    CGFloat scale = std::max<CGFloat>(1, std::max(std::abs(deviceUnit.width), std::abs(deviceUnit.height)));
-    size_t width = static_cast<size_t>(std::ceil(tile.size.width * scale));
-    size_t height = static_cast<size_t>(std::ceil(tile.size.height * scale));
+    CGAffineTransform deviceFromUser = CGContextGetUserSpaceToDeviceSpaceTransform(destination);
+    CGRect deviceRect = CGRectIntegral(CGRectApplyAffineTransform(clip, deviceFromUser));
+    size_t width = static_cast<size_t>(deviceRect.size.width);
+    size_t height = static_cast<size_t>(deviceRect.size.height);
     if (!width || !height)
         return;
+
     RetainPtr colorSpace = adoptCF(CGColorSpaceCreateDeviceRGB());
-    auto makeTileBitmap = [&]() -> RetainPtr<CGContextRef> {
-        RetainPtr ctx = adoptCF(CGBitmapContextCreate(nullptr, width, height, 8, 0, colorSpace.get(),
-            static_cast<uint32_t>(kCGImageAlphaPremultipliedLast) | static_cast<uint32_t>(kCGBitmapByteOrder32Host)));
-        if (ctx) {
-            CGContextScaleCTM(ctx.get(), scale, scale); // draw in points; the bitmap is `scale`x device pixels
-            CGContextTranslateCTM(ctx.get(), -tile.origin.x, -tile.origin.y); // draw in the destination's space
-        }
-        return ctx;
-    };
-
-    // Pass 1: flatten the shape to a plain opaque coverage silhouette. A themed control can draw its
-    // focus-ring mask as SEVERAL sub-regions (NSPopUpButtonCell draws the button body and the arrow well
-    // separately); running that straight through NSSetFocusRingStyle rings each sub-region, so a popup gets a
-    // spurious inner rectangle inside the correct outer rounded ring. Unioning the sub-regions into one
-    // coverage bitmap first collapses them to a single outline. (A plain single-path caller is unaffected —
-    // its coverage is just that one shape.)
-    RetainPtr coverage = makeTileBitmap();
-    if (!coverage)
-        return;
-    RetainPtr coverageContext = [NSGraphicsContext graphicsContextWithGraphicsPort:coverage.get() flipped:NO];
-    [NSGraphicsContext saveGraphicsState];
-    [NSGraphicsContext setCurrentContext:coverageContext.get()];
-    [[NSColor blackColor] set];
-    drawShape();
-    [NSGraphicsContext restoreGraphicsState];
-    RetainPtr coverageImage = adoptCF(CGBitmapContextCreateImage(coverage.get()));
-    if (!coverageImage)
+    RetainPtr scratch = adoptCF(CGBitmapContextCreate(nullptr, width, height, 8, 0, colorSpace.get(),
+        static_cast<uint32_t>(kCGImageAlphaPremultipliedFirst) | static_cast<uint32_t>(kCGBitmapByteOrder32Host)));
+    if (!scratch)
         return;
 
-    // Pass 2: draw that single silhouette under NSSetFocusRingStyle so the authentic Aqua ring traces the
-    // union outline exactly once. The image must be drawn through AppKit (-[NSImage drawInRect:]) — a raw
-    // CGContextDrawImage bypasses the focus-ring state and would emit nothing.
-    RetainPtr bitmap = makeTileBitmap();
-    if (!bitmap)
+    // The scratch's pixels are the destination's device space with deviceRect's origin at the bitmap's
+    // origin, so `draw` works in the destination's user space and lands on the destination's pixel grid.
+    CGContextTranslateCTM(scratch.get(), -deviceRect.origin.x, -deviceRect.origin.y);
+    CGContextConcatCTM(scratch.get(), deviceFromUser);
+    draw(scratch.get());
+
+    RetainPtr image = adoptCF(CGBitmapContextCreateImage(scratch.get()));
+    if (!image)
         return;
-    RetainPtr nsContext = [NSGraphicsContext graphicsContextWithGraphicsPort:bitmap.get() flipped:NO];
-    [NSGraphicsContext saveGraphicsState];
-    [NSGraphicsContext setCurrentContext:nsContext.get()];
-    NSSetFocusRingStyle(NSFocusRingOnly);
-    RetainPtr silhouette = adoptNS([[NSImage alloc] initWithCGImage:coverageImage.get() size:NSMakeSize(tile.size.width, tile.size.height)]);
-    [silhouette drawInRect:NSMakeRect(tile.origin.x, tile.origin.y, tile.size.width, tile.size.height)];
-    [NSGraphicsContext restoreGraphicsState];
-    RetainPtr image = adoptCF(CGBitmapContextCreateImage(bitmap.get()));
-    if (image)
-        CGContextDrawImage(destination, tile, image.get());
+    CGContextStateSaver stateSaver(destination);
+    CGContextConcatCTM(destination, CGAffineTransformInvert(deviceFromUser));
+    CGContextDrawImage(destination, deviceRect, image.get());
 }
 #endif
 
@@ -187,22 +145,6 @@ void GraphicsContextCG::drawFocusRing(const Path& path, float, const Color& colo
     if (path.isEmpty())
         return;
 
-#if USE(APPKIT)
-    // MAVERICKS_BACKPORT: draw the authentic native 10.9 focus ring via a scratch bitmap and return; the
-    // upstream CGStyle focus-ring path (kept intact in the #else below for the non-APPKIT build) does not
-    // render in WebKit's offscreen context on 10.9, and draws the flat modern ring rather than the Aqua
-    // glow where it does. See wkCompositeNativeFocusRing.
-    UNUSED_PARAM(color); // NSSetFocusRingStyle draws in the system focus color (the Aqua blue).
-    CGPathRef cgPath = path.platformPath();
-    wkCompositeNativeFocusRing(platformContext(), CGPathGetPathBoundingBox(cgPath), ^{
-        // The coverage pass runs in a plain (non-focus-ring) context, so fill the CGPath straight into it —
-        // no NSBezierPath needed; wkCompositeNativeFocusRing then rings the filled silhouette once.
-        CGContextRef coverageContext = (CGContextRef)[[NSGraphicsContext currentContext] graphicsPort];
-        CGContextSetGrayFillColor(coverageContext, 0, 1);
-        CGContextAddPath(coverageContext, cgPath);
-        CGContextFillPath(coverageContext);
-    });
-#else
     CGFocusRingStyle focusRingStyle;
 #if USE(APPKIT)
     NSInitializeCGFocusRingStyleForTime(NSFocusRingOnly, &focusRingStyle, std::numeric_limits<double>::max());
@@ -223,8 +165,8 @@ void GraphicsContextCG::drawFocusRing(const Path& path, float, const Color& colo
     focusRingStyle.accumulate = -1;
     auto style = adoptCF(CGStyleCreateFocusRingWithColor(&focusRingStyle, cachedCGColor(color).get()));
 
-    CGContextRef platformContext = this->platformContext();
-
+    // MAVERICKS_BACKPORT: rasterize upstream's own ring where CoreGraphics honours a CGStyle on this OS.
+    wkDrawInBitmapBackedContext(this->platformContext(), ^(CGContextRef platformContext) {
     CGContextStateSaver stateSaver(platformContext);
 
     CGContextSetStyle(platformContext, style.get());
@@ -232,7 +174,7 @@ void GraphicsContextCG::drawFocusRing(const Path& path, float, const Color& colo
     CGContextAddPath(platformContext, path.platformPath());
 
     CGContextFillPath(platformContext);
-#endif // MAVERICKS_BACKPORT: end of the APPKIT native-focus-ring override
+    }); // MAVERICKS_BACKPORT: closes the bitmap-backed drawing block opened above.
 }
 
 void GraphicsContextCG::drawFocusRing(const Vector<FloatRect>& rects, float outlineOffset, float outlineWidth, const Color& color)
