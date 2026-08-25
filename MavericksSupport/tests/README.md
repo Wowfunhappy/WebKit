@@ -26,6 +26,7 @@ click, a key press, or a hardware/manual step.
 | `fixed-background-parallax-test.html` | a `background-attachment: fixed` stripe pattern stays anchored to the viewport under isolated wheel notches while the page burns 8ms per rAF; any single-frame displacement flips the stripe colour under a fixed screen point | visual, manual | notched wheel or a synthetic line-unit `CGEventCreateScrollWheelEvent` ~180ms apart |
 | `fixed-test.html` | `position:fixed` stays pinned while scrolling; title reports scrollWidth/scrollY/computed position | title + visual | — |
 | `forms.html` | Form controls and the scroll-corner render | visual | — |
+| `gzip-suppression/server.py` | gzip `Content-Encoding` bodies CFNetwork withholds for gzip-archive responses are decoded exactly once for fetch()/XHR, over the extension x media-type x Content-Disposition matrix, plus multi-member and truncated bodies (github #74) | title + console | `python3 …/server.py`, then http://127.0.0.1:8101/ |
 | `fullscreen/fullscreen-test.html` | element `requestFullscreen` / exit and the `:fullscreen` styles | manual, banner | — |
 | `fullscreen/fs-tile-test.html` | full-screen page's Mission Control tile shows the page (colour grid), not a blank | manual, visual | — |
 | `fullscreen/issue48-fullscreen.html` | Lion-style fullscreen: enter, exit, mid-transition exit, navigate-away; the first line after each "in" is the acceptance measurement | manual, banner | — |

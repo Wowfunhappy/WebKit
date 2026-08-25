@@ -23,6 +23,8 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// MAVERICKS_BACKPORT: for m_gzipDecoder below.
+#import "CFNetworkSuppressedGzipDecoder.h"
 #import <dispatch/dispatch.h>
 #import <wtf/Box.h>
 #import <wtf/Function.h>
@@ -51,6 +53,9 @@ class SynchronousLoaderMessageQueue;
     RetainPtr<NSCachedURLResponse> m_cachedResponseResult;
     std::optional<SchedulePairHashSet> m_scheduledPairs;
     BOOL m_boolResult;
+    // MAVERICKS_BACKPORT: non-null while decoding a gzip body 10.9 CFNetwork withheld; see
+    // connection:didReceiveResponse:.
+    std::unique_ptr<WebCore::CFNetworkSuppressedGzipDecoder> m_gzipDecoder;
 }
 
 - (void)detachHandle;

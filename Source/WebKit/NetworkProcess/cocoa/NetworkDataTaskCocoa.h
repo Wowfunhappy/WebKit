@@ -38,6 +38,7 @@ OBJC_CLASS NSURLSessionDataTask;
 OBJC_CLASS NSMutableURLRequest;
 
 namespace WebCore {
+class CFNetworkSuppressedGzipDecoder; // MAVERICKS_BACKPORT: see m_gzipDecoder.
 class RegistrableDomain;
 class SharedBuffer;
 enum class AdvancedPrivacyProtections : uint16_t;
@@ -120,6 +121,11 @@ private:
     bool m_isForMainResourceNavigationForAnyFrame { false };
     RefPtr<WebCore::SecurityOrigin> m_sourceOrigin;
     uint64_t m_requiredCookiesVersion { 0 };
+    // MAVERICKS_BACKPORT: the request's content-encoding sniffing policy, kept because 10.9 CFNetwork
+    // ignores the property that carries it; didReceiveResponse consults it.
+    WebCore::ContentEncodingSniffingPolicy m_contentEncodingSniffingPolicy;
+    // MAVERICKS_BACKPORT: non-null while decoding a gzip body 10.9 CFNetwork withheld.
+    std::unique_ptr<WebCore::CFNetworkSuppressedGzipDecoder> m_gzipDecoder;
 };
 
 WebCore::Credential serverTrustCredential(const WebCore::AuthenticationChallenge&);

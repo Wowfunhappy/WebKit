@@ -407,6 +407,9 @@ list(APPEND WebCore_SOURCES
     platform/network/cf/NetworkStorageSessionCFNet.cpp
     platform/network/cf/ResourceRequestCFNet.cpp
 
+    # MAVERICKS_BACKPORT: CFNetworkSuppressedGzipDecoder decodes the gzip bodies 10.9 CFNetwork
+    # withholds; see the file for the rule it reproduces.
+    platform/network/cocoa/CFNetworkSuppressedGzipDecoder.cpp
     platform/network/cocoa/CookieCocoa.mm
     platform/network/cocoa/CookieStorageObserver.mm
     platform/network/cocoa/CredentialCocoa.mm
@@ -768,6 +771,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/network/cf/ResourceRequestCFNet.h
     platform/network/cf/ResourceResponse.h
 
+    platform/network/cocoa/CFNetworkSuppressedGzipDecoder.h # MAVERICKS_BACKPORT: WebKit's network process uses it too.
     platform/network/cocoa/CookieStorageObserver.h
     platform/network/cocoa/CredentialCocoa.h
     platform/network/cocoa/HTTPCookieAcceptPolicyCocoa.h
