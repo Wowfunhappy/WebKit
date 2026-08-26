@@ -235,6 +235,10 @@ PROBE_LIBS="$OUT/libpolyfill.a -framework Foundation -framework CoreFoundation -
 "$T/sectask_identity"
 "$CLANG" $MODERN $INC -o "$T/timebase" "$TBEHAV/libSystem-timebase.c" $PROBE_LIBS
 "$T/timebase"
+"$CLANG" $MODERN $INC -o "$T/memory_entry_data_addr" "$TBEHAV/mach-memory-entry-data-addr.c" $PROBE_LIBS
+"$T/memory_entry_data_addr"
+"$CLANG" $MODERN $INC -o "$T/task_vm_info" "$TBEHAV/libSystem-task-vm-info.c" $PROBE_LIBS
+"$T/task_vm_info"
 "$CLANG" $MODERN $INC -Wno-unguarded-availability-new -o "$T/unfair_lock" "$TBEHAV/libSystem-unfair-lock.c" $PROBE_LIBS
 "$T/unfair_lock"
 # -lc++: realizing a font reaches the variable-font instancer, which is C++.

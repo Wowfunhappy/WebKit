@@ -83,16 +83,7 @@ void MemoryPressureHandler::install()
         return;
 
     dispatch_async(m_dispatchQueue.get(), ^{
-        // MAVERICKS_BACKPORT: DISPATCH_MEMORYPRESSURE_PROC_LIMIT_{WARN,CRITICAL}
-        // are 10.10+. The base NORMAL/WARN/CRITICAL flags exist on 10.9 — those
-        // give us system VM pressure events, which is what triggers cache purges
-        // when the user's RAM is full (the source of the OOM the user reported
-        // on 2026-05-16). Skip the proc-limit flags on Mac.
-#if PLATFORM(MAC)
-        auto memoryStatusFlags = DISPATCH_MEMORYPRESSURE_NORMAL | DISPATCH_MEMORYPRESSURE_WARN | DISPATCH_MEMORYPRESSURE_CRITICAL;
-#else
         auto memoryStatusFlags = DISPATCH_MEMORYPRESSURE_NORMAL | DISPATCH_MEMORYPRESSURE_WARN | DISPATCH_MEMORYPRESSURE_CRITICAL | DISPATCH_MEMORYPRESSURE_PROC_LIMIT_WARN | DISPATCH_MEMORYPRESSURE_PROC_LIMIT_CRITICAL;
-#endif // MAVERICKS_BACKPORT: PROC_LIMIT flags are 10.10+, dropped on Mac (see above).
         // FIXME: This is a false positive. rdar://160931336
         SUPPRESS_RETAINPTR_CTOR_ADOPT memoryPressureEventSource() = adoptOSObject(dispatch_source_create(DISPATCH_SOURCE_TYPE_MEMORYPRESSURE, 0, memoryStatusFlags, m_dispatchQueue.get()));
 
@@ -249,10 +240,7 @@ std::optional<MemoryPressureHandler::ReliefLogger::MemoryUsage> MemoryPressureHa
     if (err != KERN_SUCCESS)
         return std::nullopt;
 
-    // MAVERICKS_BACKPORT: a 10.9 kernel answers TASK_VM_INFO with a structure that ends before
-    // phys_footprint, reporting the length it filled in; internal+compressed is the same quantity
-    // (see memoryFootprint()).
-    return MemoryUsage {static_cast<size_t>(vmInfo.internal), static_cast<size_t>(vmInfo.internal + vmInfo.compressed)};
+    return MemoryUsage {static_cast<size_t>(vmInfo.internal), static_cast<size_t>(vmInfo.phys_footprint)};
 }
 
 } // namespace WTF

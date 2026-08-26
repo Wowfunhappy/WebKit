@@ -22,6 +22,7 @@
 #include <sys/qos.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <limits.h>
@@ -355,6 +356,54 @@ WK_POLYFILL_REPLACES(NULL, dispatch_queue_global_t, dispatch_get_global_queue, (
     else if (identifier == 0x09 /*QOS_CLASS_BACKGROUND*/ || identifier == 0x05 /*QOS_CLASS_MAINTENANCE*/)
         identifier = DISPATCH_QUEUE_PRIORITY_BACKGROUND;
     return WK_ORIGINAL(dispatch_get_global_queue)(identifier, flags);
+}
+
+// task_info(TASK_VM_INFO) grew phys_footprint after 10.9. This kernel answers the flavor with the
+// 2013 structure and reports the length it filled: measured on this host, kr=0 and count=36, which is
+// exactly the modern header's TASK_VM_INFO_REV0_COUNT and ends at offsetof(phys_footprint) — the two
+// layouts agree byte for byte up to that point, so the field is simply never written and a caller
+// that reads it gets whatever was in its buffer.
+//
+// phys_footprint is a task's internal (dirty anonymous) pages plus what the compressor holds for it,
+// and 10.9 fills both of those. Measured here, internal+compressed is 282624 where resident_size is
+// 503808: resident size is not a stand-in, because it counts clean file-backed pages that are not
+// part of the footprint. Fill the short field and report the count that includes it, which is what a
+// kernel that implements REV1 replies. Every other flavor — TASK_AUDIT_TOKEN among them — and any
+// reply that already reaches phys_footprint pass through untouched.
+WK_POLYFILL_REPLACES(NULL, kern_return_t, task_info,
+    (task_name_t target, task_flavor_t flavor, task_info_t out, mach_msg_type_number_t *outCnt)) {
+    if (flavor != TASK_VM_INFO || !out || !outCnt)
+        return WK_ORIGINAL(task_info)(target, flavor, out, outCnt);
+
+    const mach_msg_type_number_t requested = *outCnt;
+    kern_return_t kr = WK_ORIGINAL(task_info)(target, flavor, out, outCnt);
+    if (kr != KERN_SUCCESS)
+        return kr;
+
+    const mach_msg_type_number_t throughCompressed = (mach_msg_type_number_t)
+        ((offsetof(task_vm_info_data_t, compressed) + sizeof(((task_vm_info_data_t *)0)->compressed)) / sizeof(natural_t));
+    const mach_msg_type_number_t throughPhysFootprint = (mach_msg_type_number_t)
+        ((offsetof(task_vm_info_data_t, phys_footprint) + sizeof(((task_vm_info_data_t *)0)->phys_footprint)) / sizeof(natural_t));
+    if (requested < throughPhysFootprint || *outCnt >= throughPhysFootprint || *outCnt < throughCompressed)
+        return kr;
+
+    task_vm_info_data_t *info = (task_vm_info_data_t *)out;
+    info->phys_footprint = info->internal + info->compressed;
+    *outCnt = throughPhysFootprint;
+    return kr;
+}
+
+// DISPATCH_MEMORYPRESSURE_PROC_LIMIT_WARN and _PROC_LIMIT_CRITICAL are 10.10+. 10.9's libdispatch
+// validates the mask and answers a mask carrying them with NULL — measured on this host: 0x07 gives a
+// source, 0x37 and 0x17 give NULL — and a NULL source means the caller registered no handler at all,
+// so nothing hears system memory pressure. Narrow a memorypressure mask to the three levels this
+// kernel notifies on, which is every level it can deliver; a process-limit notification has no source
+// here to raise it. Every other source type is forwarded with its mask untouched.
+WK_POLYFILL_REPLACES(NULL, dispatch_source_t, dispatch_source_create,
+    (dispatch_source_type_t type, uintptr_t handle, uintptr_t mask, dispatch_queue_t queue)) {
+    if (type == DISPATCH_SOURCE_TYPE_MEMORYPRESSURE)
+        mask &= (uintptr_t)(DISPATCH_MEMORYPRESSURE_NORMAL | DISPATCH_MEMORYPRESSURE_WARN | DISPATCH_MEMORYPRESSURE_CRITICAL);
+    return WK_ORIGINAL(dispatch_source_create)(type, handle, mask, queue);
 }
 
 // xpc_type_get_name (newer XPC introspection) — used only for diagnostic strings; return a generic label.
