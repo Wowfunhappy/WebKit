@@ -135,14 +135,22 @@ static inline vm_prot_t NODELETE machProtection(SharedMemory::Protection protect
     return VM_PROT_NONE;
 }
 
+// MAVERICKS_BACKPORT: a memory entry made with MAP_MEM_USE_DATA_ADDR begins at the page containing
+// the span, and the receiving process recovers the span's own address by passing
+// VM_FLAGS_RETURN_DATA_ADDR to mach_vm_map. The 10.9 kernel refuses that map flag with
+// KERN_INVALID_ARGUMENT, so a span that does not begin on a page boundary is shared by copying it
+// into a page-aligned region instead -- see the two callers below.
+static inline bool NODELETE beginsOnPageBoundary(std::span<const uint8_t> data)
+{
+    return !(reinterpret_cast<uintptr_t>(data.data()) & (vm_page_size - 1));
+}
+
 static MachSendRight makeMemoryEntry(size_t size, vm_offset_t offset, SharedMemory::Protection protection, mach_port_t parentEntry)
 {
     memory_object_size_t memoryObjectSize = size;
     mach_port_t port = MACH_PORT_NULL;
 
-    // MAVERICKS_BACKPORT: drop MAP_MEM_USE_DATA_ADDR — it is a 10.12+ kernel flag absent at runtime
-    // on 10.9 (the 10.9 kernel rejects it with KERN_INVALID_ARGUMENT). The 26.1 SDK declares it.
-    kern_return_t kr = mach_make_memory_entry_64(mach_task_self(), &memoryObjectSize, offset, machProtection(protection) | VM_PROT_IS_MASK | MAP_MEM_VM_SHARE, &port, parentEntry);
+    kern_return_t kr = mach_make_memory_entry_64(mach_task_self(), &memoryObjectSize, offset, machProtection(protection) | VM_PROT_IS_MASK | MAP_MEM_VM_SHARE | MAP_MEM_USE_DATA_ADDR, &port, parentEntry);
     if (kr != KERN_SUCCESS) {
         RELEASE_LOG_ERROR(VirtualMemory, "SharedMemory::makeMemoryEntry: Failed to create a mach port for shared memory. Error: %" PUBLIC_LOG_STRING " (%x)", mach_error_string(kr), kr);
         return { };
@@ -192,12 +200,14 @@ RefPtr<SharedMemory> SharedMemory::map(Handle&& handle, Protection protection, C
 std::optional<SharedMemoryHandle> SharedMemoryHandle::createVMShare(std::span<const uint8_t> data, SharedMemoryProtection protection)
 {
     // Creating a handle to an existing memory range implies that the ownership is never transferred.
+    // MAVERICKS_BACKPORT: an unaligned span cannot be addressed through a memory entry on 10.9.
+    if (!beginsOnPageBoundary(data))
+        return createCopy(data, protection);
+
     memory_object_size_t memoryObjectSize = data.size();
     mach_port_t port = MACH_PORT_NULL;
     const memory_object_offset_t offset = reinterpret_cast<uintptr_t>(data.data());
-    // MAVERICKS_BACKPORT: MAP_MEM_USE_DATA_ADDR is a 10.12+ kernel flag — the 10.9 kernel rejects it,
-    // returning KERN_INVALID_ARGUMENT and leaving `port` set to garbage. Drop the flag. (26.1 SDK declares it.)
-    kern_return_t kr = mach_make_memory_entry_64(mach_task_self(), &memoryObjectSize, offset, machProtection(protection) | VM_PROT_IS_MASK | MAP_MEM_VM_SHARE, &port, MACH_PORT_NULL);
+    kern_return_t kr = mach_make_memory_entry_64(mach_task_self(), &memoryObjectSize, offset, machProtection(protection) | VM_PROT_IS_MASK | MAP_MEM_VM_SHARE | MAP_MEM_USE_DATA_ADDR, &port, MACH_PORT_NULL);
     if (kr != KERN_SUCCESS) {
         RELEASE_LOG_ERROR(VirtualMemory, "Failed to create memory entry for shared memory. Error: %" PUBLIC_LOG_STRING " (%x)", mach_error_string(kr), kr);
         return std::nullopt;
@@ -213,11 +223,14 @@ std::optional<SharedMemoryHandle> SharedMemoryHandle::createVMShare(std::span<co
 
 std::optional<SharedMemoryHandle> SharedMemoryHandle::createVMCopy(std::span<const uint8_t> data, SharedMemoryProtection protection)
 {
+    // MAVERICKS_BACKPORT: an unaligned span cannot be addressed through a memory entry on 10.9.
+    if (!beginsOnPageBoundary(data))
+        return createCopy(data, protection);
+
     memory_object_size_t memoryObjectSize = data.size();
     mach_port_t port = MACH_PORT_NULL;
     const memory_object_offset_t offset = reinterpret_cast<uintptr_t>(data.data());
-    // MAVERICKS_BACKPORT: drop MAP_MEM_USE_DATA_ADDR — 10.12+ kernel flag absent at runtime on 10.9. (26.1 SDK declares it.)
-    kern_return_t kr = mach_make_memory_entry_64(mach_task_self(), &memoryObjectSize, offset, machProtection(protection) | VM_PROT_IS_MASK | MAP_MEM_VM_COPY, &port, MACH_PORT_NULL);
+    kern_return_t kr = mach_make_memory_entry_64(mach_task_self(), &memoryObjectSize, offset, machProtection(protection) | VM_PROT_IS_MASK | MAP_MEM_VM_COPY | MAP_MEM_USE_DATA_ADDR, &port, MACH_PORT_NULL);
     if (kr != KERN_SUCCESS)
         return std::nullopt; // No redundant logging -- failing VM copy is expected for some WebKit use-cases.
 
