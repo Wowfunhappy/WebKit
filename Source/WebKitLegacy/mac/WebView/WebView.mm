@@ -1319,14 +1319,16 @@ static RetainPtr<CFMutableSetRef>& NODELETE allWebViewsSet()
 
 @implementation WebView (WebPrivate)
 
-// MAVERICKS_BACKPORT: restore the legacy WebDashboard SPI removed upstream in
-// "Remove Legacy Dashboard Support" (255204). macOS 10.9's DashboardClient
-// (which renders Dashboard widgets, including Safari Web Clips via the
-// WebClip.plugin WebKit-ObjC plug-in) calls -[WebView _setDashboardBehavior:to:]
-// during WebView setup; without it, the unrecognized-selector exception aborts
-// the widget's WebView setup and the widget renders blank. The methods were
-// already no-ops by the time they were removed (the behaviors had been gutted),
-// so restoring them as no-ops matches the last shipping behavior.
+// MAVERICKS_BACKPORT: the legacy WebDashboard SPI removed upstream in "Remove Legacy Dashboard
+// Support" (255204). macOS 10.9's DashboardClient — which renders Dashboard widgets, including Safari
+// Web Clips via the WebClip.plugin WebKit-ObjC plug-in — declares the widget's WebView legacy through
+// it during setup. Read off DashboardClient.framework's call sites, it sends AlwaysSendMouseEvents,
+// AlwaysSendActiveNullEvents and AlwaysAcceptsFirstMouse as YES, AllowWheelScrolling as NO, and
+// UseBackwardCompatibilityMode as YES.
+//
+// Backward-compatibility mode is the host saying this surface is authored against the pre-HTML5
+// parser, so it carries into the setting that selects those quirks; widget markup uses self-closing
+// start tags and unquoted attributes that the HTML5 tokenizer otherwise reads as text.
 typedef enum {
     WebDashboardBehaviorAlwaysSendMouseEventsToAllWindows,
     WebDashboardBehaviorAlwaysSendActiveNullEventsToPlugIns,
@@ -1337,10 +1339,45 @@ typedef enum {
 
 - (void)_setDashboardBehavior:(WebDashboardBehavior)behavior to:(BOOL)flag
 {
+    switch (behavior) {
+    case WebDashboardBehaviorAlwaysSendMouseEventsToAllWindows:
+        _private->dashboardBehaviorAlwaysSendMouseEventsToAllWindows = flag;
+        break;
+    case WebDashboardBehaviorAlwaysSendActiveNullEventsToPlugIns:
+        _private->dashboardBehaviorAlwaysSendActiveNullEventsToPlugIns = flag;
+        break;
+    case WebDashboardBehaviorAlwaysAcceptsFirstMouse:
+        _private->dashboardBehaviorAlwaysAcceptsFirstMouse = flag;
+        break;
+    case WebDashboardBehaviorAllowWheelScrolling:
+        _private->dashboardBehaviorAllowWheelScrolling = flag;
+        break;
+    case WebDashboardBehaviorUseBackwardCompatibilityMode:
+        _private->dashboardBehaviorUseBackwardCompatibilityMode = flag;
+        if (RefPtr page = _private->page) {
+#if ENABLE(DASHBOARD_SUPPORT)
+            page->settings().setUsesDashboardBackwardCompatibilityMode(flag);
+#endif
+            page->settings().setUsePreHTML5ParserQuirks(flag);
+        }
+        break;
+    }
 }
 
 - (BOOL)_dashboardBehavior:(WebDashboardBehavior)behavior
 {
+    switch (behavior) {
+    case WebDashboardBehaviorAlwaysSendMouseEventsToAllWindows:
+        return _private->dashboardBehaviorAlwaysSendMouseEventsToAllWindows;
+    case WebDashboardBehaviorAlwaysSendActiveNullEventsToPlugIns:
+        return _private->dashboardBehaviorAlwaysSendActiveNullEventsToPlugIns;
+    case WebDashboardBehaviorAlwaysAcceptsFirstMouse:
+        return _private->dashboardBehaviorAlwaysAcceptsFirstMouse;
+    case WebDashboardBehaviorAllowWheelScrolling:
+        return _private->dashboardBehaviorAllowWheelScrolling;
+    case WebDashboardBehaviorUseBackwardCompatibilityMode:
+        return _private->dashboardBehaviorUseBackwardCompatibilityMode;
+    }
     return NO;
 }
 

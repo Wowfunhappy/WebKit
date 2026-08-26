@@ -4275,21 +4275,20 @@ void Document::implicitClose()
             svgExtensions->dispatchLoadEventToOutermostSVGElements();
     }
 
-    // MAVERICKS_BACKPORT: behavior fix (#38 Web Clips). Dashboard widget markup expects its
-    // WebKit-ObjC plug-in to exist by body onload: the WebClipper factory publishes the
-    // `webClip` scripting global synchronously when the plug-in view is created, and
-    // WebClip.js's body_onload / onshow handlers dereference it. Plug-in creation is a
-    // post-layout task, so on a fast load the window load event can beat the first layout and
-    // the widget's handlers throw ("Can't find variable: webClip"), leaving the widget's
-    // settings and show/hide refresh hooks dead for the life of the instance. Flush layout and
-    // the pending embedded-object updates first so plug-in creation is ordered before the load
-    // event, as the WebKit that Dashboard shipped against ordered it. Scoped to .wdgt
-    // documents exactly like the pre-HTML5 parser quirk in HTMLParserOptions.cpp.
-    if (url().protocolIsFile() && url().string().contains(".wdgt/"_s)) {
+    // MAVERICKS_BACKPORT: a WebKit-ObjC plug-in publishes its scripting object when its widget is
+    // created, and widget creation is an embedded-object update that runs from a zero-delay timer
+    // after layout, while the load event is dispatched from here -- so a load handler that reaches
+    // for the plug-in does not find it. On a surface the host has declared backward-compatible
+    // (10.9's DashboardClient sends WebDashboardBehaviorUseBackwardCompatibilityMode, which is what
+    // sets this setting), bring the pending widgets into being first, the way PluginDocument does
+    // when a plug-in must exist before the document finishes.
+#if ENABLE(DASHBOARD_SUPPORT)
+    if (settings().usesDashboardBackwardCompatibilityMode()) {
         updateLayout();
         if (RefPtr view = this->view())
             view->flushAnyPendingPostLayoutTasks();
     }
+#endif // MAVERICKS_BACKPORT: closes the ENABLE(DASHBOARD_SUPPORT) guard above.
 
     dispatchWindowLoadEvent();
     dispatchPageshowEvent(PageshowEventPersistence::NotPersisted);

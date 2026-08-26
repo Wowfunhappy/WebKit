@@ -225,6 +225,14 @@ class WebSelectionServiceController;
     BOOL becomingFirstResponderFromOutside;
     BOOL usesPageCache;
 
+    // MAVERICKS_BACKPORT: the five WebDashboardBehavior flags 10.9's DashboardClient declares on a
+    // widget's WebView, kept so -[WebView _dashboardBehavior:] answers what the host set.
+    BOOL dashboardBehaviorAlwaysSendMouseEventsToAllWindows;
+    BOOL dashboardBehaviorAlwaysSendActiveNullEventsToPlugIns;
+    BOOL dashboardBehaviorAlwaysAcceptsFirstMouse;
+    BOOL dashboardBehaviorAllowWheelScrolling;
+    BOOL dashboardBehaviorUseBackwardCompatibilityMode;
+
 #if !PLATFORM(IOS_FAMILY)
     RetainPtr<NSColor> backgroundColor;
 #else
