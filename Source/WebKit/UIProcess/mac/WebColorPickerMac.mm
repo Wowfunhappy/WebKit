@@ -196,6 +196,15 @@ void WebColorPickerMac::showColorPicker(const WebCore::Color& color)
     [popover showRelativeToRect:self.bounds ofView:self preferredEdge:NSMinYEdge];
 }
 
+// MAVERICKS_BACKPORT: -[NSColorWell activate:] ends in [NSApp orderFrontColorPanel:] unless the well
+// answers NO to -_shouldOrderFront, and 10.9's NSPopoverColorWell does not override it, so the shared
+// Colors panel opened on top of the popover. The panel belongs to the popover's "Show Colors…" button,
+// which orders it front itself (-[NSColorPopoverController _showColorPanel:]) before activating this well.
+- (BOOL)_shouldOrderFront
+{
+    return NO;
+}
+
 - (void)popoverDidClose:(NSNotification *)notification
 {
     [retainPtr(self.webDelegate) didClosePopover];

@@ -2016,18 +2016,18 @@ WK_POLYFILL_SEL("_setRequiresCorrectContentAppearance:", "wk__setRequiresCorrect
 @end
 WK_POLYFILL_SEL("isViewLoaded", "wk_isViewLoaded");
 
+#import "color-popover-top-bar.h"
+
 // ---------------------------------------------------------------------------------------------------
-// -[NSColorPopoverController topBarMatrixView] (10.10+): the suggested-colors swatch matrix at the top
-// of the color popover. 10.9's controller (present, probed) has no such bar in its nib, so there is no
-// view to return; WebColorPickerMac takes nil and its swatch configuration no-ops, leaving the popover
-// as the plain 10.9 color picker — datalist-suggested colors degrade invisibly. Installed by NAME
-// (WK_POLYFILL_ADD): the class exists in 10.9's AppKit but its _OBJC_CLASS_$_ symbol is local there,
-// so a compiled category could not bind it.
+// -[NSColorPopoverController topBarMatrixView] (10.10+): the suggested-colors swatch matrix across the
+// top of the color popover, which an <input type="color" list="..."> fills with the page's suggestions.
+// The strip and its layout live in color-popover-top-bar.h, one static definition shared with its proof,
+// tests/behaviour/AppKit-color-popover-top-bar.m. Installed by NAME (WK_POLYFILL_ADD): the class exists
+// in 10.9's AppKit but its _OBJC_CLASS_$_ symbol is local there, so a compiled category could not bind it.
 static id wk_colorPopoverController_topBarMatrixView(id self, SEL _cmd)
 {
-    (void)self;
     (void)_cmd;
-    return nil;
+    return wkColorTopBarMatrixView((NSViewController *)self);
 }
 WK_POLYFILL_ADD("NSColorPopoverController", "wk_topBarMatrixView", wk_colorPopoverController_topBarMatrixView, "@@:");
 WK_POLYFILL_SEL("topBarMatrixView", "wk_topBarMatrixView");

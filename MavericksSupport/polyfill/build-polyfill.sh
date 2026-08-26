@@ -226,6 +226,11 @@ WK_POLYFILL_SIBLING="$T/wk_polyfill_sibling.dylib" "$T/wk_polyfill_test"
 "$CLANG" $MODERN $INC -fno-objc-arc -I"$PF/methods" -o "$T/scrollview_insets" "$TBEHAV/AppKit-scrollview-insets.m" \
     -framework AppKit -framework Foundation -lobjc
 "$T/scrollview_insets"
+# The suggested-colors strip (methods/color-popover-top-bar.h): the strip lands in the popover wired to the
+# controller, fits its swatches, and the popover makes room for it without disturbing the nib's own views.
+"$CLANG" $MODERN $INC -fno-objc-arc -I"$PF/methods" -o "$T/color_popover_top_bar" "$TBEHAV/AppKit-color-popover-top-bar.m" \
+    -framework AppKit -framework Foundation -lobjc
+"$T/color_popover_top_bar"
 # Probes that link the SHIPPED archive (without -force_load, so only the members they reach are pulled)
 # and call the polyfilled symbols exactly as WebKit will.
 PROBE_LIBS="$OUT/libpolyfill.a -framework Foundation -framework CoreFoundation -framework Security -framework CoreMedia -lsqlite3 -lbsm -lsandbox -lobjc"
