@@ -5346,7 +5346,13 @@ void WebPageProxy::receivedNavigationActionPolicyDecision(WebProcessProxy& proce
     Ref preferences = m_preferences;
 
 #if PLATFORM(COCOA)
-    static const bool forceDownloadFromDownloadAttribute = false;
+    // MAVERICKS_BACKPORT: the Cocoa constant assumes a navigation delegate that reads the action and
+    // answers WKNavigationActionPolicyDownload (NavigationState.mm does). Safari 7 drives policy
+    // through the legacy WKPagePolicyClient, whose callbacks carry no navigation action at all --
+    // only navigationType/modifiers/mouseButton/frames/requests -- so downloadAttribute cannot reach
+    // it and WebKit applies the attribute itself, as on every port without such a delegate.
+    // static const bool forceDownloadFromDownloadAttribute = false;
+    const bool forceDownloadFromDownloadAttribute = !!m_policyClient;
 #else
     static const bool forceDownloadFromDownloadAttribute = true;
 #endif
@@ -9201,8 +9207,7 @@ void WebPageProxy::decidePolicyForNavigationAction(Ref<WebProcessProxy>&& proces
         // policy client attached in the WebProcess. Safari's legacy
         // V0/V1 WKPagePolicyClient callback (BrowserPagePolicyClient::decidePolicyForAction) casts
         // this to a WKDictionary and bails WITHOUT driving the listener if it is null. Passing the
-        // real dictionary lets Safari's callback actually call use()/ignore()/download(), so the
-        // former auto-USE fallback timer is no longer needed.
+        // real dictionary lets Safari's callback actually call use()/ignore()/download().
         RefPtr<API::Object> bundlePolicyUserData = process->transformHandlesToObjects(bundlePolicyUserDataObject.get());
         m_policyClient->decidePolicyForNavigationAction(*this, &frame, WTF::move(navigationAction), originatingFrame.get(), originalRequest, WTF::move(request), WTF::move(listener), bundlePolicyUserData.get());
     } else {
