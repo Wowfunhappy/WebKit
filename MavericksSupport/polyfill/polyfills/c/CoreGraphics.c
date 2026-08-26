@@ -668,3 +668,11 @@ WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextEndTransparencyLayer, (CGCon
 // GetGPUInformation falls through to its CGL/IOKit path on it.
 WK_POLYFILL_ABSENT("CoreGraphics", id, CGDirectDisplayCopyCurrentMetalDevice, (CGDirectDisplayID displayID))
 { (void)displayID; return nil; }
+
+// The 10.10+ non-varargs form of the scroll-wheel event constructor. 10.9 CoreGraphics exports only
+// CGEventCreateScrollWheelEvent, which takes the same source, unit, wheel count and per-wheel deltas
+// through a varargs list, so forwarding to it reproduces the entry point exactly.
+WK_POLYFILL_ABSENT("CoreGraphics", CGEventRef, CGEventCreateScrollWheelEvent2, (CGEventSourceRef source, CGScrollEventUnit units, uint32_t wheelCount, int32_t wheel1, int32_t wheel2, int32_t wheel3))
+{
+    return CGEventCreateScrollWheelEvent(source, units, wheelCount, wheel1, wheel2, wheel3);
+}

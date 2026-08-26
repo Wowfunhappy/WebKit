@@ -44,7 +44,6 @@
 #import <WebKit/WKBundlePagePrivate.h>
 
 #import <pal/spi/mac/HIServicesSPI.h>
-#import <dlfcn.h> // MAVERICKS_BACKPORT: dlsym/RTLD_DEFAULT for softAXSetClientIdentificationOverride
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 #import <pal/spi/cocoa/AccessibilitySupportSPI.h>
@@ -57,22 +56,11 @@
 
 namespace WTR {
 
-// MAVERICKS_BACKPORT: _AXSetClientIdentificationOverride is a 10.10+ HIServices/ApplicationServices SPI absent
-// on 10.9. Hard-referencing it fails lazy symbol binding and aborts the injected bundle at load. It only sets
-// the accessibility testing client identifier (which 10.9 has no equivalent for), so resolve it dynamically and
-// no-op when absent.
-static void softAXSetClientIdentificationOverride(AXClientType clientType)
-{
-    static auto function = reinterpret_cast<void (*)(AXClientType)>(dlsym(RTLD_DEFAULT, "_AXSetClientIdentificationOverride"));
-    if (function)
-        function(clientType);
-}
-
 void AccessibilityController::platformInitialize()
 {
     // Override the client identifier to be kAXClientTypeWebKitTesting which is treated the same as the VoiceOver identifier in isolated tree mode.
     // This also allows to enable some APIs during testing only for unit test purposes, not for other clients consumption.
-    softAXSetClientIdentificationOverride((AXClientType)kAXClientTypeWebKitTesting);
+    _AXSetClientIdentificationOverride((AXClientType)kAXClientTypeWebKitTesting);
 }
 
 RefPtr<AccessibilityUIElement> AccessibilityController::focusedElement(JSContextRef context)
@@ -210,9 +198,9 @@ void AccessibilityController::overrideClient(JSStringRef clientType)
 {
     NSString *clientString = [NSString stringWithJSStringRef:clientType];
     if ([clientString caseInsensitiveCompare:@"voiceover"] == NSOrderedSame)
-        softAXSetClientIdentificationOverride(kAXClientTypeVoiceOver);
+        _AXSetClientIdentificationOverride(kAXClientTypeVoiceOver);
     else
-        softAXSetClientIdentificationOverride(kAXClientTypeNoActiveRequestFound);
+        _AXSetClientIdentificationOverride(kAXClientTypeNoActiveRequestFound);
 }
 
 void AccessibilityController::printTrees(JSContextRef context)
