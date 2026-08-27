@@ -448,17 +448,6 @@ RefPtr<NativeImage> ImageBuffer::sinkIntoNativeImage(RefPtr<ImageBuffer> source)
 {
     if (!source)
         return nullptr;
-    // MAVERICKS_BACKPORT: only cannibalize the backing store when this really is the last reference.
-    // Upstream reaches here for canvas image encoding (HTMLCanvasElement::toDataURL/toBlob and friends
-    // pass the still-live drawing buffer from makeRenderingResultsAvailable()). Upstream's canvas buffer
-    // is a RemoteImageBufferProxy whose sink is a non-destructive GPU-process snapshot, so the shared
-    // buffer survives. This backport has no GPU process: the buffer is a concrete
-    // ImageBufferIOSurfaceBackend whose sink moves out the IOSurface, leaving the canvas's m_buffer with
-    // a null surface that crashes the next flushDeferredOperations() flush. When the buffer is still
-    // shared, take a non-destructive copy instead (the same sink-vs-copy choice copyImageBufferToNativeImage
-    // already makes), which both preserves the canvas and matches upstream's observable behavior.
-    if (!source->hasOneRef())
-        return source->copyNativeImage();
     return source->sinkIntoNativeImage();
 }
 
