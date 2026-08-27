@@ -101,7 +101,19 @@ void WKCookieManagerDeleteAllCookiesModifiedAfterDate(WKCookieManagerRef cookieM
     dataStore->removeData(WebKit::WebsiteDataType::Cookies, WallTime::fromRawSeconds(date), [] { });
 }
 
-// MAVERICKS_BACKPORT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID).
+// MAVERICKS_BACKPORT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID),
+// with Safari 7's 2-argument ABI. -[Safari::WK::CookieManager setHTTPCookieAcceptPolicy:] tail-jumps
+// here having set only %rdi and %esi, so the context and callback upstream added in the 4-argument form
+// are whatever the caller left in %rdx and %rcx: a non-null garbage %rcx gets called as the completion
+// handler, from the reply handler for WebCookieManager::SetHTTPCookieAcceptPolicy. The legacy contract
+// reports nothing back -- Safari drives the preference one way and reads it with
+// WKCookieManagerGetHTTPCookieAcceptPolicy.
+void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRef, WKHTTPCookieAcceptPolicy policy)
+{
+    if (!cookieManagerRef)
+        return;
+    protect(WebKit::toImpl(cookieManagerRef))->setHTTPCookieAcceptPolicy(WebKit::toHTTPCookieAcceptPolicy(policy), [] { });
+/* MAVERICKS_BACKPORT: upstream's 4-argument body kept here so upstream merges see the original text; not built on this backport (see above).
 void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRef, WKHTTPCookieAcceptPolicy policy, void* context, WKCookieManagerSetHTTPCookieAcceptPolicyFunction callback)
 {
     if (!cookieManagerRef) {
@@ -113,6 +125,7 @@ void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRe
         if (callback)
             callback(nullptr, context);
     });
+MAVERICKS_BACKPORT */
 }
 
 // MAVERICKS_BACKPORT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID).
