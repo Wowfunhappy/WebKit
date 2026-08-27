@@ -73,8 +73,12 @@ WK_POLYFILL_SEL("isLowPowerModeEnabled", "wk_isLowPowerModeEnabled");
 // cookie or subscribed to cookie changes. 10.9 has no cookie partitioning, and on this build cookie
 // partitioning is off in every sense (NetworkStorageSession::m_isOptInCookiePartitioningEnabled is
 // false and CFN_COOKIE_ACCEPTS_POLICY_PARTITION is undefined, so the _getCookiesForPartition: path is
-// compiled out), which means the partition/policyProperties arguments carry no information here. Each
-// modern selector therefore reduces to the classic 10.9 public API.
+// compiled out), which means the partition argument carries no information here. policyProperties does
+// carry information -- NetworkStorageSessionCocoa's policyProperties() fills in
+// _kCFHTTPCookiePolicyPropertySiteForCookies and _kCFHTTPCookiePolicyPropertyIsTopLevelNavigation on
+// every read and write -- but it is the SameSite context, and 10.9's parser discards a cookie's SameSite
+// attribute while reading Set-Cookie, so no cookie in this jar carries the attribute that context would
+// be matched against. Each modern selector therefore reduces to the classic 10.9 public API.
 
 // RFC 6265 5.3: a cookie is kept only when its Domain attribute names neither a public suffix nor a
 // domain the request host fails to domain-match. 10.9's parser applies neither rule, so
@@ -1325,7 +1329,149 @@ WK_POLYFILL_ADD("NSURLSessionTask", "wk__countOfBytesReceivedEncoded", wk_urlSes
 WK_POLYFILL_SEL("_countOfBytesReceivedEncoded", "wk__countOfBytesReceivedEncoded");
 
 // NSHTTPCookieStorage.
-WK_POLYFILL_NOOP_SETTER("NSHTTPCookieStorage", "set_overrideSessionCookieAcceptPolicy:", wk_noopSetUnsigned, WK_UNSIGNED_SETTER_TYPES);
+
+// -[NSHTTPCookieStorage _overrideSessionCookieAcceptPolicy] (10.10+) marks a cookie storage as
+// authoritative over NSURLSessionConfiguration's own policy for every session built on it. 10.9's
+// CFNetwork implements that behaviour already -- URLRequest::getCookieStorageAcceptPolicy tests the
+// request's "policy explicitly set" flag and otherwise falls back to
+// CFHTTPCookieStorageGetCookieAcceptPolicy on the request's storage -- but its session path stamps the
+// configuration's policy onto every request first, so the fallback is never reached and the storage's
+// policy is ignored. A policy set on the request itself pre-empts that stamp, so the flag is recorded
+// here and applied to the request by the task creators further down.
+//
+// Keyed on the CFHTTPCookieStorageRef rather than on the NSHTTPCookieStorage that carries it, for the
+// same reason the cookie-change watcher above is: NetworkStorageSession::nsCookieStorage() wraps the same
+// CF storage in a fresh NSHTTPCookieStorage on every call for a non-default session, so the wrapper is
+// not an identity.
+static pthread_mutex_t wk_cookieAcceptPolicyOverrideLock = PTHREAD_MUTEX_INITIALIZER;
+static CFMutableSetRef wk_cookieAcceptPolicyOverrideStores;
+
+static CFHTTPCookieStorageRef wk_cfCookieStorageOf(id storage)
+{
+    if (!storage)
+        return NULL;
+    return ((CFHTTPCookieStorageRef (*)(id, SEL))objc_msgSend)(storage, sel_registerName("_cookieStorage"));
+}
+
+static void wk_cookieStorage_setOverrideSessionCookieAcceptPolicy(id self, SEL _cmd, BOOL overrides)
+{
+    (void)_cmd;
+    CFHTTPCookieStorageRef store = wk_cfCookieStorageOf(self);
+    if (!store)
+        return;
+    pthread_mutex_lock(&wk_cookieAcceptPolicyOverrideLock);
+    if (!wk_cookieAcceptPolicyOverrideStores)
+        // Membership only, with no callbacks: retaining here would keep an ephemeral session's cookie jar
+        // alive in this process after the private-browsing session that owned it is gone. Membership is
+        // only ever tested with a CF ref read from a live configuration's storage, so a reused address
+        // answers yes for a storage that is live and gets stamped with its own current policy.
+        wk_cookieAcceptPolicyOverrideStores = CFSetCreateMutable(NULL, 0, NULL);
+    if (overrides)
+        CFSetAddValue(wk_cookieAcceptPolicyOverrideStores, store);
+    else
+        CFSetRemoveValue(wk_cookieAcceptPolicyOverrideStores, store);
+    pthread_mutex_unlock(&wk_cookieAcceptPolicyOverrideLock);
+}
+
+static BOOL wk_cookieStorageOverridesSessionCookieAcceptPolicy(id storage)
+{
+    CFHTTPCookieStorageRef store = wk_cfCookieStorageOf(storage);
+    if (!store)
+        return NO;
+    pthread_mutex_lock(&wk_cookieAcceptPolicyOverrideLock);
+    BOOL overrides = wk_cookieAcceptPolicyOverrideStores && CFSetContainsValue(wk_cookieAcceptPolicyOverrideStores, store);
+    pthread_mutex_unlock(&wk_cookieAcceptPolicyOverrideLock);
+    return overrides;
+}
+
+static BOOL wk_cookieStorage_overrideSessionCookieAcceptPolicy(id self, SEL _cmd)
+{
+    (void)_cmd;
+    return wk_cookieStorageOverridesSessionCookieAcceptPolicy(self);
+}
+
+WK_POLYFILL_ADD("NSHTTPCookieStorage", "wk_set_overrideSessionCookieAcceptPolicy:", wk_cookieStorage_setOverrideSessionCookieAcceptPolicy, "v@:c");
+WK_POLYFILL_SEL("set_overrideSessionCookieAcceptPolicy:", "wk_set_overrideSessionCookieAcceptPolicy:");
+WK_POLYFILL_ADD("NSHTTPCookieStorage", "wk__overrideSessionCookieAcceptPolicy", wk_cookieStorage_overrideSessionCookieAcceptPolicy, "c@:");
+WK_POLYFILL_SEL("_overrideSessionCookieAcceptPolicy", "wk__overrideSessionCookieAcceptPolicy");
+
+// -[NSURLRequest HTTPShouldHandleCookies] is public, documented, scheme-agnostic Foundation API, and it
+// is how a caller withholds cookies from one request. 10.9 keeps the flag only for an http(s) URL:
+// set it on a ws://, wss:// or blob: request and it reads back NO however it was set (measured), so on
+// those schemes a caller can neither withhold cookies nor learn that it failed to. For a scheme the
+// platform does not keep the flag for, the value is kept in the request's own property store, which
+// survives -mutableCopy; the platform's own answer is used unchanged for the schemes it does keep.
+static NSString * const wkShouldHandleCookiesKey = @"WKShouldHandleCookies";
+
+// Runs on every request and every redirect in both processes (ResourceRequestCocoa's
+// doUpdateResourceRequest reads the flag back each time), so it compares the scheme in place rather
+// than allocating a lowercased copy of it.
+static BOOL wk_urlKeepsCookieFlagNatively(NSURL *url)
+{
+    NSString *scheme = [url scheme];
+    return [scheme caseInsensitiveCompare:@"http"] == NSOrderedSame
+        || [scheme caseInsensitiveCompare:@"https"] == NSOrderedSame;
+}
+
+@interface NSURLRequest (WKPolyfillScopeCookieFlag)
+- (BOOL)wk_HTTPShouldHandleCookies;
+@end
+@implementation NSURLRequest (WKPolyfillScopeCookieFlag)
+- (BOOL)wk_HTTPShouldHandleCookies
+{
+    static SEL publicSelector;
+    if (!publicSelector)
+        publicSelector = sel_registerName("HTTPShouldHandleCookies");
+    typedef BOOL (*Fn)(id, SEL);
+    Fn callReal = (Fn)wk_replaces_call_through_class(self, [NSURLRequest class], _cmd, publicSelector);
+    if (wk_urlKeepsCookieFlagNatively([self URL]))
+        return callReal(self, publicSelector);
+    id stored = [NSURLProtocol propertyForKey:wkShouldHandleCookiesKey inRequest:self];
+    return stored ? [stored boolValue] : YES;
+}
+@end
+WK_POLYFILL_SEL_REPLACES("HTTPShouldHandleCookies", "wk_HTTPShouldHandleCookies");
+
+@interface NSMutableURLRequest (WKPolyfillScopeCookieFlag)
+- (void)wk_setHTTPShouldHandleCookies:(BOOL)shouldHandle;
+@end
+@implementation NSMutableURLRequest (WKPolyfillScopeCookieFlag)
+- (void)wk_setHTTPShouldHandleCookies:(BOOL)shouldHandle
+{
+    static SEL publicSelector;
+    if (!publicSelector)
+        publicSelector = sel_registerName("setHTTPShouldHandleCookies:");
+    typedef void (*Fn)(id, SEL, BOOL);
+    Fn callReal = (Fn)wk_replaces_call_through_class(self, [NSMutableURLRequest class], _cmd, publicSelector);
+    callReal(self, publicSelector, shouldHandle);
+    if (!wk_urlKeepsCookieFlagNatively([self URL]))
+        [NSURLProtocol setProperty:(shouldHandle ? @YES : @NO) forKey:wkShouldHandleCookiesKey inRequest:self];
+}
+@end
+WK_POLYFILL_SEL_REPLACES("setHTTPShouldHandleCookies:", "wk_setHTTPShouldHandleCookies:");
+
+// The request side of the flag above. Read at TASK CREATION, so a policy the embedder changes while the
+// session is alive takes effect on the next task -- which is the whole point of the storage being
+// authoritative, and is why nothing here is cached on the session.
+typedef struct _CFURLRequest *WKCFMutableURLRequestRef;
+extern void CFURLRequestSetHTTPCookieStorageAcceptPolicy(WKCFMutableURLRequestRef request, int32_t policy);
+
+static NSURLRequest *wk_requestCarryingStorageCookieAcceptPolicy(id session, NSURLRequest *request)
+{
+    if (!request || !session)
+        return request;
+    id configuration = ((id (*)(id, SEL))objc_msgSend)(session, sel_registerName("configuration"));
+    id storage = [configuration HTTPCookieStorage];
+    if (!wk_cookieStorageOverridesSessionCookieAcceptPolicy(storage))
+        return request;
+
+    NSMutableURLRequest *stamped = [[request mutableCopy] autorelease];
+    WKCFMutableURLRequestRef cfRequest = (WKCFMutableURLRequestRef)((void *(*)(id, SEL))objc_msgSend)(stamped, sel_registerName("_CFURLRequest"));
+    if (!cfRequest)
+        return request;
+    CFURLRequestSetHTTPCookieStorageAcceptPolicy(cfRequest, (int32_t)[storage cookieAcceptPolicy]);
+    return stamped;
+}
 
 // Per-task cookie controls (10.13+). 10.9's CFNetwork has no per-task cookie storage, no SameSite
 // notion, and no cookie-transform hook, so each of these accepts and discards -- the same thing the
@@ -2410,14 +2556,16 @@ static id wk_urlSession_dataTaskWithRequest(id self, SEL _cmd, NSURLRequest *req
 {
     SEL real = sel_registerName("dataTaskWithRequest:");
     return wk_urlSession_taskForStreamedRequest(self, real,
-        wk_replaces_call_through_imp(self, (IMP)wk_urlSession_dataTaskWithRequest, _cmd, real), request);
+        wk_replaces_call_through_imp(self, (IMP)wk_urlSession_dataTaskWithRequest, _cmd, real),
+        wk_requestCarryingStorageCookieAcceptPolicy(self, request));
 }
 
 static id wk_urlSession_uploadTaskWithStreamedRequest(id self, SEL _cmd, NSURLRequest *request)
 {
     SEL real = sel_registerName("uploadTaskWithStreamedRequest:");
     return wk_urlSession_taskForStreamedRequest(self, real,
-        wk_replaces_call_through_imp(self, (IMP)wk_urlSession_uploadTaskWithStreamedRequest, _cmd, real), request);
+        wk_replaces_call_through_imp(self, (IMP)wk_urlSession_uploadTaskWithStreamedRequest, _cmd, real),
+        wk_requestCarryingStorageCookieAcceptPolicy(self, request));
 }
 
 // Registered on the public class AND on the concrete one: NSURLSession is a class cluster whose
@@ -2429,6 +2577,75 @@ WK_POLYFILL_SEL_REPLACES("dataTaskWithRequest:", "wk_dataTaskWithRequest:");
 WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_uploadTaskWithStreamedRequest:", wk_urlSession_uploadTaskWithStreamedRequest, "@@:@");
 WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_uploadTaskWithStreamedRequest:", wk_urlSession_uploadTaskWithStreamedRequest, "@@:@");
 WK_POLYFILL_SEL_REPLACES("uploadTaskWithStreamedRequest:", "wk_uploadTaskWithStreamedRequest:");
+
+// The rest of the request-taking task creators, so the authoritative-storage cookie policy above reaches
+// a task however it was made rather than only the way WebKit happens to make one. The URL-taking forms
+// are defined as their request-taking sibling over -requestWithURL:, so they build that request, stamp
+// it and hand it on. -downloadTaskWithResumeData: takes no request and cannot be stamped: a task resumed
+// from data answers to the session configuration's policy, which is the one gap in this coverage.
+#define WK_URLSESSION_STAMP_REQ(NAME, SEL_NAME) \
+static id NAME(id self, SEL _cmd, NSURLRequest *request) \
+{ \
+    SEL real = sel_registerName(SEL_NAME); \
+    typedef id (*Fn)(id, SEL, id); \
+    Fn callReal = (Fn)wk_replaces_call_through_imp(self, (IMP)NAME, _cmd, real); \
+    return callReal(self, real, wk_requestCarryingStorageCookieAcceptPolicy(self, request)); \
+}
+
+#define WK_URLSESSION_STAMP_REQ_BODY(NAME, SEL_NAME) \
+static id NAME(id self, SEL _cmd, NSURLRequest *request, id body) \
+{ \
+    SEL real = sel_registerName(SEL_NAME); \
+    typedef id (*Fn)(id, SEL, id, id); \
+    Fn callReal = (Fn)wk_replaces_call_through_imp(self, (IMP)NAME, _cmd, real); \
+    return callReal(self, real, wk_requestCarryingStorageCookieAcceptPolicy(self, request), body); \
+}
+
+// The request a URL-taking creator stands for: -[NSURLSession dataTaskWithURL:] builds it from the
+// session configuration's cache policy and timeout, so building it from NSURLRequest's own defaults
+// would quietly hand every caller a 60-second timeout and the protocol cache policy.
+static NSURLRequest *wk_urlSession_requestForURL(id session, NSURL *url)
+{
+    id configuration = ((id (*)(id, SEL))objc_msgSend)(session, sel_registerName("configuration"));
+    if (!configuration)
+        return [NSURLRequest requestWithURL:url];
+    return [NSURLRequest requestWithURL:url
+                            cachePolicy:[configuration requestCachePolicy]
+                        timeoutInterval:[configuration timeoutIntervalForRequest]];
+}
+
+// A URL-taking creator forwards to the PUBLIC request-taking selector. Sent from this library the public
+// selector is not rewritten (wk_selref_scope rewrites WebKit images only), so it reaches the platform
+// method directly and cannot re-enter the wrapper above.
+#define WK_URLSESSION_STAMP_URL(NAME, REQ_SEL_NAME) \
+static id NAME(id self, SEL _cmd, NSURL *url) \
+{ \
+    (void)_cmd; \
+    return ((id (*)(id, SEL, id))objc_msgSend)(self, sel_registerName(REQ_SEL_NAME), \
+        wk_requestCarryingStorageCookieAcceptPolicy(self, wk_urlSession_requestForURL(self, url))); \
+}
+
+WK_URLSESSION_STAMP_REQ(wk_urlSession_downloadTaskWithRequest, "downloadTaskWithRequest:")
+WK_URLSESSION_STAMP_REQ_BODY(wk_urlSession_uploadTaskWithRequestFromData, "uploadTaskWithRequest:fromData:")
+WK_URLSESSION_STAMP_REQ_BODY(wk_urlSession_uploadTaskWithRequestFromFile, "uploadTaskWithRequest:fromFile:")
+WK_URLSESSION_STAMP_URL(wk_urlSession_dataTaskWithURL, "dataTaskWithRequest:")
+WK_URLSESSION_STAMP_URL(wk_urlSession_downloadTaskWithURL, "downloadTaskWithRequest:")
+
+WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_downloadTaskWithRequest:", wk_urlSession_downloadTaskWithRequest, "@@:@");
+WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_downloadTaskWithRequest:", wk_urlSession_downloadTaskWithRequest, "@@:@");
+WK_POLYFILL_SEL_REPLACES("downloadTaskWithRequest:", "wk_downloadTaskWithRequest:");
+WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_uploadTaskWithRequest:fromData:", wk_urlSession_uploadTaskWithRequestFromData, "@@:@@");
+WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_uploadTaskWithRequest:fromData:", wk_urlSession_uploadTaskWithRequestFromData, "@@:@@");
+WK_POLYFILL_SEL_REPLACES("uploadTaskWithRequest:fromData:", "wk_uploadTaskWithRequest:fromData:");
+WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_uploadTaskWithRequest:fromFile:", wk_urlSession_uploadTaskWithRequestFromFile, "@@:@@");
+WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_uploadTaskWithRequest:fromFile:", wk_urlSession_uploadTaskWithRequestFromFile, "@@:@@");
+WK_POLYFILL_SEL_REPLACES("uploadTaskWithRequest:fromFile:", "wk_uploadTaskWithRequest:fromFile:");
+WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_dataTaskWithURL:", wk_urlSession_dataTaskWithURL, "@@:@");
+WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_dataTaskWithURL:", wk_urlSession_dataTaskWithURL, "@@:@");
+WK_POLYFILL_SEL_REPLACES("dataTaskWithURL:", "wk_dataTaskWithURL:");
+WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_downloadTaskWithURL:", wk_urlSession_downloadTaskWithURL, "@@:@");
+WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_downloadTaskWithURL:", wk_urlSession_downloadTaskWithURL, "@@:@");
+WK_POLYFILL_SEL_REPLACES("downloadTaskWithURL:", "wk_downloadTaskWithURL:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSURLRequest _schemeWasUpgradedDueToDynamicHSTS] (10.11+ CFNetwork SPI) reports that CFNetwork's

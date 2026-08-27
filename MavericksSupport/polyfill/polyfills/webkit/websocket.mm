@@ -40,6 +40,8 @@
 #import <CFNetwork/CFNetwork.h>
 #import <CommonCrypto/CommonDigest.h>
 #import <Foundation/Foundation.h>
+#import <pthread.h>
+#import <objc/message.h>
 #import <objc/runtime.h>
 #import <netdb.h>
 #import <sys/socket.h>
@@ -133,6 +135,83 @@ typedef NS_ENUM(NSInteger, WKWSState) {
 }
 - (instancetype)initWithRequest:(NSURLRequest *)request protocol:(NSString *)protocol session:(NSURLSession *)session taskIdentifier:(NSUInteger)identifier;
 @end
+
+// The script a PAC URL names, fetched once per URL for the life of the process, as CFNetwork's own PAC
+// machinery caches it -- otherwise every WebSocket handshake pays a network round trip for the same
+// bytes. The fetch is bounded because it runs on the socket's serial queue: an unreachable PAC host
+// would otherwise leave the WebSocket neither connected nor failed for as long as it hung.
+static NSString *wkProxyAutoConfigurationScriptForURL(NSURL *scriptURL)
+{
+    static NSMutableDictionary *cache;
+    static pthread_mutex_t cacheLock = PTHREAD_MUTEX_INITIALIZER;
+    NSString *key = [scriptURL absoluteString];
+    if (!key.length)
+        return nil;
+
+    pthread_mutex_lock(&cacheLock);
+    NSString *cached = cache[key];
+    pthread_mutex_unlock(&cacheLock);
+    if (cached)
+        return cached;
+
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:scriptURL
+        cachePolicy:NSURLRequestUseProtocolCachePolicy timeoutInterval:10];
+    NSData *data = [NSURLConnection sendSynchronousRequest:request returningResponse:NULL error:NULL];
+    NSString *script = data ? ([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]
+        ?: [[NSString alloc] initWithData:data encoding:NSISOLatin1StringEncoding]) : nil;
+
+    // Only a fetched script is remembered. A fetch that failed is retried at full price on the next
+    // connect, as the trust-result cache in methods/Foundation.m does with a failed evaluation: one
+    // unreachable moment must not become a permanent answer for the life of the process.
+    if (script.length) {
+        pthread_mutex_lock(&cacheLock);
+        if (!cache)
+            cache = [[NSMutableDictionary alloc] init];
+        cache[key] = script;
+        pthread_mutex_unlock(&cacheLock);
+    }
+    return script;
+}
+
+// CFNetworkCopyProxiesForURL does not run a PAC: for an auto-configuration setup it returns an entry
+// naming the script (by URL or inline source) that the caller has to execute. Resolving it here is what
+// makes the rest of the loop mean "what the system would do" for a PAC-configured machine too; without
+// it a PAC entry matches no branch and the connection silently goes direct while every other load is
+// proxied. CFNetworkCopyProxiesForAutoConfigurationScript is the synchronous form, which suits this
+// path -- it already opens its proxy tunnel with a blocking connect.
+static NSArray *wkResolveProxyAutoConfiguration(NSArray *proxies, NSURL *targetURL)
+{
+    if (!proxies.count)
+        return proxies;
+
+    NSMutableArray *resolved = [NSMutableArray array];
+    for (NSDictionary *proxy in proxies) {
+        NSString *type = proxy[(__bridge NSString *)kCFProxyTypeKey];
+        if (![type isEqualToString:(__bridge NSString *)kCFProxyTypeAutoConfigurationURL]
+            && ![type isEqualToString:(__bridge NSString *)kCFProxyTypeAutoConfigurationJavaScript]) {
+            [resolved addObject:proxy];
+            continue;
+        }
+
+        NSString *script = proxy[(__bridge NSString *)kCFProxyAutoConfigurationJavaScriptKey];
+        if (!script.length) {
+            NSURL *scriptURL = proxy[(__bridge NSString *)kCFProxyAutoConfigurationURLKey];
+            if (scriptURL)
+                script = wkProxyAutoConfigurationScriptForURL(scriptURL);
+        }
+        if (!script.length)
+            continue;
+
+        CFErrorRef error = NULL;
+        NSArray *fromScript = (__bridge_transfer NSArray *)CFNetworkCopyProxiesForAutoConfigurationScript(
+            (__bridge CFStringRef)script, (__bridge CFURLRef)targetURL, &error);
+        if (error)
+            CFRelease(error);
+        if (fromScript.count)
+            [resolved addObjectsFromArray:fromScript];
+    }
+    return resolved;
+}
 
 static id wsWebSocketTaskWithRequest(NSURLSession *, SEL, NSURLRequest *);
 
@@ -338,17 +417,47 @@ static void wsContextRelease(void *info) { CFRelease((CFTypeRef)info); }
     _targetHost = host;
     _targetPort = port;
 
-    // This VM has no direct route to external hosts; all traffic goes through the system proxy (the same
-    // one NSURLSession uses). Raw CFSocketStreams ignore kCFStreamPropertyHTTPProxy, and adding TLS to an
-    // already-open CFStream (deferred TLS after a CONNECT) is unreliable. So we open the proxy tunnel on a
-    // plain BSD socket (blocking HTTP CONNECT — cheap, the proxy is local), then wrap the established
-    // socket in CFStreams with TLS configured BEFORE opening, which engages reliably.
+    // Raw CFSocketStreams ignore kCFStreamPropertyHTTPProxy, and adding TLS to an already-open CFStream
+    // (deferred TLS after a CONNECT) is unreliable. So a proxied connection opens its tunnel on a plain
+    // BSD socket (blocking HTTP CONNECT — cheap, the proxy is local), then wraps the established socket
+    // in CFStreams with TLS configured BEFORE opening, which engages reliably.
+    //
+    // Which hosts to tunnel is CFNetworkCopyProxiesForURL's answer, not the proxy dictionary's raw
+    // HTTPSEnable/HTTPSProxy fields: the settings also carry an exception list, ExcludeSimpleHostnames,
+    // PAC scripts and an implicit loopback exclusion, and reading the fields alone tunnels hosts the rest
+    // of the system reaches directly. That is answered per URL, so it is asked per URL here, with the
+    // http(s) form of the target that CFNetwork resolves proxies against.
     NSDictionary *sys = (__bridge_transfer NSDictionary *)CFNetworkCopySystemProxySettings();
-    NSString *proxyHost = secure ? sys[@"HTTPSProxy"] : sys[@"HTTPProxy"];
-    NSNumber *proxyPort = secure ? sys[@"HTTPSPort"] : sys[@"HTTPPort"];
-    BOOL proxyEnabled = [sys[secure ? @"HTTPSEnable" : @"HTTPEnable"] boolValue];
+    NSString *proxyHost = nil;
+    NSNumber *proxyPort = nil;
+    // An IPv6 literal reaches here unbracketed, because -[NSURL host] strips the brackets. Handing that
+    // to NSURLComponents percent-escapes the colons into a host that names nothing, and the settings are
+    // then resolved against the wrong question.
+    NSString *lookupHost = ([host rangeOfString:@":"].location != NSNotFound && ![host hasPrefix:@"["])
+        ? [NSString stringWithFormat:@"[%@]", host] : host;
+    NSURLComponents *proxyLookup = [[NSURLComponents alloc] init];
+    proxyLookup.scheme = secure ? @"https" : @"http";
+    proxyLookup.host = lookupHost;
+    proxyLookup.port = @(port);
+    NSURL *proxyLookupURL = proxyLookup.URL;
+    if (sys && proxyLookupURL) {
+        NSArray *proxies = (__bridge_transfer NSArray *)CFNetworkCopyProxiesForURL((__bridge CFURLRef)proxyLookupURL, (__bridge CFDictionaryRef)sys);
+        proxies = wkResolveProxyAutoConfiguration(proxies, proxyLookupURL);
+        for (NSDictionary *proxy in proxies) {
+            NSString *type = proxy[(__bridge NSString *)kCFProxyTypeKey];
+            if ([type isEqualToString:(__bridge NSString *)kCFProxyTypeNone])
+                break;
+            if ([type isEqualToString:(__bridge NSString *)kCFProxyTypeHTTPS] || [type isEqualToString:(__bridge NSString *)kCFProxyTypeHTTP]) {
+                proxyHost = proxy[(__bridge NSString *)kCFProxyHostNameKey];
+                proxyPort = proxy[(__bridge NSString *)kCFProxyPortNumberKey];
+                if (proxyHost.length)
+                    break;
+                proxyHost = nil;
+            }
+        }
+    }
 
-    if (proxyEnabled && proxyHost.length) {
+    if (proxyHost.length) {
         int fd = [self openProxyTunnel:proxyHost port:(proxyPort ? proxyPort.unsignedIntValue : (secure ? 443 : 80)) targetHost:host targetPort:port];
         if (fd < 0) {
             [self failWithReason:@"Proxy CONNECT failed"];
@@ -913,7 +1022,12 @@ static id wsWebSocketTaskWithRequest(NSURLSession *session, SEL, NSURLRequest *r
     NSString *protocol = [request valueForHTTPHeaderField:@"Sec-WebSocket-Protocol"];
 
     NSMutableURLRequest *mutableRequest = [request mutableCopy];
-    if (![mutableRequest valueForHTTPHeaderField:@"Cookie"]) {
+    // HTTPShouldHandleCookies is how a caller withholds cookies from one request, and NetworkSessionCocoa
+    // clears it on this very request when shouldBlockCookies() says so. The wk_ body is sent directly
+    // because wk_selref_scope rewrites selrefs in WebKit images only: a send of the public selector from
+    // this library would reach 10.9's own method, which does not keep the flag for a ws:// URL.
+    BOOL shouldHandleCookies = ((BOOL (*)(id, SEL))objc_msgSend)(mutableRequest, sel_registerName("wk_HTTPShouldHandleCookies"));
+    if (shouldHandleCookies && ![mutableRequest valueForHTTPHeaderField:@"Cookie"]) {
         NSHTTPCookieStorage *storage = session.configuration.HTTPCookieStorage ?: [NSHTTPCookieStorage sharedHTTPCookieStorage];
         // -[NSHTTPCookieStorage cookiesForURL:] only treats http/https as a
         // secure scheme, so looking cookies up under a ws://wss:// URL silently drops every Secure
