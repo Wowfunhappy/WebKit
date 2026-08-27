@@ -909,6 +909,12 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gstreamer-multiqueue-report-current-buffering-level.patch" \
         && patch -p1 < "$HERE/patches/gstreamer-multiqueue-report-current-buffering-level.patch" ) \
       || { echo "gstreamer multiqueue buffering-level patch failed to apply"; exit 1; }
+    # input-selector: active_sinkpad_lock covers the choice of pad for an upstream event,
+    # released before the push; a seek's flush drives this element's own state change on the
+    # pushing thread. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gstreamer-input-selector-release-lock-for-upstream-events.patch" \
+        && patch -p1 < "$HERE/patches/gstreamer-input-selector-release-lock-for-upstream-events.patch" ) \
+      || { echo "gstreamer input-selector patch failed to apply"; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
         -Dtools=enabled -Dbenchmarks=disabled -Dlibunwind=disabled -Ddbghelp=disabled \
         -Dbash-completion=disabled ) || exit 1
@@ -1006,6 +1012,13 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-hlsdemux-variant-switch-nearest-fragment.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-hlsdemux-variant-switch-nearest-fragment.patch" ) \
       || { echo "gst-plugins-bad hlsdemux variant-switch patch failed to apply"; exit 1; }
+    # adaptivedemux holds its manifest lock across every uridownloader fetch, so a src
+    # query or event, a seek, or the shutdown state change waits behind a playlist download; with
+    # webkitwebsrc that download completes only on the thread doing the waiting. This releases the
+    # lock around those fetches and re-validates on re-lock. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-adaptivedemux-release-manifest-lock-for-downloads.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-adaptivedemux-release-manifest-lock-for-downloads.patch" ) \
+      || { echo "gst-plugins-bad adaptivedemux manifest-lock patch failed to apply"; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
         -Dwebrtc=enabled -Dwebrtcdsp=enabled -Ddtls=enabled -Dsrtp=enabled -Dsctp=enabled \
         -Dapplemedia=enabled -Dwebp=disabled -Dorc=enabled ) || exit 1
