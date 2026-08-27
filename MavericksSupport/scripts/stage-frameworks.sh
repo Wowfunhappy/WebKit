@@ -584,7 +584,9 @@ echo "### Allowing mixed localizations in WebContent.xpc (#105)"
 # The .Development network/web variants clone their production counterpart; the storage/plugin bundles
 # clone WebContent — they only need to EXIST and be launchable so xpcd's domain check passes (the actual
 # rendering is done by WebContent + Networking, and QuickLook launches this set for every web preview
-# regardless of page content). Cloning happens after step 4, so each clone inherits the absolute load
+# regardless of page content). WebContent.EnhancedSecurity clones WebContent for Safari's own sake:
+# ProcessLauncherCocoa requests it by name for a navigation carrying enhanced security, and it renders
+# that navigation itself. Cloning happens after step 4, so each clone inherits the absolute load
 # commands intact, and after step 5, so each inherits a guarded string table. A clone differs from its
 # base ONLY in the three identity keys + the renamed executable file.
 make_xpc_variant() {

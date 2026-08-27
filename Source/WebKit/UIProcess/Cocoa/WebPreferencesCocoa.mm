@@ -150,20 +150,14 @@ void WebPreferences::platformInitializeStore()
         // key still wins (this only supplies the initial value the legacy client omits).
         m_store.setBoolValueForKey(WebPreferencesKey::requestIdleCallbackEnabledKey(), true);
 
-        // MAVERICKS_BACKPORT: EnhancedSecurity heuristics route every plain-http, non-loopback-hostname
-        // main-frame navigation into a process swap whose target is the WebContent.EnhancedSecurity XPC
-        // service variant (ProcessLauncherCocoa::webContentServiceName). This product does not ship that
-        // bundle — upstream builds it as a same-binary variant whose substance is entitlements and launch
-        // attributes, neither of which exists on 10.9 — so the swap's launch dies at xpc_connection_create
-        // (Connection invalid), WebProcessPool::prepareProcessForNavigation burns its three retries on
-        // three more stillborn processes, then knowingly hands the navigation to the dead one: the load is
-        // queued to a process that never comes and the page spins forever. That was QuickLook previews of
-        // http:// .webloc files (https and loopback URLs never trip the heuristic, which is why only they
-        // rendered). Seed the heuristic off at this port's legacy-preference boundary: the yaml default
-        // (true on Cocoa) describes an Apple build that ships the variant service. This also keeps 537
-        // behavior parity — the heuristic would otherwise disable the JIT for every plain-http page, a
-        // penalty Safari 7 never had on an OS where plain-http sites are still common. Written before the
-        // FOR_EACH_DEFAULT_OVERRIDABLE loop below, so an explicit NSUserDefaults override still wins.
+        // MAVERICKS_BACKPORT: this product ships EnhancedSecurity off, a maintainer decision: the heuristic
+        // promotes every plain-http, non-loopback main-frame navigation into a separate
+        // WebContent.EnhancedSecurity process, and plain http is still ordinary on the web this port serves.
+        // The yaml default (true on Cocoa) describes Apple's product. Seeded at the UIProcess
+        // legacy-preference boundary, before the FOR_EACH_DEFAULT_OVERRIDABLE loop below, so an explicit
+        // NSUserDefaults override still wins. The variant service ships regardless
+        // (MavericksSupport/scripts/framework-layout.sh), so the paths that request it by name — an
+        // embedder's website policy, ForceEnhancedSecurity — launch a real process.
         m_store.setBoolValueForKey(WebPreferencesKey::enhancedSecurityHeuristicsEnabledKey(), false);
 
 #if ENABLE(MEDIA_STREAM)

@@ -61,10 +61,16 @@ STOCK_BACKUP="${STOCK_BACKUP:-$(dirname "$WK_REPO")/stock-webkit-backup}"
 
 # macOS 10.9's QuickLook launches the FIXED helper-service set the 2014 stock WebKit shipped, so the
 # product ships those nine bundles -- Networking and WebContent plus seven identity-renamed clones --
-# alongside the GPU service. Each entry is "<base service>:<clone name>". See the cloning step in
+# alongside the GPU service. WebContent.EnhancedSecurity is the eighth clone, for a different caller:
+# ProcessLauncherCocoa::webContentServiceName asks for it by name whenever a navigation carries
+# enhanced security, which the Cocoa heuristics turn on for plain-http main-frame loads, and a service
+# name launchd cannot resolve is a process that never starts. Upstream builds it as a same-binary
+# variant carrying entitlements and launch attributes; neither exists on 10.9, so the clone is the
+# whole of it. Each entry is "<base service>:<clone name>". See the cloning step in
 # stage-frameworks.sh.
 WK_XPC_VARIANTS="Networking:Networking.Development
 WebContent:WebContent.Development
+WebContent:WebContent.EnhancedSecurity
 WebContent:OfflineStorage
 WebContent:OfflineStorage.Development
 WebContent:Plugin.32
@@ -202,5 +208,5 @@ com.apple.WebKit.webpushd.relocatable.mac.sb"
         echo "### FAILED: $label is not a complete WebKit product (see the errors above)." >&2
         return 1
     fi
-    echo "  verified: $label is complete (4 framework binaries fat with i386, 10 XPC services, webpushd, private runtime + GStreamer, single unwinder)"
+    echo "  verified: $label is complete (4 framework binaries fat with i386, $(set -- $WK_XPC_SERVICES; echo $#) XPC services, webpushd, private runtime + GStreamer, single unwinder)"
 }
