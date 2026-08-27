@@ -195,6 +195,19 @@ trust), `WKError` (+ `WKErrorCopyCFError`), `WKDownload`, and `WKOpenPanelParame
 `WKRenderObject` / `WKRenderLayer` tree walking (children, name, element tag/id, rect, layer flags), used by
 the inspector and layout diagnostics.
 
+These 18, plus `WKBundlePageCopyRenderTree`, are the one place where Safari's 2013 signatures and the
+modern ones disagree in shape rather than in parameter count alone: upstream defines each as
+`void f(void)` — its compatibility stub for `SafariForWebKitDevelopment` — while Safari passes the object
+and reads a return value, so it retains a garbage `WKStringRef` / `WKArrayRef` and the WebContent process
+dies. Reachability is exactly one path, traced through Safari.framework's disassembly:
+`WKBundlePageCopyRenderTree` <- `BrowserBundlePageController::createRenderTree` <- the
+`BrowserBundlePageController.CreateRenderTree` message <- `-[BrowserDocument(DebugExtras) showRenderTree:]`
+/ `showRenderLayerTree:` <- `-[DebugUtilities _populateDebugMenu]`, which is gated on
+`IncludeInternalDebugMenuPreferenceKey`. No startup, browsing, AppleScript or accessibility path reaches
+them. MAINTAINER DECISION (Jonathan, 2026-08-27): the shape mismatch stands. The four `Source/` files
+holding these stubs are byte-upstream and stay that way — editing them only to carry a note would itself
+be a divergence.
+
 ### `WKFrame` — frames in the UI process (20)
 `WKFrameCopyURL` / `CopyProvisionalURL` / `CopyName`, `GetParentFrame`, `IsMainFrame`, `GetFrameLoadState`,
 security origin, hit-testing.
