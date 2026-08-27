@@ -144,7 +144,10 @@ CaptureSourceOrError GStreamerDisplayCaptureDeviceManager::createDisplayCaptureS
 #if PLATFORM(MAC)
     // MAVERICKS_BACKPORT: macOS path — capture via avfvideosrc capture-screen (see wrapper above);
     // the portal/PipeWire flow below requires a Linux desktop session.
-    if (isInWebProcess())
+    // MAVERICKS_BACKPORT: ensureGStreamerInitialized() covers every process that renders in-process
+    // (the isInWebProcess() || !processType() reach its RELEASE_ASSERT allows, which is what a WebKit1
+    // host is); the auxiliary processes take the sibling that asserts the complement.
+    if (isInWebProcess() || !processType())
         ensureGStreamerInitialized();
     else
         ensureGStreamerInitializedNonWebProcess();

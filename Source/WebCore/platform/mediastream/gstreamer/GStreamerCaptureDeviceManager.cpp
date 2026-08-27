@@ -89,16 +89,13 @@ void teardownGStreamerCaptureDeviceManagers()
 
 GStreamerCaptureDeviceManager::GStreamerCaptureDeviceManager()
 {
-    // MAVERICKS_BACKPORT: navigator.mediaDevices.enumerateDevices() is serviced in the UIProcess
-    // (UserMediaPermissionRequestManagerProxy -> RealtimeMediaSourceCenter::getMediaStreamDevices), which
-    // reaches this manager. Upstream Cocoa enumerates there via AVFoundation; our capture backend is
-    // GStreamer. ensureGStreamerInitialized() RELEASE_ASSERTs isInWebProcess(), so calling it from the
-    // UIProcess crashed Safari for ANY page that enumerates devices. WebCore provides
-    // ensureGStreamerInitializedNonWebProcess() (a full gst_init_check that asserts !isInWebProcess())
-    // precisely for non-web-process callers — use it in the UIProcess so the device monitor runs and
-    // enumerateDevices() returns the REAL device list instead of crashing or coming back empty. Actual
-    // capture still runs in the web process.
-    if (isInWebProcess())
+    // MAVERICKS_BACKPORT: navigator.mediaDevices.enumerateDevices() reaches this manager wherever the
+    // port's permission client lives — the UIProcess for WebKit2, the host application itself for
+    // WebKit1 — because this port enumerates through GStreamer where upstream Cocoa uses AVFoundation.
+    // ensureGStreamerInitialized() covers every process that renders in-process (the same
+    // isInWebProcess() || !processType() reach its RELEASE_ASSERT allows); the auxiliary processes take
+    // ensureGStreamerInitializedNonWebProcess(), which asserts the complement.
+    if (isInWebProcess() || !processType())
         ensureGStreamerInitialized();
     else
         ensureGStreamerInitializedNonWebProcess();

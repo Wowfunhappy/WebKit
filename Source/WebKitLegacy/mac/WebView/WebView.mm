@@ -118,6 +118,8 @@
 #import "WebTextCompletionController.h"
 #import "WebTextIterator.h"
 #import "WebUIDelegatePrivate.h"
+// MAVERICKS_BACKPORT: the WebKit1 getUserMedia client, restored (upstream a5c8561 removed WK1 MediaStream support).
+#import "WebUserMediaClient.h"
 #import "WebValidationMessageClient.h"
 #import "WebViewGroup.h"
 #import "WebViewRenderingUpdateScheduler.h"
@@ -1779,6 +1781,10 @@ static void WebKitInitializeGamepadProviderIfNecessary()
 #endif
 #if ENABLE(ENCRYPTED_MEDIA)
     WebCore::provideMediaKeySystemTo(*_private->page.get(), WebMediaKeySystemClient::singleton());
+#endif
+#if ENABLE(MEDIA_STREAM)
+    // MAVERICKS_BACKPORT: give WebKit1 a getUserMedia client again; see WebUserMediaClient.h.
+    WebCore::provideUserMediaTo(_private->page.get(), WebUserMediaClient::create(self));
 #endif
 
     _private->inspectorController = LegacyWebPageInspectorController::create(*_private->page);

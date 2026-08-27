@@ -5165,7 +5165,10 @@ MediaDevicesEnabled:
   condition: ENABLE(MEDIA_STREAM)
   defaultValue:
     WebKitLegacy:
-      default: false
+      # MAVERICKS_BACKPORT: on for WebKit1, which has a getUserMedia client again (WebUserMediaClient).
+      # This port's WebKit1 embedders predate the property that would turn it on, so the column carries
+      # the decision.
+      default: true
     WebKit:
       "PLATFORM(GTK) || PLATFORM(WPE)": true
       default: false
@@ -6943,7 +6946,9 @@ ScreenCaptureEnabled:
   humanReadableDescription: "Enable ScreenCapture"
   defaultValue:
     WebKitLegacy:
-      default: false
+      # MAVERICKS_BACKPORT: on for WebKit1, matching the WebKit column here, now that WebKit1 has a
+      # getUserMedia client again (WebUserMediaClient) and prompts for screen capture through it.
+      default: true
     WebKit:
       default: WebKit::defaultShouldEnableScreenCapture()
     WebCore:

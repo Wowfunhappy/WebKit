@@ -121,6 +121,8 @@ list(APPEND WebKitLegacy_SOURCES
     mac/WebCoreSupport/WebProgressTrackerClient.mm
     mac/WebCoreSupport/WebSecurityOrigin.mm
     mac/WebCoreSupport/WebSelectionServiceController.mm
+    # MAVERICKS_BACKPORT: build the restored WebKit1 getUserMedia client (see WebUserMediaClient.h).
+    mac/WebCoreSupport/WebUserMediaClient.mm
     mac/WebCoreSupport/WebValidationMessageClient.mm
     mac/WebCoreSupport/WebVisitedLinkStore.mm
 
@@ -490,6 +492,8 @@ set(WebKitLegacy_LEGACY_FORWARDING_HEADERS_FILES
     mac/WebCoreSupport/WebNotificationClient.h
     mac/WebCoreSupport/WebKitFullScreenListener.h
     mac/WebCoreSupport/WebOpenPanelResultListener.h
+    # MAVERICKS_BACKPORT: the restored WebKit1 getUserMedia client's header.
+    mac/WebCoreSupport/WebUserMediaClient.h
 
     mac/WebView/WebArchive.h
     mac/WebView/WebHTMLViewPrivate.h
