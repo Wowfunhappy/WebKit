@@ -485,9 +485,10 @@ WK_POLYFILL_SEL("_setSubscribedDomainsForCookieChanges:", "wk__setSubscribedDoma
 // +[NSHTTPCookie _cookieForSetCookieString:forURL:partition:] parses a single Set-Cookie header field
 // into a cookie — -cookiesWithResponseHeaderFields:forURL: is 10.9's parser for exactly that.
 // -[NSHTTPCookie sameSitePolicy] (10.13+) reports a cookie's stored SameSite attribute (paired with the
-// NSHTTPCookieSameSiteLax/Strict constants polyfilled in c/Foundation.m). 10.9's cookie store keeps no
-// SameSite attribute, so nil ("None"/unspecified, which coreSameSitePolicy maps to SameSitePolicy::None)
-// is the honest answer — WebCore's own SameSite enforcement lives above the platform cookie jar.
+// NSHTTPCookieSameSiteLax/Strict constants polyfilled in c/Foundation.m). 10.9's parser drops the
+// attribute while reading Set-Cookie — it reaches neither -properties nor the jar — so nil
+// ("None"/unspecified, which coreSameSitePolicy maps to SameSitePolicy::None) is the only value the
+// cookie carries here.
 @interface NSHTTPCookie (WKPolyfillScope)
 - (NSString *)wk_sameSitePolicy;
 - (NSString *)wk__storagePartition;
