@@ -197,8 +197,8 @@ echo "### libwtf_compat.a"
 ar_stable "$OUT/libwtf_compat.a" "$OBJ"/jsc/*.o
 
 echo "### libwidevinegap.dylib"
-# Installed beside the downloaded module by WebKit's WidevineCdmInstaller, which is also what points the
-# module at it.
+# Installed beside the downloaded module by WebCore's WidevineCdmInstaller, which is also what points
+# the module at it.
 "$CLANG" --no-default-config -isysroot / -mmacosx-version-min=10.9 -dynamiclib \
     -install_name @loader_path/libwidevinegap.dylib "$OBJ"/cdm/*.o -o "$OUT/libwidevinegap.dylib.tmp"
 tmp_stable "$OUT/libwidevinegap.dylib"

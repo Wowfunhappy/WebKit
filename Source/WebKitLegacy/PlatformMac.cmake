@@ -628,9 +628,24 @@ foreach (_file ${WebKitLegacy_LEGACY_FORWARDING_HEADERS_FILES})
     endif ()
 endforeach ()
 
+# MAVERICKS_BACKPORT: WebKit_WEB_PREFERENCES and WebKit_WEB_PREFERENCES_TEMPLATES belong to
+# Source/WebKit's directory scope and are empty here, so the generated files below name their own
+# inputs: the yaml the generator reads and the four templates it renders.
+set(WebKitLegacy_WEB_PREFERENCES
+    ${WTF_SCRIPTS_DIR}/Preferences/UnifiedWebPreferences.yaml
+)
+set_source_files_properties(${WebKitLegacy_WEB_PREFERENCES} PROPERTIES GENERATED TRUE)
+
+set(WebKitLegacy_WEB_PREFERENCES_TEMPLATES
+    ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebViewPreferencesChangedGenerated.mm.erb
+    ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebPreferencesDefinitions.h.erb
+    ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebPreferencesExperimentalFeatures.mm.erb
+    ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebPreferencesInternalFeatures.mm.erb
+)
+
 add_custom_command(
     OUTPUT ${WebKitLegacy_DERIVED_SOURCES_DIR}/WebViewPreferencesChangedGenerated.mm ${WebKitLegacy_DERIVED_SOURCES_DIR}/WebPreferencesInternalFeatures.mm ${WebKitLegacy_DERIVED_SOURCES_DIR}/WebPreferencesExperimentalFeatures.mm ${WebKitLegacy_DERIVED_SOURCES_DIR}/WebPreferencesDefinitions.h
-    DEPENDS ${WebKit_WEB_PREFERENCES_TEMPLATES} ${WebKit_WEB_PREFERENCES} WTF_CopyPreferences
+    DEPENDS ${WebKitLegacy_WEB_PREFERENCES_TEMPLATES} ${WebKitLegacy_WEB_PREFERENCES} WTF_CopyPreferences
     # MAVERICKS_BACKPORT: pass each preferences template as an explicit --template path
     # rather than the upstream $<JOIN> generator-expression form.
     COMMAND ${Ruby_EXECUTABLE} ${WTF_SCRIPTS_DIR}/GeneratePreferences.rb --frontend WebKitLegacy --outputDir "${WebKitLegacy_DERIVED_SOURCES_DIR}" --template ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebViewPreferencesChangedGenerated.mm.erb --template ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebPreferencesDefinitions.h.erb --template ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebPreferencesExperimentalFeatures.mm.erb --template ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebPreferencesInternalFeatures.mm.erb ${WTF_SCRIPTS_DIR}/Preferences/UnifiedWebPreferences.yaml

@@ -2691,7 +2691,10 @@ EncryptedMediaAPIEnabled:
   condition: ENABLE(ENCRYPTED_MEDIA)
   defaultValue:
     WebKitLegacy:
-      default: false
+      # MAVERICKS_BACKPORT: status is "embedder", and WebKitLegacy's embedders here predate the
+      # property that would turn it on, so this column carries the decision. EME runs in-process
+      # on the GStreamer CDMs this port builds for both ports.
+      default: true
     WebKit:
       "PLATFORM(GTK) || PLATFORM(WPE)": false
       default: true

@@ -260,7 +260,7 @@ messages -> WebProcess : AuxiliaryProcess WantsAsyncDispatchMessage {
 
 #if PLATFORM(MAC) && ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
     // MAVERICKS_BACKPORT: where the UIProcess installed Google's Widevine CDM, with the extension
-    // that lets this process read it. See UIProcess/mac/WidevineCdmInstaller.h.
+    // that lets this process read it. See WebCore's WidevineCdmInstaller.h.
     SetWidevineCdmModule(String path, WebKit::SandboxExtensionHandle handle)
 #endif
 }

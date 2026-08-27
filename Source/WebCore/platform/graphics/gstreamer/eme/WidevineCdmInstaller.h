@@ -1,19 +1,22 @@
 // MAVERICKS_BACKPORT: com.widevine.alpha is served by Google's own Widevine CDM, which is not
 // redistributable and so is fetched at runtime from the update service Firefox's Gecko Media
 // Plugins use. The module is retargeted at this host (WidevineCdmImage) and installed in the
-// user's library, where a sandbox extension lets a web process load it.
+// user's library, from where the process that plays the media loads it -- WebKitLegacy in its own
+// process, and a WebKit web process through a sandbox extension the UIProcess issues for the
+// installed directory.
 
 #pragma once
 
 #if PLATFORM(MAC) && ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
 
-#include "SandboxExtension.h"
+#include <optional>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
-namespace WebKit {
+namespace WebCore {
 
 struct WidevineCdmModule {
     String directory;
@@ -24,15 +27,11 @@ struct WidevineCdmModule {
 class WidevineCdmInstaller {
     WTF_MAKE_NONCOPYABLE(WidevineCdmInstaller);
 public:
-    static WidevineCdmInstaller& singleton();
+    WEBCORE_EXPORT static WidevineCdmInstaller& singleton();
 
     // Answers with the installed module, installing it first if this is the first call that needs
     // it. Called on the main thread; the callback runs there too, once the work is done.
-    void ensureModule(CompletionHandler<void(const std::optional<WidevineCdmModule>&)>&&);
-
-    // A read extension for the module's directory, which covers the module and the gap library it
-    // loads from beside itself.
-    static std::optional<SandboxExtension::Handle> createHandleForModule(const WidevineCdmModule&);
+    WEBCORE_EXPORT void ensureModule(CompletionHandler<void(const std::optional<WidevineCdmModule>&)>&&);
 
 private:
     friend class NeverDestroyed<WidevineCdmInstaller>;
@@ -47,6 +46,6 @@ private:
     bool m_hasProvisioned { false };
 };
 
-} // namespace WebKit
+} // namespace WebCore
 
 #endif // PLATFORM(MAC) && ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)

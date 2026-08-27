@@ -464,11 +464,11 @@ void* WidevineCdm::cdmHostForInterfaceVersion(int interfaceVersion, void* userDa
     return static_cast<cdm::Host_11*>(static_cast<Host*>(userData));
 }
 
-// Answered from the file's presence rather than by loading it: this runs whenever a page asks
-// whether the key system is supported, and the module is a large mapping to take on for a
-// question. The UIProcess names the module to this process once it has installed it (see
-// WidevineCdmLocation.h), so a first page to ask is answered no and the one after it yes. A module
-// that is present but unusable surfaces as a failed createInstance() below, which rejects
+// Answered from the file's presence rather than by loading it: the module is a large mapping to
+// take on for a question. Both callers -- CDMFactoryWidevine and CDMProxyWidevine -- run after the
+// key system has been allowed, and allowing it is what installs the module and names it to this
+// process (see WidevineCdmLocation.h), so the path this reads is already set. A module that is
+// present but unusable surfaces as a failed createInstance() below, which rejects
 // requestMediaKeySystemAccess().
 bool WidevineCdm::isAvailable()
 {

@@ -25,7 +25,7 @@
 #import <wtf/text/StringBuilder.h>
 #import <wtf/text/StringToIntegerConversion.h>
 
-namespace WebKit {
+namespace WebCore {
 
 struct ManifestEntry {
     String url;
@@ -38,16 +38,16 @@ static constexpr auto gapLibraryFileName = "libwidevinegap.dylib"_s;
 // How the module names the gap library, which is installed beside it.
 static constexpr auto gapLibraryLoadPath = "@loader_path/libwidevinegap.dylib"_s;
 
-} // namespace WebKit
+} // namespace WebCore
 
 // The update service answers with a document whose <addon> elements each name a plugin.
-@interface WKWidevineManifestParser : NSObject <NSXMLParserDelegate> {
+@interface WebCoreWidevineManifestParser : NSObject <NSXMLParserDelegate> {
 @public
-    WebKit::ManifestEntry entry;
+    WebCore::ManifestEntry entry;
 }
 @end
 
-@implementation WKWidevineManifestParser
+@implementation WebCoreWidevineManifestParser
 
 - (void)parser:(NSXMLParser *)parser didStartElement:(NSString *)elementName namespaceURI:(NSString *)namespaceURI qualifiedName:(NSString *)qualifiedName attributes:(NSDictionary *)attributes
 {
@@ -63,7 +63,7 @@ static constexpr auto gapLibraryLoadPath = "@loader_path/libwidevinegap.dylib"_s
 
 @end
 
-namespace WebKit {
+namespace WebCore {
 
 // ------------------------------------------------------------------------------------------
 // Fetching
@@ -111,7 +111,7 @@ static std::optional<ManifestEntry> fetchManifest()
     }
 
     RetainPtr parser = adoptNS([[NSXMLParser alloc] initWithData:document.get()]);
-    RetainPtr delegate = adoptNS([[WKWidevineManifestParser alloc] init]);
+    RetainPtr delegate = adoptNS([[WebCoreWidevineManifestParser alloc] init]);
     [parser setDelegate:delegate.get()];
     [parser parse];
 
@@ -149,7 +149,7 @@ static String installationRoot()
 
 static String gapLibrarySourcePath()
 {
-    RetainPtr bundle = [NSBundle bundleForClass:NSClassFromString(@"WKWebView")];
+    RetainPtr bundle = [NSBundle bundleForClass:NSClassFromString(@"WebCoreBundleFinder")];
     return FileSystem::pathByAppendingComponent(String { [bundle resourcePath] }, gapLibraryFileName);
 }
 
@@ -216,9 +216,9 @@ static std::optional<WidevineCdmModule> newestInstalledModule(const String& root
     return newest;
 }
 
-// |versionInUse| is a module this process has already named to a web process, which stays where it
-// is however old it becomes: the web process opens it when a page reaches EME, which can be long
-// after this runs.
+// |versionInUse| is a module this installer has already answered with, which stays where it is
+// however old it becomes: it is opened when a page reaches EME, which can be long after this
+// runs.
 static std::optional<WidevineCdmModule> install(const String& root, const ManifestEntry& manifest, const String& versionInUse)
 {
     WTFLogAlways("Widevine: fetching module %s", manifest.version.utf8().data());
@@ -255,7 +255,7 @@ static std::optional<WidevineCdmModule> install(const String& root, const Manife
     }
 
     // The installation is assembled beside the directory it will occupy and moved into place
-    // whole, so a half-written one is never something a web process can find.
+    // whole, so a half-written one is never something a loading process can find.
     auto staging = makeString(root, "/.staging-"_s, getCurrentProcessID());
     FileSystem::deleteNonEmptyDirectory(staging);
     if (!FileSystem::makeAllDirectories(staging))
@@ -269,7 +269,7 @@ static std::optional<WidevineCdmModule> install(const String& root, const Manife
     }
 
     // What is installed is given up only once its replacement is in place: it moves aside, and
-    // back again if the replacement cannot be moved in, so the version a web process opens is
+    // back again if the replacement cannot be moved in, so the version that is opened is
     // whichever module is complete.
     auto directory = FileSystem::pathByAppendingComponent(root, manifest.version);
     auto displaced = makeString(root, "/.replaced-"_s, getCurrentProcessID());
@@ -336,7 +336,7 @@ void WidevineCdmInstaller::provision()
 {
     // The fetch, the retarget and the file work all belong off the main thread, and one queue for
     // the process keeps a second installation from running beside the first.
-    static NeverDestroyed<Ref<WorkQueue>> queue = WorkQueue::create("com.apple.WebKit.WidevineCdmInstaller"_s);
+    static NeverDestroyed<Ref<WorkQueue>> queue = WorkQueue::create("WidevineCdmInstaller queue"_s);
     queue->get().dispatch([] {
         auto answer = [](std::optional<WidevineCdmModule>&& module) {
             RunLoop::mainSingleton().dispatch([module = WTF::move(module)]() mutable {
@@ -353,7 +353,7 @@ void WidevineCdmInstaller::provision()
         // What is installed answers the page, which is what keeps a page that wants Widevine from
         // waiting on the network at all. Google replaces the module from time to time, so the
         // update service is then asked once per process and a newer module installed for the next
-        // launch -- the one this process has is already mapped into a web process by then.
+        // launch -- the one already answered with is mapped by then.
         auto installed = newestInstalledModule(root);
         if (installed) {
             auto version = installed->version;
@@ -379,11 +379,6 @@ void WidevineCdmInstaller::finish(std::optional<WidevineCdmModule>&& module)
         callback(m_module);
 }
 
-std::optional<SandboxExtension::Handle> WidevineCdmInstaller::createHandleForModule(const WidevineCdmModule& module)
-{
-    return SandboxExtension::createHandleWithoutResolvingPath(module.directory, SandboxExtension::Type::ReadOnly);
-}
-
-} // namespace WebKit
+} // namespace WebCore
 
 #endif // PLATFORM(MAC) && ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)

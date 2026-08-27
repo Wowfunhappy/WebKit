@@ -47,6 +47,7 @@
 #import "PlatformWritingToolsUtilities.h"
 #import "RemoteLayerTreeHost.h"
 #import "RemoteLayerTreeNode.h"
+#import "SandboxExtension.h" // MAVERICKS_BACKPORT: the extension for the installed Widevine CDM, made below.
 #import "TextChecker.h"
 #import "WKQuickLookPreviewController.h"
 #import "WKSharingServicePickerDelegate.h"
@@ -57,7 +58,6 @@
 #import "WebPreferencesKeys.h"
 #import "WebProcessMessages.h" // MAVERICKS_BACKPORT: SetWidevineCdmModule, sent below.
 #import "WebProcessProxy.h"
-#import "WidevineCdmInstaller.h" // MAVERICKS_BACKPORT: the runtime installation of Google's Widevine CDM.
 #import <WebCore/AXObjectCache.h>
 #import <WebCore/AttributedString.h>
 #import <WebCore/CornerRadii.h>
@@ -74,6 +74,7 @@
 #import <WebCore/UniversalAccessZoom.h>
 #import <WebCore/UserAgent.h>
 #import <WebCore/ValidationBubble.h>
+#import <WebCore/WidevineCdmInstaller.h> // MAVERICKS_BACKPORT: the runtime installation of Google's Widevine CDM.
 #import <mach-o/dyld.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/cocoa/WritingToolsSPI.h>
@@ -1162,11 +1163,14 @@ bool WebPageProxy::openMediaPlaylistInQuickTimePlayer(const URL& url)
 // requestMediaKeySystemAccess() next is whether that process can load it.
 void WebPageProxy::allowMediaKeySystemRequestWithWidevineCdm(Ref<MediaKeySystemPermissionRequestProxy>&& request)
 {
-    WidevineCdmInstaller::singleton().ensureModule([weakThis = WeakPtr { *this }, request = WTF::move(request)](const std::optional<WidevineCdmModule>& module) mutable {
+    WebCore::WidevineCdmInstaller::singleton().ensureModule([weakThis = WeakPtr { *this }, request = WTF::move(request)](const std::optional<WebCore::WidevineCdmModule>& module) mutable {
         RefPtr protectedThis = weakThis.get();
         std::optional<SandboxExtension::Handle> handle;
-        if (module)
-            handle = WidevineCdmInstaller::createHandleForModule(*module);
+        if (module) {
+            // The extension covers the module's whole directory, which is what the gap library
+            // beside it needs too.
+            handle = SandboxExtension::createHandleWithoutResolvingPath(module->directory, SandboxExtension::Type::ReadOnly);
+        }
         if (!protectedThis || !handle) {
             request->deny();
             return;

@@ -12,11 +12,11 @@
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
-namespace WebKit {
+namespace WebCore {
 
 // The module's bytes, or a sentence naming what the archive is not.
 Expected<Vector<uint8_t>, String> extractWidevineCdmModule(std::span<const uint8_t> archive);
 
-} // namespace WebKit
+} // namespace WebCore
 
 #endif // PLATFORM(MAC) && ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)

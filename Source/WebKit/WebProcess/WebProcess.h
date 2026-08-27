@@ -445,8 +445,8 @@ public:
 #if PLATFORM(MAC)
     void openDirectoryCacheInvalidated(SandboxExtension::Handle&&, SandboxExtension::Handle&&);
 #if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
-    // MAVERICKS_BACKPORT: where the UIProcess installed Google's Widevine CDM (see
-    // UIProcess/mac/WidevineCdmInstaller.h), and the extension that lets this process read it.
+    // MAVERICKS_BACKPORT: where the UIProcess installed Google's Widevine CDM (see WebCore's
+    // WidevineCdmInstaller.h), and the extension that lets this process read it.
     void setWidevineCdmModule(const String& path, SandboxExtension::Handle&&);
 #endif
 #endif

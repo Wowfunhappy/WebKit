@@ -10,13 +10,13 @@
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
-namespace WebKit {
+namespace WebCore {
 
 // Rewrites |image| in place. |gapLibraryPath| is the load path of the library carrying the entry
 // points this host lacks, as the module will reference it (an @loader_path-relative path, so the
 // library is found beside the installed module). The error is a sentence naming what stopped it.
 Expected<void, String> prepareWidevineCdmImage(Vector<uint8_t>& image, const String& gapLibraryPath, const String& gapLibraryFilePath);
 
-} // namespace WebKit
+} // namespace WebCore
 
 #endif // PLATFORM(MAC) && ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)

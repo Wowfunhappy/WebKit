@@ -520,6 +520,14 @@ platform/graphics/coreimage/FETurbulenceCoreImageApplier.mm @nonARC
 platform/graphics/coreimage/FilterImageCoreImage.mm @nonARC
 platform/graphics/coreimage/SourceAlphaCoreImageApplier.mm @nonARC
 platform/graphics/coreimage/SourceGraphicCoreImageApplier.mm @nonARC
+// MAVERICKS_BACKPORT: the runtime installation of Google's Widevine CDM, shared by both ports:
+// WebKitLegacy installs it in its own process, and WebKit's UIProcess installs it and hands the
+// web process a sandbox extension for it. Their own translation units: each carries short
+// file-static helper names (fetch, unpack, structureAt) that a unified bundle would put beside
+// another file's.
+platform/graphics/gstreamer/eme/WidevineCdmArchive.mm @nonARC @no-unify
+platform/graphics/gstreamer/eme/WidevineCdmImage.cpp @no-unify
+platform/graphics/gstreamer/eme/WidevineCdmInstaller.mm @nonARC @no-unify
 platform/graphics/ios/DisplayRefreshMonitorIOS.mm @nonARC
 platform/graphics/ios/IconIOS.mm @nonARC
 platform/graphics/ios/controls/ControlFactoryIOS.mm @nonARC

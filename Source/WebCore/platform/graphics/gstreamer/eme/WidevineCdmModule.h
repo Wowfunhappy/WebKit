@@ -1,7 +1,8 @@
 // MAVERICKS_BACKPORT: host for a Chromium-API Content Decryption Module, which is how Widevine
 // ships. Google's module implements cdm::ContentDecryptionModule_11 and performs its own AES, so
 // this file supplies the cdm::Host_11 it calls back into and serializes access to it. Where the
-// module is, and how it got there, is WidevineCdmLocation.h and WebKit's WidevineCdmInstaller.
+// module is, and how it got there, is WidevineCdmLocation.h and WidevineCdmInstaller.h beside
+// this file.
 
 #pragma once
 

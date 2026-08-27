@@ -1630,8 +1630,7 @@ void WebProcess::openDirectoryCacheInvalidated(SandboxExtension::Handle&& handle
 }
 
 #if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
-// MAVERICKS_BACKPORT: the extension covers the module's whole directory, which is what the gap
-// library beside it needs too, and it is held for the life of the process because the CDM stays
+// MAVERICKS_BACKPORT: the extension is held for the life of the process because the CDM stays
 // mapped once a page has loaded it.
 void WebProcess::setWidevineCdmModule(const String& path, SandboxExtension::Handle&& handle)
 {

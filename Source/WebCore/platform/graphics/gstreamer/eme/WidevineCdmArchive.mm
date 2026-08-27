@@ -13,7 +13,7 @@
 #import <wtf/text/MakeString.h>
 #import <zlib.h>
 
-namespace WebKit {
+namespace WebCore {
 
 // The one member of the archive that matters, and the largest one this will unpack.
 static constexpr auto moduleArchivePath = "_platform_specific/mac_x64/libwidevinecdm.dylib"_s;
@@ -279,6 +279,6 @@ Expected<Vector<uint8_t>, String> extractWidevineCdmModule(std::span<const uint8
     return WTF::move(*module);
 }
 
-} // namespace WebKit
+} // namespace WebCore
 
 #endif // PLATFORM(MAC) && ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)

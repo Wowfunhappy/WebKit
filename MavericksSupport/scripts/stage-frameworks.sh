@@ -448,15 +448,15 @@ else
     exit 1
 fi
 
-# The Widevine gap library rides in WebKit2's resources, beside the sandbox profiles, because the
-# UIProcess reads it from there: WidevineCdmInstaller copies it in beside each module it installs,
-# and WidevineCdmImage binds the module's missing imports to it.
-echo "### Deploying the Widevine gap library into WebKit2.framework"
-WK2_RESOURCES="$(s "$WEBKIT2_BUNDLE")/Versions/A/Resources"
+# The Widevine gap library rides in WebCore's resources, because WidevineCdmInstaller lives there
+# and both ports drive it: it copies the library in beside each module it installs, and
+# WidevineCdmImage binds the module's missing imports to it.
+echo "### Deploying the Widevine gap library into WebCore.framework"
+WIDEVINE_GAP_RESOURCES="$(s "$WEBCORE_BUNDLE")/Versions/A/Resources"
 if [ -f "$WK_SUPPORT/polyfill/build/libwidevinegap.dylib" ]; then
-    mkdir -p "$WK2_RESOURCES"
-    cp -f "$WK_SUPPORT/polyfill/build/libwidevinegap.dylib" "$WK2_RESOURCES/libwidevinegap.dylib"
-    chmod 644 "$WK2_RESOURCES/libwidevinegap.dylib"
+    mkdir -p "$WIDEVINE_GAP_RESOURCES"
+    cp -f "$WK_SUPPORT/polyfill/build/libwidevinegap.dylib" "$WIDEVINE_GAP_RESOURCES/libwidevinegap.dylib"
+    chmod 644 "$WIDEVINE_GAP_RESOURCES/libwidevinegap.dylib"
 else
     echo "ERROR: libwidevinegap.dylib missing — Widevine playback would have no CDM." >&2
     echo "       Build it with MavericksSupport/polyfill/build-polyfill.sh (build.sh does this)." >&2

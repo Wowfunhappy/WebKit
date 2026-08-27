@@ -1,7 +1,8 @@
-// Runs WebKit's Widevine work over one file, so each pass can be exercised against real bytes on
+// Runs WebCore's Widevine work over one file, so each pass can be exercised against real bytes on
 // this host: `image` prepares a Mach-O the way an installed module is prepared
-// (Source/WebKit/UIProcess/mac/WidevineCdmImage.cpp), and `archive` takes the module out of a CRX3
-// the way a downloaded one is opened (WidevineCdmArchive.mm). run.sh builds this and drives it.
+// (Source/WebCore/platform/graphics/gstreamer/eme/WidevineCdmImage.cpp), and `archive` takes the
+// module out of a CRX3 the way a downloaded one is opened (WidevineCdmArchive.mm). run.sh builds
+// this and drives it.
 
 #include "config.h"
 #include "WidevineCdmArchive.h"
@@ -28,7 +29,7 @@ int main(int argc, char** argv)
     }
 
     if (isArchive) {
-        auto module = WebKit::extractWidevineCdmModule(input->span());
+        auto module = WebCore::extractWidevineCdmModule(input->span());
         if (!module) {
             printf("REFUSED: %s\n", module.error().utf8().data());
             return 1;
@@ -45,7 +46,7 @@ int main(int argc, char** argv)
         printf("image takes <in.dylib> <out.dylib> <gap.dylib>\n");
         return 2;
     }
-    auto prepared = WebKit::prepareWidevineCdmImage(*input, "@loader_path/libwidevinegap.dylib"_s, String::fromUTF8(argv[4]));
+    auto prepared = WebCore::prepareWidevineCdmImage(*input, "@loader_path/libwidevinegap.dylib"_s, String::fromUTF8(argv[4]));
     if (!prepared) {
         printf("REFUSED: %s\n", prepared.error().utf8().data());
         return 1;

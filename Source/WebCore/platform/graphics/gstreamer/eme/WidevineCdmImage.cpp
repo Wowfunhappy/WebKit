@@ -34,7 +34,7 @@
 #include <wtf/text/MakeString.h>
 #include <wtf/text/StringHash.h>
 
-namespace WebKit {
+namespace WebCore {
 
 namespace {
 
@@ -1000,6 +1000,6 @@ Expected<void, String> prepareWidevineCdmImage(Vector<uint8_t>& image, const Str
     return retargetImports(image, gapLibraryPath, gapLibraryFilePath);
 }
 
-} // namespace WebKit
+} // namespace WebCore
 
 #endif // PLATFORM(MAC) && ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)

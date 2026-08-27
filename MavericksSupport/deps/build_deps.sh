@@ -1253,7 +1253,8 @@ done
 
 echo "==== Widevine CDM interface ===="
 # Headers only. The module itself is Google's own Widevine CDM, which is not redistributable and
-# which WebKit downloads and installs at runtime (Source/WebKit/UIProcess/mac/WidevineCdmInstaller.h);
+# which WebKit downloads and installs at runtime
+# (Source/WebCore/platform/graphics/gstreamer/eme/WidevineCdmInstaller.h);
 # what is needed at build time is the Chromium interface it implements and WebCore's CDMWidevine.cpp
 # hosts, taken from the repository Chromium keeps it in and pinned to one revision. Googlesource
 # serves a file base64-encoded.

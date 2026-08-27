@@ -14,8 +14,8 @@ them all from source with the in-tree toolchain into **`build/`** (`build/lib` +
   plus `bin/gst-inspect-1.0` and `bin/gst-launch-1.0` for on-box debugging;
 - `include/cdm`, the Chromium Content Decryption Module interface (pinned to one revision of
   Chromium's own repository) that WebCore's `CDMWidevine.cpp` hosts. Headers only: the module
-  is Google's Widevine CDM, which is not redistributable and which the UIProcess downloads and
-  installs at runtime (`Source/WebKit/UIProcess/mac/WidevineCdmInstaller.h`).
+  is Google's Widevine CDM, which is not redistributable and which WebCore downloads and installs
+  at runtime (`Source/WebCore/platform/graphics/gstreamer/eme/WidevineCdmInstaller.h`).
 
 Every deployed Mach-O targets 10.9, and the script ends with a symbol-resolution gate
 checking, on this host, that every strong undefined symbol resolves and that no weak import

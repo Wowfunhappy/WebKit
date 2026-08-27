@@ -1,11 +1,15 @@
 // A minimal WebKit1 host: one WebView in one window, loading the URL given on the command line.
 // Console messages, alerts and load failures go to stdout, so a WK1-only bug can be driven and
-// read from a shell. Build with build.sh.
+// read from a shell. A third argument is JavaScript run against the main frame once it has
+// loaded, which is how a page that waits for a click is driven. Build with build.sh.
 
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
 
-@interface Host : NSObject
+@interface Host : NSObject {
+@public
+    NSString *script;
+}
 @end
 
 @implementation Host
@@ -36,6 +40,10 @@
         return;
     printf("LOADED %s\n", [[[[[frame dataSource] request] URL] absoluteString] UTF8String]);
     fflush(stdout);
+    if (script) {
+        printf("SCRIPT %s\n", [[sender stringByEvaluatingJavaScriptFromString:script] UTF8String] ?: "-");
+        fflush(stdout);
+    }
 }
 
 - (void)webView:(WebView *)sender didFailProvisionalLoadWithError:(NSError *)error forFrame:(WebFrame *)frame
@@ -55,7 +63,7 @@
 int main(int argc, const char *argv[])
 {
     if (argc < 2) {
-        fprintf(stderr, "usage: wk1host <url> [seconds]\n");
+        fprintf(stderr, "usage: wk1host <url> [seconds] [javascript]\n");
         return 2;
     }
     double seconds = argc > 2 ? atof(argv[2]) : 15;
@@ -69,6 +77,8 @@ int main(int argc, const char *argv[])
             backing:NSBackingStoreBuffered defer:NO];
         WebView *webView = [[WebView alloc] initWithFrame:[[window contentView] bounds]];
         Host *host = [[Host alloc] init];
+        if (argc > 3)
+            host->script = [NSString stringWithUTF8String:argv[3]];
         [webView setUIDelegate:host];
         [webView setFrameLoadDelegate:host];
         [window setContentView:webView];

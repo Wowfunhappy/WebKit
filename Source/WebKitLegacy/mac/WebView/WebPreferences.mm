@@ -404,7 +404,9 @@ public:
         @NO, WebKitResourceLoadStatisticsEnabledPreferenceKey,
         @NO, WebKitDebugInAppBrowserPrivacyEnabledPreferenceKey,
 
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
+// MAVERICKS_BACKPORT: both Encrypted Media APIs keep their per-origin records here, reached
+// through Document::mediaKeysStorageDirectory.
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)
         @"~/Library/WebKit/MediaKeys", WebKitMediaKeysStorageDirectoryKey,
 #endif
 

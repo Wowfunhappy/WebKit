@@ -3189,7 +3189,9 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     WebCore::DeprecatedGlobalSettings::setNetworkInterfaceName([preferences networkInterfaceName]);
 #endif
 
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
+// MAVERICKS_BACKPORT: the modern Encrypted Media API's CDMs keep their per-origin records under
+// this directory too, reaching it through Document::mediaKeysStorageDirectory.
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)
     _private->page->setMediaKeysStorageDirectory([preferences mediaKeysStorageDirectory]);
 #endif
 
