@@ -335,7 +335,7 @@ WK_POLYFILL_REPLACES(NULL, void *, dlsym, (void *handle, const char *symbol))
 // read out of our own __wk_pfmap the way wk_polyfill_init reads the function/constant one. The
 // __wk_clsmap sections are found as images load (below) rather than by walking every loaded image on
 // each miss: this path runs for EVERY objc_getClass the system cannot answer, and a per-miss walk of
-// a few hundred images was the single largest cost of a WK_POLYFILL_ADD entry waiting for its class —
+// a few hundred images was the single largest cost of a polyfill block waiting for a class to load —
 // each of its per-image-load retries is such a miss, so the retry itself walked all images (measured
 // ~21 ms of a Safari launch before this cache).
 //

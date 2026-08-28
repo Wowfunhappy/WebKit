@@ -14,34 +14,33 @@
  * AND ANY EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED.
  */
 
-// NSURLSessionWebSocketTask /
-// NSURLSessionWebSocketMessage are macOS 10.15+ and absent on 10.9, and the legacy WebCore
-// SocketStreamHandle / WebSocketChannel were removed from this WebKit, so every WebSocket failed with
-// "Cannot create a web socket task" (breaks figma's Livegraph, Slack, Discord, etc.). This file lives
-// in WebKit.framework (alongside WKWebInspectorProxyObjCAdapter.mm) so its strong class definition satisfies the
-// weak `_OBJC_CLASS_$_NSURLSessionWebSocketMessage` import in WebSocketTaskCocoa.mm. It provides:
+// NSURLSessionWebSocketTask / NSURLSessionWebSocketMessage are macOS 10.15+ and absent on 10.9, and
+// this WebKit has no other WebSocket transport (WebSocketTaskCocoa is the only channel). This file is
+// force-loaded into WebKit.framework (alongside WKWebInspectorProxyObjCAdapter.mm) so its strong class
+// definition satisfies the weak `_OBJC_CLASS_$_NSURLSessionWebSocketMessage` import in
+// WebSocketTaskCocoa.mm. It provides:
 //   * NSURLSessionWebSocketMessage  — the value object WebSocketTaskCocoa constructs.
 //   * WKWebSocketStream             — an RFC 6455 client over CFStream (TLS via
 //     kCFStreamSocketSecurityLevelNegotiatedSSL) that masquerades as the NSURLSessionWebSocketTask
 //     WebSocketTaskCocoa drives (resume/cancel/currentRequest/response/closeCode/taskIdentifier/
 //     receiveMessageWithCompletionHandler:/sendMessage:completionHandler:/cancelWithCloseCode:reason:).
-//   * -[NSURLSession webSocketTaskWithRequest:] — already called (respondsToSelector-guarded) by
-//     NetworkSessionCocoa::createWebSocketTask; returns a WKWebSocketStream.
+//   * -[NSURLSession webSocketTaskWithRequest:] — a WebKit-scoped polyfill block (wk_selref_scope.h)
+//     installed on the NSURLSession cluster; NetworkSessionCocoa::createWebSocketTask sends it
+//     (respondsToSelector-guarded) and receives a WKWebSocketStream.
 // On open/close it invokes the session delegate's NSURLSessionWebSocketDelegate methods (passing itself
-// as the task) exactly as NSURLSession would, so the existing webSocketDataTaskMap -> WebSocketTask::
-// didConnect/didClose path is unchanged. Delegate + receive callbacks are delivered on the SESSION'S
+// as the task) exactly as NSURLSession would, so the webSocketDataTaskMap -> WebSocketTask::
+// didConnect/didClose path is upstream's. Delegate + receive callbacks are delivered on the SESSION'S
 // delegateQueue, which is where NSURLSession delivers them (see wsDispatchToCallbackQueue); socket I/O
 // runs on a private serial queue.
 //
 // Compiled with -fobjc-arc (see MavericksSupport/polyfill/build-polyfill.sh). The CFStream client context retains self, so the
 // stream outlives any in-flight socket callbacks until teardown clears the client.
 
-#import "wk_selref_scope.h" // WK_POLYFILL_SEL/WK_POLYFILL_ADD host-safe polyfill registry.
+#import "wk_selref_scope.h"
 #import <CFNetwork/CFNetwork.h>
 #import <CommonCrypto/CommonDigest.h>
 #import <Foundation/Foundation.h>
 #import <pthread.h>
-#import <objc/message.h>
 #import <objc/runtime.h>
 #import <netdb.h>
 #import <sys/socket.h>
@@ -213,8 +212,6 @@ static NSArray *wkResolveProxyAutoConfiguration(NSArray *proxies, NSURL *targetU
     return resolved;
 }
 
-static id wsWebSocketTaskWithRequest(NSURLSession *, SEL, NSURLRequest *);
-
 // The queue a callback belongs on. NSURLSession delivers delegate messages and completion handlers on the
 // session's delegateQueue, so this polyfill does too rather than hardcoding the main queue: hardcoding was
 // correct only for a caller whose delegateQueue happens to be the main one, which is caller-specific
@@ -230,21 +227,6 @@ static void wsDispatchToCallbackQueue(NSURLSession *session, void (^work)(void))
     }
     dispatch_async(dispatch_get_main_queue(), work);
 }
-
-// Expose -[NSURLSession webSocketTaskWithRequest:] (10.15+) host-safely via the
-// WebKit-scoped selref mechanism, exactly like its valueForHTTPHeaderField: sibling. WK_POLYFILL_SEL
-// rewrites WebKit images' `webSocketTaskWithRequest:` selrefs to the PRIVATE `wk_webSocketTaskWithRequest:`,
-// and WK_POLYFILL_ADD installs that private method (backed by wsWebSocketTaskWithRequest) on each concrete
-// NSURLSession class-cluster class at runtime (the cluster's instances are __NSCFURLSession, NOT an
-// NSURLSession subclass, so every concrete class needs it). On 10.9 the cluster has exactly one concrete
-// class, __NSCFURLSession — probed on-host; __NSURLSessionLocal is a later OS's name and does not exist
-// here, and an entry no class can ever satisfy sits in the installer's retry list for the life of the
-// process. The PUBLIC selector stays absent on the class, so an embedder's
-// -respondsToSelector:@selector(webSocketTaskWithRequest:) still returns NO on 10.9 — no 10.15+
-// misdetection (the meta-crash family the old process-global class_addMethod injection risked).
-WK_POLYFILL_SEL("webSocketTaskWithRequest:", "wk_webSocketTaskWithRequest:");
-WK_POLYFILL_ADD("NSURLSession", "wk_webSocketTaskWithRequest:", wsWebSocketTaskWithRequest, "@@:@");
-WK_POLYFILL_ADD("__NSCFURLSession", "wk_webSocketTaskWithRequest:", wsWebSocketTaskWithRequest, "@@:@");
 
 @implementation WKWebSocketStream
 
@@ -1010,12 +992,17 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
 @end
 
 // ---------------------------------------------------------------------------------------------------
-// -[NSURLSession webSocketTaskWithRequest:] implementation (injected via +load above).
-// `session` is the receiver (the NSURLSession instance).
+// -[NSURLSession webSocketTaskWithRequest:] (10.15+), a WebKit-scoped polyfill. Installed on each
+// concrete class of the NSURLSession cluster: instances are __NSCFURLSession, not an NSURLSession
+// subclass, and on 10.9 that is the cluster's only concrete class (probed on-host). The public
+// selector stays absent on the class, so an embedder's
+// -respondsToSelector:@selector(webSocketTaskWithRequest:) answers NO on 10.9.
 // ---------------------------------------------------------------------------------------------------
 
-static id wsWebSocketTaskWithRequest(NSURLSession *session, SEL, NSURLRequest *request)
+WK_POLYFILL_ADD_METHODS_ON(NSURLSession, "NSURLSession", "__NSCFURLSession")
+- (NSURLSessionWebSocketTask *)webSocketTaskWithRequest:(NSURLRequest *)request
 {
+    NSURLSession *session = self;
     static std::atomic<uint32_t> identifierCounter { 0x10000 };
     NSUInteger identifier = ++identifierCounter;
 
@@ -1023,10 +1010,10 @@ static id wsWebSocketTaskWithRequest(NSURLSession *session, SEL, NSURLRequest *r
 
     NSMutableURLRequest *mutableRequest = [request mutableCopy];
     // HTTPShouldHandleCookies is how a caller withholds cookies from one request, and NetworkSessionCocoa
-    // clears it on this very request when shouldBlockCookies() says so. The wk_ body is sent directly
-    // because wk_selref_scope rewrites selrefs in WebKit images only: a send of the public selector from
-    // this library would reach 10.9's own method, which does not keep the flag for a ws:// URL.
-    BOOL shouldHandleCookies = ((BOOL (*)(id, SEL))objc_msgSend)(mutableRequest, sel_registerName("wk_HTTPShouldHandleCookies"));
+    // clears it on this very request when shouldBlockCookies() says so. This image is WebKit.framework,
+    // so the send reaches the polyfill's REPLACE body (methods/Foundation.m), which keeps the flag for a
+    // ws:// URL where 10.9's own method does not.
+    BOOL shouldHandleCookies = [mutableRequest HTTPShouldHandleCookies];
     if (shouldHandleCookies && ![mutableRequest valueForHTTPHeaderField:@"Cookie"]) {
         NSHTTPCookieStorage *storage = session.configuration.HTTPCookieStorage ?: [NSHTTPCookieStorage sharedHTTPCookieStorage];
         // -[NSHTTPCookieStorage cookiesForURL:] only treats http/https as a
@@ -1054,3 +1041,4 @@ static id wsWebSocketTaskWithRequest(NSURLSession *session, SEL, NSURLRequest *r
     WKWebSocketStream *stream = [[WKWebSocketStream alloc] initWithRequest:mutableRequest protocol:protocol session:session taskIdentifier:identifier];
     return (NSURLSessionWebSocketTask *)stream;
 }
+@end

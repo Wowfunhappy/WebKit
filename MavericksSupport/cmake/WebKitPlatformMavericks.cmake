@@ -255,9 +255,6 @@ list(APPEND WebKit_MESSAGES_IN_FILES
 list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     # WebKit Cocoa init calls PAL::GCrypt::initialize().
     "${MAVERICKS_DEPS}/include"
-    # wk_selref_scope.h (WK_POLYFILL_SEL/WK_POLYFILL_ADD registry macros) for
-    # the host-safe NSURLSession webSocketTaskWithRequest: polyfill in WebSocketPolyfill_109.mm.
-    "${CMAKE_SOURCE_DIR}/MavericksSupport/polyfill/mechanism"
     # WKWebViewTesting.mm imports WKContentViewInteraction.h unconditionally
     # (its content is entirely PLATFORM(IOS_FAMILY)-guarded); the Xcode build resolves project
     # headers by name, so the CMake port needs the ios dir on the include path for parity.

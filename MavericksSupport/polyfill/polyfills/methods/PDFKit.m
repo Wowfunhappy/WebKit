@@ -1,6 +1,5 @@
 // PDFKit: Objective-C methods on PDFKit classes that macOS 10.9 does not have, implemented with the
-// APIs 10.9 does have. Uses the same recipe as AppKit.m: a `wk_`-prefixed category method, registered
-// with WK_POLYFILL_SEL.
+// APIs 10.9 does have.
 
 #import "wk_polyfill.h"
 #import "wk_selref_scope.h"
@@ -14,11 +13,8 @@
 // -[PDFPage drawWithBox:toContext:] (10.12+) via the classic -[PDFPage drawWithBox:] (10.4+), which
 // renders into the CURRENT NSGraphicsContext. Wrap the passed CGContext as current for the duration of
 // the draw, restoring the prior context after — the CTM the caller applied to `context` is honored.
-@interface PDFPage (WKPolyfillScope)
-- (void)wk_drawWithBox:(PDFDisplayBox)box toContext:(CGContextRef)context;
-@end
-@implementation PDFPage (WKPolyfillScope)
-- (void)wk_drawWithBox:(PDFDisplayBox)box toContext:(CGContextRef)context
+WK_POLYFILL_ADD_METHODS(PDFPage)
+- (void)drawWithBox:(PDFDisplayBox)box toContext:(CGContextRef)context
 {
     NSGraphicsContext *priorContext = [NSGraphicsContext currentContext];
     [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithGraphicsPort:(void *)context flipped:NO]];
@@ -26,7 +22,6 @@
     [NSGraphicsContext setCurrentContext:priorContext];
 }
 @end
-WK_POLYFILL_SEL("drawWithBox:toContext:", "wk_drawWithBox:toContext:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[PDFAnnotation URL] / -destination (10.13+): PDFKit's unification of the per-subclass annotation
@@ -35,16 +30,10 @@ WK_POLYFILL_SEL("drawWithBox:toContext:", "wk_drawWithBox:toContext:");
 // itself: a PDFAnnotationLink resolves to its own real -URL/-destination, every other annotation class
 // falls to these base-class bodies, whose truthful answer is nil (a non-link annotation has no link
 // target). WKPrintingView's printed-PDF link preservation walks annotations exactly this way.
-@interface PDFAnnotation (WKPolyfillScope)
-- (NSURL *)wk_URL;
-- (PDFDestination *)wk_destination;
+WK_POLYFILL_ADD_METHODS(PDFAnnotation)
+- (NSURL *)URL { return nil; }
+- (PDFDestination *)destination { return nil; }
 @end
-@implementation PDFAnnotation (WKPolyfillScope)
-- (NSURL *)wk_URL { return nil; }
-- (PDFDestination *)wk_destination { return nil; }
-@end
-WK_POLYFILL_SEL("URL", "wk_URL");
-WK_POLYFILL_SEL("destination", "wk_destination");
 
 // ---------------------------------------------------------------------------------------------------
 // -[PDFAnnotation valueForAnnotationKey:] (10.13+): the other half of that same unification. Where
@@ -72,10 +61,6 @@ WK_POLYFILL_SEL("destination", "wk_destination");
 // A signature widget is why the class of the object cannot stand in for the dictionary: this PDFKit
 // instantiates /FT /Sig as PDFAnnotationStamp (measured), so reading the field type off the class
 // answers "none" for a field whose dictionary plainly says Sig.
-@interface PDFAnnotation (WKPolyfillScopeAnnotationKey)
-- (id)wk_valueForAnnotationKey:(NSString *)key;
-@end
-
 // Both are implemented by 10.9's PDFAnnotation but declared in none of its headers.
 @interface PDFAnnotation (WKPolyfillPDFKitAnnotationDictionary)
 - (CGPDFDictionaryRef)sourceDictionary;
@@ -188,8 +173,8 @@ static id wk_objectFromPDFObject(CGPDFObjectRef object, CFMutableSetRef path)
     return nil;
 }
 
-@implementation PDFAnnotation (WKPolyfillScopeAnnotationKey)
-- (id)wk_valueForAnnotationKey:(NSString *)key
+WK_POLYFILL_ADD_METHODS(PDFAnnotation)
+- (id)valueForAnnotationKey:(PDFAnnotationKey)key
 {
     if (![key length])
         return nil;
@@ -226,6 +211,5 @@ static id wk_objectFromPDFObject(CGPDFObjectRef object, CFMutableSetRef path)
     return nil;
 }
 @end
-WK_POLYFILL_SEL("valueForAnnotationKey:", "wk_valueForAnnotationKey:");
 
 #pragma clang diagnostic pop

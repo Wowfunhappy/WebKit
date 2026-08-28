@@ -6,20 +6,21 @@
 // scopes symbols (C functions, whole absent classes) but not a method added to a shared class, because
 // dispatch keys on the selector, not a linker symbol.
 //
-// This registers each polyfilled method under a PRIVATE selector (wk_<name>) on the real class, and at
-// load time rewrites the matching entries in each WebKit image's __objc_selrefs from the public selector
-// to the private one. WebKit's own call sites (`[ctx CGContext]`) then dispatch `wk_CGContext` to the
-// polyfill via ordinary objc_msgSend, while the public selector genuinely does not exist on the class —
-// so a host app's respondsToSelector: returns NO for the correct reason. No interposition, no swizzling
-// and no gating: the cost is a one-time selref scan per WebKit image, plus one pass over each image's
-// classes to give a class that HAS the real method its own private-selector entry point (see
-// wk_alias_class). Runs in every process WebKit loads into.
+// A polyfill is a method of a placeholder class (a WK_POLYFILL_ADD_METHODS / WK_POLYFILL_REPLACE_METHODS
+// block, wk_selref_scope.h). At load this installs each such method on the block's target classes under
+// a PRIVATE selector (wk_<name>) and rewrites the matching entries in each WebKit image's __objc_selrefs
+// from the public selector to the private one. WebKit's own call sites (`[ctx CGContext]`) then dispatch
+// `wk_CGContext` to the polyfill via ordinary objc_msgSend, while the public selector genuinely does not
+// exist on the class — so a host app's respondsToSelector: returns NO for the correct reason. No
+// interposition, no swizzling and no gating: the cost is a one-time selref scan per WebKit image, plus
+// one pass over each image's classes to give a class that HAS the real method its own private-selector
+// entry point (see wk_alias_class). Runs in every process WebKit loads into.
 //
 // A "WebKit image" is any binary carrying __DATA,__wk_marker, injected by wk_image_marker.c which is
 // force-loaded into every WebKit framework (WEBKIT_FRAMEWORK). This object (the patcher + registry) and
-// polyfills/methods/ (the polyfill methods + WK_POLYFILL_SEL registrations) are force-loaded into WebCore only
-// — they load early in every rendering process and keep the AppKit categories out of the setuid-JSC path.
-// THE POLYFILLS THEMSELVES LIVE IN polyfills/methods/; add new ones there.
+// polyfills/methods/ (the blocks) are force-loaded into WebCore only — they load early in every
+// rendering process and keep the AppKit categories out of the setuid-JSC path; polyfills/webkit/ holds
+// the blocks that belong to WebKit.framework. THE POLYFILLS THEMSELVES LIVE THERE; add new ones there.
 
 #import "wk_selref_scope.h"
 #import <Foundation/Foundation.h>
@@ -39,9 +40,9 @@
 
 // A registry that cannot record an entry has no degraded mode. The polyfill is already compiled in and
 // WebKit's selrefs are already pointing at it, so a dropped entry does not fall back to anything --
-// the public selector simply stays unrewritten (WK_MAX_SEL) or the wk_ method never gets added to its
-// class (WK_MAX_ADD), and the first send dies with an unrecognized selector at whatever call site
-// happens to run first, arbitrarily far from the load-time cause. Say what happened here instead.
+// the public selector simply stays unrewritten or the wk_ method never gets added to its class, and
+// the first send dies with an unrecognized selector at whatever call site happens to run first,
+// arbitrarily far from the load-time cause. Say what happened here instead.
 // Same reasoning, and same shape, as resolveSystemDlsym() in wk_polyfill_runtime.c.
 static void wk_registry_full(const char *what, int cap, const char *capName, const char *dropped)
 {
@@ -55,13 +56,19 @@ static void wk_registry_full(const char *what, int cap, const char *capName, con
     abort();
 }
 
-// Resolved public->private SEL map, built from all __wk_selmap sections as their images arrive.
+// Resolved public->private SEL map, built from every block's method list as the blocks' image arrives.
 enum { WK_MAX_SEL = 512 };
 static SEL wk_pub[WK_MAX_SEL];          // canonical public SEL (fast-path pointer match)
 static const char *wk_pubname[WK_MAX_SEL]; // public selector NAME (content match — see wk_patch)
 static SEL wk_priv[WK_MAX_SEL];
-static int wk_intent[WK_MAX_SEL];       // WK_SELMAP_GAP_FILL / WK_SELMAP_REPLACES — see wk_alias_class
 static int wk_count;                    // PUBLICATION POINT — see the synchronisation note below
+
+// The bodies of every REPLACE block. wk_alias_class asks whether the private selector a class's chain
+// answers is one of these (a deliberate shadow that must stay in front of the class's own method), and
+// wk_original_of finds which class in a receiver's chain carries the body that is running.
+enum { WK_MAX_REPLACE_BODIES = 128 };
+static IMP wk_replace_body[WK_MAX_REPLACE_BODIES];
+static int wk_replace_body_count;
 
 // Prefilters over the registry, so the two hot loops (every selref of every WebKit image in wk_patch,
 // every method of every class in wk_alias_class) pay one bit test for the overwhelmingly common case
@@ -103,10 +110,10 @@ static unsigned wk_sel_hash(SEL sel)
 
 // Synchronisation.
 //
-// Writers (wk_collect, wk_install_added) run from the constructor AND from the dyld add-image callback,
-// which fires on whichever thread called dlopen, at any point in the process's life. wk_patch reads the
-// registry from that same callback without the lock, so two concurrent dlopens can have one publishing
-// entries while the other reads them.
+// Writers (wk_collect, wk_install_deferred) run from the constructor AND from the dyld image-state
+// handler, which fires on whichever thread called dlopen, at any point in the process's life. wk_patch
+// reads the registry from the add-image callback without the lock, so two concurrent dlopens can have
+// one publishing entries while the other reads them.
 //
 // The registry is APPEND-ONLY: an entry's three fields are stored once, before the entry is reachable,
 // and are never mutated or removed for the life of the process. So a reader needs exactly one guarantee
@@ -168,7 +175,7 @@ static pthread_mutex_t wk_reg_lock = PTHREAD_MUTEX_INITIALIZER;
 // the registered selectors, exactly two got it from another image -- -[NSString containsString:] via
 // ISSupport and -[NSArray containsString:] via QTKit. NSString carries this layer's own
 // wk_containsString: either way, and nothing sends containsString: to an NSArray.
-
+//
 // The class's OWN methods (class_copyMethodList), not class_getInstanceMethod: an inherited method is
 // aliased on the class that defines it and subclasses inherit the alias along with it, and — the reason
 // it matters — class_getInstanceMethod consults the resolver, so asking it would send
@@ -176,33 +183,29 @@ static pthread_mutex_t wk_reg_lock = PTHREAD_MUTEX_INITIALIZER;
 // Pass a metaclass to alias class methods.
 //
 // A class that implements the real public selector ITSELF gets wk_<name> bound to that real IMP, via
-// class_addMethod. On the polyfill's own TARGET class this layer's category already installed
-// wk_<name> (the body), so class_addMethod is a no-op there and the body keeps serving WebKit's
-// rewritten call — the runtime does what the polyfill declared, with no forwarding to 10.9. A
-// DIFFERENT class that merely shares the selector name has no wk_<name> of its own, so it gets one
-// bound to its real method (the by-name selref rewrite must not hijack another class's method).
+// class_addMethod. On an ADD block's target the body is installed first, so class_addMethod is a no-op
+// there and the body keeps serving WebKit's rewritten call. A DIFFERENT class that merely shares the
+// selector name has no wk_<name> of its own, so it gets one bound to its real method (the by-name
+// selref rewrite must not hijack another class's method).
 //
-// If the target class turns out to implement the public selector after all, a GAP_FILL body would
-// shadow 10.9's — a mistake the build gate rejects (the shadow gate in build-polyfill.sh), exactly as it rejects a
-// shadowing C gap-fill.
+// If an ADD target turns out to implement the public selector after all, the body would shadow 10.9's
+// — a mistake the shadow gate in build-polyfill.sh rejects, exactly as it rejects a shadowing C gap-fill.
 //
 // INTENT DECIDES WHAT HAPPENS TO A SUBCLASS OF THE TARGET. Aliasing a class's own IMP under wk_<name>
 // puts that IMP in FRONT of an inherited body, because the class's own method list is searched first.
-// For a GAP_FILL that is right: 10.9 has no such method, so any class carrying the name is an unrelated
-// class whose real method the by-name rewrite must not hijack. For a REPLACES it inverts the polyfill —
+// For an ADD that is right: 10.9 has no such method, so any class carrying the name is an unrelated
+// class whose real method the by-name rewrite must not hijack. For a REPLACE it inverts the polyfill —
 // the body exists precisely to shadow a method 10.9 HAS, and the classes most likely to implement that
 // method are the target's own subclasses. Aliasing there hands the subclass back its own IMP and the
-// body never runs, which is the exact failure WK_POLYFILL_ADD_REPLACES documents (wk_selref_scope.h) and
-// answers with class_replaceMethod. Measured on 10.9.5: -[NSPanel initWithContentRect:styleMask:backing:
-// defer:], -[NSSavePanel initWithContentRect:…], -[_NSPopoverWindow initWithContentRect:…] /
-// -setContentView:, -[NSCarbonWindow setStyleMask:] all shadow their NSWindow polyfill this way, and
-// -[NSURL wk_initWithString:] is written for an NSURL SUBCLASS (isMemberOfClass: test) it could never
-// reach.
+// body never runs. Measured on 10.9.5: -[NSPanel initWithContentRect:styleMask:backing:defer:],
+// -[NSSavePanel initWithContentRect:…], -[_NSPopoverWindow initWithContentRect:…] / -setContentView:,
+// -[NSCarbonWindow setStyleMask:] all shadow their NSWindow polyfill this way, and NSURL's
+// initWithString: replacement is written for an NSURL SUBCLASS (isMemberOfClass: test).
 //
-// So a REPLACES entry does NOT alias over a body already in the class's chain: the body keeps serving
-// the rewritten call on every such subclass and calls through to that subclass's own implementation.
-// An UNRELATED class (no body in its chain: -[NSScrollView setContentView:], -[NSBox setContentView:])
-// is aliased exactly as before.
+// So a class whose chain already answers the private selector with a REPLACE body is NOT aliased: the
+// body keeps serving the rewritten call on every such subclass and calls through to that subclass's
+// own implementation. An UNRELATED class (no body in its chain: -[NSScrollView setContentView:],
+// -[NSBox setContentView:]) is aliased exactly as before.
 //
 // ONE EXCEPTION, and it is not a carve-out but the same rule applied honestly: a class defined in a
 // WEBKIT image. Those classes' own sends are rewritten too, so they are participants in the wk_ chain,
@@ -215,15 +218,15 @@ static pthread_mutex_t wk_reg_lock = PTHREAD_MUTEX_INITIALIZER;
 // [super foo] means — one level up, into the body — which is where the polyfill's work belongs anyway.
 // A SYSTEM class is never rewritten, sends the polyfill nothing, and so is safe in front of.
 //
-// The chain test is only meaningful because the body is already attached when this runs: the polyfill
-// category and this pass ship in the SAME image (WebCore), and the ObjC runtime attaches an image's
-// categories in map_images, before any of that image's initializers — the constructor below and the
-// dyld state-change handler both run after it, and every later image arrives later still.
+// The chain test is only meaningful because the body is already installed when this runs: wk_collect
+// installs every block whose targets are loaded before it aliases, and wk_image_initializing drains the
+// deferred blocks before it aliases the arriving image.
 //
 // Resolver-free by construction: the chain is walked over each class's OWN method list rather than
 // asked via class_getInstanceMethod, which consults +resolveInstanceMethod:. The walk runs only for a
 // class that actually implements a registered public selector — a handful process-wide — and stops at
 // the first class defining the name, so the target's subclasses stop within a step or two.
+
 // One class's OWN method list, resolver-free. NULL if the class does not define the selector itself.
 static IMP wk_own_imp(Class cls, SEL sel)
 {
@@ -251,14 +254,37 @@ static IMP wk_chain_imp(Class cls, SEL sel)
     return NULL;
 }
 
-// THE CALL-THROUGH FOR A REPLACES BODY. Every WK_POLYFILL_SEL_REPLACES / WK_POLYFILL_ADD_REPLACES body
-// needs to run "the implementation I stand in for", and the naive spelling — send the PUBLIC selector to
-// self — is wrong, because it re-resolves from the TOP of the receiver's chain. If any class between the
-// receiver and the body overrides the public selector in a WebKit image, that override runs again, its
-// [super …] (rewritten to wk_) lands back in the body, and it recurses without bound.
+// Published like the registry: bodies are appended under wk_reg_lock and the count release-stored, so
+// a reader on any thread (wk_original_of) that sees index i sees body i.
+static bool wk_is_replace_body(IMP imp)
+{
+    int count = __atomic_load_n(&wk_replace_body_count, __ATOMIC_ACQUIRE);
+    for (int i = 0; i < count; i++)
+        if (wk_replace_body[i] == imp)
+            return true;
+    return false;
+}
+
+// The first class up `cls`'s chain whose OWN private-selector implementation is a REPLACE body, or Nil.
+// A class between it and `cls` may own the private selector too — a WebKit-image override aliased by
+// wk_alias_class — and is walked past.
+static Class wk_replace_body_owner(Class cls, SEL priv)
+{
+    for (Class c = cls; c; c = class_getSuperclass(c))
+        if (wk_is_replace_body(wk_own_imp(c, priv)))
+            return c;
+    return Nil;
+}
+
+// THE CALL-THROUGH FOR A REPLACE BODY (WK_ORIGINAL_METHOD). Every REPLACE body needs to run "the
+// implementation I stand in for", and the naive spelling — send the PUBLIC selector to self — is wrong,
+// because it re-resolves from the TOP of the receiver's chain. If any class between the receiver and the
+// body overrides the public selector in a WebKit image, that override runs again, its [super …]
+// (rewritten to wk_) lands back in the body, and it recurses without bound.
 //
 // The question is not "what would the receiver do", it is "what is one level below ME". So the answer is
-// derived from the BODY's class:
+// derived from the BODY's class — the first class up the receiver's chain whose own private-selector
+// implementation is a REPLACE body:
 //
 //   * Find C: the class CLOSEST TO THE BODY'S CLASS, strictly below it in the receiver's chain, that
 //     defines the private selector in its OWN method list. That is the aliased override whose
@@ -272,46 +298,49 @@ static IMP wk_chain_imp(Class cls, SEL sel)
 // Correct for: plain target class; a multi-level system chain (NSSavePanel : NSPanel : NSWindow); one
 // WebKit override; a WebKit override sitting on a system subclass; a WebKit subclass that merely inherits
 // an aliased override; and two WebKit overrides stacked in one chain. No class list, no assumption about
-// which classes exist, and resolver-free throughout.
-IMP wk_replaces_call_through_class(id receiver, Class bodyClass, SEL privateSelector, SEL publicSelector)
+// which classes exist, and resolver-free throughout. The shadow gate keeps one REPLACE body per selector
+// in any one chain, which is what makes "the first body up the chain" the running one.
+struct wk_original wk_original_of(id receiver, SEL privateSelector)
 {
+    SEL pub = NULL;
+    int count = __atomic_load_n(&wk_count, __ATOMIC_ACQUIRE);
+    for (int j = 0; j < count && !pub; j++)
+        if (wk_priv[j] == privateSelector)
+            pub = wk_pub[j];
     Class start = object_getClass(receiver);
-
-    // If the body's class is not in this chain at all, there is no "below me" to speak of; the receiver's
-    // own implementation is the only meaningful answer. (Not reachable from a body that is running on
-    // this receiver; guarded so a mis-wired caller degrades instead of walking off the chain.)
-    bool bodyClassInChain = false;
-    for (Class c = start; c; c = class_getSuperclass(c))
-        if (c == bodyClass) { bodyClassInChain = true; break; }
-    if (!bodyClassInChain)
-        return wk_chain_imp(start, publicSelector);
+    Class bodyClass = pub ? wk_replace_body_owner(start, privateSelector) : Nil;
+    if (!bodyClass) {
+        fprintf(stderr, "[wk_selref_scope] FATAL: WK_ORIGINAL_METHOD called for %s on %s, which is not a "
+                        "REPLACE body's selector on this receiver's chain.\n",
+                sel_getName(privateSelector), class_getName(start));
+        fflush(stderr);
+        abort();
+    }
 
     Class overrideOwner = Nil;
     for (Class c = start; c && c != bodyClass; c = class_getSuperclass(c))
         if (wk_own_imp(c, privateSelector))
             overrideOwner = c;   // keep the LAST, which is the one closest to bodyClass
 
-    IMP imp = overrideOwner ? wk_chain_imp(class_getSuperclass(overrideOwner), publicSelector)
-                            : wk_chain_imp(start, publicSelector);
-    // A REPLACES entry asserts 10.9 HAS the method, so this cannot be NULL for a correct registration;
-    // fall back to the receiver's own rather than hand a caller a NULL to jump through.
-    return imp ? imp : wk_chain_imp(start, publicSelector);
+    IMP imp = overrideOwner ? wk_chain_imp(class_getSuperclass(overrideOwner), pub)
+                            : wk_chain_imp(start, pub);
+    if (!imp)
+        imp = wk_chain_imp(start, pub);
+    if (!imp) {
+        // A REPLACE asserts 10.9 HAS the method (the shadow gate checks the target); a receiver whose
+        // chain lacks it has nothing to call through to.
+        fprintf(stderr, "[wk_selref_scope] FATAL: no implementation of %s below the REPLACE body on %s.\n",
+                sel_getName(pub), class_getName(start));
+        fflush(stderr);
+        abort();
+    }
+    struct wk_original original = { imp, pub };
+    return original;
 }
 
-// Same, for a WK_POLYFILL_ADD_REPLACES body: a C function IMP installed on a class named by string, so
-// the caller knows its own IMP but not which of the entry's classes this receiver belongs to. The body's
-// class is the one in the chain whose OWN private-selector implementation IS that function.
-IMP wk_replaces_call_through_imp(id receiver, IMP bodyIMP, SEL privateSelector, SEL publicSelector)
+static bool wk_is_placeholder(Class cls)
 {
-    for (Class c = object_getClass(receiver); c; c = class_getSuperclass(c))
-        if (wk_own_imp(c, privateSelector) == bodyIMP)
-            return wk_replaces_call_through_class(receiver, c, privateSelector, publicSelector);
-    return wk_chain_imp(object_getClass(receiver), publicSelector);
-}
-
-static bool wk_chain_defines(Class cls, SEL sel)
-{
-    return wk_chain_imp(cls, sel) != NULL;
+    return strncmp(class_getName(cls), "WKPolyfill_", 11) == 0;
 }
 
 static void wk_alias_class(Class cls, int from, int to, bool clsFromWebKitImage)
@@ -328,9 +357,12 @@ static void wk_alias_class(Class cls, int from, int to, bool clsFromWebKitImage)
         for (int j = from; j < to; j++) {
             if (wk_pub[j] != sel)
                 continue;
-            if (wk_intent[j] == WK_SELMAP_REPLACES && !clsFromWebKitImage
-                && wk_chain_defines(cls, wk_priv[j]))
-                break;   // the body is already in this class's chain — let it win (see above)
+            // A block defines the public selector by construction; its bodies are installed on the
+            // targets, and the block itself receives no sends.
+            if (wk_is_placeholder(cls))
+                break;
+            if (!clsFromWebKitImage && wk_replace_body_owner(cls, wk_priv[j]))
+                break;   // a REPLACE body is already in this class's chain — let it win (see above)
             IMP realIMP = method_getImplementation(methods[i]);
             const char *types = method_getTypeEncoding(methods[i]);
             class_addMethod(cls, wk_priv[j], realIMP, types);
@@ -374,7 +406,7 @@ static void wk_alias_image(const char *path, const struct mach_header *mh, int f
 
 // Every image loaded so far, for a range of registry entries. Runs when the REGISTRY grows rather than
 // when an image arrives: classes scanned earlier have never been asked about a selector registered
-// since. Bounded by the number of WebKit images carrying __wk_selmap (one today), not by dlopens.
+// since. Bounded by the number of images carrying __wk_methods (WebCore and WebKit), not by dlopens.
 static void wk_alias_loaded_images(int from, int to)
 {
     uint32_t c = _dyld_image_count();
@@ -382,41 +414,205 @@ static void wk_alias_loaded_images(int from, int to)
         wk_alias_image(_dyld_get_image_name(i), _dyld_get_image_header(i), from, to);
 }
 
+// ---------------------------------------------------------------------------------------------
+// Blocks: registering their selectors and installing their bodies.
+
+// The block's class, realized so its method lists can be read. objc_getClass realizes without sending
+// +initialize, which a subclass of a system class must never receive (the superclass's +initialize
+// would run for it).
+static Class wk_placeholder_class(const struct wk_methods_entry *e)
+{
+    Class cls = objc_getClass(e->placeholder);
+    if (!cls) {
+        fprintf(stderr, "[wk_selref_scope] FATAL: polyfill block %s is not a class in this process.\n",
+                e->placeholder);
+        fflush(stderr);
+        abort();
+    }
+    return cls;
+}
+
+// The private selector for a public one, from the registry.
+static SEL wk_private_selector(SEL pub)
+{
+    for (int j = 0; j < wk_count; j++)   // plain reads: callers hold wk_reg_lock
+        if (wk_pub[j] == pub)
+            return wk_priv[j];
+    return NULL;
+}
+
+// Registers one public selector (idempotent) and returns its private one.
+static SEL wk_register_selector(SEL pub)
+{
+    SEL priv = wk_private_selector(pub);
+    if (priv)
+        return priv;
+    if (wk_count >= WK_MAX_SEL)
+        wk_registry_full("distinct ObjC method polyfills are registered", WK_MAX_SEL, "WK_MAX_SEL",
+                         sel_getName(pub));
+    const char *name = sel_getName(pub);
+    char *privName = malloc(strlen(name) + 4);
+    strcpy(privName, "wk_");
+    strcat(privName, name);
+    priv = sel_registerName(privName);
+    free(privName);
+    int slot = wk_count;
+    wk_pub[slot] = pub;
+    wk_pubname[slot] = name;   // sel_getName is stable for the life of the process
+    wk_priv[slot] = priv;
+    // The entry's filter bits, before the entry is reachable (see the prefilter note).
+    WK_FILTER_SET(wk_name_filter, wk_name_hash(name));
+    WK_FILTER_SET(wk_sel_filter, wk_sel_hash(pub));
+    // Publishes the stores above to every reader that acquire-loads wk_count.
+    __atomic_store_n(&wk_count, slot + 1, __ATOMIC_RELEASE);
+    return priv;
+}
+
+// Registers every method of one side (instance methods of the block, or class methods via its
+// metaclass) and, for a REPLACE block, records its bodies.
+static void wk_register_side(Class side, int intent)
+{
+    unsigned int n = 0;
+    Method *methods = class_copyMethodList(side, &n);
+    for (unsigned int i = 0; i < n; i++) {
+        wk_register_selector(method_getName(methods[i]));
+        if (intent == WK_METHODS_REPLACE) {
+            IMP imp = method_getImplementation(methods[i]);
+            if (!wk_is_replace_body(imp)) {
+                if (wk_replace_body_count >= WK_MAX_REPLACE_BODIES)
+                    wk_registry_full("REPLACE bodies are registered", WK_MAX_REPLACE_BODIES,
+                                     "WK_MAX_REPLACE_BODIES", sel_getName(method_getName(methods[i])));
+                wk_replace_body[wk_replace_body_count] = imp;
+                __atomic_store_n(&wk_replace_body_count, wk_replace_body_count + 1, __ATOMIC_RELEASE);
+            }
+        }
+    }
+    free(methods);
+}
+
+// Installs one side's bodies on one target class (the metaclass, for class methods). Idempotent:
+// class_addMethod is a no-op once the wk_ method exists, and re-replacing with the same IMP changes
+// nothing. An ADD uses class_addMethod because the alias pass may already have bound the wk_ name on a
+// class that has the real method — which for an ADD target the shadow gate rules out, so the body
+// lands. A REPLACE uses class_replaceMethod so the body wins over an alias in either order.
+static void wk_install_side(Class side, Class target, int intent)
+{
+    unsigned int n = 0;
+    Method *methods = class_copyMethodList(side, &n);
+    for (unsigned int i = 0; i < n; i++) {
+        SEL priv = wk_private_selector(method_getName(methods[i]));
+        IMP imp = method_getImplementation(methods[i]);
+        const char *types = method_getTypeEncoding(methods[i]);
+        if (intent == WK_METHODS_REPLACE)
+            class_replaceMethod(target, priv, imp, types);
+        else
+            class_addMethod(target, priv, imp, types);
+    }
+    free(methods);
+}
+
+// YES once every target class exists — the bodies are now installed on all of them.
+//
+// The metaclass is reached through the class object (object_getClass), NOT objc_getMetaClass: 10.9's
+// objc_getMetaClass prints "class `X' not linked into application" on every miss, and a deferred block
+// for a lazily-loaded framework's class polls this on every image event until the class arrives —
+// hundreds of stderr lines per process launch. objc_getClass misses silently.
+static BOOL wk_install_entry(const struct wk_methods_entry *e)
+{
+    Class placeholder = wk_placeholder_class(e);
+    BOOL complete = YES;
+    for (const char *const *name = e->targets; *name; name++) {
+        Class target = objc_getClass(*name);
+        if (!target) {
+            complete = NO;
+            continue;
+        }
+        wk_install_side(placeholder, target, e->intent);
+        wk_install_side(object_getClass(placeholder), object_getClass(target), e->intent);
+    }
+    return complete;
+}
+
+// Blocks with a target class that did not exist yet when their image was scanned — see wk_collect.
+// Pointers into the declaring image's __wk_methods, which is const data in an image that is never
+// unloaded (the sections live in WebCore's force-loaded polyfill objects), so they stay valid.
+// Guarded by wk_reg_lock and only ever touched from the image-load path. The cap bounds the number of
+// blocks in the build, not anything the running process controls.
+enum { WK_MAX_BLOCKS = 256 };
+static const struct wk_methods_entry *wk_deferred[WK_MAX_BLOCKS];
+static int wk_deferred_count;
+
+// Retries the blocks still waiting for a class; the list drains as the classes appear and is empty in
+// the common case, so an image load costs nothing extra once everything is installed. Caller holds
+// wk_reg_lock.
+static void wk_install_deferred(void)
+{
+    int keep = 0;
+    for (int i = 0; i < wk_deferred_count; i++)
+        if (!wk_install_entry(wk_deferred[i]))
+            wk_deferred[keep++] = wk_deferred[i];
+    wk_deferred_count = keep;
+}
+
+// Images whose blocks have been collected: the constructor scans the launch batch, and an image that
+// arrives later is scanned from wk_image_initializing.
+enum { WK_MAX_BLOCK_IMAGES = 8 };
+static const struct mach_header *wk_collected[WK_MAX_BLOCK_IMAGES];
+static int wk_collected_count;
+
+static void wk_patch(const struct mach_header *mh);
+static void wk_patch_loaded_images(void)
+{
+    uint32_t c = _dyld_image_count();
+    for (uint32_t i = 0; i < c; i++)
+        wk_patch(_dyld_get_image_header(i));
+}
+
+// Reads an image's blocks. Callable only once the ObjC runtime has that image's classes: at
+// constructor time for everything in the launch batch, and from wk_image_initializing for an image
+// that arrives later (inside the add-image callback the runtime cannot see the arriving image's
+// classes yet — see the note above wk_image_initializing — and a block is a class).
 static void wk_collect(const struct mach_header *mh)
 {
     unsigned long size = 0;
-    const struct wk_selmap_entry *e =
-        (const struct wk_selmap_entry *)getsectiondata((const struct mach_header_64 *)mh,
-                                                        "__DATA", "__wk_selmap", &size);
+    const struct wk_methods_entry *e =
+        (const struct wk_methods_entry *)getsectiondata((const struct mach_header_64 *)mh,
+                                                         "__DATA", "__wk_methods", &size);
     if (!e)
         return;
-    int n = (int)(size / sizeof(struct wk_selmap_entry));
+    int n = (int)(size / sizeof(struct wk_methods_entry));
     pthread_mutex_lock(&wk_reg_lock);
+    for (int i = 0; i < wk_collected_count; i++)
+        if (wk_collected[i] == mh) {
+            pthread_mutex_unlock(&wk_reg_lock);
+            return;
+        }
+    if (wk_collected_count >= WK_MAX_BLOCK_IMAGES)
+        wk_registry_full("images carry polyfill blocks", WK_MAX_BLOCK_IMAGES, "WK_MAX_BLOCK_IMAGES",
+                         e[0].placeholder);
+    wk_collected[wk_collected_count++] = mh;
+
     int before = wk_count;
     for (int i = 0; i < n; i++) {
-        SEL p = sel_registerName(e[i].pub);
-        int dup = 0;
-        for (int j = 0; j < wk_count; j++)   // plain reads: we are the only writer while holding the lock
-            if (wk_pub[j] == p) { dup = 1; break; }
-        if (dup)
-            continue;
-        if (wk_count >= WK_MAX_SEL)
-            wk_registry_full("distinct ObjC method polyfills (WK_POLYFILL_SEL) are registered",
-                             WK_MAX_SEL, "WK_MAX_SEL", e[i].pub);
-        int slot = wk_count;
-        wk_pub[slot] = p;
-        wk_pubname[slot] = e[i].pub; // stable string literal in the image's __wk_selmap owner
-        wk_priv[slot] = sel_registerName(e[i].priv);
-        wk_intent[slot] = e[i].intent;   // read by wk_alias_class, which runs below under this lock
-        // The entry's filter bits, before the entry is reachable (see the prefilter note).
-        WK_FILTER_SET(wk_name_filter, wk_name_hash(e[i].pub));
-        WK_FILTER_SET(wk_sel_filter, wk_sel_hash(p));
-        // Publishes the stores above to every reader that acquire-loads wk_count.
-        __atomic_store_n(&wk_count, slot + 1, __ATOMIC_RELEASE);
+        Class placeholder = wk_placeholder_class(&e[i]);
+        wk_register_side(placeholder, e[i].intent);
+        wk_register_side(object_getClass(placeholder), e[i].intent);
     }
-    // The selectors just registered have never been looked for in the classes already loaded. Classes
-    // from images that arrive later are covered by wk_image_initializing.
+    // Bodies first, then the alias sweep: the sweep's chain test (wk_alias_class) has to see a REPLACE
+    // body on its target before it looks at the target's subclasses.
+    for (int i = 0; i < n; i++) {
+        if (wk_install_entry(&e[i]))
+            continue;
+        if (wk_deferred_count >= WK_MAX_BLOCKS)
+            wk_registry_full("polyfill blocks are waiting for a class to load", WK_MAX_BLOCKS,
+                             "WK_MAX_BLOCKS", e[i].placeholder);
+        wk_deferred[wk_deferred_count++] = &e[i];
+    }
+    // The selectors just registered have never been looked for in the classes already loaded, nor
+    // rewritten in the WebKit images already patched. Classes from images that arrive later are covered
+    // by wk_image_initializing, their selrefs by wk_add_image.
     wk_alias_loaded_images(before, wk_count);
+    wk_patch_loaded_images();
     pthread_mutex_unlock(&wk_reg_lock);
 }
 
@@ -460,95 +656,9 @@ static void wk_patch(const struct mach_header *mh)
     }
 }
 
-// Entries whose named class did not exist yet when their image was scanned — see wk_install_added.
-// Pointers into the declaring image's __wk_addmap, which is const data in an image that is never
-// unloaded (the sections live in WebCore's force-loaded polyfill objects), so they stay valid.
-// Guarded by wk_reg_lock and only ever touched from the image-load path. The cap bounds the total number
-// of WK_POLYFILL_ADD declarations in the build (66 as of the DataDetectors additions — recount with
-// `grep -c "WK_POLYFILL_ADD" polyfills/*.m*` when raising), not anything the running process controls.
-enum { WK_MAX_ADD = 128 };
-static const struct wk_addmap_entry *wk_addmap_deferred[WK_MAX_ADD];
-static int wk_addmap_deferred_count;
-
-// YES once the entry's class exists — the method is now installed, or was already there.
-static BOOL wk_install_add_entry(const struct wk_addmap_entry *e)
-{
-    // A leading '+' on the class name means the entry is a CLASS method: install it on the metaclass,
-    // which is where the runtime looks when the receiver is the class object itself. Spelled this way so
-    // the entry stays a plain (name, sel, imp, types) record resolved by string at runtime, which is the
-    // whole reason WK_POLYFILL_ADD exists. The metaclass is reached through the class object
-    // (object_getClass), NOT objc_getMetaClass: 10.9's objc_getMetaClass prints
-    // "class `X' not linked into application" on every miss, and a deferred entry for a
-    // lazily-loaded framework's class polls this on every image event until the class arrives —
-    // hundreds of stderr lines per process launch. objc_getClass misses silently.
-    BOOL isClassMethod = e->cls[0] == '+';
-    Class base = objc_getClass(isClassMethod ? e->cls + 1 : e->cls);
-    Class c = (base && isClassMethod) ? object_getClass(base) : base;
-    if (!c)
-        return NO;
-    if (e->intent == WK_SELMAP_REPLACES) {
-        // Deliberate override: the class-correct aliasing has already run for the classes loaded so
-        // far, so the wk_ name may already be bound to 10.9's real method -- replace it. Idempotent
-        // too: installing the same IMP again changes nothing.
-        class_replaceMethod(c, sel_registerName(e->sel), (IMP)e->imp, e->types);
-        return YES;
-    }
-    // Idempotent: class_addMethod is a no-op (returns NO) if the wk_ method already exists.
-    class_addMethod(c, sel_registerName(e->sel), (IMP)e->imp, e->types);
-    return YES;
-}
-
-// Install the wk_ methods registered by WK_POLYFILL_ADD: add each C-function IMP to the runtime-resolved
-// class (no compile-time classref — safe for moved-framework classes). See the header.
-//
-// The class an entry names routinely belongs to a framework that loads LATER than the image declaring the
-// entry — that is the whole point of WK_POLYFILL_ADD, which exists for classes that moved frameworks
-// (NSURLSessionTask/__NSCFURLSessionTask arrive with CFNetwork/Foundation, long after WebCore). Installing
-// only the new image's entries therefore left those permanently unresolved: objc_getClass returned NULL
-// once and was never asked again, and the first send of the wk_ selector died with an unrecognised
-// selector (this is what crashed the NetworkProcess on every fresh network load). So each image load also
-// retries the entries still outstanding from EVERY image. The retry list drains as the classes appear and
-// is empty in the common case, so a dlopen costs nothing extra once everything is installed — never
-// O(images x entries).
-static void wk_install_added(const struct mach_header *mh)
-{
-    unsigned long size = 0;
-    const struct wk_addmap_entry *e =
-        (const struct wk_addmap_entry *)getsectiondata((const struct mach_header_64 *)mh,
-                                                       "__DATA", "__wk_addmap", &size);
-    int n = e ? (int)(size / sizeof(struct wk_addmap_entry)) : 0;
-
-    pthread_mutex_lock(&wk_reg_lock);
-    // Outstanding entries from earlier images: this image may be the framework they were waiting for.
-    int keep = 0;
-    for (int i = 0; i < wk_addmap_deferred_count; i++)
-        if (!wk_install_add_entry(wk_addmap_deferred[i]))
-            wk_addmap_deferred[keep++] = wk_addmap_deferred[i];
-    wk_addmap_deferred_count = keep;
-    // Then this image's own entries; whatever cannot be installed yet joins the retry list. Dedup by
-    // entry address: an image is scanned twice at startup (the constructor's loop, then the add-image
-    // registration firing for everything already loaded), and an entry may still be unsatisfied both times.
-    for (int i = 0; i < n; i++) {
-        if (wk_install_add_entry(&e[i]))
-            continue;
-        int dup = 0;
-        for (int j = 0; j < wk_addmap_deferred_count; j++)
-            if (wk_addmap_deferred[j] == &e[i]) { dup = 1; break; }
-        if (dup)
-            continue;
-        if (wk_addmap_deferred_count >= WK_MAX_ADD)
-            wk_registry_full("WK_POLYFILL_ADD methods are waiting for their class to load",
-                             WK_MAX_ADD, "WK_MAX_ADD", e[i].sel);
-        wk_addmap_deferred[wk_addmap_deferred_count++] = &e[i];
-    }
-    pthread_mutex_unlock(&wk_reg_lock);
-}
-
 static void wk_add_image(const struct mach_header *mh, intptr_t slide)
 {
     (void)slide;
-    wk_collect(mh);
-    wk_install_added(mh);
     wk_patch(mh);
 }
 
@@ -571,25 +681,19 @@ static const char *wk_image_initializing(uint32_t state, uint32_t count,
                                          const struct dyld_image_info *info)
 {
     (void)state;
+    // Blocks an arriving image carries (WebKit.framework's, when it is loaded after WebCore) are read
+    // here, the first point the runtime has the image's classes.
+    for (uint32_t i = 0; i < count; i++)
+        wk_collect(info[i].imageLoadAddress);
     pthread_mutex_lock(&wk_reg_lock);   // see the synchronisation note
-    // Deferred WK_POLYFILL_ADD entries must be retried HERE, not only from the add-image callback:
-    // a class named by an entry can arrive via dlopen (DDActionsManager arrives with soft-linked
-    // DataDetectors), and inside the add-image callback the runtime cannot see the arriving image's
-    // classes yet (the measurement above), so wk_install_added's retry from there resolves nothing
-    // for that image — and when the dlopen'ing call stack goes on to send the rewritten selector
-    // immediately (PAL soft-link then send, WebViewImpl.mm:3703), there is no later image load to
-    // rescue it and the send dies on the uninstalled wk_ method. This state is the first point the
-    // runtime has the classes, so the drain belongs here; order against the alias sweep below is
-    // immaterial, but not because either pass overrides the other (both use class_addMethod for a
-    // GAP_FILL, which no-ops once the wk_ name exists) — it is because a passing build keeps the two
-    // sweeps DISJOINT: the shadow gate forbids a gap-fill whose class owns the public selector, so no
-    // (class, selector) pair is ever touched by both, and a REPLACES entry installs by
-    // class_replaceMethod, which wins in either order by construction.
-    int keep = 0;
-    for (int i = 0; i < wk_addmap_deferred_count; i++)
-        if (!wk_install_add_entry(wk_addmap_deferred[i]))
-            wk_addmap_deferred[keep++] = wk_addmap_deferred[i];
-    wk_addmap_deferred_count = keep;
+    // Deferred blocks are retried HERE, not from the add-image callback: a class a block names can
+    // arrive via dlopen (DDActionsManager arrives with soft-linked DataDetectors), and inside the
+    // add-image callback the runtime cannot see the arriving image's classes yet (the measurement
+    // above) — and when the dlopen'ing call stack goes on to send the rewritten selector immediately
+    // (PAL soft-link then send, WebViewImpl.mm:3703), there is no later image load to rescue it and the
+    // send dies on the uninstalled wk_ method. The drain runs before the alias sweep so the sweep sees
+    // a REPLACE body on its target before it looks at the target's subclasses.
+    wk_install_deferred();
     for (uint32_t i = 0; i < count; i++)
         wk_alias_image(info[i].imageFilePath, info[i].imageLoadAddress, 0, wk_count);
     pthread_mutex_unlock(&wk_reg_lock);
@@ -643,28 +747,22 @@ __attribute__((constructor)) static void wk_selref_scope_init(void)
 
     uint64_t t0 = mach_absolute_time();
     uint32_t c = _dyld_image_count();
-    // Also aliases each newly registered selector across every image loaded so far, before any patching,
-    // so a rewritten selref that reaches a class this layer did not polyfill finds that class's own
-    // method instead of dying.
+    // Registers and installs every block, aliases each newly registered selector across every image
+    // loaded so far — before any patching, so a rewritten selref that reaches a class this layer did not
+    // polyfill finds that class's own method instead of dying — and then patches every WebKit image.
+    // The launch batch's classes are all known to the runtime by the time any initializer runs.
     for (uint32_t i = 0; i < c; i++)
         wk_collect(_dyld_get_image_header(i));
     uint64_t t1 = mach_absolute_time();
-    for (uint32_t i = 0; i < c; i++)
-        wk_install_added(_dyld_get_image_header(i));
-    uint64_t t2 = mach_absolute_time();
-    for (uint32_t i = 0; i < c; i++)
-        wk_patch(_dyld_get_image_header(i));
-    uint64_t t3 = mach_absolute_time();
-    // Also covers images dlopen'd later (fires immediately for already-loaded ones; collect dedups,
-    // install_added retries whatever is still waiting for its class, and patch is idempotent since a
-    // rewritten wk_ selref no longer matches any public selector).
+    // Patches images dlopen'd later (fires immediately for already-loaded ones; patch is idempotent
+    // since a rewritten wk_ selref no longer matches any public selector).
     _dyld_register_func_for_add_image(wk_add_image);
-    uint64_t t4 = mach_absolute_time();
+    uint64_t t2 = mach_absolute_time();
 
     if (getenv("WK_POLYFILL_REPORT"))
-        fprintf(stderr, "[wk_selref_scope] startup %.2f ms (%u images): collect+alias %.2f (%d sels, "
-                        "%ld classes, %ld methods), install %.2f, patch %.2f (%ld refs, %ld rewritten), "
+        fprintf(stderr, "[wk_selref_scope] startup %.2f ms (%u images): collect+install+alias+patch %.2f "
+                        "(%d sels, %d blocks deferred, %ld classes, %ld methods, %ld refs, %ld rewritten), "
                         "add-image refire %.2f\n",
-                wk_ms(t0, t4), c, wk_ms(t0, t1), wk_count, wk_stat_classes, wk_stat_methods,
-                wk_ms(t1, t2), wk_ms(t2, t3), wk_stat_refs, wk_stat_rewritten, wk_ms(t3, t4));
+                wk_ms(t0, t2), c, wk_ms(t0, t1), wk_count, wk_deferred_count, wk_stat_classes,
+                wk_stat_methods, wk_stat_refs, wk_stat_rewritten, wk_ms(t1, t2));
 }

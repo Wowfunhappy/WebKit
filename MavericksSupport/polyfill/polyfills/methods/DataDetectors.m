@@ -1,10 +1,9 @@
 // DataDetectors: Objective-C methods on DataDetectors classes that macOS 10.9 does not have. The class
-// is private and not linked, so the methods are installed by name with WK_POLYFILL_ADD.
+// is private and not linked, so the block names it by string.
 
 #import "wk_polyfill.h"
 #import "wk_selref_scope.h"
 #import <Foundation/Foundation.h>
-#import <objc/message.h>
 #import <objc/runtime.h>
 
 #pragma clang diagnostic push
@@ -14,7 +13,7 @@
 // DDActionsManager (DataDetectors.framework — the framework IS present on 10.9, so WebKit's
 // PAL::isDataDetectorsFrameworkAvailable() guards pass) grew its modern action-flow methods after 10.9;
 // each absent one is an unrecognized-selector throw when reached. The class is soft-linked and private,
-// so these install by name at runtime (WK_POLYFILL_ADD family).
+// so the block names it by string and installs when it loads.
 //
 // -requestBubbleClosureUnanchorOnFailure: is sent UNGUARDED from both view stacks' dismissal paths
 // (WebViewImpl::dismissContentRelativeChildWindowsFromViewOnly — fires on every main-frame commit in a
@@ -33,39 +32,33 @@
 // unguarded where they are sent. 10.9's classic flow had no use-notification and no should-use gate —
 // actions always proceeded — so the notification is a no-op and the gate answers YES.
 // -hasActionsForResult:actionContext: answers via the classic -actionsForResult:.
-static void wk_ddRequestBubbleClosureUnanchorOnFailure(id self, SEL _cmd, BOOL unanchorOnFailure)
+@interface DDActionsManager : NSObject
+- (void)requestBubbleClosure;
+- (void)unanchorBubbles;
+- (NSArray *)actionsForResult:(id)result;
+@end
+
+WK_POLYFILL_ADD_METHODS_ON(NSObject, "DDActionsManager")
+- (void)requestBubbleClosureUnanchorOnFailure:(BOOL)unanchorOnFailure
 {
-    (void)_cmd;
-    ((void (*)(id, SEL))objc_msgSend)(self, sel_registerName("requestBubbleClosure"));
+    DDActionsManager *manager = (DDActionsManager *)self;
+    [manager requestBubbleClosure];
     if (unanchorOnFailure)
-        ((void (*)(id, SEL))objc_msgSend)(self, sel_registerName("unanchorBubbles"));
+        [manager unanchorBubbles];
 }
-static void wk_ddDidUseActions(id self, SEL _cmd)
++ (void)didUseActions
 {
-    (void)self;
-    (void)_cmd;
 }
-static BOOL wk_ddShouldUseActionsWithContext(id self, SEL _cmd, id context)
++ (BOOL)shouldUseActionsWithContext:(id)context
 {
-    (void)self;
-    (void)_cmd;
     (void)context;
     return YES;
 }
-static BOOL wk_ddHasActionsForResultActionContext(id self, SEL _cmd, id result, id actionContext)
+- (BOOL)hasActionsForResult:(id)result actionContext:(id)actionContext
 {
-    (void)_cmd;
     (void)actionContext;
-    NSArray *actions = ((id (*)(id, SEL, id))objc_msgSend)(self, sel_registerName("actionsForResult:"), result);
-    return [actions count] > 0;
+    return [[(DDActionsManager *)self actionsForResult:result] count] > 0;
 }
-WK_POLYFILL_ADD("DDActionsManager", "wk_requestBubbleClosureUnanchorOnFailure:", wk_ddRequestBubbleClosureUnanchorOnFailure, "v@:c");
-WK_POLYFILL_SEL("requestBubbleClosureUnanchorOnFailure:", "wk_requestBubbleClosureUnanchorOnFailure:");
-WK_POLYFILL_ADD_CLASS_METHOD("DDActionsManager", "wk_didUseActions", wk_ddDidUseActions, "v@:");
-WK_POLYFILL_SEL("didUseActions", "wk_didUseActions");
-WK_POLYFILL_ADD_CLASS_METHOD("DDActionsManager", "wk_shouldUseActionsWithContext:", wk_ddShouldUseActionsWithContext, "c@:@");
-WK_POLYFILL_SEL("shouldUseActionsWithContext:", "wk_shouldUseActionsWithContext:");
-WK_POLYFILL_ADD("DDActionsManager", "wk_hasActionsForResult:actionContext:", wk_ddHasActionsForResultActionContext, "c@:@@");
-WK_POLYFILL_SEL("hasActionsForResult:actionContext:", "wk_hasActionsForResult:actionContext:");
+@end
 
 #pragma clang diagnostic pop

@@ -1,9 +1,10 @@
 // Foundation: Objective-C methods on Foundation classes (NSURL, NSURLSession and its CFNetwork-backed
 // cluster classes, cookies, archiving, ...) that macOS 10.9 does not have (or gets wrong), implemented
-// with the APIs 10.9 does have.//
-// To add one: implement the method as a category on the real system class under a `wk_`-prefixed name,
-// then register it with WK_POLYFILL_SEL("<name>", "wk_<name>"). WebKit's call sites keep saying
-// `[obj <name>]` and get the polyfill. That is the whole recipe.
+// with the APIs 10.9 does have.
+//
+// To add one: write the method under its real name inside a WK_POLYFILL_ADD_METHODS(Class) block (or
+// WK_POLYFILL_REPLACE_METHODS for a method 10.9 has); see wk_selref_scope.h. WebKit's call sites keep
+// saying `[obj <name>]` and get the polyfill.
 //
 // VALUES: prefer a SEMANTIC 10.9 equivalent (a real API that still exists and adapts) over a frozen
 // literal. A polyfill's contract is the system API's modern behavior, so it is correct at every caller.
@@ -41,30 +42,22 @@ extern CFHTTPCookieStorageRef _CFHTTPCookieStorageGetDefault(CFAllocatorRef);
 // -[NSError underlyingErrors] (10.14+) is the array-valued successor to the single NSUnderlyingErrorKey
 // that 10.9's NSError already carries, so return that one error when the userInfo has it and an empty
 // array otherwise — the same shape callers iterate, carrying the real underlying error 10.9 records.
-@interface NSError (WKPolyfillScope)
-- (NSArray<NSError *> *)wk_underlyingErrors;
-@end
-@implementation NSError (WKPolyfillScope)
-- (NSArray<NSError *> *)wk_underlyingErrors
+WK_POLYFILL_ADD_METHODS(NSError)
+- (NSArray<NSError *> *)underlyingErrors
 {
     NSError *underlying = [[self userInfo] objectForKey:NSUnderlyingErrorKey];
     return [underlying isKindOfClass:[NSError class]] ? @[underlying] : @[];
 }
 @end
-WK_POLYFILL_SEL("underlyingErrors", "wk_underlyingErrors");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSProcessInfo isLowPowerModeEnabled] (10.12+). Low Power Mode is a battery-saver state 10.9 has no
 // concept of, so the honest answer on this OS is not-enabled. NSProcessInfoPowerStateDidChangeNotification
 // (c/Foundation.m) is the paired notification; nothing on 10.9 posts it, so an observer of it simply never
 // fires.
-@interface NSProcessInfo (WKPolyfillScope)
-- (BOOL)wk_isLowPowerModeEnabled;
+WK_POLYFILL_ADD_METHODS(NSProcessInfo)
+- (BOOL)isLowPowerModeEnabled { return NO; }
 @end
-@implementation NSProcessInfo (WKPolyfillScope)
-- (BOOL)wk_isLowPowerModeEnabled { return NO; }
-@end
-WK_POLYFILL_SEL("isLowPowerModeEnabled", "wk_isLowPowerModeEnabled");
 
 // ---------------------------------------------------------------------------------------------------
 // Private NSHTTPCookieStorage / NSHTTPCookie cookie SPI (10.10+) that WebCore's NetworkStorageSession
@@ -460,15 +453,13 @@ static NSString *wk_sameSiteMarkerForPolicy(int policy)
     return [wkSameSiteMarkerPrefix stringByAppendingString:@"None"];
 }
 
-// -comment is REPLACED below to hide this layer's marker from callers, and a selref in this library is
-// rewritten like any other, so the marker is read through the real implementation.
+// -comment is REPLACED below to hide this layer's marker from callers, so the marker is read through the
+// implementation that body stands in for. @selector(comment) here is a selref of this library, rewritten
+// to the body's private selector like any other.
 static NSString *wk_rawCookieComment(NSHTTPCookie *cookie)
 {
-    SEL publicSelector = sel_registerName("comment");
-    SEL privateSelector = sel_registerName("wk_comment");
-    typedef NSString *(*Fn)(id, SEL);
-    Fn callReal = (Fn)wk_replaces_call_through_class(cookie, [NSHTTPCookie class], privateSelector, publicSelector);
-    return callReal(cookie, publicSelector);
+    struct wk_original original = wk_original_of(cookie, @selector(comment));
+    return ((NSString *(*)(id, SEL))original.imp)(cookie, original.sel);
 }
 
 static int wk_sameSitePolicyOfCookie(NSHTTPCookie *cookie)
@@ -686,16 +677,8 @@ static BOOL wk_sameSiteAllows(int policy, BOOL isSameSite, BOOL isTopLevelNaviga
     return isTopLevelNavigation && isSafeMethod;
 }
 
-@interface NSHTTPCookieStorage (WKPolyfillScope)
-- (void)wk__getCookiesForURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL partition:(NSString *)partition policyProperties:(NSDictionary *)policyProperties completionHandler:(void (^)(NSArray<NSHTTPCookie *> *))completionHandler;
-- (void)wk__setCookies:(NSArray<NSHTTPCookie *> *)cookies forURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL policyProperties:(NSDictionary *)policyProperties;
-- (NSArray<NSHTTPCookie *> *)wk__getCookiesForDomain:(NSString *)domain;
-- (void)wk__setCookiesChangedHandler:(void (^)(NSArray<NSHTTPCookie *> *addedCookies, NSString *domainForChangedCookie))handler onQueue:(dispatch_queue_t)queue;
-- (void)wk__setCookiesRemovedHandler:(void (^)(NSArray<NSHTTPCookie *> *removedCookies, NSString *domainForRemovedCookies, BOOL removeAllCookies))handler onQueue:(dispatch_queue_t)queue;
-- (void)wk__setSubscribedDomainsForCookieChanges:(NSSet<NSString *> *)domains;
-@end
-@implementation NSHTTPCookieStorage (WKPolyfillScope)
-- (void)wk__getCookiesForURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL partition:(NSString *)partition policyProperties:(NSDictionary *)policyProperties completionHandler:(void (^)(NSArray<NSHTTPCookie *> *))completionHandler
+WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
+- (void)_getCookiesForURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL partition:(NSString *)partition policyProperties:(NSDictionary *)policyProperties completionHandler:(void (^)(NSArray<NSHTTPCookie *> *))completionHandler
 {
     (void)mainDocumentURL; (void)partition;
     NSArray<NSHTTPCookie *> *cookies = [self cookiesForURL:url];
@@ -717,7 +700,7 @@ static BOOL wk_sameSiteAllows(int policy, BOOL isSameSite, BOOL isTopLevelNaviga
     }
     completionHandler(cookies);
 }
-- (void)wk__setCookies:(NSArray<NSHTTPCookie *> *)cookies forURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL policyProperties:(NSDictionary *)policyProperties
+- (void)_setCookies:(NSArray<NSHTTPCookie *> *)cookies forURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL policyProperties:(NSDictionary *)policyProperties
 {
     (void)policyProperties;
     // Every script-written cookie reaches the store through here, whether it was parsed from a
@@ -729,7 +712,7 @@ static BOOL wk_sameSiteAllows(int policy, BOOL isSameSite, BOOL isTopLevelNaviga
     }
     [self setCookies:usable forURL:url mainDocumentURL:mainDocumentURL];
 }
-- (NSArray<NSHTTPCookie *> *)wk__getCookiesForDomain:(NSString *)domain
+- (NSArray<NSHTTPCookie *> *)_getCookiesForDomain:(NSString *)domain
 {
     NSMutableArray<NSHTTPCookie *> *result = [NSMutableArray array];
     for (NSHTTPCookie *cookie in [self cookies]) {
@@ -738,31 +721,25 @@ static BOOL wk_sameSiteAllows(int policy, BOOL isSameSite, BOOL isTopLevelNaviga
     }
     return result;
 }
-- (void)wk__setCookiesChangedHandler:(void (^)(NSArray<NSHTTPCookie *> *, NSString *))handler onQueue:(dispatch_queue_t)queue
+- (void)_setCookiesChangedHandler:(void (^)(NSArray<NSHTTPCookie *> *, NSString *))handler onQueue:(dispatch_queue_t)queue
 {
     pthread_mutex_lock(&wk_cookieWatcherLock);
     [wk_cookieWatcherForStorage(self, handler != nil) setChangedHandler:handler queue:queue];
     pthread_mutex_unlock(&wk_cookieWatcherLock);
 }
-- (void)wk__setCookiesRemovedHandler:(void (^)(NSArray<NSHTTPCookie *> *, NSString *, BOOL))handler onQueue:(dispatch_queue_t)queue
+- (void)_setCookiesRemovedHandler:(void (^)(NSArray<NSHTTPCookie *> *, NSString *, BOOL))handler onQueue:(dispatch_queue_t)queue
 {
     pthread_mutex_lock(&wk_cookieWatcherLock);
     [wk_cookieWatcherForStorage(self, handler != nil) setRemovedHandler:handler queue:queue];
     pthread_mutex_unlock(&wk_cookieWatcherLock);
 }
-- (void)wk__setSubscribedDomainsForCookieChanges:(NSSet<NSString *> *)domains
+- (void)_setSubscribedDomainsForCookieChanges:(NSSet<NSString *> *)domains
 {
     pthread_mutex_lock(&wk_cookieWatcherLock);
     [wk_cookieWatcherForStorage(self, [domains count] > 0) setSubscribedHosts:domains ?: [NSSet set]];
     pthread_mutex_unlock(&wk_cookieWatcherLock);
 }
 @end
-WK_POLYFILL_SEL("_getCookiesForURL:mainDocumentURL:partition:policyProperties:completionHandler:", "wk__getCookiesForURL:mainDocumentURL:partition:policyProperties:completionHandler:");
-WK_POLYFILL_SEL("_setCookies:forURL:mainDocumentURL:policyProperties:", "wk__setCookies:forURL:mainDocumentURL:policyProperties:");
-WK_POLYFILL_SEL("_getCookiesForDomain:", "wk__getCookiesForDomain:");
-WK_POLYFILL_SEL("_setCookiesChangedHandler:onQueue:", "wk__setCookiesChangedHandler:onQueue:");
-WK_POLYFILL_SEL("_setCookiesRemovedHandler:onQueue:", "wk__setCookiesRemovedHandler:onQueue:");
-WK_POLYFILL_SEL("_setSubscribedDomainsForCookieChanges:", "wk__setSubscribedDomainsForCookieChanges:");
 
 // -[NSHTTPCookie _storagePartition] is the per-cookie partition key; 10.9 stores everything
 // unpartitioned, so nil (the "no partition" value the callers already treat as the default) is honest.
@@ -773,16 +750,6 @@ WK_POLYFILL_SEL("_setSubscribedDomainsForCookieChanges:", "wk__setSubscribedDoma
 // attribute while reading Set-Cookie — it reaches neither -properties nor the jar — so nil
 // ("None"/unspecified, which coreSameSitePolicy maps to SameSitePolicy::None) is the only value the
 // cookie carries here.
-@interface NSHTTPCookie (WKPolyfillScope)
-- (NSString *)wk_sameSitePolicy;
-- (NSString *)wk_comment;
-- (NSDictionary *)wk_properties;
-- (NSString *)wk__storagePartition;
-+ (NSHTTPCookie *)wk__cookieForSetCookieString:(NSString *)setCookieString forURL:(NSURL *)url partition:(NSString *)partition;
-+ (id)wk_cookieWithProperties:(NSDictionary *)properties;
-- (id)wk_initWithProperties:(NSDictionary *)properties;
-@end
-
 // A cookie built from a property dictionary carries SameSite under one of two keys: CookieCocoa.mm
 // writes the literal "SameSite", NetworkStorageSessionCocoa.mm writes NSHTTPCookieSameSitePolicy. The
 // marker is translated in before construction, so it comes from the caller's own inputs and the
@@ -807,8 +774,8 @@ static NSDictionary *wk_propertiesCarryingSameSiteMarker(NSDictionary *propertie
         translated[NSHTTPCookieComment] = wk_sameSiteMarkerForPolicy(value);
     return translated;
 }
-@implementation NSHTTPCookie (WKPolyfillScope)
-- (NSString *)wk_sameSitePolicy
+WK_POLYFILL_ADD_METHODS(NSHTTPCookie)
+- (NSString *)sameSitePolicy
 {
     int policy = wk_sameSitePolicyOfCookie(self);
     if (policy == WKSameSiteStrict)
@@ -817,43 +784,8 @@ static NSDictionary *wk_propertiesCarryingSameSiteMarker(NSDictionary *propertie
         return @"lax";
     return nil;
 }
-// The marker is this layer's own state, not the cookie's Comment. It is kept out of every reader so a
-// caller -- including NetworkStorageSessionCocoa's setAllCookiesToSameSiteStrict, which copies
-// -properties wholesale -- never sees it or copies it onward.
-- (NSString *)wk_comment
-{
-    NSString *comment = wk_rawCookieComment(self);
-    return [comment hasPrefix:wkSameSiteMarkerPrefix] ? nil : comment;
-}
-- (NSDictionary *)wk_properties
-{
-    SEL publicSelector = sel_registerName("properties");
-    typedef NSDictionary *(*Fn)(id, SEL);
-    Fn callReal = (Fn)wk_replaces_call_through_class(self, [NSHTTPCookie class], _cmd, publicSelector);
-    NSDictionary *properties = callReal(self, publicSelector);
-    NSString *comment = properties[NSHTTPCookieComment];
-    if (![comment hasPrefix:wkSameSiteMarkerPrefix])
-        return properties;
-    NSMutableDictionary *stripped = [[properties mutableCopy] autorelease];
-    [stripped removeObjectForKey:NSHTTPCookieComment];
-    return stripped;
-}
-- (NSString *)wk__storagePartition { return nil; }
-+ (id)wk_cookieWithProperties:(NSDictionary *)properties
-{
-    SEL publicSelector = sel_registerName("cookieWithProperties:");
-    typedef id (*Fn)(id, SEL, NSDictionary *);
-    Fn callReal = (Fn)wk_replaces_call_through_class(self, object_getClass([NSHTTPCookie class]), _cmd, publicSelector);
-    return callReal(self, publicSelector, wk_propertiesCarryingSameSiteMarker(properties));
-}
-- (id)wk_initWithProperties:(NSDictionary *)properties
-{
-    SEL publicSelector = sel_registerName("initWithProperties:");
-    typedef id (*Fn)(id, SEL, NSDictionary *);
-    Fn callReal = (Fn)wk_replaces_call_through_class(self, [NSHTTPCookie class], _cmd, publicSelector);
-    return callReal(self, publicSelector, wk_propertiesCarryingSameSiteMarker(properties));
-}
-+ (NSHTTPCookie *)wk__cookieForSetCookieString:(NSString *)setCookieString forURL:(NSURL *)url partition:(NSString *)partition
+- (NSString *)_storagePartition { return nil; }
++ (NSHTTPCookie *)_cookieForSetCookieString:(NSString *)setCookieString forURL:(NSURL *)url partition:(NSString *)partition
 {
     (void)partition;
     if (!setCookieString.length || !url)
@@ -869,13 +801,35 @@ static NSDictionary *wk_propertiesCarryingSameSiteMarker(NSDictionary *propertie
     return wk_cookieWithUsableDomain(cookie, url);
 }
 @end
-WK_POLYFILL_SEL("sameSitePolicy", "wk_sameSitePolicy");
-WK_POLYFILL_SEL_REPLACES("comment", "wk_comment");
-WK_POLYFILL_SEL_REPLACES("cookieWithProperties:", "wk_cookieWithProperties:");
-WK_POLYFILL_SEL_REPLACES("initWithProperties:", "wk_initWithProperties:");
-WK_POLYFILL_SEL_REPLACES("properties", "wk_properties");
-WK_POLYFILL_SEL("_storagePartition", "wk__storagePartition");
-WK_POLYFILL_SEL("_cookieForSetCookieString:forURL:partition:", "wk__cookieForSetCookieString:forURL:partition:");
+
+// The marker is this layer's own state, not the cookie's Comment. It is kept out of every reader so a
+// caller -- including NetworkStorageSessionCocoa's setAllCookiesToSameSiteStrict, which copies
+// -properties wholesale -- never sees it or copies it onward.
+WK_POLYFILL_REPLACE_METHODS(NSHTTPCookie)
+- (NSString *)comment
+{
+    NSString *comment = wk_rawCookieComment(self);
+    return [comment hasPrefix:wkSameSiteMarkerPrefix] ? nil : comment;
+}
+- (NSDictionary<NSHTTPCookiePropertyKey, id> *)properties
+{
+    NSDictionary *properties = WK_ORIGINAL_METHOD(NSDictionary *, ());
+    NSString *comment = properties[NSHTTPCookieComment];
+    if (![comment hasPrefix:wkSameSiteMarkerPrefix])
+        return properties;
+    NSMutableDictionary *stripped = [[properties mutableCopy] autorelease];
+    [stripped removeObjectForKey:NSHTTPCookieComment];
+    return stripped;
+}
++ (NSHTTPCookie *)cookieWithProperties:(NSDictionary<NSHTTPCookiePropertyKey, id> *)properties
+{
+    return WK_ORIGINAL_METHOD(id, (NSDictionary *), wk_propertiesCarryingSameSiteMarker(properties));
+}
+- (instancetype)initWithProperties:(NSDictionary<NSHTTPCookiePropertyKey, id> *)properties
+{
+    return WK_ORIGINAL_METHOD(id, (NSDictionary *), wk_propertiesCarryingSameSiteMarker(properties));
+}
+@end
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSURLConnection _timingData] is a newer CFNetwork/Foundation SPI absent on 10.9 (verified: 10.9's
@@ -888,13 +842,9 @@ WK_POLYFILL_SEL("_cookieForSetCookieString:forURL:partition:", "wk__cookieForSet
 // answer: every _kCFNTimingData* key then resolves to nil and the metrics stay empty (best-effort, the
 // same result the classic 10.9 loader gave). Polyfilling it keeps both WebCore call sites byte-identical
 // to upstream.
-@interface NSURLConnection (WKPolyfillScope)
-- (NSDictionary *)wk__timingData;
+WK_POLYFILL_ADD_METHODS(NSURLConnection)
+- (NSDictionary *)_timingData { return nil; }
 @end
-@implementation NSURLConnection (WKPolyfillScope)
-- (NSDictionary *)wk__timingData { return nil; }
-@end
-WK_POLYFILL_SEL("_timingData", "wk__timingData");
 
 // ---------------------------------------------------------------------------------------------------
 // NSURL -_lp_simplifiedDisplayString (LinkPresentation, 10.15+). LinkPresentation is absent on 10.9, so
@@ -906,57 +856,49 @@ WK_POLYFILL_SEL("_timingData", "wk__timingData");
 // the same ones the modern method takes. Per the modern contract, a URL that is not an alias file
 // (NSURLIsAliasFileKey, which also covers symlinks) comes back unchanged, and symlinks — which carry no
 // bookmark data — resolve to their destination.
-@interface NSURL (WKPolyfillScope)
-- (NSString *)wk__lp_simplifiedDisplayString;
-+ (NSURL *)wk_URLByResolvingAliasFileAtURL:(NSURL *)url options:(NSURLBookmarkResolutionOptions)options error:(NSError **)error;
-- (instancetype)wk_initWithString:(NSString *)string;
-+ (instancetype)wk_URLWithString:(NSString *)string;
-@end
-@implementation NSURL (WKPolyfillScope)
-- (NSString *)wk__lp_simplifiedDisplayString
+WK_POLYFILL_ADD_METHODS(NSURL)
+- (NSString *)_lp_simplifiedDisplayString
 {
     NSString *host = [self host];
     return host.length ? host : [self absoluteString];
 }
-+ (NSURL *)wk_URLByResolvingAliasFileAtURL:(NSURL *)url options:(NSURLBookmarkResolutionOptions)options error:(NSError **)error
++ (instancetype)URLByResolvingAliasFileAtURL:(NSURL *)url options:(NSURLBookmarkResolutionOptions)options error:(NSError **)error
 {
     NSNumber *isAlias = nil;
     [url getResourceValue:&isAlias forKey:NSURLIsAliasFileKey error:NULL];
     if (![isAlias boolValue])
-        return url;
+        return (id)url;
     NSError *bookmarkError = nil;
     NSData *bookmarkData = [NSURL bookmarkDataWithContentsOfURL:url error:&bookmarkError];
     if (!bookmarkData) {
         NSNumber *isSymlink = nil;
         if ([url getResourceValue:&isSymlink forKey:NSURLIsSymbolicLinkKey error:NULL] && [isSymlink boolValue])
-            return [url URLByResolvingSymlinksInPath];
+            return (id)[url URLByResolvingSymlinksInPath];
         if (error)
             *error = bookmarkError;
         return nil;
     }
     BOOL stale = NO;
-    return [NSURL URLByResolvingBookmarkData:bookmarkData options:options relativeToURL:nil bookmarkDataIsStale:&stale error:error];
+    return (id)[NSURL URLByResolvingBookmarkData:bookmarkData options:options relativeToURL:nil bookmarkDataIsStale:&stale error:error];
 }
+@end
+
+WK_POLYFILL_REPLACE_METHODS(NSURL)
 // -getResourceValue:forKey:error: exists on 10.9 but does not know the modern NSURLContentTypeKey
 // (11.0+, answered with a UTType). REPLACE it for WebKit's callers: that one key is answered from the
 // classic NSURLTypeIdentifierKey wrapped in the UTType polyfill class; every other key forwards to
-// 10.9's implementation (reached through a runtime-built selector, which the selref rewrite cannot
-// touch, so this cannot recurse into itself).
-- (BOOL)wk_getResourceValue:(id *)value forKey:(NSString *)key error:(NSError **)error
+// 10.9's implementation through WK_ORIGINAL_METHOD, so this cannot recurse into itself.
+- (BOOL)getResourceValue:(id *)value forKey:(NSURLResourceKey)key error:(NSError **)error
 {
-    typedef BOOL (*WKGetResourceValueFn)(id, SEL, id *, NSString *, NSError **);
-    SEL originalSelector = sel_registerName("getResourceValue:forKey:error:");
-    WKGetResourceValueFn original =
-        (WKGetResourceValueFn)wk_replaces_call_through_class(self, [NSURL class], _cmd, originalSelector);
     if ([key isEqualToString:NSURLContentTypeKey]) {
         NSString *typeIdentifier = nil;
-        if (!original(self, originalSelector, (id *)&typeIdentifier, NSURLTypeIdentifierKey, error))
+        if (!WK_ORIGINAL_METHOD(BOOL, (id *, NSString *, NSError **), (id *)&typeIdentifier, NSURLTypeIdentifierKey, error))
             return NO;
         if (value)
             *value = typeIdentifier ? [UTType typeWithIdentifier:typeIdentifier] : nil;
         return YES;
     }
-    return original(self, originalSelector, value, key, error);
+    return WK_ORIGINAL_METHOD(BOOL, (id *, NSString *, NSError **), value, key, error);
 }
 // -setResourceValue:forKey:error: exists on 10.9 but does not know NSURLQuarantinePropertiesKey
 // (10.10+), the key that writes a file's LaunchServices quarantine dictionary. REPLACE it for WebKit's
@@ -964,18 +906,13 @@ WK_POLYFILL_SEL("_timingData", "wk__timingData");
 // mechanism the modern key is implemented over -- WKShareSheet.mm's own comment names LSSetItemAttribute
 // as the call writing this key ends up making, and notes that it resets the quarantine flags, which is
 // why WKShareSheet re-applies them with qtn_file_set_flags immediately afterwards. Every other key
-// forwards to 10.9's implementation (reached through a runtime-built selector, which the selref rewrite
-// cannot touch, so this cannot recurse into itself).
+// forwards to 10.9's implementation through WK_ORIGINAL_METHOD, so this cannot recurse into itself.
 //
 // Letting the unknown key fall through to 10.9 would not be a smaller divergence, it would be a silent
 // one: WKShareSheet treats a failed quarantine write as "do not share this file", so an unrouted key
 // turns every file share into a no-op.
-- (BOOL)wk_setResourceValue:(id)value forKey:(NSString *)key error:(NSError **)error
+- (BOOL)setResourceValue:(id)value forKey:(NSURLResourceKey)key error:(NSError **)error
 {
-    typedef BOOL (*WKSetResourceValueFn)(id, SEL, id, NSString *, NSError **);
-    SEL originalSelector = sel_registerName("setResourceValue:forKey:error:");
-    WKSetResourceValueFn original =
-        (WKSetResourceValueFn)wk_replaces_call_through_class(self, [NSURL class], _cmd, originalSelector);
     if ([key isEqualToString:NSURLQuarantinePropertiesKey]) {
         if (![self isFileURL]) {
             if (error)
@@ -1003,15 +940,15 @@ WK_POLYFILL_SEL("_timingData", "wk__timingData");
         }
         return YES;
     }
-    return original(self, originalSelector, value, key, error);
+    return WK_ORIGINAL_METHOD(BOOL, (id, NSString *, NSError **), value, key, error);
 }
 // -[NSURL initWithString:] and +[NSURL URLWithString:] throw NSInvalidArgumentException on a nil string
 // on 10.9 (modern Foundation returns nil). REPLACE both for WebKit's callers with the modern contract:
-// nil in -> nil out; any non-nil string forwards to 10.9's real implementation, reached through a
-// runtime-built selector the selref rewrite cannot touch (so this cannot recurse into itself). The init
-// consumes its already-alloc'd receiver on the nil path to keep the alloc/init ownership contract (this
-// file is MRR). +URLWithString: is not an init-family selector, so it just returns nil/the autoreleased URL.
-- (instancetype)wk_initWithString:(NSString *)string
+// nil in -> nil out; any non-nil string forwards to 10.9's real implementation through
+// WK_ORIGINAL_METHOD (so this cannot recurse into itself). The init consumes its already-alloc'd
+// receiver on the nil path to keep the alloc/init ownership contract (this file is MRR).
+// +URLWithString: is not an init-family selector, so it just returns nil/the autoreleased URL.
+- (instancetype)initWithString:(NSString *)string
 {
     if (!string) {
         [self release];
@@ -1027,7 +964,6 @@ WK_POLYFILL_SEL("_timingData", "wk__timingData");
     // so the relative form is 10.9's way to spell what the modern initializer means, and it is applied
     // only where 10.9 would otherwise hand back nil. Decided BEFORE calling the real initializer, never
     // after: a failed init has already released the receiver, so a second init on it is a use-after-free.
-    SEL initSelector = sel_registerName("initWithString:");
     if (![string length] && ![self isMemberOfClass:[NSURL class]]) {
         // -initWithString:relativeToURL: and +URLWithString: on NSURL itself are ordinary sends: the
         // former is not polyfilled at all, and the latter names an explicit class rather than a
@@ -1039,29 +975,15 @@ WK_POLYFILL_SEL("_timingData", "wk__timingData");
         NSURL *emptyBase = urlWithString([NSURL class], sel_registerName("URLWithString:"), @"");
         return originalRelative(self, sel_registerName("initWithString:relativeToURL:"), string, emptyBase);
     }
-    typedef id (*WKURLInitFn)(id, SEL, NSString *);
-    WKURLInitFn original =
-        (WKURLInitFn)wk_replaces_call_through_class(self, [NSURL class], _cmd, initSelector);
-    return original(self, initSelector, string);
+    return WK_ORIGINAL_METHOD(id, (NSString *), string);
 }
-+ (instancetype)wk_URLWithString:(NSString *)string
++ (instancetype)URLWithString:(NSString *)string
 {
     if (!string)
         return nil;
-    typedef id (*WKURLWithStringFn)(id, SEL, NSString *);
-    SEL publicSelector = sel_registerName("URLWithString:");
-    // A `+` body lives on the METAclass, which is where a send to the class object looks it up.
-    WKURLWithStringFn original = (WKURLWithStringFn)wk_replaces_call_through_class(self,
-        object_getClass([NSURL class]), _cmd, publicSelector);
-    return original(self, publicSelector, string);
+    return WK_ORIGINAL_METHOD(id, (NSString *), string);
 }
 @end
-WK_POLYFILL_SEL("_lp_simplifiedDisplayString", "wk__lp_simplifiedDisplayString");
-WK_POLYFILL_SEL("URLByResolvingAliasFileAtURL:options:error:", "wk_URLByResolvingAliasFileAtURL:options:error:");
-WK_POLYFILL_SEL_REPLACES("getResourceValue:forKey:error:", "wk_getResourceValue:forKey:error:");
-WK_POLYFILL_SEL_REPLACES("setResourceValue:forKey:error:", "wk_setResourceValue:forKey:error:");
-WK_POLYFILL_SEL_REPLACES("initWithString:", "wk_initWithString:");
-WK_POLYFILL_SEL_REPLACES("URLWithString:", "wk_URLWithString:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSAttributedString _htmlDocumentFragmentString:documentAttributes:subresources:] (returns interchange
@@ -1076,11 +998,8 @@ WK_POLYFILL_SEL_REPLACES("URLWithString:", "wk_URLWithString:");
 // the result is fragment markup rather than a full document. Subresources (embedded images) are not
 // collected by the public path — return an empty array; inline text formatting (bold/italic/color/underline/
 // lists/links) is preserved, which is the overwhelming majority of native-app rich paste.
-@interface NSAttributedString (WKPolyfillScope)
-- (NSString *)wk__htmlDocumentFragmentString:(NSRange)range documentAttributes:(NSDictionary *)dict subresources:(NSArray **)subresources;
-@end
-@implementation NSAttributedString (WKPolyfillScope)
-- (NSString *)wk__htmlDocumentFragmentString:(NSRange)range documentAttributes:(NSDictionary *)dict subresources:(NSArray **)subresources
+WK_POLYFILL_ADD_METHODS(NSAttributedString)
+- (NSString *)_htmlDocumentFragmentString:(NSRange)range documentAttributes:(NSDictionary *)dict subresources:(NSArray **)subresources
 {
     if (subresources)
         *subresources = @[];
@@ -1097,40 +1016,28 @@ WK_POLYFILL_SEL_REPLACES("URLWithString:", "wk_URLWithString:");
     return [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease];
 }
 @end
-WK_POLYFILL_SEL("_htmlDocumentFragmentString:documentAttributes:subresources:", "wk__htmlDocumentFragmentString:documentAttributes:subresources:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSString containsString:] (10.10+) via the classic -rangeOfString:.
-@interface NSString (WKPolyfillScope)
-- (BOOL)wk_containsString:(NSString *)str;
+WK_POLYFILL_ADD_METHODS(NSString)
+- (BOOL)containsString:(NSString *)str { return [self rangeOfString:str].location != NSNotFound; }
 @end
-@implementation NSString (WKPolyfillScope)
-- (BOOL)wk_containsString:(NSString *)str { return [self rangeOfString:str].location != NSNotFound; }
-@end
-WK_POLYFILL_SEL("containsString:", "wk_containsString:");
 
 // ---------------------------------------------------------------------------------------------------
 // +[NSURLSession _disableAppSSO] (10.13) is a side-effect-only SPI with no 10.9 equivalent -- 10.9 has
 // no App-SSO -- so it is a faithful no-op.
 
-@interface NSURLSession (WKPolyfillScope)
-+ (void)wk__disableAppSSO;
+WK_POLYFILL_ADD_METHODS(NSURLSession)
++ (void)_disableAppSSO { }
 @end
-@implementation NSURLSession (WKPolyfillScope)
-+ (void)wk__disableAppSSO { }
-@end
-WK_POLYFILL_SEL("_disableAppSSO", "wk__disableAppSSO");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSString stringByApplyingTransform:reverse:] (10.11+) via CFStringTransform (10.4+), which accepts
 // the same ICU transform IDs (e.g. @"Hans-Hant"). Returns the transformed string, or nil if the
 // transform fails — matching the modern method's contract. (Verified CFStringTransform(@"Hans-Hant")
 // works on 10.9.)
-@interface NSString (WKPolyfillScopeTransform)
-- (NSString *)wk_stringByApplyingTransform:(NSString *)transform reverse:(BOOL)reverse;
-@end
-@implementation NSString (WKPolyfillScopeTransform)
-- (NSString *)wk_stringByApplyingTransform:(NSString *)transform reverse:(BOOL)reverse
+WK_POLYFILL_ADD_METHODS(NSString)
+- (NSString *)stringByApplyingTransform:(NSStringTransform)transform reverse:(BOOL)reverse
 {
     NSMutableString *result = [[self mutableCopy] autorelease];
     CFRange range = CFRangeMake(0, result.length);
@@ -1139,39 +1046,30 @@ WK_POLYFILL_SEL("_disableAppSSO", "wk__disableAppSSO");
     return nil;
 }
 @end
-WK_POLYFILL_SEL("stringByApplyingTransform:reverse:", "wk_stringByApplyingTransform:reverse:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSRunLoop performBlock:] (10.13+) via CFRunLoopPerformBlock (10.6+): enqueue the block to run on the
 // next iteration of this run loop in the common modes, then wake the loop so it fires promptly. This is
 // exactly what the modern method does, and (like it) is safe to call from another thread — WebKit uses it
 // from async completion handlers (spell-check results, XPC teardown) to hop back onto a run loop.
-@interface NSRunLoop (WKPolyfillScope)
-- (void)wk_performBlock:(void (^)(void))block;
-@end
-@implementation NSRunLoop (WKPolyfillScope)
-- (void)wk_performBlock:(void (^)(void))block
+WK_POLYFILL_ADD_METHODS(NSRunLoop)
+- (void)performBlock:(void (^)(void))block
 {
     CFRunLoopRef runLoop = [self getCFRunLoop];
     CFRunLoopPerformBlock(runLoop, kCFRunLoopCommonModes, block);
     CFRunLoopWakeUp(runLoop);
 }
 @end
-WK_POLYFILL_SEL("performBlock:", "wk_performBlock:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSOperationQueue underlyingQueue] (10.10+): the main operation queue is backed by the main dispatch
 // queue on 10.9; any other queue has no underlying dispatch queue (nil) — the honest 10.9 answer.
-@interface NSOperationQueue (WKPolyfillScope)
-- (dispatch_queue_t)wk_underlyingQueue;
-@end
-@implementation NSOperationQueue (WKPolyfillScope)
-- (dispatch_queue_t)wk_underlyingQueue
+WK_POLYFILL_ADD_METHODS(NSOperationQueue)
+- (dispatch_queue_t)underlyingQueue
 {
     return self == [NSOperationQueue mainQueue] ? dispatch_get_main_queue() : nil;
 }
 @end
-WK_POLYFILL_SEL("underlyingQueue", "wk_underlyingQueue");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSHTTPCookieStorage _saveCookies:] (block variant, ~10.13+): 10.9 has the argument-less -_saveCookies,
@@ -1180,18 +1078,14 @@ WK_POLYFILL_SEL("underlyingQueue", "wk_underlyingQueue");
 @interface NSHTTPCookieStorage (WKPolyfill10_9SPI)
 - (void)_saveCookies;   // 10.9 argument-less private SPI (do not polyfill it: this body calls it)
 @end
-@interface NSHTTPCookieStorage (WKPolyfillScopeSaveCookies)
-- (void)wk__saveCookies:(dispatch_block_t)completionHandler;
-@end
-@implementation NSHTTPCookieStorage (WKPolyfillScopeSaveCookies)
-- (void)wk__saveCookies:(dispatch_block_t)completionHandler
+WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
+- (void)_saveCookies:(dispatch_block_t)completionHandler
 {
     [self _saveCookies];
     if (completionHandler)
         completionHandler();
 }
 @end
-WK_POLYFILL_SEL("_saveCookies:", "wk__saveCookies:");
 
 // ---------------------------------------------------------------------------------------------------
 // Secure-coding archiver convenience API (10.11+/10.13+) built on the classic secure-coding primitives
@@ -1202,39 +1096,7 @@ WK_POLYFILL_SEL("_saveCookies:", "wk__saveCookies:");
 // converts the classic exception into the nil+error the caller expects (it is not a blanket swallow: the
 // callers explicitly branch on nil/error). -[NSKeyedUnarchiver initForReadingWithData:] and
 // -[NSKeyedArchiver initForWritingWithMutableData:] are deprecated (hence the -Wdeprecated push above).
-@interface NSKeyedUnarchiver (WKPolyfillScope)
-- (instancetype)wk_initForReadingFromData:(NSData *)data error:(NSError **)error;
-- (void)wk_setDecodingFailurePolicy:(NSInteger)policy;
-+ (id)wk_unarchivedObjectOfClass:(Class)cls fromData:(NSData *)data error:(NSError **)error;
-+ (id)wk_unarchivedObjectOfClasses:(NSSet *)classes fromData:(NSData *)data error:(NSError **)error;
-@end
-@implementation NSKeyedUnarchiver (WKPolyfillScope)
-- (instancetype)wk_initForReadingFromData:(NSData *)data error:(NSError **)error
-{
-    if (error)
-        *error = nil;
-    @try {
-        self = [self initForReadingWithData:data];
-        [self setRequiresSecureCoding:YES];   // initForReadingFromData:error: defaults to secure — never downgrade
-    } @catch (NSException *exception) {
-        // Modern initForReadingFromData:error: is NON-throwing (returns nil + *error). The classic
-        // initForReadingWithData: RAISES "incomprehensible archive" on malformed/truncated input, so it must
-        // be inside the @try or an untrusted-IPC/.webarchive decode would crash instead of failing cleanly.
-        // (self was consumed by the throwing initializer; releasing a half-initialized archiver is unsafe, so
-        // return nil directly — the rare-error-path leak of the alloc'd shell is preferable to a crash.)
-        if (error)
-            *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSCoderReadCorruptError userInfo:@{ NSLocalizedDescriptionKey: [exception reason] ?: @"incomprehensible archive" }];
-        return nil;
-    }
-    return self;
-}
-- (void)wk_setDecodingFailurePolicy:(NSInteger)policy
-{
-    // 10.9's sole decoding-failure behavior is NSDecodingFailurePolicyRaiseException — exactly what every
-    // WebKit caller requests; the decode polyfills @catch that raise. Nothing to configure.
-    (void)policy;
-}
-+ (id)wk_unarchivedObjectOfClasses:(NSSet *)classes fromData:(NSData *)data error:(NSError **)error
+static id wk_unarchivedObjectOfClasses(NSSet *classes, NSData *data, NSError **error)
 {
     if (error)
         *error = nil;
@@ -1258,27 +1120,49 @@ WK_POLYFILL_SEL("_saveCookies:", "wk__saveCookies:");
     }
     return object;
 }
-+ (id)wk_unarchivedObjectOfClass:(Class)cls fromData:(NSData *)data error:(NSError **)error
+
+WK_POLYFILL_ADD_METHODS(NSKeyedUnarchiver)
+- (instancetype)initForReadingFromData:(NSData *)data error:(NSError **)error
 {
-    return [self wk_unarchivedObjectOfClasses:(cls ? [NSSet setWithObject:cls] : nil) fromData:data error:error];
+    if (error)
+        *error = nil;
+    @try {
+        self = [self initForReadingWithData:data];
+        [self setRequiresSecureCoding:YES];   // initForReadingFromData:error: defaults to secure — never downgrade
+    } @catch (NSException *exception) {
+        // Modern initForReadingFromData:error: is NON-throwing (returns nil + *error). The classic
+        // initForReadingWithData: RAISES "incomprehensible archive" on malformed/truncated input, so it must
+        // be inside the @try or an untrusted-IPC/.webarchive decode would crash instead of failing cleanly.
+        // (self was consumed by the throwing initializer; releasing a half-initialized archiver is unsafe, so
+        // return nil directly — the rare-error-path leak of the alloc'd shell is preferable to a crash.)
+        if (error)
+            *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSCoderReadCorruptError userInfo:@{ NSLocalizedDescriptionKey: [exception reason] ?: @"incomprehensible archive" }];
+        return nil;
+    }
+    return self;
+}
+- (void)setDecodingFailurePolicy:(NSDecodingFailurePolicy)policy
+{
+    // 10.9's sole decoding-failure behavior is NSDecodingFailurePolicyRaiseException — exactly what every
+    // WebKit caller requests; the decode polyfills @catch that raise. Nothing to configure.
+    (void)policy;
+}
++ (id)unarchivedObjectOfClasses:(NSSet<Class> *)classes fromData:(NSData *)data error:(NSError **)error
+{
+    return wk_unarchivedObjectOfClasses(classes, data, error);
+}
++ (id)unarchivedObjectOfClass:(Class)cls fromData:(NSData *)data error:(NSError **)error
+{
+    return wk_unarchivedObjectOfClasses(cls ? [NSSet setWithObject:cls] : nil, data, error);
 }
 @end
-WK_POLYFILL_SEL("initForReadingFromData:error:", "wk_initForReadingFromData:error:");
-WK_POLYFILL_SEL("setDecodingFailurePolicy:", "wk_setDecodingFailurePolicy:");
-WK_POLYFILL_SEL("unarchivedObjectOfClass:fromData:error:", "wk_unarchivedObjectOfClass:fromData:error:");
-WK_POLYFILL_SEL("unarchivedObjectOfClasses:fromData:error:", "wk_unarchivedObjectOfClasses:fromData:error:");
 
 static char kWKKeyedArchiverDataKey;
-@interface NSKeyedArchiver (WKPolyfillScope)
-+ (NSData *)wk_archivedDataWithRootObject:(id)root requiringSecureCoding:(BOOL)requireSecure error:(NSError **)error;
-- (instancetype)wk_initRequiringSecureCoding:(BOOL)requireSecure;
-- (NSData *)wk_encodedData;
-@end
-@implementation NSKeyedArchiver (WKPolyfillScope)
+WK_POLYFILL_ADD_METHODS(NSKeyedArchiver)
 // -initRequiringSecureCoding: / -encodedData (10.13+): the classic pairing is an explicit mutable
 // data buffer plus finishEncoding. The buffer rides along as an associated object so encodedData can
 // answer it; encodedData finishes encoding on first read, exactly the modern property's contract.
-- (instancetype)wk_initRequiringSecureCoding:(BOOL)requireSecure
+- (instancetype)initRequiringSecureCoding:(BOOL)requireSecure
 {
     NSMutableData *data = [NSMutableData data];
     self = [self initForWritingWithMutableData:data];
@@ -1288,7 +1172,7 @@ static char kWKKeyedArchiverDataKey;
     }
     return self;
 }
-- (NSData *)wk_encodedData
+- (NSData *)encodedData
 {
     // -finishEncoding unconditionally: measured on this host, 10.9's is idempotent (three consecutive
     // calls all succeed and leave the archive intact), so there is nothing to guard against and a
@@ -1301,7 +1185,7 @@ static char kWKKeyedArchiverDataKey;
     NSMutableData *backing = objc_getAssociatedObject(self, &kWKKeyedArchiverDataKey);
     return backing ? [[backing copy] autorelease] : nil;
 }
-+ (NSData *)wk_archivedDataWithRootObject:(id)root requiringSecureCoding:(BOOL)requireSecure error:(NSError **)error
++ (NSData *)archivedDataWithRootObject:(id)root requiringSecureCoding:(BOOL)requireSecure error:(NSError **)error
 {
     if (error)
         *error = nil;
@@ -1328,11 +1212,8 @@ static char kWKKeyedArchiverDataKey;
 // secure siblings above do. Kept distinct from unarchivedObjectOfClasses:fromData:error: because the
 // contracts differ: this one does NOT require secure coding and does not restrict the class set, which
 // is what a caller decoding an arbitrary embedder-supplied object needs.
-@interface NSKeyedUnarchiver (WKPolyfillTopLevelScope)
-+ (id)wk_unarchiveTopLevelObjectWithData:(NSData *)data error:(NSError **)error;
-@end
-@implementation NSKeyedUnarchiver (WKPolyfillTopLevelScope)
-+ (id)wk_unarchiveTopLevelObjectWithData:(NSData *)data error:(NSError **)error
+WK_POLYFILL_ADD_METHODS(NSKeyedUnarchiver)
++ (id)unarchiveTopLevelObjectWithData:(NSData *)data error:(NSError **)error
 {
     if (error)
         *error = nil;
@@ -1352,21 +1233,13 @@ static char kWKKeyedArchiverDataKey;
     }
 }
 @end
-WK_POLYFILL_SEL("unarchiveTopLevelObjectWithData:error:", "wk_unarchiveTopLevelObjectWithData:error:");
-
-WK_POLYFILL_SEL("archivedDataWithRootObject:requiringSecureCoding:error:", "wk_archivedDataWithRootObject:requiringSecureCoding:error:");
-WK_POLYFILL_SEL("initRequiringSecureCoding:", "wk_initRequiringSecureCoding:");
-WK_POLYFILL_SEL("encodedData", "wk_encodedData");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSHTTPURLResponse valueForHTTPHeaderField:] (10.13+): 10.9 lacks it, but -allHeaderFields is present;
 // look the field up there case-insensitively (HTTP header names are case-insensitive), matching the modern
 // method's contract.
-@interface NSHTTPURLResponse (WKPolyfillScope)
-- (NSString *)wk_valueForHTTPHeaderField:(NSString *)field;
-@end
-@implementation NSHTTPURLResponse (WKPolyfillScope)
-- (NSString *)wk_valueForHTTPHeaderField:(NSString *)field
+WK_POLYFILL_ADD_METHODS(NSHTTPURLResponse)
+- (NSString *)valueForHTTPHeaderField:(NSString *)field
 {
     NSDictionary *headers = [self allHeaderFields];
     NSString *direct = [headers objectForKey:field];
@@ -1378,24 +1251,15 @@ WK_POLYFILL_SEL("encodedData", "wk_encodedData");
     return nil;
 }
 @end
-WK_POLYFILL_SEL("valueForHTTPHeaderField:", "wk_valueForHTTPHeaderField:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSLocale languageCode]/scriptCode/countryCode (10.12+) via the classic component keys (10.4+).
 // (Do not polyfill "objectForKey:": these bodies call it.)
-@interface NSLocale (WKPolyfillScope)
-- (NSString *)wk_languageCode;
-- (NSString *)wk_scriptCode;
-- (NSString *)wk_countryCode;
+WK_POLYFILL_ADD_METHODS(NSLocale)
+- (NSString *)languageCode { return [self objectForKey:NSLocaleLanguageCode]; }
+- (NSString *)scriptCode   { return [self objectForKey:NSLocaleScriptCode]; }
+- (NSString *)countryCode  { return [self objectForKey:NSLocaleCountryCode]; }
 @end
-@implementation NSLocale (WKPolyfillScope)
-- (NSString *)wk_languageCode { return [self objectForKey:NSLocaleLanguageCode]; }
-- (NSString *)wk_scriptCode   { return [self objectForKey:NSLocaleScriptCode]; }
-- (NSString *)wk_countryCode  { return [self objectForKey:NSLocaleCountryCode]; }
-@end
-WK_POLYFILL_SEL("languageCode", "wk_languageCode");
-WK_POLYFILL_SEL("scriptCode", "wk_scriptCode");
-WK_POLYFILL_SEL("countryCode", "wk_countryCode");
 
 // ---------------------------------------------------------------------------------------------------
 // +[NSURLProtocol _protocolClassForRequest:skipAppSSO:] (10.10+ SPI). WebCoreNSURLExtras sends it
@@ -1404,55 +1268,17 @@ WK_POLYFILL_SEL("countryCode", "wk_countryCode");
 // extension point the flag names) does not exist on 10.9 at all, so no protocol class can be the App SSO
 // one: Nil is the whole answer, and WebCoreNSURLExtras falls back to the standard URL-loading path.
 //
-// A plain category, not WK_POLYFILL_ADD: NSURLProtocol is a class this build's SDK and the 10.9 runtime
-// agree on (both home _OBJC_CLASS_$_NSURLProtocol in Foundation — checked in MacOSX26.1.sdk's
-// Foundation.tbd and in 10.9.5's Foundation export table), so there is no moved-framework classref to
-// avoid, and a category is what expresses a CLASS method here: WK_POLYFILL_ADD installs through
-// objc_getClass(), i.e. on the class, so it can only add INSTANCE methods.
-@interface NSURLProtocol (WKPolyfillScopeAppSSO)
-+ (Class)wk__protocolClassForRequest:(NSURLRequest *)request skipAppSSO:(BOOL)skipAppSSO;
-@end
-@implementation NSURLProtocol (WKPolyfillScopeAppSSO)
-+ (Class)wk__protocolClassForRequest:(NSURLRequest *)request skipAppSSO:(BOOL)skipAppSSO
+// Named directly: NSURLProtocol is a class this build's SDK and the 10.9 runtime agree on (both home
+// _OBJC_CLASS_$_NSURLProtocol in Foundation — checked in MacOSX26.1.sdk's Foundation.tbd and in
+// 10.9.5's Foundation export table), so there is no moved-framework classref to avoid.
+WK_POLYFILL_ADD_METHODS(NSURLProtocol)
++ (Class)_protocolClassForRequest:(NSURLRequest *)request skipAppSSO:(BOOL)skipAppSSO
 {
     (void)request;
     (void)skipAppSSO;
     return Nil;
 }
 @end
-WK_POLYFILL_SEL("_protocolClassForRequest:skipAppSSO:", "wk__protocolClassForRequest:skipAppSSO:");
-
-// ---------------------------------------------------------------------------------------------------
-// -[NSURLSessionTask priority]/-setPriority: (10.10+, absent on 10.9's NSURLSessionTask). NSURLSessionTask
-// is a MOVED-FRAMEWORK class (CFNetwork on the 26.1 SDK, Foundation at 10.9 runtime), so it must be
-// resolved at runtime BY NAME — hence WK_POLYFILL_ADD (runtime class_addMethod) rather than a compile-time
-// category. 10.9's URL loading has no per-task scheduling priority, so the value can't affect
-// scheduling; store it in an associated object so the property round-trips for its only reader (the Web
-// Inspector task metrics), defaulting to NSURLSessionTaskPriorityDefault (0.5). On 10.9 the concrete task
-// instances do NOT subclass the public NSURLSessionTask class — their hierarchy is
-// __NSCFLocalDataTask : __NSCFLocalSessionTask : __NSCFURLSessionTask : NSObject (CFNetwork) — so the
-// methods must be added to __NSCFURLSessionTask, the root of the concrete hierarchy, to reach real
-// instances (adding only to NSURLSessionTask leaves them unrecognized -> NetworkProcess crash in the
-// NetworkDataTaskCocoa constructor). NSURLSessionTask keeps the registration too, for the abstract class
-// itself and for any OS variant whose concrete tasks do inherit from it.
-static const void *const wk_taskPriorityKey = &wk_taskPriorityKey;
-static float wk_urlSessionTask_priority(id self, SEL _cmd)
-{
-    (void)_cmd;
-    NSNumber *v = objc_getAssociatedObject(self, wk_taskPriorityKey);
-    return v ? [v floatValue] : 0.5f;
-}
-static void wk_urlSessionTask_setPriority(id self, SEL _cmd, float priority)
-{
-    (void)_cmd;
-    objc_setAssociatedObject(self, wk_taskPriorityKey, @(priority), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-}
-WK_POLYFILL_ADD("NSURLSessionTask", "wk_priority", wk_urlSessionTask_priority, "f@:");
-WK_POLYFILL_ADD("NSURLSessionTask", "wk_setPriority:", wk_urlSessionTask_setPriority, "v@:f");
-WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_priority", wk_urlSessionTask_priority, "f@:");
-WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_setPriority:", wk_urlSessionTask_setPriority, "v@:f");
-WK_POLYFILL_SEL("priority", "wk_priority");
-WK_POLYFILL_SEL("setPriority:", "wk_setPriority:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSURLSessionDownloadTask cancelByProducingResumeData:] — 10.9's implementation ABORTS the process
@@ -1500,23 +1326,16 @@ static BOOL wk_downloadTaskCanProduceResumeInformation(id task)
     return originalResumeInfo && object_getIvar(task, originalResumeInfo) != nil;
 }
 
-static void wk_downloadTask_cancelByProducingResumeData(id self, SEL _cmd, void (^completionHandler)(NSData *resumeData))
+// Both concrete download-task classes 10.9 vends (a local session and a background/URL session), each
+// of which implements the real selector itself — hence REPLACE, so the body wins over the aliased
+// real method. The public NSURLSessionDownloadTask does NOT implement it on 10.9 and is not in the
+// concrete classes' superclass chain (__NSCFLocalDownloadTask : __NSCFLocalSessionTask :
+// __NSCFURLSessionTask : NSObject), so installing it there would reach no instance.
+WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "__NSCFLocalDownloadTask", "__NSCFURLSessionDownloadTask")
+- (void)cancelByProducingResumeData:(void (^)(NSData *resumeData))completionHandler
 {
-    (void)_cmd;
     if (wk_downloadTaskCanProduceResumeInformation(self)) {
-        // sel_registerName rather than @selector: this file is compiled into WebCore, whose
-        // __objc_selrefs are rewritten, so a compiled `cancelByProducingResumeData:` selref arrives
-        // here as the wk_ name and would recurse. Idempotent — see the other users of this pattern.
-        static SEL cancelByProducingResumeDataSelector;
-        if (!cancelByProducingResumeDataSelector)
-            cancelByProducingResumeDataSelector = sel_registerName("cancelByProducingResumeData:");
-        // Resolved against THIS body rather than sent to self — see wk_replaces_call_through_class. The
-        // _imp form because one C function is registered for both concrete download-task classes, so the
-        // body's class is whichever of them this receiver belongs to.
-        void (*cancelByProducingResumeData)(id, SEL, void (^)(NSData *)) =
-            (void (*)(id, SEL, void (^)(NSData *)))wk_replaces_call_through_imp(self,
-                (IMP)wk_downloadTask_cancelByProducingResumeData, _cmd, cancelByProducingResumeDataSelector);
-        cancelByProducingResumeData(self, cancelByProducingResumeDataSelector, completionHandler);
+        WK_ORIGINAL_METHOD(void, (void (^)(NSData *)), completionHandler);
         return;
     }
 
@@ -1528,168 +1347,70 @@ static void wk_downloadTask_cancelByProducingResumeData(id self, SEL _cmd, void 
     if (completionHandler)
         completionHandler(nil);
 }
-
-// Both concrete download-task classes 10.9 vends (a local session and a background/URL session), each
-// of which implements the real selector itself — hence _REPLACES, so the body wins over the aliased
-// real method. The public NSURLSessionDownloadTask does NOT implement it on 10.9 and is not in the
-// concrete classes' superclass chain (__NSCFLocalDownloadTask : __NSCFLocalSessionTask :
-// __NSCFURLSessionTask : NSObject), so registering it there would reach no instance.
-WK_POLYFILL_ADD_REPLACES("__NSCFLocalDownloadTask", "wk_cancelByProducingResumeData:", wk_downloadTask_cancelByProducingResumeData, "v@:@?");
-WK_POLYFILL_ADD_REPLACES("__NSCFURLSessionDownloadTask", "wk_cancelByProducingResumeData:", wk_downloadTask_cancelByProducingResumeData, "v@:@?");
-WK_POLYFILL_SEL_REPLACES("cancelByProducingResumeData:", "wk_cancelByProducingResumeData:");
+@end
 
 // ---------------------------------------------------------------------------------------------------
-// NSURLSession SPI that arrived after 10.9, on NSURLSessionConfiguration, NSMutableURLRequest, the
-// session tasks and NSHTTPCookieStorage.
+// NSURLSession SPI that arrived after 10.9, on NSURLSessionConfiguration, NSMutableURLRequest and
+// NSHTTPCookieStorage; the session tasks' own is in the NSURLSessionTask block further down.
 //
 // Every selector below was probed on this 10.9 host and is absent. They configure behaviour 10.9 has no
 // notion of -- App SSO, tracker blocking and enhanced privacy mode, the privacy proxy, W3C timing data,
 // source-application attribution, per-task metrics, CNAME cloaking resolution -- so the honest 10.9
 // answer to each is "nothing happens", which is exactly what these do: the setters accept and discard,
 // and the getters report the absence (nil, NO, 0) that the caller already has to handle. That is correct
-// for any caller, not just for WebKit's, which is why it belongs here rather than in a pile of
-// respondsToSelector: checks at the call sites -- those were removed with this.
+// for any caller, not just for WebKit's, which is why it belongs here and not at the call sites.
 //
 // Not a no-op stub: +[NSURLSession _strictTrustEvaluate:queue:completionHandler:] is implemented for real
 // further down this file, because "nothing happens" is not a safe answer for a trust evaluation.
 
-static void wk_noopSetObject(id self, SEL _cmd, id value) { (void)self; (void)_cmd; (void)value; }
-static void wk_noopSetBool(id self, SEL _cmd, BOOL value) { (void)self; (void)_cmd; (void)value; }
-static void wk_noopSetUnsigned(id self, SEL _cmd, NSUInteger value) { (void)self; (void)_cmd; (void)value; }
-static id wk_absentObject(id self, SEL _cmd) { (void)self; (void)_cmd; return nil; }
-static BOOL wk_absentFlag(id self, SEL _cmd) { (void)self; (void)_cmd; return NO; }
-
-#if __LP64__
-#define WK_UNSIGNED_SETTER_TYPES "v@:Q"
-#else
-#define WK_UNSIGNED_SETTER_TYPES "v@:I"
-#endif
-
-#define WK_POLYFILL_NOOP_SETTER(CLS, SEL_NAME, IMP, TYPES) \
-    WK_POLYFILL_ADD(CLS, "wk_" SEL_NAME, IMP, TYPES); \
-    WK_POLYFILL_SEL(SEL_NAME, "wk_" SEL_NAME)
-
-// NSURLSessionConfiguration.
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_shouldSkipPreferredClientCertificateLookup:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_shouldSkipPreferredClientCertificateLookup:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_connectionCacheNumPriorityLevels:", wk_noopSetUnsigned, WK_UNSIGNED_SETTER_TYPES);
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_connectionCacheNumPriorityLevels:", wk_noopSetUnsigned, WK_UNSIGNED_SETTER_TYPES);
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_connectionCacheMinimumFastLanePriority:", wk_noopSetUnsigned, WK_UNSIGNED_SETTER_TYPES);
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_connectionCacheMinimumFastLanePriority:", wk_noopSetUnsigned, WK_UNSIGNED_SETTER_TYPES);
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_connectionCacheNumFastLanes:", wk_noopSetUnsigned, WK_UNSIGNED_SETTER_TYPES);
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_connectionCacheNumFastLanes:", wk_noopSetUnsigned, WK_UNSIGNED_SETTER_TYPES);
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_preventsAppSSO:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_preventsAppSSO:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_suppressedAutoAddedHTTPHeaders:", wk_noopSetObject, "v@:@");
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_suppressedAutoAddedHTTPHeaders:", wk_noopSetObject, "v@:@");
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_sourceApplicationAuditTokenData:", wk_noopSetObject, "v@:@");
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_sourceApplicationAuditTokenData:", wk_noopSetObject, "v@:@");
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_sourceApplicationBundleIdentifier:", wk_noopSetObject, "v@:@");
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_sourceApplicationBundleIdentifier:", wk_noopSetObject, "v@:@");
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_sourceApplicationSecondaryIdentifier:", wk_noopSetObject, "v@:@");
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_sourceApplicationSecondaryIdentifier:", wk_noopSetObject, "v@:@");
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_preventsSystemHTTPProxyAuthentication:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_preventsSystemHTTPProxyAuthentication:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_requiresSecureHTTPSProxyConnection:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_requiresSecureHTTPSProxyConnection:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_timingDataOptions:", wk_noopSetUnsigned, WK_UNSIGNED_SETTER_TYPES);
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_timingDataOptions:", wk_noopSetUnsigned, WK_UNSIGNED_SETTER_TYPES);
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_skipsStackTraceCapture:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_skipsStackTraceCapture:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "_sourceApplicationSecondaryIdentifier", wk_absentObject, "@@:");
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "_sourceApplicationSecondaryIdentifier", wk_absentObject, "@@:");
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "_allowsHSTSWithUntrustedRootCertificate", wk_absentFlag, "c@:");
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "_allowsHSTSWithUntrustedRootCertificate", wk_absentFlag, "c@:");
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_allowsHSTSWithUntrustedRootCertificate:", wk_noopSetBool, "v@:c");
+// NSURLSessionConfiguration. Installed on the public class WebKit compiles against and on the concrete
+// class 10.9 vends.
+WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSURLSessionConfiguration", "__NSCFURLSessionConfiguration")
+- (void)set_shouldSkipPreferredClientCertificateLookup:(BOOL)value { (void)value; }
+- (void)set_connectionCacheNumPriorityLevels:(NSUInteger)value { (void)value; }
+- (void)set_connectionCacheMinimumFastLanePriority:(NSUInteger)value { (void)value; }
+- (void)set_connectionCacheNumFastLanes:(NSUInteger)value { (void)value; }
+- (void)set_preventsAppSSO:(BOOL)value { (void)value; }
+- (void)set_suppressedAutoAddedHTTPHeaders:(id)value { (void)value; }
+- (void)set_sourceApplicationAuditTokenData:(id)value { (void)value; }
+- (void)set_sourceApplicationBundleIdentifier:(id)value { (void)value; }
+- (void)set_sourceApplicationSecondaryIdentifier:(id)value { (void)value; }
+- (void)set_preventsSystemHTTPProxyAuthentication:(BOOL)value { (void)value; }
+- (void)set_requiresSecureHTTPSProxyConnection:(BOOL)value { (void)value; }
+- (void)set_timingDataOptions:(NSUInteger)value { (void)value; }
+- (void)set_skipsStackTraceCapture:(BOOL)value { (void)value; }
+- (id)_sourceApplicationSecondaryIdentifier { return nil; }
+- (BOOL)_allowsHSTSWithUntrustedRootCertificate { return NO; }
+- (void)set_allowsHSTSWithUntrustedRootCertificate:(BOOL)value { (void)value; }
 // The two storage handles the session configuration can be given. 10.9's configuration has no slot for
 // either (probed absent on both the public and the concrete class), and the stub storages themselves keep
 // nothing, so accepting and discarding is consistent: no HSTS state and no known alternative services.
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_hstsStorage:", wk_noopSetObject, "v@:@");
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_hstsStorage:", wk_noopSetObject, "v@:@");
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "_hstsStorage", wk_absentObject, "@@:");
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "_hstsStorage", wk_absentObject, "@@:");
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_alternativeServicesStorage:", wk_noopSetObject, "v@:@");
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_alternativeServicesStorage:", wk_noopSetObject, "v@:@");
-WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "_alternativeServicesStorage", wk_absentObject, "@@:");
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "_alternativeServicesStorage", wk_absentObject, "@@:");
-WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_allowsHSTSWithUntrustedRootCertificate:", wk_noopSetBool, "v@:c");
-
+- (void)set_hstsStorage:(id)value { (void)value; }
+- (id)_hstsStorage { return nil; }
+- (void)set_alternativeServicesStorage:(id)value { (void)value; }
+- (id)_alternativeServicesStorage { return nil; }
+@end
 
 // NSMutableURLRequest.
-WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setUseEnhancedPrivacyMode:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setBlockTrackers:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setNeedsNetworkTrackingPrevention:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_needsNetworkTrackingPrevention", wk_absentFlag, "c@:");
-WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setPrivacyProxyFailClosedForUnreachableNonMainHosts:", wk_noopSetBool, "v@:c");
-// The read side of the same flag. NSURLRequest, not NSMutableURLRequest: the getter is read off immutable
-// requests too. NO is the honest answer -- there is no Private Relay on 10.9 to have failed closed.
-WK_POLYFILL_ADD("NSURLRequest", "wk__privacyProxyFailClosedForUnreachableNonMainHosts", wk_absentFlag, "c@:");
-WK_POLYFILL_ADD("NSMutableURLRequest", "wk__privacyProxyFailClosedForUnreachableNonMainHosts", wk_absentFlag, "c@:");
-WK_POLYFILL_SEL("_privacyProxyFailClosedForUnreachableNonMainHosts", "wk__privacyProxyFailClosedForUnreachableNonMainHosts");
-WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setProhibitPrivacyProxy:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setPrivacyProxyStrictFailClosed:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setPrivacyProxyFailClosedForUnreachableHosts:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setPrivacyProxyFailClosed:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setWebSearchContent:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setAllowPrivateAccessTokensForThirdParty:", wk_noopSetBool, "v@:c");
-
-// The session tasks. Registered on the shared root of the concrete classes for the same reason
-// -_pathToDownloadTaskFile is, and on the public class WebKit compiles against.
-WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__incompleteTaskMetrics", wk_absentObject, "@@:");
-WK_POLYFILL_ADD("NSURLSessionTask", "wk__incompleteTaskMetrics", wk_absentObject, "@@:");
-WK_POLYFILL_SEL("_incompleteTaskMetrics", "wk__incompleteTaskMetrics");
-WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__resolvedCNAMEChain", wk_absentObject, "@@:");
-WK_POLYFILL_ADD("NSURLSessionTask", "wk__resolvedCNAMEChain", wk_absentObject, "@@:");
-WK_POLYFILL_SEL("_resolvedCNAMEChain", "wk__resolvedCNAMEChain");
-// -_adoptEffectiveConfiguration: exists to hand ONE task a configuration that
-// differs from its session's; 10.9 decides everything the sole caller changes -- credential storage --
-// per CONNECTION SESSION and nowhere else, so no per-task state exists for this to write.
-// StoredCredentialsPolicy::DoNotUse tasks therefore get a session without credential storage instead
-// (NetworkSessionCocoa::sessionWrapperForTask), which is where 10.9 does honour it, and by the time
-// this is called the task is already on that session and there is nothing left for it to do.
-WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__adoptEffectiveConfiguration:", wk_noopSetObject, "v@:@");
-WK_POLYFILL_ADD("NSURLSessionTask", "wk__adoptEffectiveConfiguration:", wk_noopSetObject, "v@:@");
-WK_POLYFILL_SEL("_adoptEffectiveConfiguration:", "wk__adoptEffectiveConfiguration:");
-// -_preconnect records what it is told and nothing more. With
-// ENABLE(SERVER_PRECONNECT) off for this port (PlatformEnableCocoa.h) WebKit never creates a preconnect
-// task, so there is no transfer to suppress here; the getter exists because NetworkSessionCocoa reads it
-// outside any SERVER_PRECONNECT guard, and NO is the true answer on a system that has no preconnect.
-static const void *wk_taskIsPreconnectKey = &wk_taskIsPreconnectKey;
-
-static void wk_urlSessionTask_setPreconnect(id self, SEL _cmd, BOOL preconnect)
-{
-    (void)_cmd;
-    objc_setAssociatedObject(self, wk_taskIsPreconnectKey, preconnect ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-}
-
-static BOOL wk_urlSessionTask_preconnect(id self, SEL _cmd)
-{
-    (void)_cmd;
-    return objc_getAssociatedObject(self, wk_taskIsPreconnectKey) != nil;
-}
-
-WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_set_preconnect:", wk_urlSessionTask_setPreconnect, "v@:c");
-WK_POLYFILL_ADD("NSURLSessionTask", "wk_set_preconnect:", wk_urlSessionTask_setPreconnect, "v@:c");
-WK_POLYFILL_SEL("set_preconnect:", "wk_set_preconnect:");
-WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__preconnect", wk_urlSessionTask_preconnect, "c@:");
-WK_POLYFILL_ADD("NSURLSessionTask", "wk__preconnect", wk_urlSessionTask_preconnect, "c@:");
-WK_POLYFILL_SEL("_preconnect", "wk__preconnect");
-
-// Bytes as they arrived on the wire. 10.9 counts only the decoded body, which is the same number for a
-// response that is not content-encoded and the closest true value for one that is -- far closer than the
-// zero an "absent" answer would report into the transfer-size accounting.
-static int64_t wk_urlSessionTask_countOfBytesReceivedEncoded(id self, SEL _cmd)
-{
-    (void)_cmd;
-    static SEL countSelector;
-    if (!countSelector)
-        countSelector = sel_registerName("countOfBytesReceived");
-    return ((int64_t (*)(id, SEL))objc_msgSend)(self, countSelector);
-}
-
-WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__countOfBytesReceivedEncoded", wk_urlSessionTask_countOfBytesReceivedEncoded, "q@:");
-WK_POLYFILL_ADD("NSURLSessionTask", "wk__countOfBytesReceivedEncoded", wk_urlSessionTask_countOfBytesReceivedEncoded, "q@:");
-WK_POLYFILL_SEL("_countOfBytesReceivedEncoded", "wk__countOfBytesReceivedEncoded");
+WK_POLYFILL_ADD_METHODS(NSMutableURLRequest)
+- (void)_setUseEnhancedPrivacyMode:(BOOL)value { (void)value; }
+- (void)_setBlockTrackers:(BOOL)value { (void)value; }
+- (void)_setNeedsNetworkTrackingPrevention:(BOOL)value { (void)value; }
+- (BOOL)_needsNetworkTrackingPrevention { return NO; }
+- (void)_setPrivacyProxyFailClosedForUnreachableNonMainHosts:(BOOL)value { (void)value; }
+- (void)_setProhibitPrivacyProxy:(BOOL)value { (void)value; }
+- (void)_setPrivacyProxyStrictFailClosed:(BOOL)value { (void)value; }
+- (void)_setPrivacyProxyFailClosedForUnreachableHosts:(BOOL)value { (void)value; }
+- (void)_setPrivacyProxyFailClosed:(BOOL)value { (void)value; }
+- (void)_setWebSearchContent:(BOOL)value { (void)value; }
+- (void)_setAllowPrivateAccessTokensForThirdParty:(BOOL)value { (void)value; }
+@end
+// The read side of the privacy-proxy flag. NSURLRequest as well as NSMutableURLRequest: the getter is
+// read off immutable requests too. NO is the honest answer -- there is no Private Relay on 10.9 to have
+// failed closed.
+WK_POLYFILL_ADD_METHODS_ON(NSURLRequest, "NSURLRequest", "NSMutableURLRequest")
+- (BOOL)_privacyProxyFailClosedForUnreachableNonMainHosts { return NO; }
+@end
 
 // NSHTTPCookieStorage.
 
@@ -1716,10 +1437,9 @@ static CFHTTPCookieStorageRef wk_cfCookieStorageOf(id storage)
     return ((CFHTTPCookieStorageRef (*)(id, SEL))objc_msgSend)(storage, sel_registerName("_cookieStorage"));
 }
 
-static void wk_cookieStorage_setOverrideSessionCookieAcceptPolicy(id self, SEL _cmd, BOOL overrides)
+static void wk_setCookieStorageOverridesSessionCookieAcceptPolicy(id storage, BOOL overrides)
 {
-    (void)_cmd;
-    CFHTTPCookieStorageRef store = wk_cfCookieStorageOf(self);
+    CFHTTPCookieStorageRef store = wk_cfCookieStorageOf(storage);
     if (!store)
         return;
     pthread_mutex_lock(&wk_cookieAcceptPolicyOverrideLock);
@@ -1747,16 +1467,16 @@ static BOOL wk_cookieStorageOverridesSessionCookieAcceptPolicy(id storage)
     return overrides;
 }
 
-static BOOL wk_cookieStorage_overrideSessionCookieAcceptPolicy(id self, SEL _cmd)
+WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
+- (void)set_overrideSessionCookieAcceptPolicy:(BOOL)overrides
 {
-    (void)_cmd;
+    wk_setCookieStorageOverridesSessionCookieAcceptPolicy(self, overrides);
+}
+- (BOOL)_overrideSessionCookieAcceptPolicy
+{
     return wk_cookieStorageOverridesSessionCookieAcceptPolicy(self);
 }
-
-WK_POLYFILL_ADD("NSHTTPCookieStorage", "wk_set_overrideSessionCookieAcceptPolicy:", wk_cookieStorage_setOverrideSessionCookieAcceptPolicy, "v@:c");
-WK_POLYFILL_SEL("set_overrideSessionCookieAcceptPolicy:", "wk_set_overrideSessionCookieAcceptPolicy:");
-WK_POLYFILL_ADD("NSHTTPCookieStorage", "wk__overrideSessionCookieAcceptPolicy", wk_cookieStorage_overrideSessionCookieAcceptPolicy, "c@:");
-WK_POLYFILL_SEL("_overrideSessionCookieAcceptPolicy", "wk__overrideSessionCookieAcceptPolicy");
+@end
 
 // -[NSURLRequest HTTPShouldHandleCookies] is public, documented, scheme-agnostic Foundation API, and it
 // is how a caller withholds cookies from one request. 10.9 keeps the flag only for an http(s) URL:
@@ -1776,42 +1496,24 @@ static BOOL wk_urlKeepsCookieFlagNatively(NSURL *url)
         || [scheme caseInsensitiveCompare:@"https"] == NSOrderedSame;
 }
 
-@interface NSURLRequest (WKPolyfillScopeCookieFlag)
-- (BOOL)wk_HTTPShouldHandleCookies;
-@end
-@implementation NSURLRequest (WKPolyfillScopeCookieFlag)
-- (BOOL)wk_HTTPShouldHandleCookies
+WK_POLYFILL_REPLACE_METHODS(NSURLRequest)
+- (BOOL)HTTPShouldHandleCookies
 {
-    static SEL publicSelector;
-    if (!publicSelector)
-        publicSelector = sel_registerName("HTTPShouldHandleCookies");
-    typedef BOOL (*Fn)(id, SEL);
-    Fn callReal = (Fn)wk_replaces_call_through_class(self, [NSURLRequest class], _cmd, publicSelector);
     if (wk_urlKeepsCookieFlagNatively([self URL]))
-        return callReal(self, publicSelector);
+        return WK_ORIGINAL_METHOD(BOOL, ());
     id stored = [NSURLProtocol propertyForKey:wkShouldHandleCookiesKey inRequest:self];
     return stored ? [stored boolValue] : YES;
 }
 @end
-WK_POLYFILL_SEL_REPLACES("HTTPShouldHandleCookies", "wk_HTTPShouldHandleCookies");
 
-@interface NSMutableURLRequest (WKPolyfillScopeCookieFlag)
-- (void)wk_setHTTPShouldHandleCookies:(BOOL)shouldHandle;
-@end
-@implementation NSMutableURLRequest (WKPolyfillScopeCookieFlag)
-- (void)wk_setHTTPShouldHandleCookies:(BOOL)shouldHandle
+WK_POLYFILL_REPLACE_METHODS(NSMutableURLRequest)
+- (void)setHTTPShouldHandleCookies:(BOOL)shouldHandle
 {
-    static SEL publicSelector;
-    if (!publicSelector)
-        publicSelector = sel_registerName("setHTTPShouldHandleCookies:");
-    typedef void (*Fn)(id, SEL, BOOL);
-    Fn callReal = (Fn)wk_replaces_call_through_class(self, [NSMutableURLRequest class], _cmd, publicSelector);
-    callReal(self, publicSelector, shouldHandle);
+    WK_ORIGINAL_METHOD(void, (BOOL), shouldHandle);
     if (!wk_urlKeepsCookieFlagNatively([self URL]))
         [NSURLProtocol setProperty:(shouldHandle ? @YES : @NO) forKey:wkShouldHandleCookiesKey inRequest:self];
 }
 @end
-WK_POLYFILL_SEL_REPLACES("setHTTPShouldHandleCookies:", "wk_setHTTPShouldHandleCookies:");
 
 
 // The request side of the flag above. Read at TASK CREATION, so a policy the embedder changes while the
@@ -1836,13 +1538,6 @@ static NSURLRequest *wk_requestCarryingStorageCookieAcceptPolicy(id session, NSU
     CFURLRequestSetHTTPCookieStorageAcceptPolicy(cfRequest, (int32_t)[storage cookieAcceptPolicy]);
     return stamped;
 }
-
-// Per-task cookie controls (10.13+). 10.9's CFNetwork has no per-task cookie storage and no
-// cookie-transform hook, so each of these accepts and discards -- the same thing the real API does on a
-// system without the feature behind it. The visible consequence is that tracking prevention cannot swap
-// a task onto a stateless jar. The SameSite context these carry is read off the request instead, by the
-// enforcement below.
-static id wk_absentBlock(id self, SEL _cmd) { (void)self; (void)_cmd; return nil; }
 
 // SameSite on the wire. 10.9's CFNetwork builds the Cookie header from the jar and knows nothing of the
 // attribute, so a request whose context withholds a marked cookie carries the header computed here
@@ -1873,9 +1568,9 @@ static NSURLRequest *wk_requestWithSameSiteApplied(id session, NSURLRequest *req
 
     id siteForCookies = ((id (*)(id, SEL, id))objc_msgSend)(request, sel_registerName("_propertyForKey:"), @"_kCFHTTPCookiePolicyPropertySiteForCookies");
     BOOL contextIsKnown = [siteForCookies isKindOfClass:[NSURL class]];
-    // The platform -HTTPShouldHandleCookies lies on non-http schemes; wk_HTTPShouldHandleCookies is the
-    // body that reads it truthfully, and a selref inside this library is not rewritten to reach it.
-    BOOL handlesCookies = ((BOOL (*)(id, SEL))objc_msgSend)(request, sel_registerName("wk_HTTPShouldHandleCookies"));
+    // The platform -HTTPShouldHandleCookies lies on non-http schemes; the REPLACE body above reads it
+    // truthfully, and this selref is rewritten to reach it like any other.
+    BOOL handlesCookies = [request HTTPShouldHandleCookies];
     if ((!contextIsKnown && !carriesStaleHeader) || !handlesCookies)
         return request;
 
@@ -2004,35 +1699,14 @@ static void wk_captureSameSiteFromResponse(id session, NSURLResponse *response)
 }
 @end
 
-static id wk_urlSession_sessionWithConfigurationDelegateQueue(id self, SEL _cmd, id configuration, id delegate, id queue)
+WK_POLYFILL_REPLACE_METHODS(NSURLSession)
++ (NSURLSession *)sessionWithConfiguration:(NSURLSessionConfiguration *)configuration delegate:(id<NSURLSessionDelegate>)delegate delegateQueue:(NSOperationQueue *)queue
 {
-    SEL real = sel_registerName("sessionWithConfiguration:delegate:delegateQueue:");
-    typedef id (*Fn)(id, SEL, id, id, id);
-    Fn callReal = (Fn)wk_replaces_call_through_imp(self, (IMP)wk_urlSession_sessionWithConfigurationDelegateQueue, _cmd, real);
     WKPolyfillScopeSessionDelegateProxy *proxy = [[WKPolyfillScopeSessionDelegateProxy alloc] wk_initWithDelegate:delegate];
     // The session retains its delegate for as long as it needs one.
-    id session = callReal(self, real, configuration, [proxy autorelease], queue);
-    return session;
+    return WK_ORIGINAL_METHOD(id, (id, id, id), configuration, [proxy autorelease], queue);
 }
-
-WK_POLYFILL_ADD_CLASS_METHOD_REPLACES("NSURLSession", "wk_sessionWithConfiguration:delegate:delegateQueue:", wk_urlSession_sessionWithConfigurationDelegateQueue, "@@:@@@");
-WK_POLYFILL_SEL_REPLACES("sessionWithConfiguration:delegate:delegateQueue:", "wk_sessionWithConfiguration:delegate:delegateQueue:");
-
-WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_set_cookieTransformCallback:", wk_noopSetObject, "v@:@?");
-WK_POLYFILL_ADD("NSURLSessionTask", "wk_set_cookieTransformCallback:", wk_noopSetObject, "v@:@?");
-WK_POLYFILL_SEL("set_cookieTransformCallback:", "wk_set_cookieTransformCallback:");
-WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__cookieTransformCallback", wk_absentBlock, "@?@:");
-WK_POLYFILL_ADD("NSURLSessionTask", "wk__cookieTransformCallback", wk_absentBlock, "@?@:");
-WK_POLYFILL_SEL("_cookieTransformCallback", "wk__cookieTransformCallback");
-// -_setExplicitCookieStorage: has no polyfill: a 10.9 task cannot be re-pointed at a cookie jar once it
-// exists (measured -- see NetworkTaskCocoa::blockCookies, which withholds cookies on the request
-// instead), and nothing in this port calls it any more.
-WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_set_siteForCookies:", wk_noopSetObject, "v@:@");
-WK_POLYFILL_ADD("NSURLSessionTask", "wk_set_siteForCookies:", wk_noopSetObject, "v@:@");
-WK_POLYFILL_SEL("set_siteForCookies:", "wk_set_siteForCookies:");
-WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_set_isTopLevelNavigation:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_ADD("NSURLSessionTask", "wk_set_isTopLevelNavigation:", wk_noopSetBool, "v@:c");
-WK_POLYFILL_SEL("set_isTopLevelNavigation:", "wk_set_isTopLevelNavigation:");
+@end
 
 // ---------------------------------------------------------------------------------------------------
 // +[NSURLSession _strictTrustEvaluate:queue:completionHandler:] (10.10+).
@@ -2281,10 +1955,9 @@ static dispatch_queue_t wk_trustEvaluationQueue(void)
     return queues[atomic_fetch_add(&next, 1u) % queueCount];
 }
 
-static void wk_urlSession_strictTrustEvaluate(id self, SEL _cmd, NSURLAuthenticationChallenge *challenge, dispatch_queue_t queue, void (^completionHandler)(NSURLAuthenticationChallenge *, OSStatus))
+WK_POLYFILL_ADD_METHODS(NSURLSession)
++ (void)_strictTrustEvaluate:(NSURLAuthenticationChallenge *)challenge queue:(dispatch_queue_t)queue completionHandler:(void (^)(NSURLAuthenticationChallenge *, OSStatus))completionHandler
 {
-    (void)self;
-    (void)_cmd;
     // challenge is captured by the blocks, which retain it; the SecTrustRef is owned by the challenge, so
     // it is retained across the hops explicitly.
     SecTrustRef trust = [[challenge protectionSpace] serverTrust];
@@ -2326,9 +1999,7 @@ static void wk_urlSession_strictTrustEvaluate(id self, SEL _cmd, NSURLAuthentica
         });
     });
 }
-
-WK_POLYFILL_ADD_CLASS_METHOD("NSURLSession", "wk__strictTrustEvaluate:queue:completionHandler:", wk_urlSession_strictTrustEvaluate, "v@:@@@?");
-WK_POLYFILL_SEL("_strictTrustEvaluate:queue:completionHandler:", "wk__strictTrustEvaluate:queue:completionHandler:");
+@end
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSHTTPCookieStorage _initWithIdentifier:private:] (10.13+).
@@ -2377,18 +2048,15 @@ static CFDictionaryRef wk_storageSessionProperties(BOOL isPrivate, bool *outFail
 // cookie store - using a memory store for this process" and substitutes a fresh, EMPTY in-memory store,
 // so a caller that deleted cookies from the shared jar and then flushed through the result was flushing
 // a store its deletions never touched.
-static id wk_httpCookieStorage_initWithCFHTTPCookieStorage(id self, SEL _cmd, CFHTTPCookieStorageRef storage)
+WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
+- (id)_initWithCFHTTPCookieStorage:(CFHTTPCookieStorageRef)storage
 {
-    SEL real = sel_registerName("_initWithCFHTTPCookieStorage:");
-    typedef id (*Fn)(id, SEL, CFHTTPCookieStorageRef);
-    Fn callReal = (Fn)wk_replaces_call_through_imp(self, (IMP)wk_httpCookieStorage_initWithCFHTTPCookieStorage, _cmd, real);
     if (storage)
-        return callReal(self, real, storage);
+        return WK_ORIGINAL_METHOD(id, (CFHTTPCookieStorageRef), storage);
     [self release];
-    return [[NSHTTPCookieStorage sharedHTTPCookieStorage] retain];
+    return (id)[[NSHTTPCookieStorage sharedHTTPCookieStorage] retain];
 }
-WK_POLYFILL_ADD_REPLACES("NSHTTPCookieStorage", "wk__initWithCFHTTPCookieStorage:", wk_httpCookieStorage_initWithCFHTTPCookieStorage, "@@:^v");
-WK_POLYFILL_SEL_REPLACES("_initWithCFHTTPCookieStorage:", "wk__initWithCFHTTPCookieStorage:");
+@end
 
 typedef struct OpaqueCFURLStorageSession *CFURLStorageSessionRef;
 typedef struct OpaqueCFURLCredentialStorage *CFURLCredentialStorageRef;
@@ -2414,9 +2082,9 @@ extern CFHTTPCookieStorageRef _CFURLStorageSessionCopyCookieStorage(CFAllocatorR
 // whose cookies are never sent with a redirected request. Without this it fell back to the SHARED storage
 // and set NSHTTPCookieAcceptPolicyNever on it -- turning cookie acceptance off process-wide.
 
-static id wk_httpCookieStorage_initWithIdentifierPrivate(id self, SEL _cmd, NSString *identifier, BOOL isPrivate)
+WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
+- (id)_initWithIdentifier:(NSString *)identifier private:(BOOL)isPrivate
 {
-    (void)_cmd;
     static SEL initWithCFStorageSelector;
     if (!initWithCFStorageSelector)
         initWithCFStorageSelector = sel_registerName("_initWithCFHTTPCookieStorage:");
@@ -2454,8 +2122,27 @@ static id wk_httpCookieStorage_initWithIdentifierPrivate(id self, SEL _cmd, NSSt
     return result;
 }
 
-WK_POLYFILL_ADD("NSHTTPCookieStorage", "wk__initWithIdentifier:private:", wk_httpCookieStorage_initWithIdentifierPrivate, "@@:@c");
-WK_POLYFILL_SEL("_initWithIdentifier:private:", "wk__initWithIdentifier:private:");
+// +[NSHTTPCookieStorage _setSharedHTTPCookieStorage:] (10.10+): point the process at a cookie jar of its
+// own. 10.9 has no way to replace the process's cookie store, and -- measured on this host -- it does not
+// need one, because the storage WebKit passes here is already a HANDLE ON THAT STORE:
+//
+//   NetworkProcess::setSharedHTTPCookieStorage installs cookieStorageFromIdentifyingData(...), and the
+//   identifying data 10.9 produces is an archive naming "com.apple.CFNetwork.defaultStorageSession".
+//   Restoring it yields a different CFHTTPCookieStorageRef POINTER but the same store: same cookie count
+//   (2148 == 2148), and a cookie set through the restored handle is immediately visible through
+//   +sharedHTTPCookieStorage. Two handles, one jar.
+//
+// So accepting and discarding leaves every consumer -- WebKit's cookie API and the NSURLSession that
+// performs the loads -- on that one jar. The rejected alternative was to keep an override that
+// +sharedHTTPCookieStorage returned: because the selref rewrite only reaches WebKit-marked images, that
+// would have redirected WebKit's reads while CFNetwork's own internal default went untouched, i.e. an
+// illusion of a swap that is correct only for callers the rewrite happens to cover. No override is kept
+// and +sharedHTTPCookieStorage is left alone, so there is exactly one jar and no way for the two to drift.
++ (void)_setSharedHTTPCookieStorage:(id)storage
+{
+    (void)storage;
+}
+@end
 
 // -[NSURLCredentialStorage _initWithIdentifier:private:] (10.13+), the same contract one layer over:
 // credentials that belong to this data store alone and are not the process-wide set. Built the same way,
@@ -2468,9 +2155,9 @@ WK_POLYFILL_SEL("_initWithIdentifier:private:", "wk__initWithIdentifier:private:
 // back the shared credentials — the opposite of private. Arities also read off the disassembly rather
 // than guessed: _CFURLStorageSessionCreate uses rdi/rsi/rdx (three), the copy uses rdi/rsi (two).
 
-static id wk_credentialStorage_initWithIdentifierPrivate(id self, SEL _cmd, NSString *identifier, BOOL isPrivate)
+WK_POLYFILL_ADD_METHODS(NSURLCredentialStorage)
+- (id)_initWithIdentifier:(NSString *)identifier private:(BOOL)isPrivate
 {
-    (void)_cmd;
     static SEL initWithCFStorageSelector;
     if (!initWithCFStorageSelector)
         initWithCFStorageSelector = sel_registerName("_initWithCFURLCredentialStorage:");
@@ -2507,34 +2194,8 @@ static id wk_credentialStorage_initWithIdentifierPrivate(id self, SEL _cmd, NSSt
     CFRelease(storage);
     return result;
 }
+@end
 
-WK_POLYFILL_ADD("NSURLCredentialStorage", "wk__initWithIdentifier:private:", wk_credentialStorage_initWithIdentifierPrivate, "@@:@c");
-
-// +[NSHTTPCookieStorage _setSharedHTTPCookieStorage:] (10.10+): point the process at a cookie jar of its
-// own. 10.9 has no way to replace the process's cookie store, and -- measured on this host -- it does not
-// need one, because the storage WebKit passes here is already a HANDLE ON THAT STORE:
-//
-//   NetworkProcess::setSharedHTTPCookieStorage installs cookieStorageFromIdentifyingData(...), and the
-//   identifying data 10.9 produces is an archive naming "com.apple.CFNetwork.defaultStorageSession".
-//   Restoring it yields a different CFHTTPCookieStorageRef POINTER but the same store: same cookie count
-//   (2148 == 2148), and a cookie set through the restored handle is immediately visible through
-//   +sharedHTTPCookieStorage. Two handles, one jar.
-//
-// So accepting and discarding leaves every consumer -- WebKit's cookie API and the NSURLSession that
-// performs the loads -- on that one jar. The rejected alternative was to keep an override that
-// +sharedHTTPCookieStorage returned: because the selref rewrite only reaches WebKit-marked images, that
-// would have redirected WebKit's reads while CFNetwork's own internal default went untouched, i.e. an
-// illusion of a swap that is correct only for callers the rewrite happens to cover. No override is kept
-// and +sharedHTTPCookieStorage is left alone, so there is exactly one jar and no way for the two to drift.
-static void wk_httpCookieStorage_setSharedHTTPCookieStorage(id self, SEL _cmd, id storage)
-{
-    (void)self;
-    (void)_cmd;
-    (void)storage;
-}
-
-WK_POLYFILL_ADD_CLASS_METHOD("NSHTTPCookieStorage", "wk__setSharedHTTPCookieStorage:", wk_httpCookieStorage_setSharedHTTPCookieStorage, "v@:@");
-WK_POLYFILL_SEL("_setSharedHTTPCookieStorage:", "wk__setSharedHTTPCookieStorage:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSURLSessionTask _pathToDownloadTaskFile] / -set_pathToDownloadTaskFile: (github #11 / resume).
@@ -2562,12 +2223,6 @@ WK_POLYFILL_SEL("_setSharedHTTPCookieStorage:", "wk__setSharedHTTPCookieStorage:
 // a temp file invisible and would otherwise delete the client's file, so the replacement sets it.
 
 static NSString *wk_downloadTaskFilePathKey = @"wk_pathToDownloadTaskFile";
-
-#if __LP64__
-#define WK_TASK_IDENTIFIER_TYPES "Q@:"
-#else
-#define WK_TASK_IDENTIFIER_TYPES "I@:"
-#endif
 
 // Marks the download files whose path belongs to a CLIENT rather than to CFNetwork, so that replacing one
 // never unlinks the file the client is downloading into.
@@ -2822,15 +2477,85 @@ static void wk_bindDownloadTaskToFile(id task, NSString *path)
     [previousPath release];
 }
 
-static NSString *wk_urlSessionTask_pathToDownloadTaskFile(id self, SEL _cmd)
+// ---------------------------------------------------------------------------------------------------
+// NSURLSessionTask SPI absent on 10.9. NSURLSessionTask is a MOVED-FRAMEWORK class (CFNetwork on the
+// 26.1 SDK, Foundation at 10.9 runtime), so the block names it by string. On 10.9 the concrete task
+// instances do NOT subclass the public NSURLSessionTask class — their hierarchy is
+// __NSCFLocalDataTask : __NSCFLocalSessionTask : __NSCFURLSessionTask : NSObject (CFNetwork) — so the
+// methods are installed on __NSCFURLSessionTask, the root of the concrete hierarchy, to reach real
+// instances (installing only on NSURLSessionTask leaves them unrecognized -> NetworkProcess crash in the
+// NetworkDataTaskCocoa constructor). NSURLSessionTask is named too, for the abstract class itself and for
+// any OS variant whose concrete tasks do inherit from it.
+static const void *const wk_taskPriorityKey = &wk_taskPriorityKey;
+static const void *wk_taskIsPreconnectKey = &wk_taskIsPreconnectKey;
+
+WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSURLSessionTask", "__NSCFURLSessionTask")
+// -priority/-setPriority: (10.10+). 10.9's URL loading has no per-task scheduling priority, so the value
+// can't affect scheduling; store it in an associated object so the property round-trips for its only
+// reader (the Web Inspector task metrics), defaulting to NSURLSessionTaskPriorityDefault (0.5).
+- (float)priority
 {
-    (void)_cmd;
+    NSNumber *v = objc_getAssociatedObject(self, wk_taskPriorityKey);
+    return v ? [v floatValue] : 0.5f;
+}
+- (void)setPriority:(float)priority
+{
+    objc_setAssociatedObject(self, wk_taskPriorityKey, @(priority), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+// Per-task metrics and CNAME cloaking resolution, which 10.9 has no notion of: the getters report the
+// absence the caller already has to handle.
+- (id)_incompleteTaskMetrics { return nil; }
+- (id)_resolvedCNAMEChain { return nil; }
+// -_adoptEffectiveConfiguration: exists to hand ONE task a configuration that
+// differs from its session's; 10.9 decides everything the sole caller changes -- credential storage --
+// per CONNECTION SESSION and nowhere else, so no per-task state exists for this to write.
+// StoredCredentialsPolicy::DoNotUse tasks therefore get a session without credential storage instead
+// (NetworkSessionCocoa::sessionWrapperForTask), which is where 10.9 does honour it, and by the time
+// this is called the task is already on that session and there is nothing left for it to do.
+- (void)_adoptEffectiveConfiguration:(id)configuration { (void)configuration; }
+// -_preconnect records what it is told and nothing more. With
+// ENABLE(SERVER_PRECONNECT) off for this port (PlatformEnableCocoa.h) WebKit never creates a preconnect
+// task, so there is no transfer to suppress here; the getter exists because NetworkSessionCocoa reads it
+// outside any SERVER_PRECONNECT guard, and NO is the true answer on a system that has no preconnect.
+- (void)set_preconnect:(BOOL)preconnect
+{
+    objc_setAssociatedObject(self, wk_taskIsPreconnectKey, preconnect ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+- (BOOL)_preconnect
+{
+    return objc_getAssociatedObject(self, wk_taskIsPreconnectKey) != nil;
+}
+// Bytes as they arrived on the wire. 10.9 counts only the decoded body, which is the same number for a
+// response that is not content-encoded and the closest true value for one that is -- far closer than the
+// zero an "absent" answer would report into the transfer-size accounting.
+- (int64_t)_countOfBytesReceivedEncoded
+{
+    static SEL countSelector;
+    if (!countSelector)
+        countSelector = sel_registerName("countOfBytesReceived");
+    return ((int64_t (*)(id, SEL))objc_msgSend)(self, countSelector);
+}
+// Per-task cookie controls (10.13+). 10.9's CFNetwork has no per-task cookie storage and no
+// cookie-transform hook, so each of these accepts and discards -- the same thing the real API does on a
+// system without the feature behind it. The visible consequence is that tracking prevention cannot swap
+// a task onto a stateless jar. The SameSite context these carry is read off the request instead, by
+// wk_requestWithSameSiteApplied.
+// -_setExplicitCookieStorage: has no polyfill: a 10.9 task cannot be re-pointed at a cookie jar once it
+// exists (measured -- see NetworkTaskCocoa::blockCookies, which withholds cookies on the request
+// instead), and nothing in this port calls it.
+- (void)set_cookieTransformCallback:(id)callback { (void)callback; }
+- (id)_cookieTransformCallback { return nil; }
+- (void)set_siteForCookies:(id)site { (void)site; }
+- (void)set_isTopLevelNavigation:(BOOL)value { (void)value; }
+// -_pathToDownloadTaskFile is declared on NSURLSessionTask (CFNetworkSPI.h) and WebKit sets it through
+// that type; installed on the shared root of the concrete classes, a data task can carry the path before
+// it becomes a download task and a download task can bind it.
+- (NSString *)_pathToDownloadTaskFile
+{
     return objc_getAssociatedObject(self, (const void *)&wk_downloadTaskFilePathKey);
 }
-
-static void wk_urlSessionTask_setPathToDownloadTaskFile(id self, SEL _cmd, NSString *path)
+- (void)set_pathToDownloadTaskFile:(NSString *)path
 {
-    (void)_cmd;
     objc_setAssociatedObject(self, (const void *)&wk_downloadTaskFilePathKey, path, OBJC_ASSOCIATION_COPY_NONATOMIC);
 
     // A data task has no output file to bind; wk_bindDownloadTaskToFile returns without doing anything,
@@ -2838,19 +2563,7 @@ static void wk_urlSessionTask_setPathToDownloadTaskFile(id self, SEL _cmd, NSStr
     // NetworkSessionCocoa's -URLSession:dataTask:didBecomeDownloadTask:).
     wk_bindDownloadTaskToFile(self, path);
 }
-
-// The property is declared on NSURLSessionTask (CFNetworkSPI.h) and WebKit sets it through that type,
-// but 10.9 vends concrete subclasses that are NOT descendants of the public class
-// (__NSCFLocalDataTask : __NSCFLocalSessionTask : __NSCFURLSessionTask : NSObject), so registering it
-// only on NSURLSessionTask would reach no instance. Same reasoning as
-// wk_cancelByProducingResumeData: above. Registered on the shared root of the concrete classes, so a
-// data task can carry the path before it becomes a download task and a download task can bind it.
-WK_POLYFILL_ADD("NSURLSessionTask", "wk__pathToDownloadTaskFile", wk_urlSessionTask_pathToDownloadTaskFile, "@@:");
-WK_POLYFILL_ADD("NSURLSessionTask", "wk_set_pathToDownloadTaskFile:", wk_urlSessionTask_setPathToDownloadTaskFile, "v@:@");
-WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__pathToDownloadTaskFile", wk_urlSessionTask_pathToDownloadTaskFile, "@@:");
-WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_set_pathToDownloadTaskFile:", wk_urlSessionTask_setPathToDownloadTaskFile, "v@:@");
-WK_POLYFILL_SEL("_pathToDownloadTaskFile", "wk__pathToDownloadTaskFile");
-WK_POLYFILL_SEL("set_pathToDownloadTaskFile:", "wk_set_pathToDownloadTaskFile:");
+@end
 
 // ---------------------------------------------------------------------------------------------------
 // +[NSLocale matchedLanguagesFromAvailableLanguages:forPreferredLanguages:] (#68) is
@@ -2880,11 +2593,8 @@ static NSString *wk_primaryLanguageSubtag(NSString *languageTag)
     NSString *code = (sep.location == NSNotFound) ? canonical : [canonical substringToIndex:sep.location];
     return code.lowercaseString;
 }
-@interface NSLocale (WKPolyfillScopeLangMatch)
-+ (NSArray *)wk_matchedLanguagesFromAvailableLanguages:(NSArray *)availableLanguages forPreferredLanguages:(NSArray *)preferredLanguages;
-@end
-@implementation NSLocale (WKPolyfillScopeLangMatch)
-+ (NSArray *)wk_matchedLanguagesFromAvailableLanguages:(NSArray *)availableLanguages forPreferredLanguages:(NSArray *)preferredLanguages
+WK_POLYFILL_ADD_METHODS(NSLocale)
++ (NSArray<NSString *> *)matchedLanguagesFromAvailableLanguages:(NSArray<NSString *> *)availableLanguages forPreferredLanguages:(NSArray<NSString *> *)preferredLanguages
 {
     NSArray *ordered = [NSBundle preferredLocalizationsFromArray:availableLanguages forPreferences:preferredLanguages];
     if (!ordered.count)
@@ -2911,7 +2621,6 @@ static NSString *wk_primaryLanguageSubtag(NSString *languageTag)
     return matched;
 }
 @end
-WK_POLYFILL_SEL("matchedLanguagesFromAvailableLanguages:forPreferredLanguages:", "wk_matchedLanguagesFromAvailableLanguages:forPreferredLanguages:");
 
 // -[NSProgress fileOperationKind]/-fileURL and their setters (10.13+) are thin wrappers over
 // userInfo keys 10.9 already defines, so implement them that way. NSProgress itself ships in 10.9;
@@ -2919,35 +2628,21 @@ WK_POLYFILL_SEL("matchedLanguagesFromAvailableLanguages:forPreferredLanguages:",
 // download's progress to the Finder.
 //
 // fileURL/setFileURL: are generic names -- WebKit sends them to other classes too. That is handled:
-// a class that implements the real method has wk_fileURL aliased to its own IMP when its image
-// loads, so only NSProgress reaches this polyfill.
-@interface NSProgress (WKPolyfillScopeFileProgress)
-- (void)wk_setFileOperationKind:(NSString *)kind;
-- (NSString *)wk_fileOperationKind;
-- (void)wk_setFileURL:(NSURL *)url;
-- (NSURL *)wk_fileURL;
+// a class that implements the real method has its own implementation aliased under the private
+// selector when its image loads, so only NSProgress reaches this polyfill.
+WK_POLYFILL_ADD_METHODS(NSProgress)
+- (void)setFileOperationKind:(NSProgressFileOperationKind)kind { [self setUserInfoObject:kind forKey:NSProgressFileOperationKindKey]; }
+- (NSProgressFileOperationKind)fileOperationKind { return [[self userInfo] objectForKey:NSProgressFileOperationKindKey]; }
+- (void)setFileURL:(NSURL *)url { [self setUserInfoObject:url forKey:NSProgressFileURLKey]; }
+- (NSURL *)fileURL { return [[self userInfo] objectForKey:NSProgressFileURLKey]; }
 @end
-@implementation NSProgress (WKPolyfillScopeFileProgress)
-- (void)wk_setFileOperationKind:(NSString *)kind { [self setUserInfoObject:kind forKey:NSProgressFileOperationKindKey]; }
-- (NSString *)wk_fileOperationKind { return [[self userInfo] objectForKey:NSProgressFileOperationKindKey]; }
-- (void)wk_setFileURL:(NSURL *)url { [self setUserInfoObject:url forKey:NSProgressFileURLKey]; }
-- (NSURL *)wk_fileURL { return [[self userInfo] objectForKey:NSProgressFileURLKey]; }
-@end
-WK_POLYFILL_SEL("setFileOperationKind:", "wk_setFileOperationKind:");
-WK_POLYFILL_SEL("fileOperationKind", "wk_fileOperationKind");
-WK_POLYFILL_SEL("setFileURL:", "wk_setFileURL:");
-WK_POLYFILL_SEL("fileURL", "wk_fileURL");
 
 // -[NSKeyedUnarchiver _enableStrictSecureDecodingMode] (10.13+) opts an unarchiver into rejecting the
 // looser decodes that older secure coding tolerated. 10.9 has no such mode to enable, so doing nothing
 // IS this OS's behaviour -- the decode simply runs under the secure-coding rules 10.9 does implement.
-@interface NSKeyedUnarchiver (WKPolyfillScopeStrictDecoding)
-- (void)wk_enableStrictSecureDecodingMode;
+WK_POLYFILL_ADD_METHODS(NSKeyedUnarchiver)
+- (void)_enableStrictSecureDecodingMode { }
 @end
-@implementation NSKeyedUnarchiver (WKPolyfillScopeStrictDecoding)
-- (void)wk_enableStrictSecureDecodingMode { }
-@end
-WK_POLYFILL_SEL("_enableStrictSecureDecodingMode", "wk_enableStrictSecureDecodingMode");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSURLSession dataTaskWithRequest:] / -uploadTaskWithStreamedRequest: with a STREAM body.
@@ -3054,37 +2749,23 @@ static NSURL *wk_spoolStreamBodyToFile(NSURLRequest *request, NSString **pathOut
 
 static const void *wkUploadSpoolOwnerKey = &wkUploadSpoolOwnerKey;
 
-// realIMP is the implementation this body stands in for, resolved by the caller against its OWN function
-// pointer (wk_replaces_call_through_imp) rather than re-sent to self — sending the public selector back
-// to self re-resolves from the top of the chain and can re-enter this body. See wk_selref_scope.h.
-static id wk_urlSession_taskForStreamedRequest(id self, SEL realSelector, IMP realIMP, NSURLRequest *request)
+// The upload task standing in for a stream-bodied `request`, or nil when the request is to be handed to
+// the implementation the body stands in for, untouched, with its stream unread. *spoolFailed reports a
+// stream that was consumed with no task to carry it.
+static id wk_urlSession_spooledUploadTask(id self, NSURLRequest *request, BOOL *spoolFailed)
 {
-    id (*callReal)(id, SEL, id) = (id (*)(id, SEL, id))realIMP;
-    // Nothing to substitute (no stream body, or no caller-set length): the real selector gets the request
-    // untouched, with its stream unread.
+    *spoolFailed = NO;
+    // Nothing to substitute (no stream body, or no caller-set length).
     NSInputStream *bodyStream = [request HTTPBodyStream];
     NSString *lengthHeader = [request valueForHTTPHeaderField:@"Content-Length"];
     if (!bodyStream || ![lengthHeader length] || [lengthHeader longLongValue] <= 0)
-        return callReal(self, realSelector, request);
+        return nil;
 
     NSString *path = nil;
     NSURL *fileURL = wk_spoolStreamBodyToFile(request, &path);
-
-    // Reading the stream consumed it, so once that has happened there is no way back to the unsubstituted
-    // request: handing the drained stream to the real selector would upload a truncated body. A failed
-    // spool therefore has to become a FAILED LOAD, and it has to fail the way any other load fails -- a
-    // real task carried through the delegate with an error -- so the caller's bookkeeping still works.
-    // Returning nil instead is not available: NetworkDataTaskCocoa assigns the result unconditionally and
-    // then keys dataTaskMap on [m_task taskIdentifier], which is 0 for nil and is also the identifier of
-    // the first real task in a session; the entry is never removed (the destructor requires m_task), so the
-    // load hangs with no error and the next identifier-0 task in that session trips a RELEASE_ASSERT.
     if (!fileURL) {
-        id failedTask = callReal(self, realSelector, request);
-        // -cancel is the ordinary way to make a created task end in an error its delegate sees; nothing is
-        // sent because the task has not been resumed.
-        if (failedTask)
-            ((void (*)(id, SEL))objc_msgSend)(failedTask, sel_registerName("cancel"));
-        return failedTask;
+        *spoolFailed = YES;
+        return nil;
     }
 
     NSMutableURLRequest *uploadRequest = [[request mutableCopy] autorelease];
@@ -3094,12 +2775,10 @@ static id wk_urlSession_taskForStreamedRequest(id self, SEL realSelector, IMP re
 
     id task = ((id (*)(id, SEL, id, id))objc_msgSend)(self, sel_registerName("uploadTaskWithRequest:fromFile:"), uploadRequest, fileURL);
     if (!task) {
-        // Same reasoning as above: the stream is gone, so this cannot fall back to it.
+        // The stream is gone, so this cannot fall back to it either.
         [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
-        id failedTask = callReal(self, realSelector, request);
-        if (failedTask)
-            ((void (*)(id, SEL))objc_msgSend)(failedTask, sel_registerName("cancel"));
-        return failedTask;
+        *spoolFailed = YES;
+        return nil;
     }
     // The spool outlives this call and must die with the task that reads it.
     WKPolyfillScopeUploadSpoolOwner *owner = [[WKPolyfillScopeUploadSpoolOwner alloc] init];
@@ -3109,53 +2788,21 @@ static id wk_urlSession_taskForStreamedRequest(id self, SEL realSelector, IMP re
     return task;
 }
 
-static id wk_urlSession_dataTaskWithRequest(id self, SEL _cmd, NSURLRequest *request)
+// Reading the stream consumed it, so once that has happened there is no way back to the unsubstituted
+// request: handing the drained stream to the real selector would upload a truncated body. A failed
+// spool therefore has to become a FAILED LOAD, and it has to fail the way any other load fails -- a
+// real task carried through the delegate with an error -- so the caller's bookkeeping still works.
+// Returning nil instead is not available: NetworkDataTaskCocoa assigns the result unconditionally and
+// then keys dataTaskMap on [m_task taskIdentifier], which is 0 for nil and is also the identifier of
+// the first real task in a session; the entry is never removed (the destructor requires m_task), so the
+// load hangs with no error and the next identifier-0 task in that session trips a RELEASE_ASSERT.
+// -cancel is the ordinary way to make a created task end in an error its delegate sees; nothing is
+// sent because the task has not been resumed.
+static id wk_urlSession_taskFailedBySpool(id task, BOOL spoolFailed)
 {
-    SEL real = sel_registerName("dataTaskWithRequest:");
-    return wk_urlSession_taskForStreamedRequest(self, real,
-        wk_replaces_call_through_imp(self, (IMP)wk_urlSession_dataTaskWithRequest, _cmd, real),
-        wk_requestPreparedForSession(self, request));
-}
-
-static id wk_urlSession_uploadTaskWithStreamedRequest(id self, SEL _cmd, NSURLRequest *request)
-{
-    SEL real = sel_registerName("uploadTaskWithStreamedRequest:");
-    return wk_urlSession_taskForStreamedRequest(self, real,
-        wk_replaces_call_through_imp(self, (IMP)wk_urlSession_uploadTaskWithStreamedRequest, _cmd, real),
-        wk_requestPreparedForSession(self, request));
-}
-
-// Registered on the public class AND on the concrete one: NSURLSession is a class cluster whose
-// __NSCFURLSession is NOT a subclass of NSURLSession (measured: __NSCFURLSession -> NSObject), so a
-// method added only to the public class reaches no instance.
-WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_dataTaskWithRequest:", wk_urlSession_dataTaskWithRequest, "@@:@");
-WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_dataTaskWithRequest:", wk_urlSession_dataTaskWithRequest, "@@:@");
-WK_POLYFILL_SEL_REPLACES("dataTaskWithRequest:", "wk_dataTaskWithRequest:");
-WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_uploadTaskWithStreamedRequest:", wk_urlSession_uploadTaskWithStreamedRequest, "@@:@");
-WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_uploadTaskWithStreamedRequest:", wk_urlSession_uploadTaskWithStreamedRequest, "@@:@");
-WK_POLYFILL_SEL_REPLACES("uploadTaskWithStreamedRequest:", "wk_uploadTaskWithStreamedRequest:");
-
-// The rest of the request-taking task creators, so the authoritative-storage cookie policy above reaches
-// a task however it was made rather than only the way WebKit happens to make one. The URL-taking forms
-// are defined as their request-taking sibling over -requestWithURL:, so they build that request, stamp
-// it and hand it on. -downloadTaskWithResumeData: takes no request and cannot be stamped: a task resumed
-// from data answers to the session configuration's policy, which is the one gap in this coverage.
-#define WK_URLSESSION_STAMP_REQ(NAME, SEL_NAME) \
-static id NAME(id self, SEL _cmd, NSURLRequest *request) \
-{ \
-    SEL real = sel_registerName(SEL_NAME); \
-    typedef id (*Fn)(id, SEL, id); \
-    Fn callReal = (Fn)wk_replaces_call_through_imp(self, (IMP)NAME, _cmd, real); \
-    return callReal(self, real, wk_requestPreparedForSession(self, request)); \
-}
-
-#define WK_URLSESSION_STAMP_REQ_BODY(NAME, SEL_NAME) \
-static id NAME(id self, SEL _cmd, NSURLRequest *request, id body) \
-{ \
-    SEL real = sel_registerName(SEL_NAME); \
-    typedef id (*Fn)(id, SEL, id, id); \
-    Fn callReal = (Fn)wk_replaces_call_through_imp(self, (IMP)NAME, _cmd, real); \
-    return callReal(self, real, wk_requestPreparedForSession(self, request), body); \
+    if (spoolFailed && task)
+        ((void (*)(id, SEL))objc_msgSend)(task, sel_registerName("cancel"));
+    return task;
 }
 
 // The request a URL-taking creator stands for: -[NSURLSession dataTaskWithURL:] builds it from the
@@ -3171,67 +2818,84 @@ static NSURLRequest *wk_urlSession_requestForURL(id session, NSURL *url)
                         timeoutInterval:[configuration timeoutIntervalForRequest]];
 }
 
-// A URL-taking creator forwards to the PUBLIC request-taking selector. Sent from this library the public
-// selector is not rewritten (wk_selref_scope rewrites WebKit images only), so it reaches the platform
-// method directly and cannot re-enter the wrapper above.
-#define WK_URLSESSION_STAMP_URL(NAME, REQ_SEL_NAME) \
-static id NAME(id self, SEL _cmd, NSURL *url) \
-{ \
-    (void)_cmd; \
-    return ((id (*)(id, SEL, id))objc_msgSend)(self, sel_registerName(REQ_SEL_NAME), \
-        wk_requestCarryingStorageCookieAcceptPolicy(self, wk_urlSession_requestForURL(self, url))); \
-}  /* the request form it forwards to prepares the request for the session */
-
 // A task created with a completion handler still gets the delegate's redirect callback, but none of the
 // response callbacks (measured), so the handler the caller passed is where its response is seen; it is
 // wrapped and still runs.
-#define WK_URLSESSION_STAMP_REQ_HANDLER(NAME, SEL_NAME) \
-static id NAME(id self, SEL _cmd, NSURLRequest *request, id handler) \
-{ \
-    SEL real = sel_registerName(SEL_NAME); \
-    typedef id (*Fn)(id, SEL, id, id); \
-    Fn callReal = (Fn)wk_replaces_call_through_imp(self, (IMP)NAME, _cmd, real); \
-    id session = self; \
-    id wrapped = handler; \
-    if (handler) { \
-        void (^original)(id, id, id) = (void (^)(id, id, id))handler; \
-        wrapped = [[^(id result, id response, id error) { \
-            wk_captureSameSiteFromResponse(session, response); \
-            original(result, response, error); \
-        } copy] autorelease]; \
-    } \
-    return callReal(self, real, wk_requestPreparedForSession(self, request), wrapped); \
+static id wk_urlSession_handlerCapturingSameSite(id session, id handler)
+{
+    if (!handler)
+        return handler;
+    void (^original)(id, id, id) = (void (^)(id, id, id))handler;
+    return [[^(id result, id response, id error) {
+        wk_captureSameSiteFromResponse(session, response);
+        original(result, response, error);
+    } copy] autorelease];
 }
 
-WK_URLSESSION_STAMP_REQ_HANDLER(wk_urlSession_dataTaskWithRequestCompletionHandler, "dataTaskWithRequest:completionHandler:")
-WK_URLSESSION_STAMP_REQ_HANDLER(wk_urlSession_downloadTaskWithRequestCompletionHandler, "downloadTaskWithRequest:completionHandler:")
-WK_URLSESSION_STAMP_REQ(wk_urlSession_downloadTaskWithRequest, "downloadTaskWithRequest:")
-WK_URLSESSION_STAMP_REQ_BODY(wk_urlSession_uploadTaskWithRequestFromData, "uploadTaskWithRequest:fromData:")
-WK_URLSESSION_STAMP_REQ_BODY(wk_urlSession_uploadTaskWithRequestFromFile, "uploadTaskWithRequest:fromFile:")
-WK_URLSESSION_STAMP_URL(wk_urlSession_dataTaskWithURL, "dataTaskWithRequest:")
-WK_URLSESSION_STAMP_URL(wk_urlSession_downloadTaskWithURL, "downloadTaskWithRequest:")
-
-WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_dataTaskWithRequest:completionHandler:", wk_urlSession_dataTaskWithRequestCompletionHandler, "@@:@@?");
-WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_dataTaskWithRequest:completionHandler:", wk_urlSession_dataTaskWithRequestCompletionHandler, "@@:@@?");
-WK_POLYFILL_SEL_REPLACES("dataTaskWithRequest:completionHandler:", "wk_dataTaskWithRequest:completionHandler:");
-WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_downloadTaskWithRequest:completionHandler:", wk_urlSession_downloadTaskWithRequestCompletionHandler, "@@:@@?");
-WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_downloadTaskWithRequest:completionHandler:", wk_urlSession_downloadTaskWithRequestCompletionHandler, "@@:@@?");
-WK_POLYFILL_SEL_REPLACES("downloadTaskWithRequest:completionHandler:", "wk_downloadTaskWithRequest:completionHandler:");
-WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_downloadTaskWithRequest:", wk_urlSession_downloadTaskWithRequest, "@@:@");
-WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_downloadTaskWithRequest:", wk_urlSession_downloadTaskWithRequest, "@@:@");
-WK_POLYFILL_SEL_REPLACES("downloadTaskWithRequest:", "wk_downloadTaskWithRequest:");
-WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_uploadTaskWithRequest:fromData:", wk_urlSession_uploadTaskWithRequestFromData, "@@:@@");
-WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_uploadTaskWithRequest:fromData:", wk_urlSession_uploadTaskWithRequestFromData, "@@:@@");
-WK_POLYFILL_SEL_REPLACES("uploadTaskWithRequest:fromData:", "wk_uploadTaskWithRequest:fromData:");
-WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_uploadTaskWithRequest:fromFile:", wk_urlSession_uploadTaskWithRequestFromFile, "@@:@@");
-WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_uploadTaskWithRequest:fromFile:", wk_urlSession_uploadTaskWithRequestFromFile, "@@:@@");
-WK_POLYFILL_SEL_REPLACES("uploadTaskWithRequest:fromFile:", "wk_uploadTaskWithRequest:fromFile:");
-WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_dataTaskWithURL:", wk_urlSession_dataTaskWithURL, "@@:@");
-WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_dataTaskWithURL:", wk_urlSession_dataTaskWithURL, "@@:@");
-WK_POLYFILL_SEL_REPLACES("dataTaskWithURL:", "wk_dataTaskWithURL:");
-WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_downloadTaskWithURL:", wk_urlSession_downloadTaskWithURL, "@@:@");
-WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_downloadTaskWithURL:", wk_urlSession_downloadTaskWithURL, "@@:@");
-WK_POLYFILL_SEL_REPLACES("downloadTaskWithURL:", "wk_downloadTaskWithURL:");
+// Installed on the public class AND on the concrete one: NSURLSession is a class cluster whose
+// __NSCFURLSession is NOT a subclass of NSURLSession (measured: __NSCFURLSession -> NSObject), so a
+// method installed only on the public class reaches no instance.
+//
+// Every request-taking task creator is covered, so the authoritative-storage cookie policy above reaches
+// a task however it was made rather than only the way WebKit happens to make one. The URL-taking forms
+// are defined as their request-taking sibling over -requestWithURL:, so they build that request, stamp
+// it and hand it on. -downloadTaskWithResumeData: takes no request and cannot be stamped: a task resumed
+// from data answers to the session configuration's policy, which is the one gap in this coverage.
+WK_POLYFILL_REPLACE_METHODS_ON(NSURLSession, "NSURLSession", "__NSCFURLSession")
+- (NSURLSessionDataTask *)dataTaskWithRequest:(NSURLRequest *)request
+{
+    request = wk_requestPreparedForSession(self, request);
+    BOOL spoolFailed = NO;
+    id task = wk_urlSession_spooledUploadTask(self, request, &spoolFailed);
+    if (task)
+        return task;
+    return wk_urlSession_taskFailedBySpool(WK_ORIGINAL_METHOD(id, (NSURLRequest *), request), spoolFailed);
+}
+- (NSURLSessionUploadTask *)uploadTaskWithStreamedRequest:(NSURLRequest *)request
+{
+    request = wk_requestPreparedForSession(self, request);
+    BOOL spoolFailed = NO;
+    id task = wk_urlSession_spooledUploadTask(self, request, &spoolFailed);
+    if (task)
+        return task;
+    return wk_urlSession_taskFailedBySpool(WK_ORIGINAL_METHOD(id, (NSURLRequest *), request), spoolFailed);
+}
+- (NSURLSessionDataTask *)dataTaskWithRequest:(NSURLRequest *)request completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))completionHandler
+{
+    return WK_ORIGINAL_METHOD(id, (NSURLRequest *, id), wk_requestPreparedForSession(self, request),
+        wk_urlSession_handlerCapturingSameSite(self, completionHandler));
+}
+- (NSURLSessionDownloadTask *)downloadTaskWithRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURL *, NSURLResponse *, NSError *))completionHandler
+{
+    return WK_ORIGINAL_METHOD(id, (NSURLRequest *, id), wk_requestPreparedForSession(self, request),
+        wk_urlSession_handlerCapturingSameSite(self, completionHandler));
+}
+- (NSURLSessionDownloadTask *)downloadTaskWithRequest:(NSURLRequest *)request
+{
+    return WK_ORIGINAL_METHOD(id, (NSURLRequest *), wk_requestPreparedForSession(self, request));
+}
+- (NSURLSessionUploadTask *)uploadTaskWithRequest:(NSURLRequest *)request fromData:(NSData *)bodyData
+{
+    return WK_ORIGINAL_METHOD(id, (NSURLRequest *, id), wk_requestPreparedForSession(self, request), bodyData);
+}
+- (NSURLSessionUploadTask *)uploadTaskWithRequest:(NSURLRequest *)request fromFile:(NSURL *)fileURL
+{
+    return WK_ORIGINAL_METHOD(id, (NSURLRequest *, id), wk_requestPreparedForSession(self, request), fileURL);
+}
+// A URL-taking creator forwards to the PUBLIC request-taking selector through a runtime-built selector,
+// which the selref rewrite does not touch, so it reaches the platform method directly and cannot
+// re-enter the request-taking body above; that body is what prepares a request for the session.
+- (NSURLSessionDataTask *)dataTaskWithURL:(NSURL *)url
+{
+    return ((id (*)(id, SEL, id))objc_msgSend)(self, sel_registerName("dataTaskWithRequest:"),
+        wk_requestCarryingStorageCookieAcceptPolicy(self, wk_urlSession_requestForURL(self, url)));
+}
+- (NSURLSessionDownloadTask *)downloadTaskWithURL:(NSURL *)url
+{
+    return ((id (*)(id, SEL, id))objc_msgSend)(self, sel_registerName("downloadTaskWithRequest:"),
+        wk_requestCarryingStorageCookieAcceptPolicy(self, wk_urlSession_requestForURL(self, url)));
+}
+@end
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSURLRequest _schemeWasUpgradedDueToDynamicHSTS] (10.11+ CFNetwork SPI) reports that CFNetwork's
@@ -3239,12 +2903,8 @@ WK_POLYFILL_SEL_REPLACES("downloadTaskWithURL:", "wk_downloadTaskWithURL:");
 // never upgrades a scheme, so no request on this OS was ever HSTS-upgraded. Lets
 // WebCoreURLResponse.mm's synthesizeRedirectResponseIfNecessary call it unguarded (upstream's other
 // call sites carry their own respondsToSelector: guard, which now answers through this body too).
-@interface NSURLRequest (WKPolyfillScope)
-- (BOOL)wk__schemeWasUpgradedDueToDynamicHSTS;
+WK_POLYFILL_ADD_METHODS(NSURLRequest)
+- (BOOL)_schemeWasUpgradedDueToDynamicHSTS { return NO; }
 @end
-@implementation NSURLRequest (WKPolyfillScope)
-- (BOOL)wk__schemeWasUpgradedDueToDynamicHSTS { return NO; }
-@end
-WK_POLYFILL_SEL("_schemeWasUpgradedDueToDynamicHSTS", "wk__schemeWasUpgradedDueToDynamicHSTS");
 
 #pragma clang diagnostic pop

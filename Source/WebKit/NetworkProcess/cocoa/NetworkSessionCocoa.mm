@@ -1016,7 +1016,7 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
     // internal sends. Carrying the destination across the conversion in the polyfill instead would mean
     // correlating the two task objects out of band and hanging the work off some accessor a client
     // happens to call -- correct only for callers that call it. See the _pathToDownloadTaskFile polyfill
-    // in MavericksSupport/polyfill/polyfills/methods.m.
+    // in MavericksSupport/polyfill/polyfills/methods/Foundation.m.
     downloadTask._pathToDownloadTaskFile = networkDataTask->pendingDownloadLocation().createNSString().get();
     CheckedRef downloadManager = sessionCocoa->networkProcess().downloadManager();
     Ref download = WebKit::Download::create(downloadManager, downloadID, downloadTask, *sessionCocoa, networkDataTask->suggestedFilename());

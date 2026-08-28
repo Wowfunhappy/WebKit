@@ -1,8 +1,9 @@
 // AppKit: Objective-C methods on AppKit classes that macOS 10.9 does not have (or gets wrong),
-// implemented with the APIs 10.9 does have.//
-// To add one: implement the method as a category on the real system class under a `wk_`-prefixed name,
-// then register it with WK_POLYFILL_SEL("<name>", "wk_<name>"). WebKit's call sites keep saying
-// `[obj <name>]` and get the polyfill. That is the whole recipe.
+// implemented with the APIs 10.9 does have.
+//
+// To add one: implement the method under its real name inside a WK_POLYFILL_ADD_METHODS(Class) block
+// (or WK_POLYFILL_REPLACE_METHODS for a method 10.9 has). WebKit's call sites keep saying `[obj <name>]`
+// and get the polyfill. That is the whole recipe.
 //
 // VALUES: prefer a SEMANTIC 10.9 equivalent (a real API that still exists and adapts) over a frozen
 // literal. A polyfill's contract is the system API's modern behavior, so it is correct at every caller.
@@ -31,41 +32,27 @@
 // NSGraphicsContext CGContext accessors (10.10+) via the classic 10.9 graphics-port SPI. -CGContext and
 // +graphicsContextWithCGContext:flipped: are the 10.10 renames of -graphicsPort and
 // +graphicsContextWithGraphicsPort:flipped:.
-@interface NSGraphicsContext (WKPolyfillScope)
-- (CGContextRef)wk_CGContext;
-+ (NSGraphicsContext *)wk_graphicsContextWithCGContext:(CGContextRef)context flipped:(BOOL)flipped;
-@end
-@implementation NSGraphicsContext (WKPolyfillScope)
-- (CGContextRef)wk_CGContext { return (CGContextRef)[self graphicsPort]; }
-+ (NSGraphicsContext *)wk_graphicsContextWithCGContext:(CGContextRef)context flipped:(BOOL)flipped
+WK_POLYFILL_ADD_METHODS(NSGraphicsContext)
+- (CGContextRef)CGContext { return (CGContextRef)[self graphicsPort]; }
++ (NSGraphicsContext *)graphicsContextWithCGContext:(CGContextRef)context flipped:(BOOL)flipped
 {
     return [NSGraphicsContext graphicsContextWithGraphicsPort:(void *)context flipped:flipped];
 }
 @end
-WK_POLYFILL_SEL("CGContext", "wk_CGContext");
-WK_POLYFILL_SEL("graphicsContextWithCGContext:flipped:", "wk_graphicsContextWithCGContext:flipped:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSButtonCell _setState:animated:] / _setHighlighted:animated: (10.10+) animate the transition; the
 // plain -setState: / -setHighlighted: 10.9 already has make it instantly. Every call site passes
 // animated:NO, so the instant form is exactly what they ask for.
-@interface NSButtonCell (WKPolyfillScope)
-- (void)wk__setState:(NSInteger)state animated:(BOOL)animated;
-- (void)wk__setHighlighted:(BOOL)highlighted animated:(BOOL)animated;
-- (BOOL)wk__stateAnimationRunning;
-@end
-@implementation NSButtonCell (WKPolyfillScope)
-- (void)wk__setState:(NSInteger)state animated:(BOOL)animated { (void)animated; [self setState:state]; }
-- (void)wk__setHighlighted:(BOOL)highlighted animated:(BOOL)animated { (void)animated; [self setHighlighted:highlighted]; }
+WK_POLYFILL_ADD_METHODS(NSButtonCell)
+- (void)_setState:(NSInteger)state animated:(BOOL)animated { (void)animated; [self setState:state]; }
+- (void)_setHighlighted:(BOOL)highlighted animated:(BOOL)animated { (void)animated; [self setHighlighted:highlighted]; }
 // -_stateAnimationRunning (10.10+ SPI) reports the checkbox/radio state-change animation the two
 // setters above would have started; on 10.9 no such animation exists, so it is never running.
 // ToggleButtonMac then takes its ordinary drawCell path (its animation branch, including
 // -_renderCurrentAnimationFrameInContext:atLocation:, is only reachable when this answers YES).
-- (BOOL)wk__stateAnimationRunning { return NO; }
+- (BOOL)_stateAnimationRunning { return NO; }
 @end
-WK_POLYFILL_SEL("_setState:animated:", "wk__setState:animated:");
-WK_POLYFILL_SEL("_setHighlighted:animated:", "wk__setHighlighted:animated:");
-WK_POLYFILL_SEL("_stateAnimationRunning", "wk__stateAnimationRunning");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSControl setMaximumNumberOfLines:] (10.11+) and -[NSView sizeThatFits:] (10.10+). maximumNumberOfLines
@@ -74,16 +61,12 @@ WK_POLYFILL_SEL("_stateAnimationRunning", "wk__stateAnimationRunning");
 // restoring the frame so the measure has no side effect) and then clamps the height to the stored
 // line cap. maximumNumberOfLines stores the cap on the control; 0 (the default) means no cap.
 static const char kWKMaxLinesKey;
-@interface NSControl (WKPolyfillScope)
-- (void)wk_setMaximumNumberOfLines:(NSInteger)maximumNumberOfLines;
-- (NSSize)wk_sizeThatFits:(NSSize)size;
-@end
-@implementation NSControl (WKPolyfillScope)
-- (void)wk_setMaximumNumberOfLines:(NSInteger)maximumNumberOfLines
+WK_POLYFILL_ADD_METHODS(NSControl)
+- (void)setMaximumNumberOfLines:(NSInteger)maximumNumberOfLines
 {
     objc_setAssociatedObject(self, &kWKMaxLinesKey, @(maximumNumberOfLines), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
-- (NSSize)wk_sizeThatFits:(NSSize)size
+- (NSSize)sizeThatFits:(NSSize)size
 {
     NSRect saved = [self frame];
     [self setFrameSize:NSMakeSize(size.width, size.height)];
@@ -93,7 +76,7 @@ static const char kWKMaxLinesKey;
 
     NSInteger maxLines = [objc_getAssociatedObject(self, &kWKMaxLinesKey) integerValue];
     if (maxLines > 0) {
-        NSFont *font = [self respondsToSelector:@selector(font)] ? [(id)self font] : nil;
+        NSFont *font = [self font];
         if (font) {
             NSLayoutManager *lm = [[NSLayoutManager alloc] init];
             CGFloat cap = maxLines * [lm defaultLineHeightForFont:font];
@@ -104,96 +87,52 @@ static const char kWKMaxLinesKey;
     return fit;
 }
 @end
-WK_POLYFILL_SEL("setMaximumNumberOfLines:", "wk_setMaximumNumberOfLines:");
-WK_POLYFILL_SEL("sizeThatFits:", "wk_sizeThatFits:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSSearchFieldCell setCenteredLook:] (10.10+). The centered look is the Yosemite rounded search
 // field; 10.9's search field cell is the earlier bezeled style, which is the look setCenteredLook:NO
 // selects. WebKit only ever passes NO, so this reaches 10.9's state without doing anything.
-@interface NSSearchFieldCell (WKPolyfillScope)
-- (void)wk_setCenteredLook:(BOOL)centeredLook;
+WK_POLYFILL_ADD_METHODS(NSSearchFieldCell)
+- (void)setCenteredLook:(BOOL)centeredLook { (void)centeredLook; }
 @end
-@implementation NSSearchFieldCell (WKPolyfillScope)
-- (void)wk_setCenteredLook:(BOOL)centeredLook { (void)centeredLook; }
-@end
-WK_POLYFILL_SEL("setCenteredLook:", "wk_setCenteredLook:");
 
 // ---------------------------------------------------------------------------------------------------
 // NSColor semantic + system palette (10.10+/10.14+). Semantic names map to the 10.9 control-text /
 // selection semantics (a real color that still adapts); the systemXxx tint palette and systemFill
 // hierarchy have no 10.9 equivalent, so use Apple's documented sRGB constants.
-@interface NSColor (WKPolyfillScope)
-+ (NSColor *)wk_labelColor; + (NSColor *)wk_secondaryLabelColor; + (NSColor *)wk_tertiaryLabelColor;
-+ (NSColor *)wk_quaternaryLabelColor; + (NSColor *)wk_quinaryLabelColor; + (NSColor *)wk_placeholderTextColor;
-+ (NSColor *)wk_selectedContentBackgroundColor; + (NSColor *)wk_unemphasizedSelectedTextColor;
-+ (NSColor *)wk_unemphasizedSelectedContentBackgroundColor; + (NSColor *)wk_unemphasizedSelectedTextBackgroundColor;
-+ (NSColor *)wk_controlAccentColor; + (NSColor *)wk_separatorColor; + (NSColor *)wk_containerBorderColor;
-+ (NSColor *)wk_findHighlightColor;
-+ (NSColor *)wk_systemBlueColor; + (NSColor *)wk_systemBrownColor; + (NSColor *)wk_systemGrayColor;
-+ (NSColor *)wk_systemGreenColor; + (NSColor *)wk_systemOrangeColor; + (NSColor *)wk_systemPinkColor;
-+ (NSColor *)wk_systemPurpleColor; + (NSColor *)wk_systemRedColor; + (NSColor *)wk_systemYellowColor;
-+ (NSColor *)wk_systemFillColor; + (NSColor *)wk_secondarySystemFillColor; + (NSColor *)wk_tertiarySystemFillColor;
+WK_POLYFILL_ADD_METHODS(NSColor)
++ (NSColor *)labelColor                              { return [NSColor controlTextColor]; }
++ (NSColor *)secondaryLabelColor                     { return [NSColor disabledControlTextColor]; }
++ (NSColor *)tertiaryLabelColor                      { return [NSColor disabledControlTextColor]; }
++ (NSColor *)quaternaryLabelColor                    { return [NSColor gridColor]; }
++ (NSColor *)quinaryLabelColor                       { return [NSColor gridColor]; }
++ (NSColor *)placeholderTextColor                    { return [NSColor disabledControlTextColor]; }
++ (NSColor *)selectedContentBackgroundColor          { return SRGB(56, 117, 215, 255); } // list-box active selection (sRGB; see note)
++ (NSColor *)unemphasizedSelectedTextColor           { return [NSColor textColor]; }
++ (NSColor *)unemphasizedSelectedContentBackgroundColor { return SRGB(220, 220, 220, 255); }
++ (NSColor *)unemphasizedSelectedTextBackgroundColor { return SRGB(220, 220, 220, 255); }
++ (NSColor *)controlAccentColor                      { return [NSColor alternateSelectedControlColor]; } // 10.9 system blue
++ (NSColor *)separatorColor                          { return [NSColor gridColor]; }
++ (NSColor *)containerBorderColor                    { return [NSColor gridColor]; }
++ (NSColor *)findHighlightColor                      { return SRGB(255, 237, 102, 255); } // real find-highlight yellow
++ (NSColor *)systemBlueColor   { return SRGB(0, 122, 255, 255); }
++ (NSColor *)systemBrownColor  { return SRGB(162, 132, 94, 255); }
++ (NSColor *)systemGrayColor   { return SRGB(142, 142, 147, 255); }
++ (NSColor *)systemGreenColor  { return SRGB(52, 199, 89, 255); }
++ (NSColor *)systemOrangeColor { return SRGB(255, 149, 0, 255); }
++ (NSColor *)systemPinkColor   { return SRGB(255, 45, 85, 255); }
++ (NSColor *)systemPurpleColor { return SRGB(175, 82, 222, 255); }
++ (NSColor *)systemRedColor    { return SRGB(255, 59, 48, 255); }
++ (NSColor *)systemYellowColor { return SRGB(255, 204, 0, 255); }
++ (NSColor *)systemFillColor          { return SRGB(0, 0, 0, 26); }
++ (NSColor *)secondarySystemFillColor { return SRGB(0, 0, 0, 20); }
++ (NSColor *)tertiarySystemFillColor  { return SRGB(0, 0, 0, 13); }
 @end
-@implementation NSColor (WKPolyfillScope)
-+ (NSColor *)wk_labelColor                              { return [NSColor controlTextColor]; }
-+ (NSColor *)wk_secondaryLabelColor                     { return [NSColor disabledControlTextColor]; }
-+ (NSColor *)wk_tertiaryLabelColor                      { return [NSColor disabledControlTextColor]; }
-+ (NSColor *)wk_quaternaryLabelColor                    { return [NSColor gridColor]; }
-+ (NSColor *)wk_quinaryLabelColor                       { return [NSColor gridColor]; }
-+ (NSColor *)wk_placeholderTextColor                    { return [NSColor disabledControlTextColor]; }
-+ (NSColor *)wk_selectedContentBackgroundColor          { return SRGB(56, 117, 215, 255); } // list-box active selection (sRGB; see note)
-+ (NSColor *)wk_unemphasizedSelectedTextColor           { return [NSColor textColor]; }
-+ (NSColor *)wk_unemphasizedSelectedContentBackgroundColor { return SRGB(220, 220, 220, 255); }
-+ (NSColor *)wk_unemphasizedSelectedTextBackgroundColor { return SRGB(220, 220, 220, 255); }
-+ (NSColor *)wk_controlAccentColor                      { return [NSColor alternateSelectedControlColor]; } // 10.9 system blue
-+ (NSColor *)wk_separatorColor                          { return [NSColor gridColor]; }
-+ (NSColor *)wk_containerBorderColor                    { return [NSColor gridColor]; }
-+ (NSColor *)wk_findHighlightColor                      { return SRGB(255, 237, 102, 255); } // real find-highlight yellow
-+ (NSColor *)wk_systemBlueColor   { return SRGB(0, 122, 255, 255); }
-+ (NSColor *)wk_systemBrownColor  { return SRGB(162, 132, 94, 255); }
-+ (NSColor *)wk_systemGrayColor   { return SRGB(142, 142, 147, 255); }
-+ (NSColor *)wk_systemGreenColor  { return SRGB(52, 199, 89, 255); }
-+ (NSColor *)wk_systemOrangeColor { return SRGB(255, 149, 0, 255); }
-+ (NSColor *)wk_systemPinkColor   { return SRGB(255, 45, 85, 255); }
-+ (NSColor *)wk_systemPurpleColor { return SRGB(175, 82, 222, 255); }
-+ (NSColor *)wk_systemRedColor    { return SRGB(255, 59, 48, 255); }
-+ (NSColor *)wk_systemYellowColor { return SRGB(255, 204, 0, 255); }
-+ (NSColor *)wk_systemFillColor          { return SRGB(0, 0, 0, 26); }
-+ (NSColor *)wk_secondarySystemFillColor { return SRGB(0, 0, 0, 20); }
-+ (NSColor *)wk_tertiarySystemFillColor  { return SRGB(0, 0, 0, 13); }
-@end
-WK_POLYFILL_SEL("labelColor", "wk_labelColor");
-WK_POLYFILL_SEL("secondaryLabelColor", "wk_secondaryLabelColor");
-WK_POLYFILL_SEL("tertiaryLabelColor", "wk_tertiaryLabelColor");
-WK_POLYFILL_SEL("quaternaryLabelColor", "wk_quaternaryLabelColor");
-WK_POLYFILL_SEL("quinaryLabelColor", "wk_quinaryLabelColor");
-WK_POLYFILL_SEL("placeholderTextColor", "wk_placeholderTextColor");
-WK_POLYFILL_SEL("selectedContentBackgroundColor", "wk_selectedContentBackgroundColor");
-WK_POLYFILL_SEL("unemphasizedSelectedTextColor", "wk_unemphasizedSelectedTextColor");
-WK_POLYFILL_SEL("unemphasizedSelectedContentBackgroundColor", "wk_unemphasizedSelectedContentBackgroundColor");
-WK_POLYFILL_SEL("unemphasizedSelectedTextBackgroundColor", "wk_unemphasizedSelectedTextBackgroundColor");
 // selectedTextBackgroundColor and alternateSelectedControlTextColor stay 10.9's own: both are present
 // here, both convert cleanly through makeSimpleColorFromNSColor (measured: rgb(181,213,255) and
 // rgb(255,255,255)), and 10.9's answer tracks the highlight colour set in System Preferences, which a
 // fixed value cannot. The catalog colours whose deviceRGB conversion does return nil are the patterned
 // controlColor and windowBackgroundColor, and upstream already reads those through its swatch fallback.
-WK_POLYFILL_SEL("controlAccentColor", "wk_controlAccentColor");
-WK_POLYFILL_SEL("separatorColor", "wk_separatorColor");
-WK_POLYFILL_SEL("containerBorderColor", "wk_containerBorderColor");
-WK_POLYFILL_SEL("findHighlightColor", "wk_findHighlightColor");
-WK_POLYFILL_SEL("systemBlueColor", "wk_systemBlueColor");
-WK_POLYFILL_SEL("systemBrownColor", "wk_systemBrownColor");
-WK_POLYFILL_SEL("systemGrayColor", "wk_systemGrayColor");
-WK_POLYFILL_SEL("systemGreenColor", "wk_systemGreenColor");
-WK_POLYFILL_SEL("systemOrangeColor", "wk_systemOrangeColor");
-WK_POLYFILL_SEL("systemPinkColor", "wk_systemPinkColor");
-WK_POLYFILL_SEL("systemPurpleColor", "wk_systemPurpleColor");
-WK_POLYFILL_SEL("systemRedColor", "wk_systemRedColor");
-WK_POLYFILL_SEL("systemYellowColor", "wk_systemYellowColor");
-WK_POLYFILL_SEL("systemFillColor", "wk_systemFillColor");
-WK_POLYFILL_SEL("secondarySystemFillColor", "wk_secondarySystemFillColor");
-WK_POLYFILL_SEL("tertiarySystemFillColor", "wk_tertiarySystemFillColor");
 
 // ---------------------------------------------------------------------------------------------------
 // The NSAppearance drawing API. 10.9 has the whole appearance mechanism — +currentAppearance,
@@ -254,24 +193,16 @@ static BOOL wkContextYGrowsDown(CGContextRef context)
     return (ctm.a * ctm.d - ctm.b * ctm.c) < 0;
 }
 
-@interface NSAppearance (WKPolyfillScope)
-+ (NSAppearance *)wk_currentDrawingAppearance;
-- (NSColor *)wk_tintColor;
-- (void)wk__drawInRect:(NSRect)rect context:(CGContextRef)context options:(NSDictionary *)options;
-- (NSString *)wk_bestMatchFromAppearancesWithNames:(NSArray *)names;
-- (BOOL)wk__usesMetricsAppearance;
-- (NSAppearance *)wk_appearanceByApplyingTintColor:(NSColor *)tintColor;
-@end
-@implementation NSAppearance (WKPolyfillScope)
+WK_POLYFILL_ADD_METHODS(NSAppearance)
 // 10.14 renamed +currentAppearance (which it deprecated for the setter's sake) to +currentDrawingAppearance;
 // the value is the same one -setCurrentAppearance:/-_performWithCurrentAppearance: install for the calling
 // thread. 10.9 never leaves it unset, but fall back to Aqua rather than hand back nil, as 10.14+ does not.
-+ (NSAppearance *)wk_currentDrawingAppearance
++ (NSAppearance *)currentDrawingAppearance
 {
     NSAppearance *current = [NSAppearance currentAppearance];
     return current ?: [NSAppearance appearanceNamed:NSAppearanceNameAqua];
 }
-- (NSColor *)wk_tintColor { return [NSColor alternateSelectedControlColor]; } // 10.9 accent
+- (NSColor *)tintColor { return [NSColor alternateSelectedControlColor]; } // 10.9 accent
 // 10.9's name for the same CoreUI draw. The view argument only supplies a backing-scale/geometry context
 // the callers here do not have either (they pass a bare CGContext), so nil is the faithful mapping. Every
 // widget key WebCore passes is one this CoreUI knows (the switch is disabled at the WebCore layer, so it
@@ -284,7 +215,7 @@ static BOOL wkContextYGrowsDown(CGContextRef context)
 // the CTM supplies what the caller no longer says. A caller that does set it is describing its own
 // destination and is left alone — ScrollbarTrackCornerSystemImageMac passes YES and InnerSpinButtonMac
 // passes NO, and overriding either would mirror a widget CoreUI has already landed correctly.
-- (void)wk__drawInRect:(NSRect)rect context:(CGContextRef)context options:(NSDictionary *)options
+- (void)_drawInRect:(NSRect)rect context:(CGContextRef)context options:(NSDictionary *)options
 {
     NSString *isFlippedKey = wkCoreUIIsFlippedKey();
     if (context && isFlippedKey && ![options objectForKey:isFlippedKey]) {
@@ -297,12 +228,12 @@ static BOOL wkContextYGrowsDown(CGContextRef context)
 // 10.9's appearances (Aqua and LightContent) all descend from Aqua and none of them is dark, so the
 // receiver's own name wins when it is offered and Aqua is the best match otherwise — the same resolution
 // 10.14+ performs over its inheritance graph, on the graph this OS has.
-- (NSString *)wk_bestMatchFromAppearancesWithNames:(NSArray *)names
+- (NSAppearanceName)bestMatchFromAppearancesWithNames:(NSArray<NSAppearanceName> *)appearances
 {
     NSString *name = [self name];
-    if (name && [names containsObject:name])
+    if (name && [appearances containsObject:name])
         return name;
-    for (NSString *candidate in names) {
+    for (NSString *candidate in appearances) {
         if ([candidate isEqualToString:NSAppearanceNameAqua])
             return candidate;
     }
@@ -310,20 +241,14 @@ static BOOL wkContextYGrowsDown(CGContextRef context)
 }
 // The metrics appearance is the 11.0 large-control geometry. 10.9 has no such appearance, so NO is the
 // answer, not a missing one.
-- (BOOL)wk__usesMetricsAppearance { return NO; }
+- (BOOL)_usesMetricsAppearance { return NO; }
 // 10.9's CoreUI has no per-appearance tint — see the divergence note above.
-- (NSAppearance *)wk_appearanceByApplyingTintColor:(NSColor *)tintColor
+- (NSAppearance *)appearanceByApplyingTintColor:(NSColor *)tintColor
 {
     (void)tintColor;
     return self;
 }
 @end
-WK_POLYFILL_SEL("currentDrawingAppearance", "wk_currentDrawingAppearance");
-WK_POLYFILL_SEL("tintColor", "wk_tintColor");
-WK_POLYFILL_SEL("_drawInRect:context:options:", "wk__drawInRect:context:options:");
-WK_POLYFILL_SEL("bestMatchFromAppearancesWithNames:", "wk_bestMatchFromAppearancesWithNames:");
-WK_POLYFILL_SEL("_usesMetricsAppearance", "wk__usesMetricsAppearance");
-WK_POLYFILL_SEL("appearanceByApplyingTintColor:", "wk_appearanceByApplyingTintColor:");
 
 // ---------------------------------------------------------------------------------------------------
 // NSWorkspace accessibility display options (10.10+), each read from the 10.9 setting behind it.
@@ -333,14 +258,8 @@ WK_POLYFILL_SEL("appearanceByApplyingTintColor:", "wk_appearanceByApplyingTintCo
 // two report NO.
 extern bool CGDisplayUsesInvertedPolarity(void);
 
-@interface NSWorkspace (WKPolyfillScope)
-- (BOOL)wk_accessibilityDisplayShouldIncreaseContrast;
-- (BOOL)wk_accessibilityDisplayShouldDifferentiateWithoutColor;
-- (BOOL)wk_accessibilityDisplayShouldReduceMotion;
-- (BOOL)wk_accessibilityDisplayShouldInvertColors;
-@end
-@implementation NSWorkspace (WKPolyfillScope)
-- (BOOL)wk_accessibilityDisplayShouldIncreaseContrast
+WK_POLYFILL_ADD_METHODS(NSWorkspace)
+- (BOOL)accessibilityDisplayShouldIncreaseContrast
 {
     CFTypeRef value = CFPreferencesCopyAppValue(CFSTR("contrast"), CFSTR("com.apple.universalaccess"));
     if (!value)
@@ -351,9 +270,9 @@ extern bool CGDisplayUsesInvertedPolarity(void);
     CFRelease(value);
     return contrast > 0;
 }
-- (BOOL)wk_accessibilityDisplayShouldDifferentiateWithoutColor { return NO; }
-- (BOOL)wk_accessibilityDisplayShouldReduceMotion              { return NO; }
-- (BOOL)wk_accessibilityDisplayShouldInvertColors              { return CGDisplayUsesInvertedPolarity(); }
+- (BOOL)accessibilityDisplayShouldDifferentiateWithoutColor { return NO; }
+- (BOOL)accessibilityDisplayShouldReduceMotion              { return NO; }
+- (BOOL)accessibilityDisplayShouldInvertColors              { return CGDisplayUsesInvertedPolarity(); }
 @end
 // The 10.10 workspace notification that says one of those options changed. 10.9's settings each post
 // their own distributed notification instead — libUAPreferences' UAContrastDidChangeNotification and
@@ -379,11 +298,6 @@ __attribute__((constructor)) static void wk_observeAccessibilityDisplayOptions(v
     CFNotificationCenterAddObserver(distributed, NULL, wk_accessibilityDisplayOptionDidChange,
         CFSTR("com.apple.universalaccess.screenPolarityDidChange"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
 }
-
-WK_POLYFILL_SEL("accessibilityDisplayShouldIncreaseContrast", "wk_accessibilityDisplayShouldIncreaseContrast");
-WK_POLYFILL_SEL("accessibilityDisplayShouldDifferentiateWithoutColor", "wk_accessibilityDisplayShouldDifferentiateWithoutColor");
-WK_POLYFILL_SEL("accessibilityDisplayShouldReduceMotion", "wk_accessibilityDisplayShouldReduceMotion");
-WK_POLYFILL_SEL("accessibilityDisplayShouldInvertColors", "wk_accessibilityDisplayShouldInvertColors");
 
 // ---------------------------------------------------------------------------------------------------
 // NSScreen -canRepresentDisplayGamut: (10.11+) — whether the display covers the gamut being asked
@@ -460,11 +374,8 @@ static BOOL wk_chromaticityIsInsideTriangle(const double a[2], const double b[2]
     return YES;
 }
 
-@interface NSScreen (WKPolyfillScope)
-- (BOOL)wk_canRepresentDisplayGamut:(NSInteger)gamut;
-@end
-@implementation NSScreen (WKPolyfillScope)
-- (BOOL)wk_canRepresentDisplayGamut:(NSInteger)gamut
+WK_POLYFILL_ADD_METHODS(NSScreen)
+- (BOOL)canRepresentDisplayGamut:(NSDisplayGamut)gamut
 {
     static const double sRGBPrimaries[3][2] = { { 0.648450, 0.330863 }, { 0.321199, 0.597841 }, { 0.155887, 0.066039 } };
     static const double displayP3Primaries[3][2] = { { 0.682051, 0.319348 }, { 0.284551, 0.674627 }, { 0.155893, 0.066059 } };
@@ -496,7 +407,6 @@ static BOOL wk_chromaticityIsInsideTriangle(const double a[2], const double b[2]
     return YES;
 }
 @end
-WK_POLYFILL_SEL("canRepresentDisplayGamut:", "wk_canRepresentDisplayGamut:");
 
 // ---------------------------------------------------------------------------------------------------
 // NSScreen -colorSpace answers nil on 10.9 whenever the display's ColorSync profile is not an RGB one:
@@ -505,17 +415,10 @@ WK_POLYFILL_SEL("canRepresentDisplayGamut:", "wk_canRepresentDisplayGamut:");
 // ColorSync still holds the profile, and CoreGraphics builds a colour space from its ICC data for each
 // of those models, so the display's own profile is the answer. PlatformScreenMac's
 // collectScreenProperties hands it to DestinationColorSpace, which requires a non-null CGColorSpaceRef.
-@interface NSScreen (WKPolyfillColorSpace)
-- (NSColorSpace *)wk_colorSpace;
-@end
-@implementation NSScreen (WKPolyfillColorSpace)
-- (NSColorSpace *)wk_colorSpace
+WK_POLYFILL_REPLACE_METHODS(NSScreen)
+- (NSColorSpace *)colorSpace
 {
-    SEL publicSelector = sel_registerName("colorSpace");
-    typedef NSColorSpace *(*ColorSpaceFunction)(id, SEL);
-    ColorSpaceFunction systemColorSpace =
-        (ColorSpaceFunction)wk_replaces_call_through_class(self, [NSScreen class], _cmd, publicSelector);
-    NSColorSpace *colorSpace = systemColorSpace(self, publicSelector);
+    NSColorSpace *colorSpace = WK_ORIGINAL_METHOD(NSColorSpace *, ());
     if (colorSpace)
         return colorSpace;
 
@@ -536,7 +439,6 @@ WK_POLYFILL_SEL("canRepresentDisplayGamut:", "wk_canRepresentDisplayGamut:");
     return [fromProfile autorelease];
 }
 @end
-WK_POLYFILL_SEL_REPLACES("colorSpace", "wk_colorSpace");
 
 // ---------------------------------------------------------------------------------------------------
 // NSScrollView content insets (10.10+): -contentInsets / -setContentInsets: and
@@ -556,7 +458,7 @@ WK_POLYFILL_SEL_REPLACES("colorSpace", "wk_colorSpace");
 // change — insets the clip view's frame by the stored insets after the standard layout. That padding is
 // constant at every scroll position, where AppKit's real insets are margins beyond the content revealed
 // fully only at the scroll extremes; for the few points of padding WebKit asks for, the difference is
-// invisible. Only WebKit's own selrefs are rewritten to these wk_ methods, so only WebKit-configured
+// invisible. Only WebKit's own selrefs are rewritten to these methods, so only WebKit-configured
 // scroll views ever get re-classed. The WK1 web scroll view stores zero on this port (no
 // titlebar-overlapping full-size content view, no translucent overlay toolbar over web content), and a
 // zero inset leaves -tile's layout untouched.
@@ -569,36 +471,24 @@ WK_POLYFILL_SEL_REPLACES("colorSpace", "wk_colorSpace");
 // tests/behaviour/AppKit-scrollview-insets.m, so the probe exercises the very code these methods run.
 #import "scrollview-inset-tile.h"
 
-@interface NSScrollView (WKPolyfillScope)
-- (NSEdgeInsets)wk_contentInsets;
-- (void)wk_setContentInsets:(NSEdgeInsets)contentInsets;
-- (void)wk_setAutomaticallyAdjustsContentInsets:(BOOL)automaticallyAdjustsContentInsets;
-@end
-@implementation NSScrollView (WKPolyfillScope)
-- (NSEdgeInsets)wk_contentInsets
+WK_POLYFILL_ADD_METHODS(NSScrollView)
+- (NSEdgeInsets)contentInsets
 {
     return wkScrollViewContentInsets(self);
 }
-- (void)wk_setContentInsets:(NSEdgeInsets)contentInsets
+- (void)setContentInsets:(NSEdgeInsets)contentInsets
 {
     wkScrollViewSetContentInsets(self, contentInsets);
 }
-- (void)wk_setAutomaticallyAdjustsContentInsets:(BOOL)automaticallyAdjustsContentInsets { (void)automaticallyAdjustsContentInsets; }
+- (void)setAutomaticallyAdjustsContentInsets:(BOOL)automaticallyAdjustsContentInsets { (void)automaticallyAdjustsContentInsets; }
 @end
-WK_POLYFILL_SEL("contentInsets", "wk_contentInsets");
-WK_POLYFILL_SEL("setContentInsets:", "wk_setContentInsets:");
-WK_POLYFILL_SEL("setAutomaticallyAdjustsContentInsets:", "wk_setAutomaticallyAdjustsContentInsets:");
 
 // ---------------------------------------------------------------------------------------------------
 // NSEvent -stage (Force Touch click stage, 10.10.3+). 10.9 has no Force Touch hardware → 0. Lets the
 // pressure-event code (PlatformEventFactoryMac) read event.stage unguarded.
-@interface NSEvent (WKPolyfillScope)
-- (NSInteger)wk_stage;
+WK_POLYFILL_ADD_METHODS(NSEvent)
+- (NSInteger)stage { return 0; }
 @end
-@implementation NSEvent (WKPolyfillScope)
-- (NSInteger)wk_stage { return 0; }
-@end
-WK_POLYFILL_SEL("stage", "wk_stage");
 
 // ---------------------------------------------------------------------------------------------------
 // NSWindow -performWindowDragWithEvent: (10.11+). 10.9 has no native window drag from web content, so
@@ -606,16 +496,10 @@ WK_POLYFILL_SEL("stage", "wk_stage");
 // the window. Provide the classic pre-10.11 manual drag loop: follow the mouse until mouse-up.
 // -[NSWindow convertPointToScreen:] / -convertPointFromScreen: (10.12+) are the point-based renames of
 // the classic -convertBaseToScreen: / -convertScreenToBase: (present, deprecated, on 10.9).
-@interface NSWindow (WKPolyfillScope)
-- (NSPoint)wk_convertPointToScreen:(NSPoint)point;
-- (NSPoint)wk_convertPointFromScreen:(NSPoint)point;
 enum { WKFullSizeContentViewStyleMask = 1 << 15 };   // NSWindowStyleMaskFullSizeContentView
-- (void)wk_performWindowDragWithEvent:(NSEvent *)event;
-- (NSRect)wk_contentLayoutRect;
-@end
-@implementation NSWindow (WKPolyfillScope)
-- (NSPoint)wk_convertPointToScreen:(NSPoint)point { return [self convertBaseToScreen:point]; }
-- (NSPoint)wk_convertPointFromScreen:(NSPoint)point { return [self convertScreenToBase:point]; }
+WK_POLYFILL_ADD_METHODS(NSWindow)
+- (NSPoint)convertPointToScreen:(NSPoint)point { return [self convertBaseToScreen:point]; }
+- (NSPoint)convertPointFromScreen:(NSPoint)point { return [self convertScreenToBase:point]; }
 // -[NSWindow contentLayoutRect] is 10.10+: the content region NOT obscured by the title bar, in content-
 // view coordinates. This layer implements full-size content for real (the adapter below), so the answer
 // is not simply the content view's frame: once the content view spans the whole frame, the top strip
@@ -623,7 +507,7 @@ enum { WKFullSizeContentViewStyleMask = 1 << 15 };   // NSWindowStyleMaskFullSiz
 // (PageClientImpl::computeAutomaticTopObscuredInset derives its inset from exactly this difference).
 // With the full-size bit clear, 10.9 already places the content view below the title bar, so nothing is
 // obscured and the content view's own bounds are the answer.
-- (NSRect)wk_contentLayoutRect
+- (NSRect)contentLayoutRect
 {
     NSRect contentFrame = [[self contentView] frame];
     if (!([self styleMask] & WKFullSizeContentViewStyleMask))
@@ -639,7 +523,7 @@ enum { WKFullSizeContentViewStyleMask = 1 << 15 };   // NSWindowStyleMaskFullSiz
     contentFrame.size.height -= titleBarHeight;
     return contentFrame;
 }
-- (void)wk_performWindowDragWithEvent:(NSEvent *)event
+- (void)performWindowDragWithEvent:(NSEvent *)event
 {
     (void)event;
     NSPoint startMouse = [NSEvent mouseLocation];
@@ -659,35 +543,25 @@ enum { WKFullSizeContentViewStyleMask = 1 << 15 };   // NSWindowStyleMaskFullSiz
     }
 }
 @end
-WK_POLYFILL_SEL("performWindowDragWithEvent:", "wk_performWindowDragWithEvent:");
-WK_POLYFILL_SEL("convertPointToScreen:", "wk_convertPointToScreen:");
-WK_POLYFILL_SEL("convertPointFromScreen:", "wk_convertPointFromScreen:");
-WK_POLYFILL_SEL("contentLayoutRect", "wk_contentLayoutRect");
 
 // ---------------------------------------------------------------------------------------------------
 // NSView -_subviewsIvar / -_setSubviewsIvar: (10.12+ SPI): raw accessors for the _subviews ivar, used
 // by WebHTMLView's set-aside/restore dance during drawing. The ivar itself exists on 10.9's NSView;
 // the SPI is only the accessor pair, with raw-assign semantics (no retain/release, no layout side
 // effects) — which is exactly what object_getIvar/object_setIvar do under MRR.
-@interface NSView (WKPolyfillScope)
-- (NSMutableArray *)wk__subviewsIvar;
-- (void)wk__setSubviewsIvar:(NSMutableArray *)subviews;
-@end
-@implementation NSView (WKPolyfillScope)
-- (NSMutableArray *)wk__subviewsIvar
+WK_POLYFILL_ADD_METHODS(NSView)
+- (NSMutableArray *)_subviewsIvar
 {
     Ivar ivar = class_getInstanceVariable([NSView class], "_subviews");
     return ivar ? object_getIvar(self, ivar) : nil;
 }
-- (void)wk__setSubviewsIvar:(NSMutableArray *)subviews
+- (void)_setSubviewsIvar:(NSMutableArray *)subviews
 {
     Ivar ivar = class_getInstanceVariable([NSView class], "_subviews");
     if (ivar)
         object_setIvar(self, ivar, subviews);
 }
 @end
-WK_POLYFILL_SEL("_subviewsIvar", "wk__subviewsIvar");
-WK_POLYFILL_SEL("_setSubviewsIvar:", "wk__setSubviewsIvar:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSView addGestureRecognizer:] / -removeGestureRecognizer: / -gestureRecognizers (10.10+): the
@@ -697,19 +571,11 @@ WK_POLYFILL_SEL("_setSubviewsIvar:", "wk__setSubviewsIvar:");
 // removeGestureRecognizer: UNCONDITIONALLY (WebViewImpl.mm:3818, 3876), nil argument or not, which is
 // an unrecognized selector on 10.9. With no recognizer system there is never anything to add, remove,
 // or list: add/remove are faithful no-ops and the list is empty.
-@interface NSView (WKPolyfillScopeGesture)
-- (void)wk_addGestureRecognizer:(id)gestureRecognizer;
-- (void)wk_removeGestureRecognizer:(id)gestureRecognizer;
-- (NSArray *)wk_gestureRecognizers;
+WK_POLYFILL_ADD_METHODS(NSView)
+- (void)addGestureRecognizer:(NSGestureRecognizer *)gestureRecognizer { (void)gestureRecognizer; }
+- (void)removeGestureRecognizer:(NSGestureRecognizer *)gestureRecognizer { (void)gestureRecognizer; }
+- (NSArray<NSGestureRecognizer *> *)gestureRecognizers { return [NSArray array]; }
 @end
-@implementation NSView (WKPolyfillScopeGesture)
-- (void)wk_addGestureRecognizer:(id)gestureRecognizer { (void)gestureRecognizer; }
-- (void)wk_removeGestureRecognizer:(id)gestureRecognizer { (void)gestureRecognizer; }
-- (NSArray *)wk_gestureRecognizers { return [NSArray array]; }
-@end
-WK_POLYFILL_SEL("addGestureRecognizer:", "wk_addGestureRecognizer:");
-WK_POLYFILL_SEL("removeGestureRecognizer:", "wk_removeGestureRecognizer:");
-WK_POLYFILL_SEL("gestureRecognizers", "wk_gestureRecognizers");
 
 // ---------------------------------------------------------------------------------------------------
 // NSTextAttachment modern accessors: -initWithData:ofType: and the image property are 10.11+ on Mac;
@@ -723,19 +589,8 @@ static char kWKTextAttachmentImageKey;
 static char kWKTextAttachmentAccessibilityLabelKey;
 static char kWKTextAttachmentContentsKey;
 static char kWKTextAttachmentFileTypeKey;
-@interface NSTextAttachment (WKPolyfillScope)
-- (id)wk_initWithData:(NSData *)contentData ofType:(NSString *)uti;
-- (NSData *)wk_contents;
-- (void)wk_setContents:(NSData *)contents;
-- (NSString *)wk_fileType;
-- (void)wk_setFileType:(NSString *)fileType;
-- (NSImage *)wk_image;
-- (void)wk_setImage:(NSImage *)image;
-- (NSString *)wk_accessibilityLabel;
-- (void)wk_setAccessibilityLabel:(NSString *)label;
-@end
-@implementation NSTextAttachment (WKPolyfillScope)
-- (id)wk_initWithData:(NSData *)contentData ofType:(NSString *)uti
+WK_POLYFILL_ADD_METHODS(NSTextAttachment)
+- (instancetype)initWithData:(NSData *)contentData ofType:(NSString *)uti
 {
     // Modern AppKit keeps (data, type) directly, answerable back through the contents/fileType
     // properties; 10.9 renders from a file wrapper. Store both ways: the pair as associated objects
@@ -757,27 +612,27 @@ static char kWKTextAttachmentFileTypeKey;
     }
     return self;
 }
-- (NSData *)wk_contents
+- (NSData *)contents
 {
     return objc_getAssociatedObject(self, &kWKTextAttachmentContentsKey);
 }
-- (void)wk_setContents:(NSData *)contents
+- (void)setContents:(NSData *)contents
 {
     objc_setAssociatedObject(self, &kWKTextAttachmentContentsKey, contents, OBJC_ASSOCIATION_COPY_NONATOMIC);
 }
-- (NSString *)wk_fileType
+- (NSString *)fileType
 {
     return objc_getAssociatedObject(self, &kWKTextAttachmentFileTypeKey);
 }
-- (void)wk_setFileType:(NSString *)fileType
+- (void)setFileType:(NSString *)fileType
 {
     objc_setAssociatedObject(self, &kWKTextAttachmentFileTypeKey, fileType, OBJC_ASSOCIATION_COPY_NONATOMIC);
 }
-- (NSImage *)wk_image
+- (NSImage *)image
 {
     return objc_getAssociatedObject(self, &kWKTextAttachmentImageKey);
 }
-- (void)wk_setImage:(NSImage *)image
+- (void)setImage:(NSImage *)image
 {
     objc_setAssociatedObject(self, &kWKTextAttachmentImageKey, image, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     // Also store it where 10.9's text system actually draws from.
@@ -787,24 +642,15 @@ static char kWKTextAttachmentFileTypeKey;
     } else
         [self setAttachmentCell:nil];
 }
-- (NSString *)wk_accessibilityLabel
+- (NSString *)accessibilityLabel
 {
     return objc_getAssociatedObject(self, &kWKTextAttachmentAccessibilityLabelKey);
 }
-- (void)wk_setAccessibilityLabel:(NSString *)label
+- (void)setAccessibilityLabel:(NSString *)label
 {
     objc_setAssociatedObject(self, &kWKTextAttachmentAccessibilityLabelKey, label, OBJC_ASSOCIATION_COPY_NONATOMIC);
 }
 @end
-WK_POLYFILL_SEL("initWithData:ofType:", "wk_initWithData:ofType:");
-WK_POLYFILL_SEL("contents", "wk_contents");
-WK_POLYFILL_SEL("setContents:", "wk_setContents:");
-WK_POLYFILL_SEL("fileType", "wk_fileType");
-WK_POLYFILL_SEL("setFileType:", "wk_setFileType:");
-WK_POLYFILL_SEL("image", "wk_image");
-WK_POLYFILL_SEL("setImage:", "wk_setImage:");
-WK_POLYFILL_SEL("accessibilityLabel", "wk_accessibilityLabel");
-WK_POLYFILL_SEL("setAccessibilityLabel:", "wk_setAccessibilityLabel:");
 
 // ---------------------------------------------------------------------------------------------------
 // +[NSMenu menuTypeForEvent:] (10.10+): classify a mouse event into a menu type. On 10.9, reproduce the
@@ -815,11 +661,8 @@ typedef NS_ENUM(NSInteger, NSMenuType) {
     NSMenuTypeNone = 0,
     NSMenuTypeContextMenu = 1,
 };
-@interface NSMenu (WKPolyfillScope)
-+ (NSMenuType)wk_menuTypeForEvent:(NSEvent *)event;
-@end
-@implementation NSMenu (WKPolyfillScope)
-+ (NSMenuType)wk_menuTypeForEvent:(NSEvent *)event
+WK_POLYFILL_ADD_METHODS(NSMenu)
++ (NSMenuType)menuTypeForEvent:(NSEvent *)event
 {
     if (event.type == NSEventTypeRightMouseDown || event.type == NSEventTypeRightMouseUp)
         return NSMenuTypeContextMenu;
@@ -829,19 +672,14 @@ typedef NS_ENUM(NSInteger, NSMenuType) {
     return NSMenuTypeNone;
 }
 @end
-WK_POLYFILL_SEL("menuTypeForEvent:", "wk_menuTypeForEvent:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSPasteboard _setExpirationDate:] (11.0+ private SPI): auto-clears ephemeral pasteboard data after a
 // delay. 10.9 has no such pasteboard-server mechanism, so the faithful 10.9 behavior is a no-op (the data
 // simply persists, exactly as when the guard skipped the call).
-@interface NSPasteboard (WKPolyfillScope)
-- (void)wk__setExpirationDate:(NSDate *)date;
+WK_POLYFILL_ADD_METHODS(NSPasteboard)
+- (void)_setExpirationDate:(NSDate *)date { (void)date; }
 @end
-@implementation NSPasteboard (WKPolyfillScope)
-- (void)wk__setExpirationDate:(NSDate *)date { (void)date; }
-@end
-WK_POLYFILL_SEL("_setExpirationDate:", "wk__setExpirationDate:");
 
 // ---------------------------------------------------------------------------------------------------
 // +[NSLayoutConstraint activateConstraints:] / +deactivateConstraints: and -isActive (all 10.10+).
@@ -861,13 +699,6 @@ WK_POLYFILL_SEL("_setExpirationDate:", "wk__setExpirationDate:");
 // that call raised "unrecognized selector sent to class" inside WebKit's BEGIN/END_BLOCK_OBJC_EXCEPTIONS,
 // which swallowed it — so the restore silently did nothing and a constraint-driven host (Mail's
 // autolayout-driven MUIWKView is one) got its web view back unconstrained.
-@interface NSLayoutConstraint (WKPolyfillScope)
-+ (void)wk_activateConstraints:(NSArray *)constraints;
-+ (void)wk_deactivateConstraints:(NSArray *)constraints;
-- (BOOL)wk_isActive;
-- (void)wk_setActive:(BOOL)active;
-@end
-
 // The view a constraint belongs on, by 10.10's rule.
 static NSView *wk_constraintHostView(NSLayoutConstraint *constraint)
 {
@@ -883,9 +714,9 @@ static NSView *wk_constraintHostView(NSLayoutConstraint *constraint)
     return [firstView ancestorSharedWithView:(NSView *)second];
 }
 
-@implementation NSLayoutConstraint (WKPolyfillScope)
+WK_POLYFILL_ADD_METHODS(NSLayoutConstraint)
 
-+ (void)wk_activateConstraints:(NSArray *)constraints
++ (void)activateConstraints:(NSArray<NSLayoutConstraint *> *)constraints
 {
     for (NSLayoutConstraint *constraint in constraints) {
         NSView *host = wk_constraintHostView(constraint);
@@ -903,7 +734,7 @@ static NSView *wk_constraintHostView(NSLayoutConstraint *constraint)
     }
 }
 
-+ (void)wk_deactivateConstraints:(NSArray *)constraints
++ (void)deactivateConstraints:(NSArray<NSLayoutConstraint *> *)constraints
 {
     for (NSLayoutConstraint *constraint in constraints) {
         // Deactivation must find the constraint wherever it was installed, which is not necessarily
@@ -927,7 +758,7 @@ static NSView *wk_constraintHostView(NSLayoutConstraint *constraint)
     }
 }
 
-- (BOOL)wk_isActive
+- (BOOL)isActive
 {
     NSView *host = wk_constraintHostView(self);
     for (NSView *view = host; view; view = [view superview]) {
@@ -937,20 +768,16 @@ static NSView *wk_constraintHostView(NSLayoutConstraint *constraint)
     return NO;
 }
 
-- (void)wk_setActive:(BOOL)active
+- (void)setActive:(BOOL)active
 {
     NSArray *one = [NSArray arrayWithObject:self];
     if (active)
-        [NSLayoutConstraint wk_activateConstraints:one];
+        [NSLayoutConstraint activateConstraints:one];
     else
-        [NSLayoutConstraint wk_deactivateConstraints:one];
+        [NSLayoutConstraint deactivateConstraints:one];
 }
 
 @end
-WK_POLYFILL_SEL("activateConstraints:", "wk_activateConstraints:");
-WK_POLYFILL_SEL("deactivateConstraints:", "wk_deactivateConstraints:");
-WK_POLYFILL_SEL("isActive", "wk_isActive");
-WK_POLYFILL_SEL("setActive:", "wk_setActive:");
 
 // NOT polyfilled: +[NSCursor hideUntilChanged] (10.13+). Its contract is "hidden until the app-global
 // cursor SHAPE next changes", which survives pointer motion. 10.9's nearest call,
@@ -978,13 +805,9 @@ WK_POLYFILL_SEL("setActive:", "wk_setActive:");
 static const char wkTitlebarAlphaValueKey;
 static const char wkTitlebarChromeHiddenStateKey;   // each button's own isHidden, captured at alpha 0
 
-@interface NSWindow (WKPolyfillScopeTitlebarAlpha)
-- (void)wk_setTitlebarAlphaValue:(CGFloat)alpha;
-- (CGFloat)wk_titlebarAlphaValue;
-@end
-@implementation NSWindow (WKPolyfillScopeTitlebarAlpha)
+WK_POLYFILL_ADD_METHODS(NSWindow)
 
-- (void)wk_setTitlebarAlphaValue:(CGFloat)alpha
+- (void)setTitlebarAlphaValue:(CGFloat)alpha
 {
     objc_setAssociatedObject(self, (const void *)&wkTitlebarAlphaValueKey,
                              [NSNumber numberWithDouble:(double)alpha], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -1032,23 +855,15 @@ static const char wkTitlebarChromeHiddenStateKey;   // each button's own isHidde
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-- (CGFloat)wk_titlebarAlphaValue
+- (CGFloat)titlebarAlphaValue
 {
     NSNumber *stored = objc_getAssociatedObject(self, (const void *)&wkTitlebarAlphaValueKey);
     return stored ? (CGFloat)[stored doubleValue] : 1;
 }
 
 @end
-WK_POLYFILL_SEL("setTitlebarAlphaValue:", "wk_setTitlebarAlphaValue:");
-WK_POLYFILL_SEL("titlebarAlphaValue", "wk_titlebarAlphaValue");
-
-@interface NSApplication (WKPolyfillScope)
-+ (void)wk__preventDockConnections;
-+ (void)wk__accessibilityInitialize;
-- (void)wk__setAccentColor:(NSColor *)color;
-@end
-@implementation NSApplication (WKPolyfillScope)
-+ (void)wk__preventDockConnections { }
+WK_POLYFILL_ADD_METHODS(NSApplication)
++ (void)_preventDockConnections { }
 // +_accessibilityInitialize (10.13+) forces AppKit to stand its accessibility server up EARLY, rather
 // than waiting for the first AX client to connect. WebKit's WebContent process calls it so an AX client
 // finds a live tree the moment it asks. 10.9's AppKit has no such entry point (absent from this host's
@@ -1077,7 +892,7 @@ WK_POLYFILL_SEL("titlebarAlphaValue", "wk_titlebarAlphaValue");
 // be mid-launch here: WebKit's two callers -- WebProcess::platformInitializeWebProcess and
 // WebPage::platformInitialize -- both run in the WebContent process, off an IPC message from a UI
 // process that has long since launched.)
-+ (void)wk__accessibilityInitialize
++ (void)_accessibilityInitialize
 {
     static BOOL didFinishLaunching = NO;
     NSApplication *app = [NSApplication sharedApplication];
@@ -1086,11 +901,8 @@ WK_POLYFILL_SEL("titlebarAlphaValue", "wk_titlebarAlphaValue");
     didFinishLaunching = YES;
     [app finishLaunching];
 }
-- (void)wk__setAccentColor:(NSColor *)color { (void)color; }
+- (void)_setAccentColor:(NSColor *)color { (void)color; }
 @end
-WK_POLYFILL_SEL("_preventDockConnections", "wk__preventDockConnections");
-WK_POLYFILL_SEL("_accessibilityInitialize", "wk__accessibilityInitialize");
-WK_POLYFILL_SEL("_setAccentColor:", "wk__setAccentColor:");
 
 // NSWindowStyleMaskFullSizeContentView + -setTitlebarAppearsTransparent: (both 10.10+), implemented for
 // real rather than stubbed.
@@ -1256,12 +1068,7 @@ static const char wkFullSizeContentAdapterKey;
 
 @end
 
-@interface NSWindow (WKPolyfillScopeChrome)
-- (void)wk_setTitlebarAppearsTransparent:(BOOL)flag;
-- (BOOL)wk_titlebarAppearsTransparent;
-- (void)wk_setTitleVisibility:(NSInteger)visibility;
-@end
-@implementation NSWindow (WKPolyfillScopeChrome)
+WK_POLYFILL_ADD_METHODS(NSWindow)
 
 // Records the property. It does NOT move the content view: whether the content view spans the full
 // frame follows NSWindowStyleMaskFullSizeContentView alone (see wk_installFullSizeContentAdapterIfNeeded
@@ -1270,7 +1077,7 @@ static const char wkFullSizeContentAdapterKey;
 // title bar drawing its own background. Tying geometry to this setter made the two inseparable and was
 // wrong for any caller that sets one without the other; WebKit itself has such a call site
 // (PageClientImpl::computeAutomaticTopObscuredInset tests the mask and this property independently).
-- (void)wk_setTitlebarAppearsTransparent:(BOOL)flag
+- (void)setTitlebarAppearsTransparent:(BOOL)flag
 {
     objc_setAssociatedObject(self, (const void *)&wkTitlebarAppearsTransparentKey,
                              flag ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -1279,14 +1086,14 @@ static const char wkFullSizeContentAdapterKey;
 // Reports what the setter stored, rather than a fixed NO that would contradict its own setter: a
 // caller that set the property and read it back was told its request had been ignored. WebKit reads it
 // (PageClientImpl::computeAutomaticTopObscuredInset), independently of the style mask.
-- (BOOL)wk_titlebarAppearsTransparent
+- (BOOL)titlebarAppearsTransparent
 {
     return objc_getAssociatedObject(self, (const void *)&wkTitlebarAppearsTransparentKey) != nil;
 }
 
 // -setTitleVisibility: (10.10+) hides the title STRING while keeping the titlebar. 10.9 draws the title
 // as part of NSThemeFrame's titlebar with no separate control over it.
-- (void)wk_setTitleVisibility:(NSInteger)visibility { (void)visibility; }
+- (void)setTitleVisibility:(NSWindowTitleVisibility)visibility { (void)visibility; }
 
 @end
 
@@ -1300,67 +1107,15 @@ static const char wkFullSizeContentAdapterKey;
 // measures the window — before it is ordered in, which is when WebKit reads its size to tell the web
 // content how big the viewport is.
 //
-// These are REPLACES entries, and they reach every NSWindow SUBCLASS: wk_alias_class does not alias a
-// class's own IMP over a REPLACES body already in its chain, so NSPanel/NSSavePanel/_NSPopoverWindow/
+// These are REPLACE bodies, and they reach every NSWindow SUBCLASS: wk_alias_class does not alias a
+// class's own IMP over a REPLACE body already in its chain, so NSPanel/NSSavePanel/_NSPopoverWindow/
 // NSCarbonWindow — all of which implement these selectors themselves on 10.9 — run the body, which then
-// calls through by sending the PUBLIC selector, landing on that subclass's own implementation.
-@interface NSWindow (WKPolyfillScopeFullSizeContentTrigger)
-- (instancetype)wk_initWithContentRect:(NSRect)contentRect styleMask:(NSUInteger)style
-                               backing:(NSBackingStoreType)backingStoreType defer:(BOOL)flag;
-- (void)wk_setStyleMask:(NSUInteger)styleMask;
-- (void)wk_setContentView:(NSView *)view;
+// calls through via WK_ORIGINAL_METHOD, landing on that subclass's own implementation.
+@interface NSWindow (WKPolyfillFullSizeContent)
 - (void)wk_installFullSizeContentAdapterIfNeeded;
 @end
 
-@implementation NSWindow (WKPolyfillScopeFullSizeContentTrigger)
-
-// Calling through, for a REPLACES body that wins on subclasses. The public selector is never touched by
-// the selref rewrite (nothing is ever installed under it), so the real implementations are all reachable
-// by name; the only question is WHICH one this body stands in for, and there are two answers:
-//
-//   * This body is the receiver's own entry point -- a system subclass such as NSPanel, NSSavePanel,
-//     _NSPopoverWindow or NSCarbonWindow, which wk_alias_class deliberately leaves un-aliased so the
-//     polyfill is not shadowed. Standing in for the RECEIVER's real method, so call that.
-//   * The receiver's class resolves wk_<name> to something else -- its own aliased implementation. That
-//     happens only for a class from a WEBKIT image (wk_alias_class keeps those aliased), so its
-//     override is the entry point and we are here because that override said [super ...], which the
-//     rewrite turned into a wk_ super-send. Standing in for what super means there: NSWindow's own
-//     implementation. Dispatching the public selector instead would land back on the override and
-//     recurse forever -- WebCoreFullScreenWindow and WKDataListSuggestionWindow both call super.
-//
-// Which implementation each stands in for comes from wk_replaces_call_through_class (see its comment in
-// the mechanism): the answer is derived from the BODY's class, not the receiver's, so it stays right when
-// an aliased override sits several levels below the receiver.
-
-- (instancetype)wk_initWithContentRect:(NSRect)contentRect styleMask:(NSUInteger)style
-                               backing:(NSBackingStoreType)backingStoreType defer:(BOOL)flag
-{
-    typedef id (*WKInitFn)(id, SEL, NSRect, NSUInteger, NSBackingStoreType, BOOL);
-    SEL publicSelector = sel_registerName("initWithContentRect:styleMask:backing:defer:");
-    WKInitFn real = (WKInitFn)wk_replaces_call_through_class(self, [NSWindow class], _cmd, publicSelector);
-    id window = real(self, publicSelector, contentRect, style, backingStoreType, flag);
-    // A failed initializer has already released the receiver, and returns nil; nothing to adapt.
-    [window wk_installFullSizeContentAdapterIfNeeded];
-    return window;
-}
-
-- (void)wk_setStyleMask:(NSUInteger)styleMask
-{
-    typedef void (*WKSetStyleMaskFn)(id, SEL, NSUInteger);
-    SEL publicSelector = sel_registerName("setStyleMask:");
-    ((WKSetStyleMaskFn)wk_replaces_call_through_class(self, [NSWindow class], _cmd, publicSelector))
-        (self, publicSelector, styleMask);
-    [self wk_installFullSizeContentAdapterIfNeeded];   // the bit may have just been set OR cleared
-}
-
-- (void)wk_setContentView:(NSView *)view
-{
-    typedef void (*WKSetContentViewFn)(id, SEL, id);
-    SEL publicSelector = sel_registerName("setContentView:");
-    ((WKSetContentViewFn)wk_replaces_call_through_class(self, [NSWindow class], _cmd, publicSelector))
-        (self, publicSelector, view);
-    [self wk_installFullSizeContentAdapterIfNeeded];   // notices the swap and adapts the new view
-}
+@implementation NSWindow (WKPolyfillFullSizeContent)
 
 - (void)wk_installFullSizeContentAdapterIfNeeded
 {
@@ -1388,24 +1143,57 @@ static const char wkFullSizeContentAdapterKey;
 }
 
 @end
-WK_POLYFILL_SEL_REPLACES("initWithContentRect:styleMask:backing:defer:",
-                         "wk_initWithContentRect:styleMask:backing:defer:");
-WK_POLYFILL_SEL_REPLACES("setStyleMask:", "wk_setStyleMask:");
-WK_POLYFILL_SEL_REPLACES("setContentView:", "wk_setContentView:");
-WK_POLYFILL_SEL("setTitlebarAppearsTransparent:", "wk_setTitlebarAppearsTransparent:");
-WK_POLYFILL_SEL("titlebarAppearsTransparent", "wk_titlebarAppearsTransparent");
-WK_POLYFILL_SEL("setTitleVisibility:", "wk_setTitleVisibility:");
+
+// Calling through, for a REPLACE body that wins on subclasses. The public selector is never touched by
+// the selref rewrite (nothing is ever installed under it), so the real implementations are all reachable
+// by name; the only question is WHICH one this body stands in for, and there are two answers:
+//
+//   * This body is the receiver's own entry point -- a system subclass such as NSPanel, NSSavePanel,
+//     _NSPopoverWindow or NSCarbonWindow, which wk_alias_class deliberately leaves un-aliased so the
+//     polyfill is not shadowed. Standing in for the RECEIVER's real method, so call that.
+//   * The receiver's class resolves the private selector to something else -- its own aliased
+//     implementation. That happens only for a class from a WEBKIT image (wk_alias_class keeps those
+//     aliased), so its override is the entry point and we are here because that override said
+//     [super ...], which the rewrite turned into a private-selector super-send. Standing in for what
+//     super means there: NSWindow's own implementation. Dispatching the public selector instead would
+//     land back on the override and recurse forever -- WebCoreFullScreenWindow and
+//     WKDataListSuggestionWindow both call super.
+//
+// Which implementation each stands in for comes from WK_ORIGINAL_METHOD (see wk_original_of in the
+// mechanism): the answer is derived from the BODY's class, not the receiver's, so it stays right when
+// an aliased override sits several levels below the receiver.
+WK_POLYFILL_REPLACE_METHODS(NSWindow)
+
+- (instancetype)initWithContentRect:(NSRect)contentRect styleMask:(NSWindowStyleMask)style
+                            backing:(NSBackingStoreType)backingStoreType defer:(BOOL)flag
+{
+    id window = WK_ORIGINAL_METHOD(id, (NSRect, NSWindowStyleMask, NSBackingStoreType, BOOL),
+                                   contentRect, style, backingStoreType, flag);
+    // A failed initializer has already released the receiver, and returns nil; nothing to adapt.
+    [window wk_installFullSizeContentAdapterIfNeeded];
+    return window;
+}
+
+- (void)setStyleMask:(NSWindowStyleMask)styleMask
+{
+    WK_ORIGINAL_METHOD(void, (NSWindowStyleMask), styleMask);
+    [self wk_installFullSizeContentAdapterIfNeeded];   // the bit may have just been set OR cleared
+}
+
+- (void)setContentView:(NSView *)view
+{
+    WK_ORIGINAL_METHOD(void, (NSView *), view);
+    [self wk_installFullSizeContentAdapterIfNeeded];   // notices the swap and adapts the new view
+}
+
+@end
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSColorWell setSupportsAlpha:] (14.0+): 10.9 honors alpha through the shared color panel's alpha slider
 // (NSPopoverColorWell, the receiver, is backed by +[NSColorPanel sharedColorPanel]).
-@interface NSColorWell (WKPolyfillScope)
-- (void)wk_setSupportsAlpha:(BOOL)flag;
+WK_POLYFILL_ADD_METHODS(NSColorWell)
+- (void)setSupportsAlpha:(BOOL)flag { [[NSColorPanel sharedColorPanel] setShowsAlpha:flag]; }
 @end
-@implementation NSColorWell (WKPolyfillScope)
-- (void)wk_setSupportsAlpha:(BOOL)flag { [[NSColorPanel sharedColorPanel] setShowsAlpha:flag]; }
-@end
-WK_POLYFILL_SEL("setSupportsAlpha:", "wk_setSupportsAlpha:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSApplication _effectiveAccentColor] (10.14+ SPI): the default macOS accent/control-tint blue. Must be an
@@ -1413,13 +1201,9 @@ WK_POLYFILL_SEL("setSupportsAlpha:", "wk_setSupportsAlpha:");
 // feeds this through colorFromCocoaColor() -> [color colorUsingColorSpace:], which resolves 10.9 catalog
 // colors to BLACK (same trap as the text-selection colors above). colorWithSRGBRed: is already concrete, so
 // the downstream space conversion is a no-op and the accent stays blue.
-@interface NSApplication (WKPolyfillScopeAccent)
-- (NSColor *)wk__effectiveAccentColor;
+WK_POLYFILL_ADD_METHODS(NSApplication)
+- (NSColor *)_effectiveAccentColor { return SRGB(0, 122, 255, 255); }
 @end
-@implementation NSApplication (WKPolyfillScopeAccent)
-- (NSColor *)wk__effectiveAccentColor { return SRGB(0, 122, 255, 255); }
-@end
-WK_POLYFILL_SEL("_effectiveAccentColor", "wk__effectiveAccentColor");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSTextInputContext handleEvent:completionHandler:] and
@@ -1441,32 +1225,24 @@ WK_POLYFILL_SEL("_effectiveAccentColor", "wk__effectiveAccentColor");
 // is what WebKit did on this OS before the SPI existed. Without these two, the sends raised
 // unrecognized-selector exceptions and no completion handler ever ran, so key input on every
 // WKWebView-backed surface in the process — the Web Inspector front end above all — went nowhere.
-@interface NSTextInputContext (WKPolyfillScope)
-- (void)wk_handleEvent:(NSEvent *)event completionHandler:(void (^)(BOOL))completionHandler;
-- (void)wk_handleEventByInputMethod:(NSEvent *)event completionHandler:(void (^)(BOOL))completionHandler;
-- (BOOL)wk_handleEventByKeyboardLayout:(NSEvent *)event;
-@end
-@implementation NSTextInputContext (WKPolyfillScope)
-- (void)wk_handleEvent:(NSEvent *)event completionHandler:(void (^)(BOOL))completionHandler
+WK_POLYFILL_ADD_METHODS(NSTextInputContext)
+- (void)handleEvent:(NSEvent *)event completionHandler:(void (^)(BOOL))completionHandler
 {
     BOOL handled = [self handleEvent:event];
     if (completionHandler)
         completionHandler(handled);
 }
-- (void)wk_handleEventByInputMethod:(NSEvent *)event completionHandler:(void (^)(BOOL))completionHandler
+- (void)handleEventByInputMethod:(NSEvent *)event completionHandler:(void (^)(BOOL))completionHandler
 {
     (void)event;
     if (completionHandler)
         completionHandler(NO);
 }
-- (BOOL)wk_handleEventByKeyboardLayout:(NSEvent *)event
+- (BOOL)handleEventByKeyboardLayout:(NSEvent *)event
 {
     return [self handleEvent:event];
 }
 @end
-WK_POLYFILL_SEL("handleEvent:completionHandler:", "wk_handleEvent:completionHandler:");
-WK_POLYFILL_SEL("handleEventByInputMethod:completionHandler:", "wk_handleEventByInputMethod:completionHandler:");
-WK_POLYFILL_SEL("handleEventByKeyboardLayout:", "wk_handleEventByKeyboardLayout:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSTextInputContext textInputClientWillStartScrollingOrZooming] /
@@ -1480,19 +1256,11 @@ WK_POLYFILL_SEL("handleEventByKeyboardLayout:", "wk_handleEventByKeyboardLayout:
 // fires on process swap/exit with an editable focused (WebViewImpl.mm:1466) and, pref-gated, on
 // selection change. 10.9's input-method machinery has no such hooks — a candidate window there tracks
 // the insertion point on its own — so there is nothing to notify: faithful no-ops.
-@interface NSTextInputContext (WKPolyfillScopeNotify)
-- (void)wk_textInputClientWillStartScrollingOrZooming;
-- (void)wk_textInputClientDidEndScrollingOrZooming;
-- (void)wk_textInputClientDidUpdateSelection;
+WK_POLYFILL_ADD_METHODS(NSTextInputContext)
+- (void)textInputClientWillStartScrollingOrZooming { }
+- (void)textInputClientDidEndScrollingOrZooming { }
+- (void)textInputClientDidUpdateSelection { }
 @end
-@implementation NSTextInputContext (WKPolyfillScopeNotify)
-- (void)wk_textInputClientWillStartScrollingOrZooming { }
-- (void)wk_textInputClientDidEndScrollingOrZooming { }
-- (void)wk_textInputClientDidUpdateSelection { }
-@end
-WK_POLYFILL_SEL("textInputClientWillStartScrollingOrZooming", "wk_textInputClientWillStartScrollingOrZooming");
-WK_POLYFILL_SEL("textInputClientDidEndScrollingOrZooming", "wk_textInputClientDidEndScrollingOrZooming");
-WK_POLYFILL_SEL("textInputClientDidUpdateSelection", "wk_textInputClientDidUpdateSelection");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSSpellChecker deletesAutospaceBeforeString:language:] (10.12+): asks whether the space that
@@ -1500,18 +1268,14 @@ WK_POLYFILL_SEL("textInputClientDidUpdateSelection", "wk_textInputClientDidUpdat
 // being inserted next (e.g. punctuation). Reached from WebViewImpl::insertText only when
 // m_softSpaceRange is set, which happens on the candidate-acceptance paths; 10.9 has no completion
 // candidates and never auto-inserts a soft space, so there is never a space to delete: NO.
-@interface NSSpellChecker (WKPolyfillScope)
-- (BOOL)wk_deletesAutospaceBeforeString:(NSString *)string language:(NSString *)language;
-@end
-@implementation NSSpellChecker (WKPolyfillScope)
-- (BOOL)wk_deletesAutospaceBeforeString:(NSString *)string language:(NSString *)language
+WK_POLYFILL_ADD_METHODS(NSSpellChecker)
+- (BOOL)deletesAutospaceBeforeString:(NSString *)string language:(NSString *)language
 {
     (void)string;
     (void)language;
     return NO;
 }
 @end
-WK_POLYFILL_SEL("deletesAutospaceBeforeString:language:", "wk_deletesAutospaceBeforeString:language:");
 
 // ---------------------------------------------------------------------------------------------------
 // SF Symbols (11.0+): no system symbols exist on 10.9, so +imageWithSystemSymbolName: (and the private
@@ -1520,35 +1284,21 @@ WK_POLYFILL_SEL("deletesAutospaceBeforeString:language:", "wk_deletesAutospaceBe
 // the image (RenderThemeMac's attachment-progress placeholder) carries its own nil-guard.
 // +[NSImageView imageViewWithImage:] (10.12+) builds the view the classic way; -setSymbolConfiguration: and
 // -setContentTintColor: are cosmetic template-image properties with nothing to configure for a nil image.
-@interface NSImage (WKPolyfillScope)
-+ (NSImage *)wk_imageWithSystemSymbolName:(NSString *)name accessibilityDescription:(NSString *)desc;
-+ (NSImage *)wk_imageWithPrivateSystemSymbolName:(NSString *)name accessibilityDescription:(NSString *)desc;
+WK_POLYFILL_ADD_METHODS(NSImage)
++ (NSImage *)imageWithSystemSymbolName:(NSString *)name accessibilityDescription:(NSString *)desc { (void)name; (void)desc; return nil; }
++ (NSImage *)imageWithPrivateSystemSymbolName:(NSString *)name accessibilityDescription:(NSString *)desc { (void)name; (void)desc; return nil; }
 @end
-@implementation NSImage (WKPolyfillScope)
-+ (NSImage *)wk_imageWithSystemSymbolName:(NSString *)name accessibilityDescription:(NSString *)desc { return nil; }
-+ (NSImage *)wk_imageWithPrivateSystemSymbolName:(NSString *)name accessibilityDescription:(NSString *)desc { return nil; }
-@end
-WK_POLYFILL_SEL("imageWithSystemSymbolName:accessibilityDescription:", "wk_imageWithSystemSymbolName:accessibilityDescription:");
-WK_POLYFILL_SEL("imageWithPrivateSystemSymbolName:accessibilityDescription:", "wk_imageWithPrivateSystemSymbolName:accessibilityDescription:");
 
-@interface NSImageView (WKPolyfillScope)
-+ (NSImageView *)wk_imageViewWithImage:(NSImage *)image;
-- (void)wk_setSymbolConfiguration:(id)configuration;
-- (void)wk_setContentTintColor:(NSColor *)color;
-@end
-@implementation NSImageView (WKPolyfillScope)
-+ (NSImageView *)wk_imageViewWithImage:(NSImage *)image
+WK_POLYFILL_ADD_METHODS(NSImageView)
++ (instancetype)imageViewWithImage:(NSImage *)image
 {
-    NSImageView *view = [[[NSImageView alloc] initWithFrame:NSZeroRect] autorelease];
+    id view = [[[NSImageView alloc] initWithFrame:NSZeroRect] autorelease];
     [view setImage:image];
     return view;
 }
-- (void)wk_setSymbolConfiguration:(id)configuration { (void)configuration; }
-- (void)wk_setContentTintColor:(NSColor *)color { (void)color; }
+- (void)setSymbolConfiguration:(NSImageSymbolConfiguration *)configuration { (void)configuration; }
+- (void)setContentTintColor:(NSColor *)color { (void)color; }
 @end
-WK_POLYFILL_SEL("imageViewWithImage:", "wk_imageViewWithImage:");
-WK_POLYFILL_SEL("setSymbolConfiguration:", "wk_setSymbolConfiguration:");
-WK_POLYFILL_SEL("setContentTintColor:", "wk_setContentTintColor:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSScrollerImp/NSMenu setUserInterfaceLayoutDirection:] + getter (10.10+/10.11+, absent on these two
@@ -1562,9 +1312,11 @@ WK_POLYFILL_SEL("setContentTintColor:", "wk_setContentTintColor:");
 @end
 static const void *const wk_uildScrollerKey = &wk_uildScrollerKey;
 static const void *const wk_uildMenuKey = &wk_uildMenuKey;
-@interface NSScrollerImp (WKPolyfillScope)
-- (void)wk_setUserInterfaceLayoutDirection:(NSInteger)direction;
-- (NSInteger)wk_userInterfaceLayoutDirection;
+WK_POLYFILL_ADD_METHODS(NSScrollerImp)
+- (void)setUserInterfaceLayoutDirection:(NSInteger)direction
+{ objc_setAssociatedObject(self, wk_uildScrollerKey, @(direction), OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+- (NSInteger)userInterfaceLayoutDirection
+{ NSNumber *v = objc_getAssociatedObject(self, wk_uildScrollerKey); return v ? [v integerValue] : NSUserInterfaceLayoutDirectionLeftToRight; }
 // -[NSScrollerImp setNeedsDisplay:] (a later-macOS addition). On 10.9 the scroller imp WebKit uses (e.g.
 // NSRegularOverlayScrollerImp) does not respond to it, so an unconditional send would raise
 // doesNotRecognizeSelector (ScrollbarsControllerMac::invalidateScrollbarPartLayers and
@@ -1575,28 +1327,14 @@ static const void *const wk_uildMenuKey = &wk_uildMenuKey;
 // path (no imp layer set), where [nil setNeedsDisplay] is a harmless no-op and the repaint comes from
 // ScrollbarThemeMac::paint. (GAP_FILL: 10.9 lacks -setNeedsDisplay: on NSScrollerImp — the build gate
 // confirms the absence — and the body always runs.)
-- (void)wk_setNeedsDisplay:(BOOL)flag;
+- (void)setNeedsDisplay:(BOOL)flag { if (flag) [[self layer] setNeedsDisplay]; }
 @end
-@implementation NSScrollerImp (WKPolyfillScope)
-- (void)wk_setUserInterfaceLayoutDirection:(NSInteger)direction
-{ objc_setAssociatedObject(self, wk_uildScrollerKey, @(direction), OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
-- (NSInteger)wk_userInterfaceLayoutDirection
-{ NSNumber *v = objc_getAssociatedObject(self, wk_uildScrollerKey); return v ? [v integerValue] : NSUserInterfaceLayoutDirectionLeftToRight; }
-- (void)wk_setNeedsDisplay:(BOOL)flag { if (flag) [[self layer] setNeedsDisplay]; }
-@end
-WK_POLYFILL_SEL("setNeedsDisplay:", "wk_setNeedsDisplay:");
-@interface NSMenu (WKPolyfillScopeUILD)
-- (void)wk_setUserInterfaceLayoutDirection:(NSInteger)direction;
-- (NSInteger)wk_userInterfaceLayoutDirection;
-@end
-@implementation NSMenu (WKPolyfillScopeUILD)
-- (void)wk_setUserInterfaceLayoutDirection:(NSInteger)direction
+WK_POLYFILL_ADD_METHODS(NSMenu)
+- (void)setUserInterfaceLayoutDirection:(NSUserInterfaceLayoutDirection)direction
 { objc_setAssociatedObject(self, wk_uildMenuKey, @(direction), OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
-- (NSInteger)wk_userInterfaceLayoutDirection
+- (NSUserInterfaceLayoutDirection)userInterfaceLayoutDirection
 { NSNumber *v = objc_getAssociatedObject(self, wk_uildMenuKey); return v ? [v integerValue] : NSUserInterfaceLayoutDirectionLeftToRight; }
 @end
-WK_POLYFILL_SEL("setUserInterfaceLayoutDirection:", "wk_setUserInterfaceLayoutDirection:");
-WK_POLYFILL_SEL("userInterfaceLayoutDirection", "wk_userInterfaceLayoutDirection");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSPopover showRelativeToRect:ofView:preferredEdge:] and the anchor window's first responder.
@@ -1610,51 +1348,33 @@ WK_POLYFILL_SEL("userInterfaceLayoutDirection", "wk_userInterfaceLayoutDirection
 // modern no-change contract holds for any caller. The restore is synchronous within the same call, and
 // the popover's own content (a label taking no key input, transient/ESC dismissal) does not depend on
 // owning the anchor window's first responder.
-@interface NSPopover (WKPolyfillScope)
-- (void)wk_showRelativeToRect:(NSRect)positioningRect ofView:(NSView *)positioningView preferredEdge:(NSRectEdge)preferredEdge;
-@end
-@implementation NSPopover (WKPolyfillScope)
-- (void)wk_showRelativeToRect:(NSRect)positioningRect ofView:(NSView *)positioningView preferredEdge:(NSRectEdge)preferredEdge
+//
+// 10.9 HAS -showRelativeToRect:ofView:preferredEdge:; it shows the popover correctly and additionally
+// steals the anchor window's first responder, which is the behavior this replacement undoes.
+WK_POLYFILL_REPLACE_METHODS(NSPopover)
+- (void)showRelativeToRect:(NSRect)positioningRect ofView:(NSView *)positioningView preferredEdge:(NSRectEdge)preferredEdge
 {
     NSWindow *window = [positioningView window];
     NSResponder *savedFirstResponder = [window firstResponder];
 
-    // sel_registerName rather than @selector: this file is compiled into WebCore, whose __objc_selrefs
-    // are rewritten, so a compiled `showRelativeToRect:ofView:preferredEdge:` selref arrives here as the
-    // wk_ name and would recurse. The assignment is idempotent — sel_registerName answers the same SEL
-    // on every thread and call.
-    static SEL showRelativeToRectSelector;
-    if (!showRelativeToRectSelector)
-        showRelativeToRectSelector = sel_registerName("showRelativeToRect:ofView:preferredEdge:");
-    // Resolved against this body's class rather than sent to self — see wk_replaces_call_through_class.
-    void (*showRelativeToRect)(id, SEL, NSRect, NSView *, NSRectEdge) =
-        (void (*)(id, SEL, NSRect, NSView *, NSRectEdge))wk_replaces_call_through_class(self,
-            [NSPopover class], _cmd, showRelativeToRectSelector);
-    showRelativeToRect(self, showRelativeToRectSelector, positioningRect, positioningView, preferredEdge);
+    WK_ORIGINAL_METHOD(void, (NSRect, NSView *, NSRectEdge), positioningRect, positioningView, preferredEdge);
 
     if (window && [window firstResponder] != savedFirstResponder)
         [window makeFirstResponder:savedFirstResponder];
 }
 @end
-// 10.9 HAS -showRelativeToRect:ofView:preferredEdge:; it shows the popover correctly and additionally
-// steals the anchor window's first responder, which is the behavior this replacement undoes.
-WK_POLYFILL_SEL_REPLACES("showRelativeToRect:ofView:preferredEdge:", "wk_showRelativeToRect:ofView:preferredEdge:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSWorkspace URLsForApplicationsToOpenURL:] (12.0+). LSCopyApplicationURLsForURL is the same query
 // under its pre-12.0 name (it is what the modern method wraps), present since 10.3.
-@interface NSWorkspace (WKPolyfillScopeAppURLs)
-- (NSArray *)wk_URLsForApplicationsToOpenURL:(NSURL *)url;
-@end
-@implementation NSWorkspace (WKPolyfillScopeAppURLs)
-- (NSArray *)wk_URLsForApplicationsToOpenURL:(NSURL *)url
+WK_POLYFILL_ADD_METHODS(NSWorkspace)
+- (NSArray<NSURL *> *)URLsForApplicationsToOpenURL:(NSURL *)url
 {
     CFArrayRef urls = LSCopyApplicationURLsForURL((__bridge CFURLRef)url, kLSRolesAll);
     if (urls) return [(__bridge NSArray *)urls autorelease];
     return @[];
 }
 @end
-WK_POLYFILL_SEL("URLsForApplicationsToOpenURL:", "wk_URLsForApplicationsToOpenURL:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSWorkspace URLForApplicationToOpenContentType:] (12.0+). The pre-12.0 route to the same answer is
@@ -1665,15 +1385,11 @@ WK_POLYFILL_SEL("URLsForApplicationsToOpenURL:", "wk_URLsForApplicationsToOpenUR
 // viewer) is asking about. The argument is a UTType, whose -identifier is the same UTI CFString the
 // classic LaunchServices call takes. Returns nil when no handler is registered, exactly as the modern
 // method does, which callers already handle.
-@interface NSWorkspace (WKPolyfillScopeAppForContentType)
-- (NSURL *)wk_URLForApplicationToOpenContentType:(id)contentType;
-@end
-@implementation NSWorkspace (WKPolyfillScopeAppForContentType)
-- (NSURL *)wk_URLForApplicationToOpenContentType:(id)contentType
+WK_POLYFILL_ADD_METHODS(NSWorkspace)
+- (NSURL *)URLForApplicationToOpenContentType:(UTType *)contentType
 {
-    NSString *identifier = [contentType respondsToSelector:sel_registerName("identifier")]
-        ? [contentType performSelector:sel_registerName("identifier")] : nil;
-    if (![identifier isKindOfClass:[NSString class]] || ![identifier length])
+    NSString *identifier = [contentType identifier];
+    if (![identifier length])
         return nil;
     CFStringRef bundleID = LSCopyDefaultRoleHandlerForContentType((__bridge CFStringRef)identifier, kLSRolesViewer);
     if (!bundleID)
@@ -1683,7 +1399,6 @@ WK_POLYFILL_SEL("URLsForApplicationsToOpenURL:", "wk_URLsForApplicationsToOpenUR
     return url;
 }
 @end
-WK_POLYFILL_SEL("URLForApplicationToOpenContentType:", "wk_URLForApplicationToOpenContentType:");
 
 // +[NSSharingService getSharingServicesForItems:mask:completion:] — the asynchronous, mask-filtered SPI
 // form, absent on 10.9 (probed on-host). The class is present, and so is the PUBLIC 10.8 API that answers
@@ -1740,13 +1455,9 @@ static CFRunLoopRef wkSharingEnumerationRunLoop(void)
     return wkSharingEnumerationRunLoopRef;
 }
 
-@interface NSSharingService (WKPolyfillScopeSharingServices)
-+ (void)wk_getSharingServicesForItems:(NSArray *)items mask:(NSUInteger)mask completion:(void (^)(NSArray *))completion;
-@end
+WK_POLYFILL_ADD_METHODS(NSSharingService)
 
-@implementation NSSharingService (WKPolyfillScopeSharingServices)
-
-+ (void)wk_getSharingServicesForItems:(NSArray *)items mask:(NSUInteger)mask completion:(void (^)(NSArray *))completion
++ (void)getSharingServicesForItems:(NSArray *)items mask:(NSUInteger)mask completion:(void (^)(NSArray *))completion
 {
     (void)mask;
     if (!completion)
@@ -1766,7 +1477,6 @@ static CFRunLoopRef wkSharingEnumerationRunLoop(void)
 }
 
 @end
-WK_POLYFILL_SEL("getSharingServicesForItems:mask:completion:", "wk_getSharingServicesForItems:mask:completion:");
 
 // +[NSMenuItem standardShareMenuItemForItems:] — the one-call "Share" menu-item constructor, absent on
 // 10.9 (probed on-host: unrecognized selector sent to class NSMenuItem). WebKitLegacy's context-menu
@@ -1787,13 +1497,9 @@ WK_POLYFILL_SEL("getSharingServicesForItems:mask:completion:", "wk_getSharingSer
 - (void)showRelativeToRect:(NSRect)rect ofView:(NSView *)view preferredEdge:(NSRectEdge)preferredEdge;
 @end
 
-@interface NSMenuItem (WKPolyfillScopeShareMenu)
-+ (NSMenuItem *)wk_standardShareMenuItemForItems:(NSArray *)items;
-@end
+WK_POLYFILL_ADD_METHODS(NSMenuItem)
 
-@implementation NSMenuItem (WKPolyfillScopeShareMenu)
-
-+ (NSMenuItem *)wk_standardShareMenuItemForItems:(NSArray *)items
++ (NSMenuItem *)standardShareMenuItemForItems:(NSArray *)items
 {
     if (![items count])
         return nil;
@@ -1811,7 +1517,6 @@ WK_POLYFILL_SEL("getSharingServicesForItems:mask:completion:", "wk_getSharingSer
 }
 
 @end
-WK_POLYFILL_SEL("standardShareMenuItemForItems:", "wk_standardShareMenuItemForItems:");
 
 // -[NSSharingServicePicker standardShareMenuItemRelativeToRect:ofView:preferredEdge:] — the picker's own
 // "Share" menu-item constructor, 10.10+ and absent on 10.9 (probed on-host: unrecognized selector). The
@@ -1875,13 +1580,9 @@ WK_POLYFILL_SEL("standardShareMenuItemForItems:", "wk_standardShareMenuItemForIt
 
 static const void *kWKSharePickerAnchorKey = &kWKSharePickerAnchorKey;
 
-@interface NSSharingServicePicker (WKPolyfillScopeAnchoredShareMenu)
-- (NSMenuItem *)wk_standardShareMenuItemRelativeToRect:(NSRect)rect ofView:(NSView *)view preferredEdge:(NSRectEdge)preferredEdge;
-@end
+WK_POLYFILL_ADD_METHODS(NSSharingServicePicker)
 
-@implementation NSSharingServicePicker (WKPolyfillScopeAnchoredShareMenu)
-
-- (NSMenuItem *)wk_standardShareMenuItemRelativeToRect:(NSRect)rect ofView:(NSView *)view preferredEdge:(NSRectEdge)preferredEdge
+- (NSMenuItem *)standardShareMenuItemRelativeToRect:(NSRect)rect ofView:(NSView *)view preferredEdge:(NSRectEdge)preferredEdge
 {
     NSMenu *servicesMenu = [self menu];
     if (![servicesMenu numberOfItems])
@@ -1905,7 +1606,6 @@ static const void *kWKSharePickerAnchorKey = &kWKSharePickerAnchorKey;
 }
 
 @end
-WK_POLYFILL_SEL("standardShareMenuItemRelativeToRect:ofView:preferredEdge:", "wk_standardShareMenuItemRelativeToRect:ofView:preferredEdge:");
 
 // ---------------------------------------------------------------------------------------------
 // AppKit pieces the Web Inspector's window/panel code needs, all absent on 10.9 (probed on-host).
@@ -1913,13 +1613,10 @@ WK_POLYFILL_SEL("standardShareMenuItemRelativeToRect:ofView:preferredEdge:", "wk
 // +[NSTextField labelWithString:] (10.12+) is a convenience constructor for a non-editable,
 // non-bezeled, non-drawing label. That IS its implementation — the modern one configures exactly these
 // properties on a plain NSTextField — so this is the real thing, not an approximation.
-@interface NSTextField (WKPolyfillScopeLabel)
-+ (NSTextField *)wk_labelWithString:(NSString *)stringValue;
-@end
-@implementation NSTextField (WKPolyfillScopeLabel)
-+ (NSTextField *)wk_labelWithString:(NSString *)stringValue
+WK_POLYFILL_ADD_METHODS(NSTextField)
++ (instancetype)labelWithString:(NSString *)stringValue
 {
-    NSTextField *label = [[[self alloc] initWithFrame:NSZeroRect] autorelease];
+    id label = [[[self alloc] initWithFrame:NSZeroRect] autorelease];
     [label setStringValue:stringValue ?: @""];
     [label setBezeled:NO];
     [label setDrawsBackground:NO];
@@ -1930,7 +1627,6 @@ WK_POLYFILL_SEL("standardShareMenuItemRelativeToRect:ofView:preferredEdge:", "wk
     return label;
 }
 @end
-WK_POLYFILL_SEL("labelWithString:", "wk_labelWithString:");
 
 // -[NSView safeAreaInsets] (11.0+) and -[NSScreen safeAreaInsets] (12.0+). A safe-area inset describes
 // screen furniture (notch, home indicator) intruding on a view or a screen. 10.9 has none, and
@@ -1938,83 +1634,60 @@ WK_POLYFILL_SEL("labelWithString:", "wk_labelWithString:");
 // answer here, not a placeholder. For the screen it means WebCore's safeScreenFrame() is the full screen
 // frame, which is the truth on this hardware.
 //
-// BOTH classes need it. A WK_POLYFILL_SEL registration rewrites the SELECTOR wherever WebKit sends it,
-// not the selector on one class, so every receiver class WebKit sends it to must implement it or that
+// BOTH classes need it. A polyfilled selector is rewritten wherever WebKit sends it, not on one class
+// only, so every receiver class WebKit sends it to must implement it or that
 // send raises "unrecognized selector". WebCore sends it to NSView (RenderThemeMac) and, via
 // safeScreenFrame(), to NSScreen — the NSScreen half was missing, and it took the UI process's
 // full-screen entry down with an exception the moment WKFullScreenWindowController asked for the screen
 // frame.
-@interface NSView (WKPolyfillScopeSafeArea)
-- (NSEdgeInsets)wk_safeAreaInsets;
-@end
-@implementation NSView (WKPolyfillScopeSafeArea)
-- (NSEdgeInsets)wk_safeAreaInsets { return NSEdgeInsetsMake(0, 0, 0, 0); }
+WK_POLYFILL_ADD_METHODS(NSView)
+- (NSEdgeInsets)safeAreaInsets { return NSEdgeInsetsMake(0, 0, 0, 0); }
 @end
 
-@interface NSScreen (WKPolyfillScopeSafeArea)
-- (NSEdgeInsets)wk_safeAreaInsets;
+WK_POLYFILL_ADD_METHODS(NSScreen)
+- (NSEdgeInsets)safeAreaInsets { return NSEdgeInsetsMake(0, 0, 0, 0); }
 @end
-@implementation NSScreen (WKPolyfillScopeSafeArea)
-- (NSEdgeInsets)wk_safeAreaInsets { return NSEdgeInsetsMake(0, 0, 0, 0); }
-@end
-WK_POLYFILL_SEL("safeAreaInsets", "wk_safeAreaInsets");
 
 // -[NSWindow setMinFullScreenContentSize:] (10.11+) constrains a window's size in a tiled full-screen
 // split. 10.9 has no tiling — NSWindowCollectionBehaviorFullScreenAllowsTiling is 10.11 too — so there is
 // no split for a minimum to apply to, and storing nothing is the whole behaviour on this OS.
-@interface NSWindow (WKPolyfillScopeFullScreenContentSize)
-- (void)wk_setMinFullScreenContentSize:(NSSize)size;
+WK_POLYFILL_ADD_METHODS(NSWindow)
+- (void)setMinFullScreenContentSize:(NSSize)size { (void)size; }
 @end
-@implementation NSWindow (WKPolyfillScopeFullScreenContentSize)
-- (void)wk_setMinFullScreenContentSize:(NSSize)size { (void)size; }
-@end
-WK_POLYFILL_SEL("setMinFullScreenContentSize:", "wk_setMinFullScreenContentSize:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSMenu setItemArray:] (10.10+): wholesale item replacement. 10.9 composes the same state from the
 // primitives it has always had — remove everything, add each item in order. Callers:
 // WebContextMenuProxyMac's sparse-menu rebuild, MenuUtilities' proposed-items filter,
 // WKRevealItemPresenter.
-@interface NSMenu (WKPolyfillScopeItemArray)
-- (void)wk_setItemArray:(NSArray *)items;
-@end
-@implementation NSMenu (WKPolyfillScopeItemArray)
-- (void)wk_setItemArray:(NSArray *)items
+WK_POLYFILL_ADD_METHODS(NSMenu)
+- (void)setItemArray:(NSArray<NSMenuItem *> *)items
 {
     [self removeAllItems];
     for (NSMenuItem *item in items)
         [self addItem:item];
 }
 @end
-WK_POLYFILL_SEL("setItemArray:", "wk_setItemArray:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSPopover _setRequiresCorrectContentAppearance:] (10.10+ SPI) pins the popover's content to the
 // correct light/dark appearance instead of the vibrant default. 10.9 has one appearance and its
 // popovers already render content in it, so the requested state is the only state.
-@interface NSPopover (WKPolyfillScopeContentAppearance)
-- (void)wk__setRequiresCorrectContentAppearance:(BOOL)requires;
+WK_POLYFILL_ADD_METHODS(NSPopover)
+- (void)_setRequiresCorrectContentAppearance:(BOOL)requires { (void)requires; }
 @end
-@implementation NSPopover (WKPolyfillScopeContentAppearance)
-- (void)wk__setRequiresCorrectContentAppearance:(BOOL)requires { (void)requires; }
-@end
-WK_POLYFILL_SEL("_setRequiresCorrectContentAppearance:", "wk__setRequiresCorrectContentAppearance:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSViewController isViewLoaded] (10.10+): whether the view is loaded, WITHOUT triggering the load
 // the way -view does. 10.9's controller keeps the loaded view in its `view` ivar (nil until
 // -loadView), so reading the ivar directly is the same no-side-effect answer.
-@interface NSViewController (WKPolyfillScope)
-- (BOOL)wk_isViewLoaded;
-@end
-@implementation NSViewController (WKPolyfillScope)
-- (BOOL)wk_isViewLoaded
+WK_POLYFILL_ADD_METHODS(NSViewController)
+- (BOOL)isViewLoaded
 {
     Ivar viewIvar = class_getInstanceVariable([NSViewController class], "view");
     return viewIvar && object_getIvar(self, viewIvar);
 }
 @end
-WK_POLYFILL_SEL("isViewLoaded", "wk_isViewLoaded");
 
 #import "color-popover-top-bar.h"
 
@@ -2022,43 +1695,34 @@ WK_POLYFILL_SEL("isViewLoaded", "wk_isViewLoaded");
 // -[NSColorPopoverController topBarMatrixView] (10.10+): the suggested-colors swatch matrix across the
 // top of the color popover, which an <input type="color" list="..."> fills with the page's suggestions.
 // The strip and its layout live in color-popover-top-bar.h, one static definition shared with its proof,
-// tests/behaviour/AppKit-color-popover-top-bar.m. Installed by NAME (WK_POLYFILL_ADD): the class exists
-// in 10.9's AppKit but its _OBJC_CLASS_$_ symbol is local there, so a compiled category could not bind it.
-static id wk_colorPopoverController_topBarMatrixView(id self, SEL _cmd)
+// tests/behaviour/AppKit-color-popover-top-bar.m. The class is named by string: it exists in 10.9's
+// AppKit but its _OBJC_CLASS_$_ symbol is local there, so nothing compiled can bind it.
+WK_POLYFILL_ADD_METHODS_ON(NSViewController, "NSColorPopoverController")
+- (id)topBarMatrixView
 {
-    (void)_cmd;
-    return wkColorTopBarMatrixView((NSViewController *)self);
+    return wkColorTopBarMatrixView(self);
 }
-WK_POLYFILL_ADD("NSColorPopoverController", "wk_topBarMatrixView", wk_colorPopoverController_topBarMatrixView, "@@:");
-WK_POLYFILL_SEL("topBarMatrixView", "wk_topBarMatrixView");
+@end
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSTableView setStyle:] (11.0+) picks a Big-Sur table inset/padding style. A 10.9 table has only
 // the classic metrics — the same ones the pre-11.0 default gave every caller — so there is no state to
 // set and the classic look is the answer.
-@interface NSTableView (WKPolyfillScope)
-- (void)wk_setStyle:(NSInteger)style;
+WK_POLYFILL_ADD_METHODS(NSTableView)
+- (void)setStyle:(NSTableViewStyle)style { (void)style; }
 @end
-@implementation NSTableView (WKPolyfillScope)
-- (void)wk_setStyle:(NSInteger)style { (void)style; }
-@end
-WK_POLYFILL_SEL("setStyle:", "wk_setStyle:");
 
 // ---------------------------------------------------------------------------------------------------
 // -setAccessibilityTitle: (10.10+ NSAccessibility protocol). 10.9 exposes the same capability as the
 // override API this rewrote: accessibilitySetOverrideValue:forAttribute: stores a value that answers
 // NSAccessibilityTitleAttribute queries, which is precisely what the 10.10 setter does for the title.
-// Registered as a category on NSObject (where 10.10 declares the protocol) so any accessibility
-// element WebKit sends it to — WebDateTimePickerMac's picker window today — gets the real store.
-@interface NSObject (WKPolyfillScopeAccessibility)
-- (void)wk_setAccessibilityTitle:(NSString *)title;
-@end
-@implementation NSObject (WKPolyfillScopeAccessibility)
-- (void)wk_setAccessibilityTitle:(NSString *)title
+// Installed on NSObject (where 10.10 declares the protocol) so any accessibility element WebKit sends
+// it to — WebDateTimePickerMac's picker window today — gets the real store.
+WK_POLYFILL_ADD_METHODS(NSObject)
+- (void)setAccessibilityTitle:(NSString *)title
 {
     [self accessibilitySetOverrideValue:title forAttribute:NSAccessibilityTitleAttribute];
 }
 @end
-WK_POLYFILL_SEL("setAccessibilityTitle:", "wk_setAccessibilityTitle:");
 
 #pragma clang diagnostic pop

@@ -1,6 +1,5 @@
 // QuartzCore: Objective-C methods on Core Animation classes that macOS 10.9 does not have, implemented
-// with the APIs 10.9 does have. Uses the same recipe as AppKit.m: a `wk_`-prefixed category method,
-// registered with WK_POLYFILL_SEL.
+// with the APIs 10.9 does have.
 
 #import "wk_polyfill.h"
 #import "wk_selref_scope.h"
@@ -21,13 +20,9 @@
 // cannot honor.
 @interface CALayerHost : CALayer
 @end
-@interface CALayerHost (WKPolyfillScope)
-- (void)wk_setPreservesFlip:(BOOL)preservesFlip;
+WK_POLYFILL_ADD_METHODS(CALayerHost)
+- (void)setPreservesFlip:(BOOL)preservesFlip { (void)preservesFlip; }
 @end
-@implementation CALayerHost (WKPolyfillScope)
-- (void)wk_setPreservesFlip:(BOOL)preservesFlip { (void)preservesFlip; }
-@end
-WK_POLYFILL_SEL("setPreservesFlip:", "wk_setPreservesFlip:");
 
 // ---------------------------------------------------------------------------------------------------
 // CAContext cross-process fence ports (createFencePort/setFencePort:/invalidateFences, ~10.10+): 10.9's
@@ -37,22 +32,13 @@ WK_POLYFILL_SEL("setPreservesFlip:", "wk_setPreservesFlip:");
 // CAContext is SPI (absent from the public QuartzCore headers), so it is declared here.
 @interface CAContext : NSObject
 @end
-@interface CAContext (WKPolyfillScope)
-- (mach_port_t)wk_createFencePort;
-- (void)wk_setFencePort:(mach_port_t)port;
-- (void)wk_invalidateFences;
+WK_POLYFILL_ADD_METHODS(CAContext)
+- (mach_port_t)createFencePort { return MACH_PORT_NULL; }
+- (void)setFencePort:(mach_port_t)port { (void)port; }
+- (void)invalidateFences { }
 @end
-@implementation CAContext (WKPolyfillScope)
-- (mach_port_t)wk_createFencePort { return MACH_PORT_NULL; }
-- (void)wk_setFencePort:(mach_port_t)port { (void)port; }
-- (void)wk_invalidateFences { }
-@end
-WK_POLYFILL_SEL("createFencePort", "wk_createFencePort");
-WK_POLYFILL_SEL("setFencePort:", "wk_setFencePort:");
-WK_POLYFILL_SEL("invalidateFences", "wk_invalidateFences");
 
 // ---------------------------------------------------------------------------------------------------
-@interface CALayer (WKPolyfillScope)
 // -[CALayer setCornerCurve:] (10.13+, a CACornerCurve) and -[CALayer setContentsFormat:] (10.12+, a
 // CAContentsFormat NSString). 10.9's CALayer has neither. Corners on 10.9 are always the classic circular
 // curve, which is exactly the value PlatformCALayerCocoa requests (kCACornerCurveCircular, supplied in
@@ -61,15 +47,10 @@ WK_POLYFILL_SEL("invalidateFences", "wk_invalidateFences");
 // nothing to opt into and the set is a no-op. (Per-class GAP_FILLs: WebKit's own WebTiledBackingLayer
 // -setContentsFormat:(ContentsFormat) keeps its real method via the patcher's class-correct aliasing;
 // only a plain CALayer, which lacks the selector on 10.9, gets this body.)
-- (void)wk_setCornerCurve:(NSString *)curve;
-- (void)wk_setContentsFormat:(NSString *)format;
+WK_POLYFILL_ADD_METHODS(CALayer)
+- (void)setCornerCurve:(CALayerCornerCurve)curve { (void)curve; }
+- (void)setContentsFormat:(CALayerContentsFormat)format { (void)format; }
 @end
-@implementation CALayer (WKPolyfillScope)
-- (void)wk_setCornerCurve:(NSString *)curve { (void)curve; }
-- (void)wk_setContentsFormat:(NSString *)format { (void)format; }
-@end
-WK_POLYFILL_SEL("setCornerCurve:", "wk_setCornerCurve:");
-WK_POLYFILL_SEL("setContentsFormat:", "wk_setContentsFormat:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[CALayer usesWebKitBehavior] (10.13+) selects the compositor semantics WebKit is written against.
@@ -80,22 +61,16 @@ WK_POLYFILL_SEL("setContentsFormat:", "wk_setContentsFormat:");
 // painter's order. 10.9's default is to sort, which puts a composited layer whose 3D transform carries
 // it behind z=0 under its opaque siblings.
 static const char kWKUsesWebKitBehaviorKey;
-@interface CALayer (WKPolyfillUsesWebKitBehavior)
-- (void)wk_setUsesWebKitBehavior:(BOOL)usesWebKitBehavior;
-- (BOOL)wk_usesWebKitBehavior;
-@end
-@implementation CALayer (WKPolyfillUsesWebKitBehavior)
-- (void)wk_setUsesWebKitBehavior:(BOOL)usesWebKitBehavior
+WK_POLYFILL_ADD_METHODS(CALayer)
+- (void)setUsesWebKitBehavior:(BOOL)usesWebKitBehavior
 {
     objc_setAssociatedObject(self, &kWKUsesWebKitBehaviorKey, @(usesWebKitBehavior), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
-- (BOOL)wk_usesWebKitBehavior
+- (BOOL)usesWebKitBehavior
 {
     return [objc_getAssociatedObject(self, &kWKUsesWebKitBehaviorKey) boolValue];
 }
 @end
-WK_POLYFILL_SEL("setUsesWebKitBehavior:", "wk_setUsesWebKitBehavior:");
-WK_POLYFILL_SEL("usesWebKitBehavior", "wk_usesWebKitBehavior");
 
 // ---------------------------------------------------------------------------------------------------
 // +[CATransaction addCommitHandler:forPhase:] (10.10+, absent on 10.9's CATransaction — sending it
@@ -334,11 +309,8 @@ static WKCommitHandlerQueue *wk_commitHandlerQueueForCurrentThread(void)
     return queue;
 }
 
-@interface CATransaction (WKPolyfillScope)
-+ (void)wk_addCommitHandler:(void (^)(void))handler forPhase:(NSInteger)phase;
-@end
-@implementation CATransaction (WKPolyfillScope)
-+ (void)wk_addCommitHandler:(void (^)(void))handler forPhase:(NSInteger)phase
+WK_POLYFILL_ADD_METHODS(CATransaction)
++ (void)addCommitHandler:(void (^)(void))handler forPhase:(NSInteger)phase
 {
     if (!handler)
         return;
@@ -360,7 +332,6 @@ static WKCommitHandlerQueue *wk_commitHandlerQueueForCurrentThread(void)
     [copied release];
 }
 @end
-WK_POLYFILL_SEL("addCommitHandler:forPhase:", "wk_addCommitHandler:forPhase:");
 
 // -[CASpringAnimation setInitialVelocity:] (the property is public 10.11+, absent on 10.9). 10.9 ships a
 // fully-functional private CASpringAnimation (mass/stiffness/damping/velocity settable + the internal
@@ -368,15 +339,11 @@ WK_POLYFILL_SEL("addCommitHandler:forPhase:", "wk_addCommitHandler:forPhase:");
 // concept is -velocity/-setVelocity:. Forward the modern setter to it (via KVC on "velocity", verified
 // settable on-host) so PlatformCAAnimation*'s upstream `.initialVelocity = ...` works and those sources
 // revert to pristine.
-@interface CASpringAnimation (WKPolyfillScope)
-- (void)wk_setInitialVelocity:(CGFloat)velocity;
-@end
-@implementation CASpringAnimation (WKPolyfillScope)
-- (void)wk_setInitialVelocity:(CGFloat)velocity
+WK_POLYFILL_ADD_METHODS(CASpringAnimation)
+- (void)setInitialVelocity:(CGFloat)velocity
 {
     [self setValue:@(velocity) forKey:@"velocity"];
 }
 @end
-WK_POLYFILL_SEL("setInitialVelocity:", "wk_setInitialVelocity:");
 
 #pragma clang diagnostic pop

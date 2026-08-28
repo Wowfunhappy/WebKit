@@ -440,7 +440,7 @@ macro(WEBKIT_FRAMEWORK _target)
 
     # MAVERICKS_BACKPORT: tag every WebKit framework with __DATA,__wk_marker (libwk_marker.a). The
     # selref patcher (wk_selref_scope.o, force-loaded into WebCore) rewrites __objc_selrefs only in
-    # marked images, so private-selector polyfills (WK_POLYFILL_SEL) are scoped to WebKit's own
+    # marked images, so the method polyfills (WK_POLYFILL_ADD_METHODS) are scoped to WebKit's own
     # binaries — a host app embedding WebKit is never patched and never sees the modern public
     # selectors. Pure data (no initializer), so it is safe even in frameworks like JavaScriptCore.
     if (MAVERICKS_SUPPORT)

@@ -514,7 +514,7 @@ NS_ASSUME_NONNULL_END
 // call on macOS; redeclare the setter here, the same job the AVURLAsset category above does.
 //
 // This is NOT a 10.9 gap and must not become a polyfill: macOS has no camera zoom on any version, so
-// there is nothing absent-here-but-present-there to supply, and a no-op WK_POLYFILL_SEL would make
+// there is nothing absent-here-but-present-there to supply, and a no-op polyfill method would make
 // the call SUCCEED on 10.9 where it fails everywhere else — leaving m_currentZoom recording a zoom
 // that was never applied. Upstream already handles the real outcome: the call sits inside its own
 // @try/@catch, which logs the unrecognized selector and leaves m_currentZoom alone.

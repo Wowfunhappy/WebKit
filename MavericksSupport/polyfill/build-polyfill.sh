@@ -80,9 +80,12 @@ for f in "$PF"/shared/*.c; do
     cc_queue "$CLANG" -c $SHAREDCF $HIDDEN -DWK_POLYFILL_REGISTERED $INC -o "$OBJ/shared/$(basename "${f%.c}").o" "$f"
 done
 
+# BLOCKCF: a polyfill block is a subclass nothing instantiates, so an initializer it replaces has no
+# designated-initializer chain of its own to keep.
+BLOCKCF='-Wno-objc-designated-initializers'
 echo "### compiling polyfills/methods (WebCore)"
 for f in "$PF"/methods/*.m; do
-    cc_queue "$CLANG" -c $MODERN $INC -o "$OBJ/methods/$(basename "${f%.m}").o" "$f"
+    cc_queue "$CLANG" -c $MODERN $BLOCKCF $INC -DWK_POLYFILL_UNIT="$(basename "${f%.m}")" -o "$OBJ/methods/$(basename "${f%.m}").o" "$f"
 done
 
 echo "### compiling polyfills/classes (one shared definition each)"
@@ -94,7 +97,7 @@ done
 
 echo "### compiling polyfills/webkit (WebKit.framework only)"
 for f in "$PF"/webkit/*.mm; do
-    cc_queue "$CLANG" -c $MODERN $INC -fobjc-arc -o "$OBJ/webkit/$(basename "${f%.mm}").o" "$f"
+    cc_queue "$CLANG" -c $MODERN $BLOCKCF $INC -fobjc-arc -DWK_POLYFILL_UNIT="$(basename "${f%.mm}")" -o "$OBJ/webkit/$(basename "${f%.mm}").o" "$f"
 done
 
 echo "### compiling polyfills/jsc (JavaScriptCore only)"
@@ -107,7 +110,7 @@ done
 
 echo "### compiling mechanism"
 cc_queue "$CLANG" -c $HOST $HIDDEN $INC -o "$OBJ/mech/wk_polyfill_runtime.o" "$MECH/wk_polyfill_runtime.c"
-cc_queue "$CLANG" -c $MODERN $INC        -o "$OBJ/mech/wk_selref_scope.o"    "$MECH/wk_selref_scope.m"
+cc_queue "$CLANG" -c $MODERN $INC -DWK_POLYFILL_UNIT=mechanism -o "$OBJ/mech/wk_selref_scope.o" "$MECH/wk_selref_scope.m"
 cc_queue "$CLANG" -c $HOST               -o "$OBJ/mech/wk_image_marker.o"    "$MECH/wk_image_marker.c"
 
 echo "### compiling polyfills/cdm (the Widevine CDM's libSystem gap library)"
@@ -214,13 +217,19 @@ T="$OBJ/tests"
 "$CLANG" $HOST $INC -dynamiclib -o "$T/wk_polyfill_sibling.dylib" "$TMECH/wk_polyfill_sibling.c" \
     "$MECH/wk_polyfill_runtime.c" -framework CoreFoundation -framework CoreGraphics
 WK_POLYFILL_SIBLING="$T/wk_polyfill_sibling.dylib" "$T/wk_polyfill_test"
-# The selector mechanism's dlopen guarantee: a WK_POLYFILL_ADD whose class arrives via dlopen is installed
+# The selector mechanism's dlopen guarantee: a polyfill block whose class arrives via dlopen is installed
 # by the time dlopen returns, with no further image load. The fixture is a single-image dylib (libobjc/
 # libSystem deps only): a system framework's dlopen cascades loads whose add-image events would rescue even
 # a drainless mechanism.
 "$CLANG" $MODERN $INC -fno-objc-arc -dynamiclib -o "$T/wk_selref_dlopen_fixture.dylib" "$TMECH/wk_selref_dlopen_fixture.m" -lobjc
-"$CLANG" $MODERN $INC -fno-objc-arc -o "$T/wk_selref_dlopen" "$TMECH/wk_selref_dlopen.m" "$MECH/wk_selref_scope.m" -framework Foundation -lobjc
+"$CLANG" $MODERN $INC -fno-objc-arc -DWK_POLYFILL_UNIT=test -o "$T/wk_selref_dlopen" "$TMECH/wk_selref_dlopen.m" "$MECH/wk_selref_scope.m" -framework Foundation -lobjc
 "$T/wk_selref_dlopen" "$T/wk_selref_dlopen_fixture.dylib"
+# A REPLACE body's call-through from under a WebKit-image override that calls super: the system class
+# lives in an unmarked dylib, the override and the block in a marked image.
+"$CLANG" $MODERN $INC -fno-objc-arc -dynamiclib -o "$T/wk_selref_replace_super_fixture.dylib" "$TMECH/wk_selref_replace_super_fixture.m" -lobjc
+"$CLANG" $MODERN $INC -fno-objc-arc -DWK_POLYFILL_UNIT=test -o "$T/wk_selref_replace_super" "$TMECH/wk_selref_replace_super.m" "$MECH/wk_selref_scope.m" \
+    "$T/wk_selref_replace_super_fixture.dylib" -framework Foundation -lobjc
+"$T/wk_selref_replace_super"
 # The contentInsets mechanism (methods/scrollview-inset-tile.h): a re-classed scroll view keeps working, and
 # applies its insets exactly once, with KVO's isa-swizzle stacked on the dynamic subclass.
 "$CLANG" $MODERN $INC -fno-objc-arc -I"$PF/methods" -o "$T/scrollview_insets" "$TBEHAV/AppKit-scrollview-insets.m" \
@@ -271,7 +280,7 @@ PROBE_LIBS="$OUT/libpolyfill.a -framework Foundation -framework CoreFoundation -
 # method or class 10.9 actually HAS silently replaces the working system one. These gates ask this
 # machine's runtime (dlopen/dlsym and the ObjC runtime, not the modern SDK's stubs) whether anything the
 # layer defines is something 10.9 already provides, and require the answer to be declared: WK_POLYFILL_REPLACES
-# / WK_POLYFILL_SEL_REPLACES, or delete it. There is no allowlist. Plain-C units with no registry entry
+# / WK_POLYFILL_REPLACE_METHODS, or delete it. There is no allowlist. Plain-C units with no registry entry
 # (shared/, the mechanism) are held to the same rule. Probe programs: tests/gates/.
 echo "### shadow gates"
 W="$OBJ/shadow"; mkdir -p "$W/members"
@@ -405,35 +414,33 @@ if [ -s "$W/offenders" ]; then
     exit 1
 fi
 
-# ObjC methods: one program force-loads the method polyfills (WITHOUT wk_selref_scope.o, whose constructor
-# would install wk_ entry points on every class that has the real method -- the fact being measured) to read
-# the registry and see which class each private selector lands on; a second, with nothing of the layer
-# linked, asks 10.9 whether that class already implements the public selector.
-( cd "$W/members" && "$AR" x "$OUT/libpolyfill_methods.a" && rm -f wk_selref_scope.o )
-"$CLANG" $HOST $INC -o "$W/selregistry" "$TGATES/shadow-selregistry.m" \
+# ObjC methods: one program force-loads every archive carrying blocks (WITHOUT wk_selref_scope.o, whose
+# constructor would install wk_ entry points on every class that has the real method -- the fact being
+# measured) to enumerate each block's methods and targets; a second, with nothing of the layer linked,
+# asks 10.9 whether that class already implements the public selector.
+( cd "$W/members" && "$AR" x "$OUT/libpolyfill_methods.a" && "$AR" x "$OUT/libpolyfill_webkit.a" && rm -f wk_selref_scope.o )
+"$CLANG" $HOST $INC -DWK_POLYFILL_UNIT=gate -o "$W/selregistry" "$TGATES/shadow-selregistry.m" \
     $(for o in "$W"/members/*.o; do printf -- '-Wl,-force_load,%s ' "$o"; done) "$OUT/libpolyfill.a" \
-    -Wl,-undefined,dynamic_lookup -lobjc $OBJC_LIBS
+    -Wl,-undefined,dynamic_lookup -lobjc -lc++ $OBJC_LIBS
 "$W/selregistry" > "$W/selregistry.raw"
-grep '^ADDMAP' "$W/selregistry.raw" | cut -f2- | sort -u > "$W/addmap.tsv" || true
-grep -v '^ADDMAP' "$W/selregistry.raw" | sort -u > "$W/selregistry.tsv"
+grep -v '^AMBIGUOUS' "$W/selregistry.raw" | sort -u > "$W/selregistry.tsv"
 "$CLANG" $HOST -o "$W/selpresent" "$TGATES/shadow-selpresent.m" -lobjc
-awk -F'\t' '$4 != "-" { print $4 "\t" $5 "\t" $1 "\t" $6 }' "$W/selregistry.tsv" \
+awk -F'\t' '{ print $4 "\t" $5 "\t" $1 "\t" $6 }' "$W/selregistry.tsv" | sort -u \
     | "$W/selpresent" $OBJC_LIBS | sort -u > "$W/selon109.base"
-awk -F'\t' '$4 != "-" { print $4 "\t" $5 "\t" $1 "\t" $6 }' "$W/selregistry.tsv" \
+awk -F'\t' '{ print $4 "\t" $5 "\t" $1 "\t" $6 }' "$W/selregistry.tsv" | sort -u \
     | "$W/selpresent" $OBJC_LIBS $PROBE_ONLY_LIBS | sort -u > "$W/selon109.ext"
 awk -F'\t' 'NR == FNR { ext[$1 FS $2 FS $3] = $0; next }
             $4 == "NOCLASS" && (($1 FS $2 FS $3) in ext) { print ext[$1 FS $2 FS $3]; next }
             { print }' "$W/selon109.ext" "$W/selon109.base" | sort -u > "$W/selon109"
-: > "$W/seloffenders"; : > "$W/seldead"; : > "$W/selnoclass"
-while IFS=$'\t' read -r pub priv intent cls side image; do
-    if [ "$cls" = "-" ]; then printf '%s\t%s\n' "$pub" "$priv" >> "$W/seldead"; continue; fi
+: > "$W/seloffenders"; : > "$W/selnoclass"
+while IFS=$'\t' read -r pub priv intent cls side image block; do
     [ "$side" = "class" ] && sigil=+ || sigil=-
     verdict=$(awk -F'\t' -v c="$cls" -v s="$side" -v p="$pub" '$1 == c && $2 == s && $3 == p { print $4 "\t" $5 }' "$W/selon109")
     state=${verdict%%$'\t'*}; owner=${verdict#*$'\t'}
-    if [ "$state" = "NOCLASS" ]; then printf '%s\t%s\t%s\n' "$cls" "$pub" "$priv" >> "$W/selnoclass"; continue; fi
+    if [ "$state" = "NOCLASS" ]; then printf '%s\t%s\t%s\n' "$cls" "$pub" "$block" >> "$W/selnoclass"; continue; fi
     [ "$state" = "PRESENT" ] || continue
     [ "$intent" = "REPLACES" ] && continue
-    printf '%s\t%s\t%s\t%s\n' "$sigil[$cls $pub]" "$priv" "$cls" "$owner" >> "$W/seloffenders"
+    printf '%s\t%s\t%s\t%s\n' "$sigil[$cls $pub]" "$block" "$cls" "$owner" >> "$W/seloffenders"
 done < "$W/selregistry.tsv"
 if [ -s "$W/selnoclass" ]; then
     {
@@ -441,7 +448,7 @@ if [ -s "$W/selnoclass" ]; then
         echo "ERROR: the presence probe could not load these polyfilled methods' classes, so whether 10.9"
         echo "implements them was NEVER CHECKED:"
         echo
-        while IFS=$'\t' read -r cls pub priv; do printf '  [%s %s] -> %s\n' "$cls" "$pub" "$priv"; done < "$W/selnoclass"
+        while IFS=$'\t' read -r cls pub block; do printf '  [%s %s] in %s\n' "$cls" "$pub" "$block"; done < "$W/selnoclass"
         echo
         echo "Add the framework that owns each class to OBJC_LIBS in build-polyfill.sh, or fix the class name."
     } >&2
@@ -450,56 +457,35 @@ fi
 if [ -s "$W/seloffenders" ]; then
     {
         echo
-        echo "ERROR: these WK_POLYFILL_SEL gap-fills name a method 10.9 ALREADY implements; the selref rewrite"
+        echo "ERROR: these WK_POLYFILL_ADD_METHODS bodies name a method 10.9 ALREADY implements; the selref rewrite"
         echo "makes WebKit run ours in place of 10.9's working method:"
         echo
-        while IFS=$'\t' read -r sent priv cls owner; do printf '  %-42s -> %-38s 10.9 defines it on %s, in %s\n' "$sent" "$priv" "$cls" "$owner"; done < "$W/seloffenders"
+        while IFS=$'\t' read -r sent block cls owner; do printf '  %-42s in %-44s 10.9 defines it on %s, in %s\n' "$sent" "$block" "$cls" "$owner"; done < "$W/seloffenders"
         echo
-        echo "Delete the polyfill, or declare WK_POLYFILL_SEL_REPLACES if shadowing 10.9 is the point."
-    } >&2
-    exit 1
-fi
-if [ -s "$W/seldead" ]; then
-    {
-        echo
-        echo "ERROR: these WK_POLYFILL_SEL registrations point at a private selector no class implements; the"
-        echo "rewrite still happens, so WebKit sends a selector that exists nowhere:"
-        echo
-        while IFS=$'\t' read -r pub priv; do printf '  %-46s -> %s\n' "$pub" "$priv"; done < "$W/seldead"
-        echo
-        echo "Implement the wk_ method on the class it belongs to, or drop the registration."
+        echo "Delete the polyfill, or move it into a WK_POLYFILL_REPLACE_METHODS block if shadowing 10.9 is the point."
     } >&2
     exit 1
 fi
 
-# Dead gap-fill ADDs: wk_alias_class runs before wk_install_added and binds wk_<pub> to the REAL method on
-# every class that itself defines <pub>; a plain WK_POLYFILL_ADD then class_addMethod()s, which no-ops there,
-# so a WK_POLYFILL_SEL_REPLACES it backs never installs and the rewrite reaches 10.9's original. Only the
-# class's OWN method list matters (an inheriting class gets no alias, so the ADD is live there).
-"$CLANG" $HOST -o "$W/ownprobe" "$TGATES/shadow-ownprobe.m" -lobjc
-: > "$W/gapadds"
-while IFS=$'\t' read -r cls sel addintent; do
-    [ "$addintent" = "GAP_FILL" ] || continue
-    awk -F'\t' -v p="$sel" -v c="$cls" '$2 == p && $3 == "REPLACES" { print c "\t" $1 "\t" p; exit }' "$W/selregistry.tsv" >> "$W/gapadds"
-done < "$W/addmap.tsv"
-cut -f1,2 "$W/gapadds" | sort -u | "$W/ownprobe" $OBJC_LIBS > "$W/own.base"
-cut -f1,2 "$W/gapadds" | sort -u | "$W/ownprobe" $OBJC_LIBS $PROBE_ONLY_LIBS > "$W/own.ext"
-awk -F'\t' 'NR == FNR { ext[$1 FS $2] = $0; next }
-            $3 == "NOCLASS" && (($1 FS $2) in ext) { print ext[$1 FS $2]; next }
-            { print }' "$W/own.ext" "$W/own.base" | awk -F'\t' '$3 == "OWNS"' > "$W/deadadds"
-if [ -s "$W/deadadds" ]; then
-    {
-        echo
-        echo "ERROR: these WK_POLYFILL_ADD gap-fills install the private selector of a WK_POLYFILL_SEL_REPLACES on"
-        echo "a class that itself defines the public selector, so the replacement body never installs there:"
-        echo
-        while IFS=$'\t' read -r cls pub state; do
-            priv=$(awk -F'\t' -v c="$cls" -v p="$pub" '$1 == c && $2 == p { print $3; exit }' "$W/gapadds")
-            printf '  WK_POLYFILL_ADD(%s, %s)  is dead: %s owns %s\n' "$cls" "$priv" "$cls" "$pub"
-        done < "$W/deadadds"
-        echo
-        echo "Declare each WK_POLYFILL_ADD_REPLACES (class_replaceMethod installs regardless), or drop the SEL_REPLACES."
-    } >&2
+# The same method on the same class from two blocks: only one body can be installed (class_addMethod
+# is a no-op once the wk_ method exists), so the other is dead code an edit can land on.
+awk -F'\t' '{ key = $4 FS $5 FS $1; if (!(key in seen)) seen[key] = $7; else if (seen[key] != $7) print $4 "\t" $5 "\t" $1 "\t" seen[key] "\t" $7 }' \
+    "$W/selregistry.tsv" | sort -u > "$W/seldup"
+if [ -s "$W/seldup" ]; then
+    { echo; echo "ERROR: these methods are defined for the same class by more than one block (only one body can install):"; echo
+      awk -F'\t' '{ printf "  [%s %s %s]  %s  and  %s\n", $2, $1, $3, $4, $5 }' "$W/seldup"
+      echo; echo "Keep exactly one definition."; } >&2
+    exit 1
+fi
+
+# A REPLACE body for the same selector on two classes of one inheritance chain: WK_ORIGINAL_METHOD finds
+# the running body as the first REPLACE body up the receiver's chain, which is only well-defined when
+# there is one. The probe reports such pairs among the classes it can load.
+grep '^AMBIGUOUS' "$W/selregistry.raw" | sort -u > "$W/selambiguous" || true
+if [ -s "$W/selambiguous" ]; then
+    { echo; echo "ERROR: one selector is replaced on two classes of the same inheritance chain:"; echo
+      awk -F'\t' '{ printf "  %s %s on %s and %s\n", $3, $2, $4, $5 }' "$W/selambiguous"
+      echo; echo "Replace it once, on the class the receivers share."; } >&2
     exit 1
 fi
 
@@ -519,22 +505,10 @@ if awk -F'\t' '$3 == "PRESENT"' "$W/clson109" | grep -q .; then
     exit 1
 fi
 
-# A public selector registered twice: class_addMethod is a no-op once the wk_ method exists, so the FIRST
-# definition is live and the second is dead code an edit can land on. Scanned from source because the
-# runtime registry is sort -u'd.
-dupsel=$(grep -hvE '^[[:space:]]*//' "$PF"/methods/*.m "$PF"/webkit/*.mm 2>/dev/null \
-    | grep -oE 'WK_POLYFILL_SEL(_REPLACES)?\("[^"]+"' | sed -E 's/.*\("//; s/"$//' | sort | uniq -d)
-if [ -n "$dupsel" ]; then
-    { echo; echo "ERROR: these public selectors are registered more than once (only the first is live):"; echo
-      printf '  %s\n' $dupsel; echo; echo "Collapse each to exactly one definition."; } >&2
-    exit 1
-fi
-
 echo "  shadow gates: clean -- $(wc -l < "$W/names" | tr -d ' ') defined symbols, $(wc -l < "$W/registry.tsv" | tr -d ' ') registered;"
 echo "    $(wc -l < "$W/present_names" | tr -d ' ') present on 10.9, each declared WK_POLYFILL_REPLACES"
-echo "    $(wc -l < "$W/selregistry.tsv" | tr -d ' ') ObjC method polyfills, each landing on a class; $(awk -F'\t' '$4 == "PRESENT"' "$W/selon109" | wc -l | tr -d ' ') present on 10.9, each declared WK_POLYFILL_SEL_REPLACES"
+echo "    $(wc -l < "$W/selregistry.tsv" | tr -d ' ') ObjC method polyfills, each landing on a class; $(awk -F'\t' '$4 == "PRESENT"' "$W/selon109" | wc -l | tr -d ' ') present on 10.9, each in a WK_POLYFILL_REPLACE_METHODS block"
 echo "    $(wc -l < "$W/clson109" | tr -d ' ') ObjC class polyfills, none of which 10.9 has"
-echo "    $(wc -l < "$W/gapadds" | tr -d ' ') gap-fill ADDs back a SEL_REPLACES; none dead on a class owning the public selector"
 
 echo "### done -> $OUT"
 ls -la "$OUT"

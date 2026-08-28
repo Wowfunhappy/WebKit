@@ -32,17 +32,9 @@ WK_POLYFILL_CONST("AVFoundation", AVCaptureDeviceType, AVCaptureDeviceTypeExtern
 // kIOAudioDeviceTransportTypeBuiltIn, the transport a camera on the logic board reports.
 enum { WKAVCaptureTransportTypeBuiltIn = 'bltn' };
 
-@interface AVCaptureDevice (WKPolyfillScopeCaptureDevice)
-- (AVCaptureDeviceType)wk_deviceType;
-- (BOOL)wk_isPortraitEffectActive;
-+ (AVCaptureDevice *)wk_systemPreferredCamera;
-+ (AVAuthorizationStatus)wk_authorizationStatusForMediaType:(AVMediaType)mediaType;
-+ (void)wk_requestAccessForMediaType:(AVMediaType)mediaType completionHandler:(void (^)(BOOL granted))handler;
-@end
+WK_POLYFILL_ADD_METHODS(AVCaptureDevice)
 
-@implementation AVCaptureDevice (WKPolyfillScopeCaptureDevice)
-
-- (AVCaptureDeviceType)wk_deviceType
+- (AVCaptureDeviceType)deviceType
 {
     return [self transportType] == WKAVCaptureTransportTypeBuiltIn
         ? AVCaptureDeviceTypeBuiltInWideAngleCamera : AVCaptureDeviceTypeExternalUnknown;
@@ -51,7 +43,7 @@ enum { WKAVCaptureTransportTypeBuiltIn = 'bltn' };
 // The portrait/background-blur effect is a macOS 12 Continuity Camera feature with no 10.9
 // counterpart, so no device here has it active -- which is also what the real property reports on a
 // modern machine whose camera does not support it.
-- (BOOL)wk_isPortraitEffectActive
+- (BOOL)isPortraitEffectActive
 {
     return NO;
 }
@@ -60,7 +52,7 @@ enum { WKAVCaptureTransportTypeBuiltIn = 'bltn' };
 // +defaultDeviceWithMediaType: answers. The modern property additionally reflects a user override
 // set through +setUserPreferredCamera:, which 10.9 has no store for; a machine where the user has
 // never expressed a preference is the case the two definitions agree on.
-+ (AVCaptureDevice *)wk_systemPreferredCamera
++ (AVCaptureDevice *)systemPreferredCamera
 {
     return [self defaultDeviceWithMediaType:AVMediaTypeVideo];
 }
@@ -78,7 +70,7 @@ enum { WKAVCaptureTransportTypeBuiltIn = 'bltn' };
 // 10.9 but does not respond, so +authorizationStatusForMediaType: raises unrecognized-selector. AppKit's
 // run loop swallows that exception, requestSystemValidation's completion handler never runs, and the
 // getUserMedia promise neither resolves nor rejects -- the request hangs with no prompt and no error.
-+ (AVAuthorizationStatus)wk_authorizationStatusForMediaType:(AVMediaType)mediaType
++ (AVAuthorizationStatus)authorizationStatusForMediaType:(AVMediaType)mediaType
 {
     (void)mediaType;
     return AVAuthorizationStatusAuthorized;
@@ -88,7 +80,7 @@ enum { WKAVCaptureTransportTypeBuiltIn = 'bltn' };
 // a NotDetermined status), but it is the same absent 10.14 pair and callers may reach it by another route,
 // so it answers consistently instead of leaving a second unrecognized selector behind. Answering
 // synchronously is safe: upstream's requestAVCaptureAccessForType hops to the main run loop itself.
-+ (void)wk_requestAccessForMediaType:(AVMediaType)mediaType completionHandler:(void (^)(BOOL granted))handler
++ (void)requestAccessForMediaType:(AVMediaType)mediaType completionHandler:(void (^)(BOOL granted))handler
 {
     (void)mediaType;
     if (handler)
@@ -96,44 +88,32 @@ enum { WKAVCaptureTransportTypeBuiltIn = 'bltn' };
 }
 
 @end
-WK_POLYFILL_SEL("deviceType", "wk_deviceType");
-WK_POLYFILL_SEL("isPortraitEffectActive", "wk_isPortraitEffectActive");
-WK_POLYFILL_SEL("systemPreferredCamera", "wk_systemPreferredCamera");
-WK_POLYFILL_SEL("authorizationStatusForMediaType:", "wk_authorizationStatusForMediaType:");
-WK_POLYFILL_SEL("requestAccessForMediaType:completionHandler:", "wk_requestAccessForMediaType:completionHandler:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[AVSampleBufferDisplayLayer status] / -videoPerformanceMetrics (10.10+). 10.9's layer (the class
 // shipped in 10.8) cannot report a rendering status or frame metrics at all, so the truthful answers
 // are StatusUnknown (0) and no-metrics (nil) — LocalSampleBufferDisplayLayer then never sees a
-// spurious Failed and skips its metrics logging, which is what the absent-metrics case calls for. Installed
-// by NAME: this layer does not link AVFoundation.
-static long wk_avSampleBufferDisplayLayer_status(id self, SEL _cmd)
+// spurious Failed and skips its metrics logging, which is what the absent-metrics case calls for. Named
+// by class: this layer does not link AVFoundation.
+WK_POLYFILL_ADD_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
+- (NSInteger)status
 {
-    (void)self;
-    (void)_cmd;
     return 0; // AVQueuedSampleBufferRenderingStatusUnknown
 }
-static id wk_avSampleBufferDisplayLayer_videoPerformanceMetrics(id self, SEL _cmd)
+- (id)videoPerformanceMetrics
 {
-    (void)self;
-    (void)_cmd;
     return nil;
 }
-WK_POLYFILL_ADD("AVSampleBufferDisplayLayer", "wk_status", wk_avSampleBufferDisplayLayer_status, "q@:");
-WK_POLYFILL_SEL("status", "wk_status");
-WK_POLYFILL_ADD("AVSampleBufferDisplayLayer", "wk_videoPerformanceMetrics", wk_avSampleBufferDisplayLayer_videoPerformanceMetrics, "@@:");
-WK_POLYFILL_SEL("videoPerformanceMetrics", "wk_videoPerformanceMetrics");
+@end
 
 // -[AVAssetResourceLoadingDataRequest requestsAllDataToEndOfResource] is 10.11+. 10.9's AVFoundation
 // always states a finite -requestedLength on a data request, so it never asks for everything through the
 // end of the resource, and WebCoreAVFResourceLoader emits a bounded Range header.
-static BOOL wk_avDataRequest_requestsAllDataToEndOfResource(id self, SEL _cmd)
+WK_POLYFILL_ADD_METHODS_ON(NSObject, "AVAssetResourceLoadingDataRequest")
+- (BOOL)requestsAllDataToEndOfResource
 {
-    (void)self; (void)_cmd;
     return NO;
 }
-WK_POLYFILL_ADD("AVAssetResourceLoadingDataRequest", "wk_requestsAllDataToEndOfResource", wk_avDataRequest_requestsAllDataToEndOfResource, "c@:");
-WK_POLYFILL_SEL("requestsAllDataToEndOfResource", "wk_requestsAllDataToEndOfResource");
+@end
 
 #pragma clang diagnostic pop

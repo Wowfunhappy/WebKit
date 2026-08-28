@@ -75,25 +75,43 @@ declare it with `WK_SYSTEM_FN` and call it through `WK_SYSTEM(name)` instead of 
 
 ### An Objective-C method on a system class
 
-In `methods/<Framework>.m`, implement the method under a `wk_`-prefixed name and register it:
+In `methods/<Framework>.m`, write the method under its real name inside a block naming the class:
 
 ```objc
-@implementation NSGraphicsContext (WKPolyfill)
-- (CGContextRef)wk_CGContext { ... }
+WK_POLYFILL_ADD_METHODS(NSGraphicsContext)
+- (CGContextRef)CGContext { ... }
 @end
-WK_POLYFILL_SEL("CGContext", "wk_CGContext");
 ```
 
-WebKit's call sites keep saying `[ctx CGContext]`; only WebKit's own binaries are redirected to the
-private name. You do not need to work out which other classes might share the selector — a class
-that has the real method gets its own implementation automatically.
+WebKit's call sites keep saying `[ctx CGContext]`; only WebKit's own binaries are redirected to a
+private selector the mechanism installs on the class, so the public selector never appears on it. The
+block is a subclass of the named class that nothing instantiates: the compiler checks the signature
+against the SDK's declaration and `self` is typed. You do not need to work out which other classes
+might share the selector — a class that has the real method gets its own implementation automatically.
 
-Like a C gap-fill, this is for a method 10.9 LACKS: the body runs, and the build gate rejects a
-`WK_POLYFILL_SEL` whose method 10.9 actually implements. When *deliberately shadowing* a method 10.9
-HAS is the point, use the counterpart of `WK_POLYFILL_REPLACES`:
+Like a C gap-fill, this is for a method 10.9 LACKS: the body runs, and the build gate rejects an
+`ADD` whose method 10.9 actually implements. When *deliberately shadowing* a method 10.9 HAS is the
+point, use the counterpart of `WK_POLYFILL_REPLACES`, and reach the implementation replaced with
+`WK_ORIGINAL_METHOD(RET, (ARG TYPES), args...)`:
 
 ```objc
-WK_POLYFILL_SEL_REPLACES("foo", "wk_foo");
+WK_POLYFILL_REPLACE_METHODS(NSPopover)
+- (void)showRelativeToRect:(NSRect)rect ofView:(NSView *)view preferredEdge:(NSRectEdge)edge
+{
+    WK_ORIGINAL_METHOD(void, (NSRect, NSView *, NSRectEdge), rect, view, edge);
+    ...
+}
+@end
+```
+
+For a class the archive cannot link against — one that moved frameworks after 10.9, a private class,
+or a class cluster whose private concrete class must be listed too — the `_ON` forms name the classes
+by string; the first argument is only the typing superclass:
+
+```objc
+WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSURLSessionTask", "__NSCFURLSessionTask")
+- (float)priority { ... }
+@end
 ```
 
 ### An Objective-C class 10.9 lacks entirely
@@ -118,14 +136,13 @@ shadow, so it must be declared `WK_POLYFILL_REPLACES` or the build fails — for
 the plain-C `shared/` and mechanism units alike. There is no allowlist: every symbol the layer knowingly
 shadows says so in the registry, where the loader and `WK_POLYFILL_REPORT` see it.
 
-The gates ask the ObjC runtime the same question about every `WK_POLYFILL_SEL`: they read the registry
-out of the built method objects, work out which class each `wk_` method lands on, and then — in a
-second program with none of the layer linked in, so what it sees is the system's own — walk that class
-and its superclasses for the public selector. A `WK_POLYFILL_SEL` whose method 10.9 already implements
-fails the build (the rewrite makes WebKit run the body in place of 10.9's) unless it is declared
-`WK_POLYFILL_SEL_REPLACES`; so does a registration whose `wk_` method exists on no class at all, since
-the rewrite would then send WebKit at a selector nothing implements. A `WK_POLYFILL_CLASS` stub for a
-class 10.9 has fails the same way.
+The gates ask the ObjC runtime the same question about every method block: they enumerate each
+block's methods and target classes out of the built method objects, and then — in a second program
+with none of the layer linked in, so what it sees is the system's own — walk each target class and its
+superclasses for the public selector. An `ADD` method 10.9 already implements fails the build (the
+rewrite makes WebKit run the body in place of 10.9's) unless it is in a `REPLACE` block; so does the
+same method defined for one class by two blocks, or a `REPLACE` of one selector on two classes of a
+single inheritance chain. A `WK_POLYFILL_CLASS` stub for a class 10.9 has fails the same way.
 
 ## How it works, in brief
 
@@ -144,7 +161,7 @@ Read this only if you are changing the mechanism itself.
   resolve `WK_ORIGINAL` on first use and answer `dlsym` for polyfilled names — the latter so that
   WebKit's soft-linking (`SOFT_LINK_CONSTANT`, `SOFT_LINK_FUNCTION`), which looks symbols up on a
   framework handle, sees the same answer the linker would.
-- **Objective-C methods** cannot be scoped by the linker, since dispatch keys on the selector. They are
-  registered under a private `wk_` selector and each of our own binaries has its `__objc_selrefs`
-  rewritten to match, so a host app embedding WebKit still sees the unmodified class and its
-  `respondsToSelector:` answers are unchanged.
+- **Objective-C methods** cannot be scoped by the linker, since dispatch keys on the selector. Each
+  block's methods are installed on the target class under a private `wk_` selector at load and each of
+  our own binaries has its `__objc_selrefs` rewritten to match, so a host app embedding WebKit still
+  sees the unmodified class and its `respondsToSelector:` answers are unchanged.
