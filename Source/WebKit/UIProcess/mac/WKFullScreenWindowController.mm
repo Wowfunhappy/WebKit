@@ -466,8 +466,13 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 {
 #if ENABLE(GPU_PROCESS)
     RefPtr gpuProcess = WebKit::GPUProcessProxy::singletonIfCreated();
+    // MAVERICKS_BACKPORT: DOM rendering stays in the web process here (ENABLE_GPU_PROCESS_DOM_RENDERING_BY_DEFAULT=0,
+    // OptionsMacMavericks.cmake), so a GPU process exists only once media has used one. Without one there is
+    // nothing to flush ahead of the snapshot; the notification is skipped and entry proceeds.
     if (!gpuProcess)
-        return completionHandler(false);
+        return [self _continueEnteringFullscreenAfterPostingNotification:WTF::move(completionHandler)]; // MAVERICKS_BACKPORT: see above.
+    // if (!gpuProcess)
+    //     return completionHandler(false);
 
     OBJC_ALWAYS_LOG(OBJC_LOGIDENTIFIER);
 
@@ -862,7 +867,9 @@ static RetainPtr<CGImageRef> takeWindowSnapshot(CGSWindowID windowID, bool captu
 #if ENABLE(GPU_PROCESS)
     RefPtr gpuProcess = WebKit::GPUProcessProxy::singletonIfCreated();
     if (!gpuProcess)
-        return;
+        return [self _continueExitingFullscreenAfterPostingNotificationAndExitImmediately:immediately]; // MAVERICKS_BACKPORT: no GPU process, nothing to flush; see enterFullScreen:.
+    // if (!gpuProcess)
+    //     return;
 
     OBJC_ALWAYS_LOG(OBJC_LOGIDENTIFIER);
 
