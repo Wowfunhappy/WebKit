@@ -48,7 +48,13 @@ cc_wait() {
 # --no-default-config: the clang wrapper's cfg carries WebKit's link set; these are pure object code.
 # -Wall -Wextra: the diagnostic set WebKit's own build uses, so a defect here surfaces the way one in
 # Source/ does.
-WARN='-Wall -Wextra -Wno-unused-command-line-argument'
+# -Werror=unguarded-availability{,-new}: the layer compiles against a modern SDK and runs on 10.9, so an
+# unguarded reference to anything newer is the layer's characteristic defect -- an unrecognized selector
+# or an undefined reference the first time that line runs. -Wall -Wextra do not catch it: only
+# -unguarded-availability-new is on by default and its floor is 10.13, leaving 10.10-10.12 -- where most
+# of what this layer supplies lives -- unwatched. A reference the layer itself provides is suppressed at
+# the site that makes it, so the check reads as a claim about that line.
+WARN='-Wall -Wextra -Wno-unused-command-line-argument -Werror=unguarded-availability -Werror=unguarded-availability-new'
 INC="-I$MECH"                                        # so a polyfill can #include "wk_polyfill.h"
 HOST="--no-default-config -mmacosx-version-min=10.9 $WARN"                       # the 10.9 host headers
 MODERN="--no-default-config -isysroot $SDK -mmacosx-version-min=10.9 -Wno-deprecated-declarations $WARN"
@@ -91,14 +97,94 @@ done
 echo "### compiling polyfills/classes (one shared definition each)"
 # Exported: other images bind to these classes through the reexport-and-repoint in
 # scripts/stage-frameworks.sh, and hiding would drop the WKMavPolyfillPriv_* aliases from the export table.
+# -Werror: against the 10.9 headers a post-10.9 API is not declared at all, so -Wunguarded-availability
+# has nothing to fire on and the diagnostic that does catch a send to an absent selector -- "may not
+# respond to" -- carries no flag of its own. Promoting the whole set is what makes it stop the build;
+# these units compile with no warnings today, so it costs nothing.
 for f in "$PF"/classes/*.m; do
-    cc_queue "$CLANG" -c $HOST $INC -o "$OBJ/classes/$(basename "${f%.m}").o" "$f"
+    cc_queue "$CLANG" -c $HOST -Werror $INC -o "$OBJ/classes/$(basename "${f%.m}").o" "$f"
 done
 
 echo "### compiling polyfills/webkit (WebKit.framework only)"
 for f in "$PF"/webkit/*.mm; do
     cc_queue "$CLANG" -c $MODERN $BLOCKCF $INC -fobjc-arc -DWK_POLYFILL_UNIT="$(basename "${f%.mm}")" -o "$OBJ/webkit/$(basename "${f%.mm}").o" "$f"
 done
+
+# --- availability inside method bodies -----------------------------------------------------------
+# -Wunguarded-availability is blind inside a polyfill method body: clang reads a body that implements
+# an availability-attributed declaration as an implicit availability context at that version, so a
+# 10.10 send inside a 10.12 method is "guarded" and no diagnostic is emitted. That is the whole of
+# polyfills/methods/, where every block by construction implements a post-10.9 API -- and it is how
+# -[NSTextField labelWithString:] came to send the absent -setLineBreakMode: and die at the first
+# render. Compiling a copy whose method definitions are renamed removes the match against the SDK
+# declaration, and with it the implicit context; the sends inside are then checked like any other.
+# Syntax-only, on a transformed copy: the shipped objects still come from the untouched sources.
+echo "### method-body availability gate"
+GATEONLY='-Wno-everything -Werror=unguarded-availability -Werror=unguarded-availability-new'
+GATESRC="$OBJ/availability-gate"; rm -rf "$GATESRC"; mkdir -p "$GATESRC"/methods
+# methods/ is the whole of it. classes/ compiles against the 10.9 headers, where a post-10.9 API carries
+# no availability attribute for this pass to read -- its equivalent check is the -Werror on its own
+# compile above. webkit/ is not renamed either: websocket.mm declares its methods only in
+# @implementation, so renaming a definition leaves every send through a receiver other than self
+# unresolved, and the one post-10.9 surface it touches is the NSURLSessionWebSocket API it defines
+# itself, which the file-scope check already covers.
+for f in "$PF"/methods/*.m; do
+    d="$(basename "$(dirname "$f")")"; copy="$GATESRC/$d/$(basename "$f")"
+    # The signature keeps its own suppression: the types in it name the very API the block supplies, and
+    # it is only the body the renaming exists to expose.
+    # Two passes over the unit: collect the selectors it defines, then rename those definitions and the
+    # sends to self that reach them. A definition that no longer matches an SDK declaration loses the
+    # implicit availability context, which is the point of the copy; renaming the matching self-sends
+    # keeps it compiling. #line puts the diagnostics back on the real file and line.
+    awk -v src="$f" '''
+        function selname(s,   b, t) { b = index(s, "{"); t = b ? substr(s, 1, b - 1) : s;
+                                      sub(/[[:space:]:(].*$/, "", t); return t }
+        /^@implementation/ || /^WK_POLYFILL_(ADD|REPLACE)_METHODS/ { inimpl = 1 }
+        /^@end/ { inimpl = 0 }
+        NR == FNR {
+            if (inimpl && match($0, /^[[:space:]]*[+-][[:space:]]*\([^)]*\)[[:space:]]*/)) {
+                rest = substr($0, RLENGTH + 1)
+                if (rest ~ /^[A-Za-z_]/ && rest !~ /^init/) defined[selname(rest)] = 1
+            }
+            next
+        }
+        FNR == 1 { printf "#line 1 \"%s\"\n", src }
+        {
+            line = $0
+            if (inimpl && match(line, /^[[:space:]]*[+-][[:space:]]*\([^)]*\)[[:space:]]*/)) {
+                head = substr(line, 1, RLENGTH); rest = substr(line, RLENGTH + 1)
+                if (rest ~ /^[A-Za-z_]/ && rest !~ /^init/) {
+                    brace = index(rest, "{")
+                    sig = brace ? substr(rest, 1, brace - 1) : rest
+                    body = brace ? substr(rest, brace) : ""
+                    print "#pragma clang diagnostic push"
+                    print "#pragma clang diagnostic ignored \"-Wunguarded-availability\""
+                    print "#pragma clang diagnostic ignored \"-Wunguarded-availability-new\""
+                    print head "wkgate_" sig
+                    print "#pragma clang diagnostic pop"
+                    if (body != "") print body
+                    printf "#line %d \"%s\"\n", FNR + 1, src
+                    next
+                }
+            }
+            out = ""
+            while (match(line, /\[self [A-Za-z_][A-Za-z0-9_]*/)) {
+                pre = substr(line, 1, RSTART + 5)
+                sel = substr(line, RSTART + 6, RLENGTH - 6)
+                line = substr(line, RSTART + RLENGTH)
+                out = out pre ((sel in defined) ? "wkgate_" sel : sel)
+            }
+            print out line
+        }''' "$f" "$f" > "$copy"
+    # Each group is checked with the flag set it is really built with; classes/ compiles against the
+    # 10.9 headers, so the modern SDK's own declarations do not collide with the stubs it defines.
+    # -Wno-everything first: this pass asks one question, and the renaming leaves sends through a
+    # receiver other than self unresolved, which is noise here and is checked by the real compile.
+    cc_queue "$CLANG" -fsyntax-only $MODERN $BLOCKCF $INC $GATEONLY \
+        -DWK_POLYFILL_UNIT="$(basename "${f%.m}")" -I"$(dirname "$f")" "$copy"
+done
+cc_wait
+echo "  method-body availability gate: clean"
 
 echo "### compiling polyfills/jsc (JavaScriptCore only)"
 for f in "$PF"/jsc/*.cpp; do

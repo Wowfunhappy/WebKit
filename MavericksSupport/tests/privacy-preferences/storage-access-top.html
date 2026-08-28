@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>storage access: idle</title>
+<style>body{font:13px -apple-system,sans-serif;margin:2em} iframe{width:420px;height:150px}</style>
+<h1>Storage Access API prompt</h1>
+<p>Top level is <b id="host"></b>; the frame below is a different site. Click the button inside the
+frame — WebKit should put a consent sheet on the window before the promise settles.</p>
+<iframe id="f"></iframe>
+<script>
+document.getElementById('host').textContent = location.host;
+// The embedded site is the other loopback name, so the frame is cross-site yet still a secure context.
+const other = location.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
+document.getElementById('f').src = location.protocol + '//' + other + ':' + location.port
+    + location.pathname.replace('storage-access-top.html', 'storage-access-embed.html');
+addEventListener('message', e => { document.title = 'storage access: ' + e.data; });
+</script>

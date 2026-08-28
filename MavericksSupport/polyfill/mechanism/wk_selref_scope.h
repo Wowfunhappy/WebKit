@@ -79,7 +79,11 @@ struct wk_methods_entry {
     WK_METHODS_CAT4(WKPolyfill_, WK_POLYFILL_UNIT, WK_METHODS_CAT(_, SUPER), WK_METHODS_CAT(_, __LINE__))
 
 #define WK_POLYFILL_METHODS_(SUPER, INTENT, ...) \
+    _Pragma("clang diagnostic push") \
+    _Pragma("clang diagnostic ignored \"-Wunguarded-availability\"") \
+    _Pragma("clang diagnostic ignored \"-Wunguarded-availability-new\"") \
     @interface WK_METHODS_PLACEHOLDER(SUPER) : SUPER @end \
+    _Pragma("clang diagnostic pop") \
     static const char *const WK_METHODS_CAT(wk_methods_targets_, __LINE__)[] = { __VA_ARGS__, NULL }; \
     __attribute__((used, section("__DATA,__wk_methods"))) \
     static const struct wk_methods_entry WK_METHODS_CAT(wk_methods_reg_, __LINE__) = { \

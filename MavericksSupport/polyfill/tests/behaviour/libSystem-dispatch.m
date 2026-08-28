@@ -17,6 +17,10 @@
 #import <Foundation/Foundation.h>
 #import <stdio.h>
 
+// dispatch_activate is 10.12+ in the SDK and absent on the 10.9 runtime; supplying it is what this
+// probe exists to check, so every call below is a call into the layer's own definition.
+#pragma clang diagnostic ignored "-Wunguarded-availability"
+
 // The SHIPPED polyfill entry point out of libpolyfill.a, not the header inline: this probe links
 // the archive so what it exercises is the dispatch_activate WebKit itself will call.
 extern void dispatch_activate(dispatch_object_t);

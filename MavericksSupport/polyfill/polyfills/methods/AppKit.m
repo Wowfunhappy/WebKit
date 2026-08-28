@@ -283,9 +283,14 @@ static void wk_accessibilityDisplayOptionDidChange(CFNotificationCenterRef cente
     CFStringRef name, const void *object, CFDictionaryRef userInfo)
 {
     (void)center; (void)observer; (void)name; (void)object; (void)userInfo;
+// The notification name is 10.10+ in the SDK and absent on the 10.9 runtime; c/AppKit.m supplies it,
+// so this posts under the layer's own definition.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
     [[[NSWorkspace sharedWorkspace] notificationCenter]
         postNotificationName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
                       object:[NSWorkspace sharedWorkspace]];
+#pragma clang diagnostic pop
 }
 
 __attribute__((constructor)) static void wk_observeAccessibilityDisplayOptions(void)
@@ -771,10 +776,15 @@ WK_POLYFILL_ADD_METHODS(NSLayoutConstraint)
 - (void)setActive:(BOOL)active
 {
     NSArray *one = [NSArray arrayWithObject:self];
+    // Both class methods are 10.10+ and absent on the 10.9 runtime; the NSLayoutConstraint block above
+    // supplies them.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
     if (active)
         [NSLayoutConstraint activateConstraints:one];
     else
         [NSLayoutConstraint deactivateConstraints:one];
+#pragma clang diagnostic pop
 }
 
 @end
@@ -1388,7 +1398,12 @@ WK_POLYFILL_ADD_METHODS(NSWorkspace)
 WK_POLYFILL_ADD_METHODS(NSWorkspace)
 - (NSURL *)URLForApplicationToOpenContentType:(UTType *)contentType
 {
+    // -[UTType identifier] is 11.0+; classes/UniformTypeIdentifiers.m supplies the class and this
+    // property.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
     NSString *identifier = [contentType identifier];
+#pragma clang diagnostic pop
     if (![identifier length])
         return nil;
     CFStringRef bundleID = LSCopyDefaultRoleHandlerForContentType((__bridge CFStringRef)identifier, kLSRolesViewer);
@@ -1616,15 +1631,47 @@ WK_POLYFILL_ADD_METHODS(NSSharingServicePicker)
 WK_POLYFILL_ADD_METHODS(NSTextField)
 + (instancetype)labelWithString:(NSString *)stringValue
 {
-    id label = [[[self alloc] initWithFrame:NSZeroRect] autorelease];
+    NSTextField *label = [[[self alloc] initWithFrame:NSZeroRect] autorelease];
     [label setStringValue:stringValue ?: @""];
     [label setBezeled:NO];
     [label setDrawsBackground:NO];
     [label setEditable:NO];
     [label setSelectable:NO];
+    // -setLineBreakMode: is 10.10+ on NSControl and absent on the 10.9 runtime; the NSControl block
+    // below supplies it.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
     [label setLineBreakMode:NSLineBreakByClipping];
+#pragma clang diagnostic pop
     [label sizeToFit];
-    return label;
+    return (id)label;
+}
+@end
+
+// -[NSControl usesSingleLineMode] and -[NSControl lineBreakMode] (both 10.10+, declared three lines
+// apart) are cell-forwarding conveniences: they read and write the control's cell, which has carried
+// both properties since 10.6. Forwarding is the whole of them, so a control with no cell -- an
+// NSTableView is one -- answers the cell's default and ignores the set, exactly as on a system that
+// has the methods.
+WK_POLYFILL_ADD_METHODS(NSControl)
+- (BOOL)usesSingleLineMode
+{
+    return [[self cell] usesSingleLineMode];
+}
+
+- (void)setUsesSingleLineMode:(BOOL)usesSingleLineMode
+{
+    [[self cell] setUsesSingleLineMode:usesSingleLineMode];
+}
+
+- (NSLineBreakMode)lineBreakMode
+{
+    return [[self cell] lineBreakMode];
+}
+
+- (void)setLineBreakMode:(NSLineBreakMode)lineBreakMode
+{
+    [[self cell] setLineBreakMode:lineBreakMode];
 }
 @end
 

@@ -85,6 +85,13 @@
 #include "UserMediaPermissionRequestProxy.h"
 #include "WKAPICast.h"
 #include "WKPagePolicyClientInternal.h"
+#if PLATFORM(COCOA) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
+#include "WKStorageAccessAlert.h" // MAVERICKS_BACKPORT: WebKit's own Storage Access consent sheet, for the requestStorageAccessConfirm fallback below.
+#endif // MAVERICKS_BACKPORT: closes the guard around the include above.
+#if PLATFORM(MAC)
+#include <CoreFoundation/CFPreferences.h> // MAVERICKS_BACKPORT: the host browser's privacy preference, read in applyBrowserPrivacyPreferenceToDefaultPolicies.
+#include <WebCore/AdvancedPrivacyProtections.h> // MAVERICKS_BACKPORT: ditto.
+#endif // MAVERICKS_BACKPORT: closes the guard around the two includes above.
 #include "WKPageRenderingProgressEventsInternal.h"
 #include "WKPluginInformation.h"
 #include "WebBackForwardCache.h"
@@ -1541,6 +1548,29 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     webPageProxy->setLoaderClient(WTF::move(loaderClient));
 }
 
+#if PLATFORM(MAC)
+// MAVERICKS_BACKPORT: Safari 7's Privacy pane writes "Ask websites not to track me" to
+// SendDoNotTrackHTTPHeader in this process's own defaults, and modern WebKit has no Do Not Track
+// header left to carry it. The protections that preference stands for are the ones Safari's
+// "Advanced Tracking and Fingerprinting Protection" switch sets through
+// -[WKWebpagePreferences _setNetworkConnectionIntegrityEnabled:], which a WKPagePolicyClient has no
+// surface for. WebPageProxy copies the page's default website policies for any main-frame navigation
+// this client leaves unqualified, so they are where the answer belongs; it is read per navigation so
+// a change to the checkbox reaches the next load.
+static void applyBrowserPrivacyPreferenceToDefaultPolicies(WebPageProxy& page)
+{
+    bool enabled = CFPreferencesGetAppBooleanValue(CFSTR("SendDoNotTrackHTTPHeader"), kCFPreferencesCurrentApplication, nullptr);
+
+    Ref policies = page.configuration().defaultWebsitePolicies();
+    auto webCorePolicy = policies->advancedPrivacyProtections();
+    webCorePolicy.set(WebCore::AdvancedPrivacyProtections::BaselineProtections, enabled);
+    webCorePolicy.set(WebCore::AdvancedPrivacyProtections::FingerprintingProtections, enabled);
+    webCorePolicy.set(WebCore::AdvancedPrivacyProtections::EnhancedNetworkPrivacy, enabled);
+    webCorePolicy.set(WebCore::AdvancedPrivacyProtections::LinkDecorationFiltering, enabled);
+    policies->setAdvancedPrivacyProtections(webCorePolicy);
+}
+#endif // MAVERICKS_BACKPORT: closes the guard around the helper above.
+
 void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* wkClient)
 {
     CRASH_IF_SUSPENDED;
@@ -1558,6 +1588,10 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
         // MAVERICKS_BACKPORT: signature carries an extra userData parameter forwarded to the legacy V0/V1 callbacks below.
         void decidePolicyForNavigationAction(WebPageProxy& page, WebFrameProxy* frame, Ref<API::NavigationAction>&& navigationAction, WebFrameProxy* originatingFrame, const WebCore::ResourceRequest& originalResourceRequest, const WebCore::ResourceRequest& resourceRequest, Ref<WebFramePolicyListenerProxy>&& listener, API::Object* userData) override
         {
+#if PLATFORM(MAC)
+            applyBrowserPrivacyPreferenceToDefaultPolicies(page); // MAVERICKS_BACKPORT: see the helper above WKPageSetPagePolicyClient.
+#endif // MAVERICKS_BACKPORT: closes the guard around the call above.
+
             if (!m_client.decidePolicyForNavigationAction_deprecatedForUseWithV0 && !m_client.decidePolicyForNavigationAction_deprecatedForUseWithV1 && !m_client.decidePolicyForNavigationAction) {
                 listener->use();
                 return;
@@ -2217,10 +2251,22 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
             m_client.decidePolicyForNotificationPermissionRequest(toAPI(&page), toAPI(&origin), toAPI(NotificationPermissionRequest::create(WTF::move(completionHandler)).ptr()), m_client.base.clientInfo);
         }
 
-        void requestStorageAccessConfirm(WebPageProxy& page, WebFrameProxy* frame, const WebCore::RegistrableDomain& requestingDomain, const WebCore::RegistrableDomain& currentDomain, std::optional<WebCore::OrganizationStorageAccessPromptQuirk>&&, CompletionHandler<void(bool)>&& completionHandler) final
+        // MAVERICKS_BACKPORT: the quirk parameter is named so the fallback below can use it.
+        void requestStorageAccessConfirm(WebPageProxy& page, WebFrameProxy* frame, const WebCore::RegistrableDomain& requestingDomain, const WebCore::RegistrableDomain& currentDomain, std::optional<WebCore::OrganizationStorageAccessPromptQuirk>&& organizationStorageAccessPromptQuirk, CompletionHandler<void(bool)>&& completionHandler) final
         {
             if (!m_client.requestStorageAccessConfirm) {
+                // MAVERICKS_BACKPORT: Safari 7 predates the Storage Access API and never installs this
+                // WKPageUIClient callback, so every requestStorageAccess() was answered yes without the
+                // user being asked. Present WebKit's own consent sheet instead, following the same
+                // quirk-first order UIDelegate::UIClient uses when a Cocoa embedder implements no
+                // storage-access panel.
+                // completionHandler(true);
+                // return;
+#if PLATFORM(COCOA) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
+                presentStorageAccessAlert(page, requestingDomain, currentDomain, WTF::move(organizationStorageAccessPromptQuirk), WTF::move(completionHandler));
+#else
                 completionHandler(true);
+#endif // MAVERICKS_BACKPORT: closes the Cocoa consent-sheet branch above.
                 return;
             }
 

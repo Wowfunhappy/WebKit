@@ -36,8 +36,13 @@ WK_POLYFILL_ADD_METHODS(AVCaptureDevice)
 
 - (AVCaptureDeviceType)deviceType
 {
+    // Both names are 10.15+ in the SDK and absent on the 10.9 runtime; this file supplies them
+    // (WK_POLYFILL_CONST above).
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
     return [self transportType] == WKAVCaptureTransportTypeBuiltIn
         ? AVCaptureDeviceTypeBuiltInWideAngleCamera : AVCaptureDeviceTypeExternalUnknown;
+#pragma clang diagnostic pop
 }
 
 // The portrait/background-blur effect is a macOS 12 Continuity Camera feature with no 10.9
@@ -73,7 +78,11 @@ WK_POLYFILL_ADD_METHODS(AVCaptureDevice)
 + (AVAuthorizationStatus)authorizationStatusForMediaType:(AVMediaType)mediaType
 {
     (void)mediaType;
+    // AVAuthorizationStatus* are enumerators -- compile-time integers with no runtime symbol.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
     return AVAuthorizationStatusAuthorized;
+#pragma clang diagnostic pop
 }
 
 // Unreachable while the status above reports Authorized (requestSystemValidation only requests access for

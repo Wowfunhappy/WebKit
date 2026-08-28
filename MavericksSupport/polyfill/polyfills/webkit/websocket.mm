@@ -48,6 +48,11 @@
 #import <atomic>
 #import <vector>
 
+// The whole NSURLSessionWebSocket surface is 10.15+ in the SDK and absent on the 10.9 runtime -- which
+// is what this file exists to supply: it defines NSURLSessionWebSocketMessage and the task that
+// masquerades as NSURLSessionWebSocketTask below. Every reference in this file is to those definitions.
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
+
 // ---------------------------------------------------------------------------------------------------
 // NSURLSessionWebSocketMessage (value object).
 // ---------------------------------------------------------------------------------------------------

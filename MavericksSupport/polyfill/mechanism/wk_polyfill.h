@@ -120,6 +120,7 @@ void *wk_polyfill_system_symbol(const char *provider, const char *name, void **c
 // can be popped after the entry.
 #define WK_PF_ENTRY(NAME, PROVIDER, ADDRESS, KIND, INTENT)               \
     _Pragma("clang diagnostic push")                                      \
+    _Pragma("clang diagnostic ignored \"-Wunguarded-availability\"")      \
     _Pragma("clang diagnostic ignored \"-Wunguarded-availability-new\"")  \
     __attribute__((used, section("__DATA,__wk_pfmap")))                   \
     static struct wk_polyfill_entry wk_pf_entry_##NAME =                  \
@@ -134,8 +135,12 @@ void *wk_polyfill_system_symbol(const char *provider, const char *name, void **c
 // reads: a gap-fill 10.9 turns out to have fails the build, a replacement asserts 10.9 has it. The
 // runtime does what you declared; it never re-decides at a call.
 #define WK_PF_FUNCTION(PROVIDER, RET, NAME, PARAMS, INTENT)                             \
+    _Pragma("clang diagnostic push")                                                    \
+    _Pragma("clang diagnostic ignored \"-Wunguarded-availability\"")                    \
+    _Pragma("clang diagnostic ignored \"-Wunguarded-availability-new\"")                \
     RET NAME PARAMS;                                                                    \
     typedef RET (*wk_pf_fn_##NAME) PARAMS;                                              \
+    _Pragma("clang diagnostic pop")                                                     \
     WK_PF_ENTRY(NAME, PROVIDER, &NAME, WK_POLYFILL_FUNCTION, INTENT);                   \
     RET NAME PARAMS
 
@@ -157,7 +162,11 @@ void *wk_polyfill_system_symbol(const char *provider, const char *name, void **c
 // rejects. (The gate replaces the old mirroring, which existed to stop a token-valued placeholder
 // shadowing a key the system interprets — the EXIF and proxy-key regressions. Caught at build now.)
 #define WK_POLYFILL_CONST_(PROVIDER, TYPE, NAME, VALUE, INTENT)                     \
+    _Pragma("clang diagnostic push")                                                \
+    _Pragma("clang diagnostic ignored \"-Wunguarded-availability\"")                \
+    _Pragma("clang diagnostic ignored \"-Wunguarded-availability-new\"")            \
     const TYPE NAME = VALUE;                                                        \
+    _Pragma("clang diagnostic pop")                                                 \
     WK_PF_ENTRY(NAME, PROVIDER, &NAME, WK_POLYFILL_CONSTANT, INTENT)
 
 #define WK_POLYFILL_CONST(PROVIDER, TYPE, NAME, VALUE) \

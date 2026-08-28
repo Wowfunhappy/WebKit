@@ -10,6 +10,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+// os_unfair_lock and its operations are 10.12+ in the SDK and absent on the 10.9 runtime;
+// supplying them is what this probe checks, so every use below is the layer's own.
+#pragma clang diagnostic ignored "-Wunguarded-availability"
+
 // <os/lock_private.h>, which libpas calls with OS_UNFAIR_LOCK_DATA_SYNCHRONIZATION | ADAPTIVE_SPIN.
 extern void os_unfair_lock_lock_with_options(os_unfair_lock_t lock, uint32_t options);
 #define OS_UNFAIR_LOCK_DATA_SYNCHRONIZATION 0x00010000

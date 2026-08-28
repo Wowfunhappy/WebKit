@@ -160,6 +160,14 @@ void WebPreferences::platformInitializeStore()
         // embedder's website policy, ForceEnhancedSecurity — launch a real process.
         m_store.setBoolValueForKey(WebPreferencesKey::enhancedSecurityHeuristicsEnabledKey(), false);
 
+        // MAVERICKS_BACKPORT: HTTPS-first upgrades a plain-http main-frame navigation to https and falls
+        // back to http on its own when that fails (CachedResourceLoader::shouldPerformHTTPSUpgrade and
+        // WebPageProxy::didFailProvisionalLoadForFrameShared both read this key). Safari 7's legacy
+        // WKPreferences surface predates it, so the store falls to the WebKit yaml default (false).
+        // Seeded here at the UIProcess legacy-preference boundary, as the store's initial value; a
+        // client that sets the key itself still wins.
+        m_store.setBoolValueForKey(WebPreferencesKey::httpSByDefaultEnabledKey(), true);
+
 #if ENABLE(MEDIA_STREAM)
         // NOTE: This is set here, and does not setting the default using the 'defaultValue' mechanism, because the
         // 'defaultValue' must be the same in both the UIProcess and WebProcess, which may not be true for audio

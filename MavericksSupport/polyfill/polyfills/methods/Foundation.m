@@ -890,6 +890,11 @@ WK_POLYFILL_REPLACE_METHODS(NSURL)
 // 10.9's implementation through WK_ORIGINAL_METHOD, so this cannot recurse into itself.
 - (BOOL)getResourceValue:(id *)value forKey:(NSURLResourceKey)key error:(NSError **)error
 {
+// NSURLContentTypeKey and UTType are 11.0+ in the SDK and absent on the 10.9 runtime; c/Foundation.m
+// supplies the key and classes/UniformTypeIdentifiers.m supplies the class and +typeWithIdentifier:.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
     if ([key isEqualToString:NSURLContentTypeKey]) {
         NSString *typeIdentifier = nil;
         if (!WK_ORIGINAL_METHOD(BOOL, (id *, NSString *, NSError **), (id *)&typeIdentifier, NSURLTypeIdentifierKey, error))
@@ -898,6 +903,7 @@ WK_POLYFILL_REPLACE_METHODS(NSURL)
             *value = typeIdentifier ? [UTType typeWithIdentifier:typeIdentifier] : nil;
         return YES;
     }
+#pragma clang diagnostic pop
     return WK_ORIGINAL_METHOD(BOOL, (id *, NSString *, NSError **), value, key, error);
 }
 // -setResourceValue:forKey:error: exists on 10.9 but does not know NSURLQuarantinePropertiesKey
@@ -913,6 +919,9 @@ WK_POLYFILL_REPLACE_METHODS(NSURL)
 // turns every file share into a no-op.
 - (BOOL)setResourceValue:(id)value forKey:(NSURLResourceKey)key error:(NSError **)error
 {
+// The key is 10.10+ in the SDK and absent on the 10.9 runtime; c/Foundation.m supplies it.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
     if ([key isEqualToString:NSURLQuarantinePropertiesKey]) {
         if (![self isFileURL]) {
             if (error)
@@ -942,6 +951,7 @@ WK_POLYFILL_REPLACE_METHODS(NSURL)
     }
     return WK_ORIGINAL_METHOD(BOOL, (id, NSString *, NSError **), value, key, error);
 }
+#pragma clang diagnostic pop
 // -[NSURL initWithString:] and +[NSURL URLWithString:] throw NSInvalidArgumentException on a nil string
 // on 10.9 (modern Foundation returns nil). REPLACE both for WebKit's callers with the modern contract:
 // nil in -> nil out; any non-nil string forwards to 10.9's real implementation through
@@ -1113,7 +1123,12 @@ static id wk_unarchivedObjectOfClasses(NSSet *classes, NSData *data, NSError **e
     } @catch (NSException *exception) {
         object = nil;
         if (error)
+// NSCoderReadCorruptError is an NSError-code enumerator, so it is a compile-time integer with no
+// runtime symbol behind it; there is nothing for 10.9 to be missing.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
             *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSCoderReadCorruptError userInfo:@{ NSLocalizedDescriptionKey: [exception reason] ?: @"decode failed" }];
+#pragma clang diagnostic pop
     } @finally {
         [unarchiver finishDecoding];   // send-to-nil no-op if the init raised (unarchiver stays nil)
         [unarchiver release];
@@ -1200,7 +1215,11 @@ WK_POLYFILL_ADD_METHODS(NSKeyedArchiver)
     } @catch (NSException *exception) {
         result = nil;
         if (error)
+            // An NSError-code enumerator: a compile-time integer with no runtime symbol.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
             *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSCoderInvalidValueError userInfo:@{ NSLocalizedDescriptionKey: [exception reason] ?: @"archive failed" }];
+#pragma clang diagnostic pop
     }
     [archiver release];
     return result;
@@ -1219,7 +1238,11 @@ WK_POLYFILL_ADD_METHODS(NSKeyedUnarchiver)
         *error = nil;
     if (!data) {
         if (error)
+            // An NSError-code enumerator: a compile-time integer with no runtime symbol.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
             *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSCoderValueNotFoundError userInfo:nil];
+#pragma clang diagnostic pop
         return nil;
     }
     typedef id (*WKUnarchiveFn)(id, SEL, NSData *);
@@ -1228,7 +1251,11 @@ WK_POLYFILL_ADD_METHODS(NSKeyedUnarchiver)
         return original(self, sel_registerName("unarchiveObjectWithData:"), data);
     } @catch (NSException *exception) {
         if (error)
+            // An NSError-code enumerator: a compile-time integer with no runtime symbol.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
             *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSCoderReadCorruptError userInfo:@{ NSLocalizedDescriptionKey: [exception reason] ?: @"unarchive failed" }];
+#pragma clang diagnostic pop
         return nil;
     }
 }

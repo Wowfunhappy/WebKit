@@ -1472,8 +1472,13 @@ static CFDictionaryRef wk_selectorWithOpenTypeTag(CFTypeRef selector, int featur
     char tag[5] = { 0 };
     if (!selector || CFGetTypeID(selector) != CFDictionaryGetTypeID())
         return NULL;
+// kCTFontOpenTypeFeatureTag/Value are 10.10+ in the SDK and absent on the 10.9 runtime; this file
+// supplies both (WK_POLYFILL_CONST above), so these read the layer's own definitions.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
     if (CFDictionaryGetValue((CFDictionaryRef)selector, kCTFontOpenTypeFeatureTag))
         return NULL;
+#pragma clang diagnostic pop
     if (!wk_intFromNumber(CFDictionaryGetValue((CFDictionaryRef)selector, kCTFontFeatureSelectorIdentifierKey), &identifier)
         || !wk_openTypeTagForAATFeature(featureType, identifier, tag, &value))
         return NULL;
@@ -1482,8 +1487,13 @@ static CFDictionaryRef wk_selectorWithOpenTypeTag(CFTypeRef selector, int featur
     CFStringRef tagString = CFStringCreateWithCString(kCFAllocatorDefault, tag, kCFStringEncodingASCII);
     CFNumberRef valueNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &value);
     if (result && tagString && valueNumber) {
+// kCTFontOpenTypeFeatureTag/Value are 10.10+ in the SDK and absent on the 10.9 runtime; this file
+// supplies both (WK_POLYFILL_CONST above), so these read the layer's own definitions.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
         CFDictionarySetValue(result, kCTFontOpenTypeFeatureTag, tagString);
         CFDictionarySetValue(result, kCTFontOpenTypeFeatureValue, valueNumber);
+#pragma clang diagnostic pop
     } else if (result) {
         CFRelease(result);
         result = NULL;
@@ -1579,6 +1589,10 @@ static wk_feature_normalization wk_normalizeFeatureElement(CFTypeRef element, CF
         if (namesType
             && wk_intFromNumber(CFDictionaryGetValue(dictionary, kCTFontFeatureSelectorIdentifierKey), &aatSelector))
             return WK_FEATURE_AAT;
+// kCTFontOpenTypeFeatureTag/Value are 10.10+ in the SDK and absent on the 10.9 runtime; this file
+// supplies both (WK_POLYFILL_CONST above), so these read the layer's own definitions.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
         CFTypeRef tagValue = CFDictionaryGetValue(dictionary, kCTFontOpenTypeFeatureTag);
         if (wk_isNull(CFDictionaryGetValue(dictionary, kCTFontOpenTypeFeatureValue))) {
             if (!wk_aatFeatureForTagValue(tagValue, clearedType, &onSelector, &offSelector))
@@ -1588,6 +1602,7 @@ static wk_feature_normalization wk_normalizeFeatureElement(CFTypeRef element, CF
         int value = 1;
         if (!wk_intFromNumber(CFDictionaryGetValue(dictionary, kCTFontOpenTypeFeatureValue), &value))
             value = 1;
+#pragma clang diagnostic pop
         *normalized = wk_aatDictionaryForOpenTypeTag(tagValue, value);
         return *normalized ? WK_FEATURE_NORMALIZED : WK_FEATURE_NO_AAT_EQUIVALENT;
     }
@@ -2527,7 +2542,12 @@ WK_POLYFILL_ABSENT("CoreText", CFBitVectorRef, CTFontCopyGlyphCoverageForFeature
         return coverage;
     }
 
+// kCTFontOpenTypeFeatureTag/Value are 10.10+ in the SDK and absent on the 10.9 runtime; this file
+// supplies both (WK_POLYFILL_CONST above), so these read the layer's own definitions.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
     CFTypeRef tagValue = CFDictionaryGetValue(feature, kCTFontOpenTypeFeatureTag);
+#pragma clang diagnostic pop
     char tag[8] = { 0 };
     if (tagValue && CFGetTypeID(tagValue) == CFStringGetTypeID()
         && CFStringGetCString((CFStringRef)tagValue, tag, sizeof(tag), kCFStringEncodingASCII)

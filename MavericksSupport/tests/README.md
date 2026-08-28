@@ -37,6 +37,7 @@ click, a key press, or a hardware/manual step.
 | `multi-video-stress.html` | N concurrent GStreamer pipelines with play/pause/seek churn; RunLoop::Timer start/stop from streaming threads | banner (status line), crash count | `LayoutTests/media/content/test.mp4` (relative) |
 | `pdf-transparency-test.html` | Text under opacity/blend/mask/clip/text-shadow/stroke-only survives Print-to-PDF (transparency layers on the PDF context) | manual (print), visual in the PDF | — |
 | `popover-scroll-test.html` | Wheel/keyboard scrolling inside `[popover]` and `<dialog>` overflow boxes | manual, banner | — |
+| `privacy-preferences/` | Advanced Tracking and Fingerprinting Protection driven by "Ask websites not to track me", the Storage Access API consent sheet (plain and organization variants), and HTTPS-by-default upgrade + fallback | see the dir's README | a local server, `127.0.0.1 wktest.example` in `/etc/hosts`, and the Privacy preference toggled between runs |
 | `qltest.html` | Quick Look HTML preview launches WebContent and renders (not source text) | visual | `qlmanage -p qltest.html` |
 | `quicklook-webloc/*.webloc` | Quick Look preview of `.webloc` bookmarks: local host, `/etc/hosts` alias, numeric IP, dead host, https; spinner vs "cannot be displayed" card | manual, visual | `python3 -m http.server 8899`, `127.0.0.1 wktest.example` in `/etc/hosts`, network for the remote ones |
 | `search-event-test.html` | `<input type=search incremental>` fires `onsearch` on Enter | manual, title + banner | — |
