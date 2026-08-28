@@ -10,13 +10,18 @@
 # through playbin3 for every MSE, blob and mediastream player, so on hardware-decode-less machines
 # vtdec_hw (rank primary+1, selected over avdec_h264) turns all such video into a fatal error.
 #
+# A status that names the decoder missing settles the question and is cached; one that reports it
+# busy or malfunctioning (kVTVideoDecoderNotAvailableNowErr, kVTVideoDecoderMalfunctionErr, which
+# vtdec's own decode path treats as a session restart) describes this instant rather than the
+# machine, so the codec keeps its caps and the next query asks again.
+#
 # The patch makes getcaps answer honestly, the same way it already gates VP9/AV1 on
 # VTIsHardwareDecodeSupported: for the require_hardware subclass, each sink-template codec is
 # kept only if a RequireHardware decompression session can actually be created for it. A bare
 # CMVideoFormatDescription (no codec data) suffices for that answer -- session creation resolves
 # the decoder from the codec type alone; measured on a hardware-decode-less 10.9 machine, the
 # software session for the same bare description succeeds (noErr) while RequireHardware answers
-# -8973, and each probe result is cached per codec type. With the codec stripped from getcaps,
+# -8973. With the codec stripped from getcaps,
 # decodebin3's accept-caps check fails inside its candidate window and the next factory is tried:
 # the same file that errored out ("VTDecompressionSessionCreate returned -8973", pipeline
 # doesn't want to preroll) plays through avdec_h264 via both decodebin and playbin3. On machines
@@ -24,18 +29,25 @@
 # caps, rank and hardware path.
 #
 # Applied by build_deps with patch -p1.
---- a/sys/applemedia/vtdec.c	2026-08-01 16:11:10.000000000 -0400
-+++ b/sys/applemedia/vtdec.c	2026-08-01 16:11:41.000000000 -0400
-@@ -2127,6 +2127,93 @@
+--- a/sys/applemedia/vtdec.c
++++ b/sys/applemedia/vtdec.c
+@@ -2127,6 +2127,110 @@
    return av1_supported;
  }
  
++/* 10.9's VideoToolbox reports a missing decoder with a legacy codec-not-found
++ * value as well as the named one. */
++#define GST_VTDEC_COULD_NOT_FIND_VIDEO_DECODER        ((OSStatus) -12906)
++#define GST_VTDEC_COULD_NOT_FIND_VIDEO_DECODER_LEGACY ((OSStatus) -8973)
++
 +/* Whether this machine's VideoToolbox can create a hardware-only decompression
 + * session for the codec. A bare format description (no codec data) is enough
 + * for the availability answer: session creation resolves the decoder from the
-+ * codec type alone. A machine with no hardware decoder for the codec answers
-+ * kVTCouldNotFindVideoDecoderErr (-8973) while a software session for the same
-+ * bare description succeeds. Probed once per codec type. */
++ * codec type alone. A machine with no hardware decoder for the codec answers a
++ * codec-not-found status while a software session for the same bare description
++ * succeeds. That answer is cached per codec type; a status reporting the decoder
++ * busy or malfunctioning describes this instant rather than the machine, so it
++ * is neither cached nor treated as absence. */
 +static void
 +gst_vtdec_hw_probe_output_cb (void *user_data, void *source_frame_ref_con,
 +    OSStatus status, VTDecodeInfoFlags info_flags,
@@ -84,6 +96,16 @@
 +    }
 +    CFRelease (spec);
 +    CFRelease (desc);
++
++    if (status != noErr
++        && status != GST_VTDEC_COULD_NOT_FIND_VIDEO_DECODER
++        && status != GST_VTDEC_COULD_NOT_FIND_VIDEO_DECODER_LEGACY) {
++      GST_INFO ("a hardware session for codec type %" G_GINT32_FORMAT
++          " answered %d, which does not report the decoder absent",
++          (gint32) cm_format, (int) status);
++      return TRUE;
++    }
++
 +    supported = (status == noErr);
 +  }
 +
@@ -120,7 +142,7 @@
  static GstCaps *
  gst_vtdec_getcaps (GstVideoDecoder * decoder, GstCaps * filter)
  {
-@@ -2168,6 +2255,31 @@
+@@ -2168,6 +2272,31 @@
      }
    }
  

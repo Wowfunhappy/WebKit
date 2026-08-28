@@ -1008,6 +1008,15 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtdec-109-sink-template-codecs.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-vtdec-109-sink-template-codecs.patch" ) \
       || { echo "gst-plugins-bad vtdec sink-template patch failed to apply"; exit 1; }
+    # vtenc registers an element per codec whether or not this machine's VideoToolbox
+    # has an encoder for it, and the registry is what WebKit's scanner answers encoder support and
+    # powerEfficient from: 10.9 has no HEVC encoder at all, and vtenc_h264_hw is registered on
+    # machines with no hardware H.264 encoder. This registers each element only if a compression
+    # session for its codec type, carrying its hardware-only requirement, can actually be created.
+    # See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtenc-hardware-encoder-probe.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-vtenc-hardware-encoder-probe.patch" ) \
+      || { echo "gst-plugins-bad vtenc encoder-probe patch failed to apply"; exit 1; }
     # hlsdemux: resync a variant switch to the nearest fragment start. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-hlsdemux-variant-switch-nearest-fragment.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-hlsdemux-variant-switch-nearest-fragment.patch" ) \

@@ -45,6 +45,20 @@ vtdec's static sink template advertises VP9, AV1 and HEVC, and the template is w
 
 With the template claiming what the machine then denies, the scanner reported decoders that can never instantiate and called their software fallback power-efficient: sites offered AV1 or HEVC on the strength of that answer streamed video that decodes in software (HEVC, via `avdec_h265`) or not at all (AV1 embeds played audio over black frames, the branch sitting undecodable behind a parser). Removing the three entries makes the registry agree with the machine, so those codecs are reported unsupported-by-VideoToolbox and `powerEfficient` is no longer asserted for a software decode path. H.264/MPEG-2/JPEG/ProRes stay: those go through the per-codec `RequireHardware` probe above or plain vtdec's software session, which 10.9's VideoToolbox does provide.
 
+## gst-plugins-bad-vtenc-hardware-encoder-probe.patch
+
+**Target:** `gst-plugins-bad-1.28.5`, `sys/applemedia/vtenc.c`
+**Applied to:** libgstapplemedia (every vtenc element)
+
+`gst_vtenc_register()` registers an element per codec whether or not this machine's VideoToolbox has an encoder for it, and a registered factory is what capability queries are answered from — `GStreamerRegistryScanner` reads encoder support off factory templates, never off an instantiated element, and reports `powerEfficient` from the matched factory's `Hardware` klass. Two codecs the registry claims cannot be backed here:
+
+- **HEVC, on any 10.9 machine.** HEVC encode arrived in 10.13; `VTCopyVideoEncoderList` on 10.9 lists ProRes, H.263, H.264, JPEG and raw only, and `VTCompressionSessionCreate` answers **-12908** (`kVTCouldNotFindVideoEncoderErr`) for `hvc1` and `muxa`. With `vtenc_h265`, `vtenc_h265a` and their `_hw` variants registered, `RTCRtpSender.getCapabilities("video")` offered `video/H265`, so a peer that accepted it got a sender whose encoder cannot be created.
+- **Hardware H.264, per machine.** `vtenc_h264_hw` is rank primary with klass `Hardware`, and `hasElementForCaps` stops at the first `Hardware`-klass candidate — so on a machine whose `RequireHardware` `avc1` session answers -12908, `MediaCapabilities.encodingInfo()` reported `powerEfficient` for an H.264 encode with no hardware behind it.
+
+Both are the one defect — the registry advertising an encoder VideoToolbox cannot back — and one half is per-machine, since Macs with QuickSync do hardware-encode H.264 under 10.9. So the answer is measured: `gst_vtenc_register()` creates a compression session for the element's codec type carrying the element's own hardware-only requirement, and registers the element only if that succeeds. The result is cached per codec type per hardware-only setting, so the seven registrations cost one session creation each on registry rebuild (measured 6.7 ms for the first, which pays the framework warm-up the first real session would pay anyway, then 0.01–0.04 ms). This is the shape `vtdec` already uses to gate VP9/AV1 on `VTIsHardwareDecodeSupported`, and the shape this file already uses to ask the runtime with `__builtin_available`. On a machine whose VideoToolbox does back the codec the probe succeeds and the element keeps its rank, klass and path.
+
+H.265 still decodes through `avdec_h265`; `h265parse` and `rtph265pay/depay` are unaffected.
+
 ## gst-libav-register-libdav1d.patch
 
 **Target:** `gst-libav-1.28.5`, `ext/libav/gstavviddec.c`

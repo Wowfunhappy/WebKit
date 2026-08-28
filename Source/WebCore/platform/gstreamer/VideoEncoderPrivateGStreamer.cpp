@@ -148,13 +148,9 @@ enum EncoderId {
     SvtAv1,
     QualcommH264,
     QualcommH265,
-    // MAVERICKS_BACKPORT: VideoToolbox encoders. On macOS the only available H.264/H.265 encoders
-    // are Apple's VideoToolbox ones (vtenc_h264/vtenc_h265); the software/Linux encoders above are
-    // all absent. Without registering these, webkitvideoencoder offers only VP8/VP9 and webrtcbin
-    // auto-plugs vtenc_h265 for HEVC but never vtenc_h264 — so the WebRTC offer ends up with H265 and
-    // no H264, unlike real Safari (which always offers VideoToolbox H.264).
+    // MAVERICKS_BACKPORT: VideoToolbox supplies the H.264 encoder present on macOS; the
+    // software/Linux encoders above are absent here.
     VtH264,
-    VtH265,
 };
 
 class Encoders {
@@ -753,10 +749,8 @@ static void webkit_video_encoder_class_init(WebKitVideoEncoderClass* klass)
         }, [](GstElement*, LatencyMode) {
             notImplemented();
         });
-    // MAVERICKS_BACKPORT: Apple VideoToolbox H.264 encoder. On macOS this is the only available H.264
-    // encoder (the software/Linux ones above are absent), so without it the WebRTC offer has no H.264,
-    // unlike real Safari's. Configured for realtime, no frame reordering (no B-frames, low latency).
-    // vtenc_h264 "bitrate" is in kbit/s. Self-skips if vtenc_h264 is absent.
+    // MAVERICKS_BACKPORT: Apple VideoToolbox H.264 encoder, the H.264 encoder present on macOS.
+    // Realtime, no frame reordering (no B-frames, low latency); its "bitrate" is in kbit/s.
     Encoders::registerEncoder(VtH264, "vtenc_h264"_s, "h264parse"_s, "video/x-h264"_s,
         "video/x-h264,alignment=au,stream-format=avc"_s,
         [](WebKitVideoEncoder* self) {

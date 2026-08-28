@@ -84,11 +84,23 @@ static void mav_vt_probe_output(void *refcon, void *sourceRefCon, OSStatus statu
     (void)imageBuffer; (void)pts; (void)duration;
 }
 
-/* One RequireHardware session attempt for the codec type. noErr means the machine has a
- * hardware decoder for it; every other outcome -- no such decoder, unknown codec type, a
- * framework that will not load -- is "no hardware decode support", which is what the caller
- * asked about. */
-static Boolean mav_vt_probe_hardware_decode(uint32_t codecType)
+/* The answers a RequireHardware session attempt gives about a codec type. A status naming the
+ * decoder missing settles the question; one reporting it busy or malfunctioning describes this
+ * instant rather than the machine, and leaves the question open. */
+typedef enum {
+    MAV_VT_HW_ABSENT,
+    MAV_VT_HW_PRESENT,
+    MAV_VT_HW_UNDETERMINED,
+} MavVTHardwareAnswer;
+
+/* 10.9's VideoToolbox reports a missing decoder with a legacy codec-not-found value as well as
+ * the named one. */
+#define MAV_VT_COULD_NOT_FIND_VIDEO_DECODER        ((OSStatus)-12906)
+#define MAV_VT_COULD_NOT_FIND_VIDEO_DECODER_LEGACY ((OSStatus)-8973)
+
+/* One RequireHardware session attempt for the codec type. A framework that will not load or a
+ * codec type no description can be built for leaves nothing to decode with. */
+static MavVTHardwareAnswer mav_vt_probe_hardware_decode(uint32_t codecType)
 {
     MavCMVideoFormatDescriptionCreate descCreate =
         (MavCMVideoFormatDescriptionCreate)mav_cm_sym("CMVideoFormatDescriptionCreate");
@@ -101,11 +113,11 @@ static Boolean mav_vt_probe_hardware_decode(uint32_t codecType)
     CFStringRef *requireKey =
         (CFStringRef *)mav_vt_sym("kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder");
     if (!descCreate || !sessionCreate || !sessionInvalidate || !enableKey || !requireKey)
-        return false;
+        return MAV_VT_HW_ABSENT;
 
     MavCMFormatDescriptionRef desc = NULL;
     if (descCreate(kCFAllocatorDefault, codecType, 1920, 1080, NULL, &desc) != noErr || !desc)
-        return false;
+        return MAV_VT_HW_ABSENT;
 
     const void *keys[] = { *enableKey, *requireKey };
     const void *values[] = { kCFBooleanTrue, kCFBooleanTrue };
@@ -122,7 +134,13 @@ static Boolean mav_vt_probe_hardware_decode(uint32_t codecType)
     if (spec)
         CFRelease(spec);
     CFRelease(desc);
-    return status == noErr;
+
+    if (status == noErr)
+        return MAV_VT_HW_PRESENT;
+    if (status == MAV_VT_COULD_NOT_FIND_VIDEO_DECODER
+        || status == MAV_VT_COULD_NOT_FIND_VIDEO_DECODER_LEGACY)
+        return MAV_VT_HW_ABSENT;
+    return MAV_VT_HW_UNDETERMINED;
 }
 
 Boolean VTIsHardwareDecodeSupported(uint32_t codecType)
@@ -141,7 +159,13 @@ Boolean VTIsHardwareDecodeSupported(uint32_t codecType)
     }
     pthread_mutex_unlock(&lock);
 
-    Boolean supported = mav_vt_probe_hardware_decode(codecType);
+    MavVTHardwareAnswer answer = mav_vt_probe_hardware_decode(codecType);
+    /* A decoder that could not open this instant is still a decoder the machine has, and the
+     * next caller asks again. */
+    if (answer == MAV_VT_HW_UNDETERMINED)
+        return true;
+
+    Boolean supported = (answer == MAV_VT_HW_PRESENT);
 
     pthread_mutex_lock(&lock);
     if (cached < sizeof(cache) / sizeof(cache[0]))
