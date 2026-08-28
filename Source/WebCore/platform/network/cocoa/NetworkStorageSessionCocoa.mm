@@ -681,19 +681,7 @@ void NetworkStorageSession::deleteCookiesMatching(NOESCAPE const Function<bool(N
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
     RetainPtr<CFHTTPCookieStorageRef> cookieStorage = this->cookieStorage();
-    // MAVERICKS_BACKPORT: cookieStorage() is null for the default session by design -- it means "this
-    // session uses the process's shared cookie jar", which is exactly how httpCookies() and
-    // deleteHTTPCookie() below already read it. -[NSHTTPCookieStorage _initWithCFHTTPCookieStorage:]
-    // answers a null CF storage by logging "Cannot get default cookie store - using a memory store for
-    // this process" and substituting a fresh, EMPTY in-memory store, so the _saveCookies flush below was
-    // aimed at a store the deletions never touched while the jar they did touch was left unflushed. On
-    // 10.9 that flush is what hands the change to the nsurlstoraged daemon, so a cookie deleted here --
-    // ITP's hourly data-record removal is the frequent caller, and it runs even with nothing to delete,
-    // which is where the log line came from -- could be back after a restart. nsCookieStorage() is the
-    // accessor that already maps a null CF storage to +sharedHTTPCookieStorage; wherever the CF storage
-    // is non-null it hands back a handle on that same store, so the flush lands where it always did.
-    // auto nsCookieStorage = adoptNS([[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:cookieStorage.get()]);
-    auto nsCookieStorage = this->nsCookieStorage();
+    auto nsCookieStorage = adoptNS([[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:cookieStorage.get()]);
     auto aggregator = CallbackAggregator::create([completionHandler = WTF::move(completionHandler), nsCookieStorage = WTF::move(nsCookieStorage)] () mutable {
         [nsCookieStorage _saveCookies:makeBlockPtr([completionHandler = WTF::move(completionHandler)] () mutable {
             ensureOnMainThread(WTF::move(completionHandler));

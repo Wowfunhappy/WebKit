@@ -32,6 +32,7 @@
 
 // CFNetwork SPI, exported on 10.9 but not declared in any public header.
 typedef struct OpaqueCFHTTPCookieStorage *CFHTTPCookieStorageRef;
+extern CFHTTPCookieStorageRef _CFHTTPCookieStorageGetDefault(CFAllocatorRef);
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -423,6 +424,268 @@ static WKPolyfillCookieWatcher *wk_cookieWatcherForStorage(NSHTTPCookieStorage *
 }
 
 @end
+// ---------------------------------------------------------------------------------------------------
+// SameSite. 10.9's cookie parser discards the attribute -- it reaches neither -properties nor the jar --
+// so a cookie stored here is indistinguishable from SameSite=None and nothing withholds it from a
+// cross-site request. The attribute is read off the Set-Cookie header before the jar answers, and kept
+// ON THE COOKIE, in the RFC 2965 Comment field: it survives the jar, persists through cookied with the
+// cookie (measured: written in one process, read back in another), is never sent to a server (measured:
+// the request header for a commented cookie is just "name=value", and the cookie stays version 0), and
+// it expires exactly when the cookie does, so there is no second store to keep in step and nothing to
+// leave behind. An ephemeral session has its own jar, so its policies never touch the persistent one.
+//
+// The marker is derived from the attribute alone, so a server-set Comment on a cookie that also carries
+// SameSite is overwritten.
+enum { WKSameSiteNone = 0, WKSameSiteLax = 1, WKSameSiteStrict = 2 };
+
+static NSString * const wkSameSiteMarkerPrefix = @"WKSameSite=";
+
+// A segment runs up to the start of the next one, so it carries that separator; appending an attribute
+// past a trailing comma would start a second cookie and leave the real one unmarked.
+static NSString *wk_cookieSegmentCarryingMarker(NSString *segment, NSString *marker)
+{
+    NSCharacterSet *trailing = [NSCharacterSet characterSetWithCharactersInString:@", ;\t"];
+    NSUInteger end = segment.length;
+    while (end && [trailing characterIsMember:[segment characterAtIndex:end - 1]])
+        --end;
+    return [NSString stringWithFormat:@"%@; Comment=%@", [segment substringToIndex:end], marker];
+}
+
+static NSString *wk_sameSiteMarkerForPolicy(int policy)
+{
+    if (policy == WKSameSiteStrict)
+        return [wkSameSiteMarkerPrefix stringByAppendingString:@"Strict"];
+    if (policy == WKSameSiteLax)
+        return [wkSameSiteMarkerPrefix stringByAppendingString:@"Lax"];
+    return [wkSameSiteMarkerPrefix stringByAppendingString:@"None"];
+}
+
+// -comment is REPLACED below to hide this layer's marker from callers, and a selref in this library is
+// rewritten like any other, so the marker is read through the real implementation.
+static NSString *wk_rawCookieComment(NSHTTPCookie *cookie)
+{
+    SEL publicSelector = sel_registerName("comment");
+    SEL privateSelector = sel_registerName("wk_comment");
+    typedef NSString *(*Fn)(id, SEL);
+    Fn callReal = (Fn)wk_replaces_call_through_class(cookie, [NSHTTPCookie class], privateSelector, publicSelector);
+    return callReal(cookie, publicSelector);
+}
+
+static int wk_sameSitePolicyOfCookie(NSHTTPCookie *cookie)
+{
+    NSString *comment = wk_rawCookieComment(cookie);
+    if (![comment hasPrefix:wkSameSiteMarkerPrefix])
+        return WKSameSiteNone;
+    NSString *value = [comment substringFromIndex:wkSameSiteMarkerPrefix.length];
+    if ([value caseInsensitiveCompare:@"Strict"] == NSOrderedSame)
+        return WKSameSiteStrict;
+    if ([value caseInsensitiveCompare:@"Lax"] == NSOrderedSame)
+        return WKSameSiteLax;
+    return WKSameSiteNone;
+}
+
+
+// The value of a SameSite attribute inside one cookie's segment of a Set-Cookie header.
+static int wk_sameSiteInSegment(NSString *segment)
+{
+    NSRange attribute = [segment rangeOfString:@"SameSite" options:NSCaseInsensitiveSearch];
+    if (attribute.location == NSNotFound)
+        return WKSameSiteNone;
+    NSUInteger index = attribute.location + attribute.length;
+    while (index < segment.length && [segment characterAtIndex:index] == ' ')
+        ++index;
+    if (index >= segment.length || [segment characterAtIndex:index] != '=')
+        return WKSameSiteNone;
+    ++index;
+    while (index < segment.length && [segment characterAtIndex:index] == ' ')
+        ++index;
+    NSUInteger end = index;
+    while (end < segment.length) {
+        unichar character = [segment characterAtIndex:end];
+        if (character == ';' || character == ',' || character == ' ')
+            break;
+        ++end;
+    }
+    NSString *value = [segment substringWithRange:NSMakeRange(index, end - index)];
+    if ([value caseInsensitiveCompare:@"Strict"] == NSOrderedSame)
+        return WKSameSiteStrict;
+    if ([value caseInsensitiveCompare:@"Lax"] == NSOrderedSame)
+        return WKSameSiteLax;
+    return WKSameSiteNone;
+}
+
+// Duplicate Set-Cookie headers arrive joined with ", " and an Expires date carries a comma of its own, so
+// the segments are not split blind: the parser is asked for the authoritative cookies first and each name
+// then anchors its own segment.
+// Candidate segment starts: the head of the header, and each position just past a comma. A comma inside
+// a quoted value or an Expires date is a candidate too; the opener prefilters and the span verification
+// below reject it, and an extra candidate costs a string compare.
+static NSArray *wk_cookieSegmentBoundaries(NSString *header)
+{
+    NSMutableArray *boundaries = [NSMutableArray arrayWithObject:@(0)];
+    for (NSUInteger i = 0; i < header.length; ++i) {
+        if ([header characterAtIndex:i] != ',')
+            continue;
+        NSUInteger start = i + 1;
+        while (start < header.length && [header characterAtIndex:start] == ' ')
+            ++start;
+        if (start < header.length)
+            [boundaries addObject:@(start)];
+    }
+    [boundaries addObject:@(header.length)];
+    return boundaries;
+}
+
+// A comma also appears inside a quoted value and inside an Expires date, so a boundary pair is this
+// cookie's segment only when the span between them re-parses ON ITS OWN to exactly that cookie, matched
+// on name, value, path and domain. Both traps are caught by the value: "a=\"x, " parses to one cookie
+// named a whose value is truncated, and "s=1; Expires=Wed, " parses to none.
+//
+// The parser returns cookies in header order, so the segments partition the header in order and one
+// cursor walks the boundary list forward for the whole response. A cookie that cannot be placed restores
+// the cursor, so a boundary can be examined again. What decides a span is the verification and the two
+// opener conditions; the walk itself does not rule out two cookies claiming overlapping spans.
+// Every Set-Cookie segment opens with its own name-value pair.
+static BOOL wk_headerHasOpenerAt(NSString *header, NSUInteger position, NSString *opener)
+{
+    if (opener.length < 2)
+        return NO;
+    if (position + opener.length > header.length)
+        return NO;
+    return [[header substringWithRange:NSMakeRange(position, opener.length)] isEqualToString:opener];
+}
+
+static BOOL wk_parsedCookieIs(NSHTTPCookie *parsed, NSHTTPCookie *cookie)
+{
+    return [[parsed name] isEqualToString:[cookie name]] && [[parsed value] isEqualToString:[cookie value]]
+        && [[parsed path] isEqualToString:[cookie path]] && [[parsed domain] isEqualToString:[cookie domain]];
+}
+
+static void wk_verifiedSegmentSpans(NSString *header, NSArray *boundaries, NSArray *cookies, NSURL *url,
+                                    NSUInteger *starts, NSUInteger *ends)
+{
+    for (NSUInteger i = 0; i < cookies.count; ++i) {
+        starts[i] = NSNotFound;
+        ends[i] = NSNotFound;
+    }
+    NSUInteger cursor = 0;
+    for (NSUInteger i = 0; i < cookies.count; ++i) {
+        NSHTTPCookie *cookie = [cookies objectAtIndex:i];
+        NSUInteger cursorBeforeCookie = cursor;
+        // A boundary that does not open with this cookie's name cannot be its start: a compare instead of
+        // a parse, which is what keeps a value full of commas from turning each comma into a parse.
+        NSString *opener = [[cookie name] stringByAppendingString:@"="];
+        NSString *nextOpener = i + 1 < cookies.count
+            ? [[[cookies objectAtIndex:i + 1] name] stringByAppendingString:@"="] : nil;
+        while (cursor + 1 < boundaries.count && starts[i] == NSNotFound) {
+            NSUInteger start = [[boundaries objectAtIndex:cursor] unsignedIntegerValue];
+            if (!wk_headerHasOpenerAt(header, start, opener)) {
+                ++cursor;
+                continue;
+            }
+            for (NSUInteger e = cursor + 1; e < boundaries.count; ++e) {
+                NSUInteger end = [[boundaries objectAtIndex:e] unsignedIntegerValue];
+                if (end <= start)
+                    continue;
+                // The segment after this one opens with the next cookie's name, and the last segment runs
+                // to the end of the header. Both are necessary conditions, so no true end is skipped.
+                if (end < header.length && !wk_headerHasOpenerAt(header, end, nextOpener))
+                    continue;
+                NSArray *span = [NSHTTPCookie cookiesWithResponseHeaderFields:
+                    @{ @"Set-Cookie": [header substringWithRange:NSMakeRange(start, end - start)] } forURL:url];
+                if (span.count != 1 || !wk_parsedCookieIs([span objectAtIndex:0], cookie))
+                    continue;
+                starts[i] = start;
+                ends[i] = end;
+                cursor = e;   // the next cookie begins where this segment ended
+                break;
+            }
+            if (starts[i] == NSNotFound)
+                ++cursor;
+        }
+        if (starts[i] == NSNotFound)
+            cursor = cursorBeforeCookie;
+    }
+}
+
+static void wk_recordSameSiteFromHeader(NSHTTPCookieStorage *storage, NSString *header, NSURL *url)
+{
+    if (!storage || !header.length || !url)
+        return;
+
+    // One scan of the jar for the whole response, keyed the way a jar entry is identified: a host-only
+    // and a domain-wide cookie of the same name and path are two live cookies for one URL.
+    NSMutableDictionary *storedCookies = [NSMutableDictionary dictionary];
+    for (NSHTTPCookie *candidate in [storage cookiesForURL:url]) {
+        NSString *key = wk_cookieIdentity(candidate);
+        if (![storedCookies objectForKey:key])
+            [storedCookies setObject:candidate forKey:key];
+    }
+    if (!storedCookies.count)
+        return;
+
+    // A header carrying no attribute changes nothing unless a stored cookie still holds a marker this
+    // response has to clear, which is what keeps the segment search off the ordinary response.
+    if ([header rangeOfString:@"samesite" options:NSCaseInsensitiveSearch].location == NSNotFound) {
+        BOOL anyMarked = NO;
+        for (NSHTTPCookie *candidate in [storedCookies allValues]) {
+            if (wk_sameSitePolicyOfCookie(candidate) != WKSameSiteNone) { anyMarked = YES; break; }
+        }
+        if (!anyMarked)
+            return;
+    }
+
+    NSArray *cookies = [NSHTTPCookie cookiesWithResponseHeaderFields:@{ @"Set-Cookie": header } forURL:url];
+    if (!cookies.count)
+        return;
+    NSArray *boundaries = wk_cookieSegmentBoundaries(header);
+    NSUInteger *starts = (NSUInteger *)calloc(cookies.count, sizeof(NSUInteger));
+    NSUInteger *ends = (NSUInteger *)calloc(cookies.count, sizeof(NSUInteger));
+    if (!starts || !ends) {
+        free(starts);
+        free(ends);
+        return;
+    }
+    wk_verifiedSegmentSpans(header, boundaries, cookies, url, starts, ends);
+
+    for (NSUInteger i = 0; i < cookies.count; ++i) {
+        if (starts[i] == NSNotFound)
+            continue;
+        NSString *segment = [header substringWithRange:NSMakeRange(starts[i], ends[i] - starts[i])];
+
+        // The cookie CFNetwork just stored under this name is the one requests are answered from, and a
+        // re-set with no SameSite attribute has to clear a marker it still carries.
+        NSHTTPCookie *parsed = [cookies objectAtIndex:i];
+        NSString *key = wk_cookieIdentity(parsed);
+        NSHTTPCookie *stored = [storedCookies objectForKey:key];
+        int policy = wk_sameSiteInSegment(segment);
+        if (!stored || wk_sameSitePolicyOfCookie(stored) == policy)
+            continue;
+
+        // Re-parse this cookie's OWN segment with the marker appended, so every attribute the server sent
+        // is carried by the parser that already accepted them. Reading a stored cookie's -properties back
+        // into +cookieWithProperties: is what loses Created.
+        NSString *marked = policy == WKSameSiteNone ? segment
+            : wk_cookieSegmentCarryingMarker(segment, wk_sameSiteMarkerForPolicy(policy));
+        NSArray *reparsed = [NSHTTPCookie cookiesWithResponseHeaderFields:@{ @"Set-Cookie": marked } forURL:url];
+        if (reparsed.count == 1 && wk_parsedCookieIs([reparsed objectAtIndex:0], parsed))
+            [storage setCookie:[reparsed objectAtIndex:0]];
+    }
+    free(starts);
+    free(ends);
+}
+
+// RFC 6265bis 5.5: a Strict cookie rides only same-site requests; a Lax cookie additionally rides a
+// cross-site top-level navigation made with a safe method.
+static BOOL wk_sameSiteAllows(int policy, BOOL isSameSite, BOOL isTopLevelNavigation, BOOL isSafeMethod)
+{
+    if (policy == WKSameSiteNone || isSameSite)
+        return YES;
+    if (policy == WKSameSiteStrict)
+        return NO;
+    return isTopLevelNavigation && isSafeMethod;
+}
+
 @interface NSHTTPCookieStorage (WKPolyfillScope)
 - (void)wk__getCookiesForURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL partition:(NSString *)partition policyProperties:(NSDictionary *)policyProperties completionHandler:(void (^)(NSArray<NSHTTPCookie *> *))completionHandler;
 - (void)wk__setCookies:(NSArray<NSHTTPCookie *> *)cookies forURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL policyProperties:(NSDictionary *)policyProperties;
@@ -434,8 +697,25 @@ static WKPolyfillCookieWatcher *wk_cookieWatcherForStorage(NSHTTPCookieStorage *
 @implementation NSHTTPCookieStorage (WKPolyfillScope)
 - (void)wk__getCookiesForURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL partition:(NSString *)partition policyProperties:(NSDictionary *)policyProperties completionHandler:(void (^)(NSArray<NSHTTPCookie *> *))completionHandler
 {
-    (void)mainDocumentURL; (void)partition; (void)policyProperties;
-    completionHandler([self cookiesForURL:url]);
+    (void)mainDocumentURL; (void)partition;
+    NSArray<NSHTTPCookie *> *cookies = [self cookiesForURL:url];
+    // policyProperties carries this read's SameSite context: SiteForCookies is the URL when same-site and
+    // an EMPTY URL when cross-site, and IsTopLevelNavigation says whether it is a navigation. 10.13+
+    // CFNetwork withholds Strict and Lax cookies from a cross-site read here; 10.9 has no notion of the
+    // attribute at all, so the same rule is applied from the marker the cookie carries.
+    id siteForCookies = policyProperties[@"_kCFHTTPCookiePolicyPropertySiteForCookies"];
+    if (siteForCookies && cookies.count) {
+        BOOL isSameSite = [[siteForCookies absoluteString] length] > 0;
+        BOOL isTopLevelNavigation = [policyProperties[@"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation"] boolValue];
+        NSMutableArray<NSHTTPCookie *> *allowed = [NSMutableArray arrayWithCapacity:cookies.count];
+        for (NSHTTPCookie *cookie in cookies) {
+            // A read carries no HTTP method; only a navigation can be the safe-method case.
+            if (wk_sameSiteAllows(wk_sameSitePolicyOfCookie(cookie), isSameSite, isTopLevelNavigation, isTopLevelNavigation))
+                [allowed addObject:cookie];
+        }
+        cookies = allowed;
+    }
+    completionHandler(cookies);
 }
 - (void)wk__setCookies:(NSArray<NSHTTPCookie *> *)cookies forURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL policyProperties:(NSDictionary *)policyProperties
 {
@@ -495,22 +775,105 @@ WK_POLYFILL_SEL("_setSubscribedDomainsForCookieChanges:", "wk__setSubscribedDoma
 // cookie carries here.
 @interface NSHTTPCookie (WKPolyfillScope)
 - (NSString *)wk_sameSitePolicy;
+- (NSString *)wk_comment;
+- (NSDictionary *)wk_properties;
 - (NSString *)wk__storagePartition;
 + (NSHTTPCookie *)wk__cookieForSetCookieString:(NSString *)setCookieString forURL:(NSURL *)url partition:(NSString *)partition;
++ (id)wk_cookieWithProperties:(NSDictionary *)properties;
+- (id)wk_initWithProperties:(NSDictionary *)properties;
 @end
+
+// A cookie built from a property dictionary carries SameSite under one of two keys: CookieCocoa.mm
+// writes the literal "SameSite", NetworkStorageSessionCocoa.mm writes NSHTTPCookieSameSitePolicy. The
+// marker is translated in before construction, so it comes from the caller's own inputs and the
+// caller's Created survives.
+static NSDictionary *wk_propertiesCarryingSameSiteMarker(NSDictionary *properties)
+{
+    id policy = properties[@"SameSite"] ?: properties[@"SameSitePolicy"];
+    if (![policy isKindOfClass:[NSString class]])
+        return properties;
+    int value = WKSameSiteNone;
+    if ([policy caseInsensitiveCompare:@"strict"] == NSOrderedSame)
+        value = WKSameSiteStrict;
+    else if ([policy caseInsensitiveCompare:@"lax"] == NSOrderedSame)
+        value = WKSameSiteLax;
+
+    NSMutableDictionary *translated = [[properties mutableCopy] autorelease];
+    [translated removeObjectForKey:@"SameSite"];
+    [translated removeObjectForKey:@"SameSitePolicy"];
+    if (value == WKSameSiteNone)
+        [translated removeObjectForKey:NSHTTPCookieComment];
+    else
+        translated[NSHTTPCookieComment] = wk_sameSiteMarkerForPolicy(value);
+    return translated;
+}
 @implementation NSHTTPCookie (WKPolyfillScope)
-- (NSString *)wk_sameSitePolicy { return nil; }
+- (NSString *)wk_sameSitePolicy
+{
+    int policy = wk_sameSitePolicyOfCookie(self);
+    if (policy == WKSameSiteStrict)
+        return @"strict";
+    if (policy == WKSameSiteLax)
+        return @"lax";
+    return nil;
+}
+// The marker is this layer's own state, not the cookie's Comment. It is kept out of every reader so a
+// caller -- including NetworkStorageSessionCocoa's setAllCookiesToSameSiteStrict, which copies
+// -properties wholesale -- never sees it or copies it onward.
+- (NSString *)wk_comment
+{
+    NSString *comment = wk_rawCookieComment(self);
+    return [comment hasPrefix:wkSameSiteMarkerPrefix] ? nil : comment;
+}
+- (NSDictionary *)wk_properties
+{
+    SEL publicSelector = sel_registerName("properties");
+    typedef NSDictionary *(*Fn)(id, SEL);
+    Fn callReal = (Fn)wk_replaces_call_through_class(self, [NSHTTPCookie class], _cmd, publicSelector);
+    NSDictionary *properties = callReal(self, publicSelector);
+    NSString *comment = properties[NSHTTPCookieComment];
+    if (![comment hasPrefix:wkSameSiteMarkerPrefix])
+        return properties;
+    NSMutableDictionary *stripped = [[properties mutableCopy] autorelease];
+    [stripped removeObjectForKey:NSHTTPCookieComment];
+    return stripped;
+}
 - (NSString *)wk__storagePartition { return nil; }
++ (id)wk_cookieWithProperties:(NSDictionary *)properties
+{
+    SEL publicSelector = sel_registerName("cookieWithProperties:");
+    typedef id (*Fn)(id, SEL, NSDictionary *);
+    Fn callReal = (Fn)wk_replaces_call_through_class(self, object_getClass([NSHTTPCookie class]), _cmd, publicSelector);
+    return callReal(self, publicSelector, wk_propertiesCarryingSameSiteMarker(properties));
+}
+- (id)wk_initWithProperties:(NSDictionary *)properties
+{
+    SEL publicSelector = sel_registerName("initWithProperties:");
+    typedef id (*Fn)(id, SEL, NSDictionary *);
+    Fn callReal = (Fn)wk_replaces_call_through_class(self, [NSHTTPCookie class], _cmd, publicSelector);
+    return callReal(self, publicSelector, wk_propertiesCarryingSameSiteMarker(properties));
+}
 + (NSHTTPCookie *)wk__cookieForSetCookieString:(NSString *)setCookieString forURL:(NSURL *)url partition:(NSString *)partition
 {
     (void)partition;
     if (!setCookieString.length || !url)
         return nil;
-    NSHTTPCookie *cookie = [[NSHTTPCookie cookiesWithResponseHeaderFields:@{ @"Set-Cookie": setCookieString } forURL:url] firstObject];
+    // A script-written cookie carries SameSite in the same syntax and loses it the same way, so the
+    // marker goes on here, at construction, from the string the caller supplied. The cookie returned
+    // carries it into whichever jar the caller stores it in.
+    NSString *header = setCookieString;
+    int policy = wk_sameSiteInSegment(setCookieString);
+    if (policy != WKSameSiteNone)
+        header = wk_cookieSegmentCarryingMarker(setCookieString, wk_sameSiteMarkerForPolicy(policy));
+    NSHTTPCookie *cookie = [[NSHTTPCookie cookiesWithResponseHeaderFields:@{ @"Set-Cookie": header } forURL:url] firstObject];
     return wk_cookieWithUsableDomain(cookie, url);
 }
 @end
 WK_POLYFILL_SEL("sameSitePolicy", "wk_sameSitePolicy");
+WK_POLYFILL_SEL_REPLACES("comment", "wk_comment");
+WK_POLYFILL_SEL_REPLACES("cookieWithProperties:", "wk_cookieWithProperties:");
+WK_POLYFILL_SEL_REPLACES("initWithProperties:", "wk_initWithProperties:");
+WK_POLYFILL_SEL_REPLACES("properties", "wk_properties");
 WK_POLYFILL_SEL("_storagePartition", "wk__storagePartition");
 WK_POLYFILL_SEL("_cookieForSetCookieString:forURL:partition:", "wk__cookieForSetCookieString:forURL:partition:");
 
@@ -1450,6 +1813,7 @@ WK_POLYFILL_SEL_REPLACES("HTTPShouldHandleCookies", "wk_HTTPShouldHandleCookies"
 @end
 WK_POLYFILL_SEL_REPLACES("setHTTPShouldHandleCookies:", "wk_setHTTPShouldHandleCookies:");
 
+
 // The request side of the flag above. Read at TASK CREATION, so a policy the embedder changes while the
 // session is alive takes effect on the next task -- which is the whole point of the storage being
 // authoritative, and is why nothing here is cached on the session.
@@ -1473,12 +1837,186 @@ static NSURLRequest *wk_requestCarryingStorageCookieAcceptPolicy(id session, NSU
     return stamped;
 }
 
-// Per-task cookie controls (10.13+). 10.9's CFNetwork has no per-task cookie storage, no SameSite
-// notion, and no cookie-transform hook, so each of these accepts and discards -- the same thing the
-// real API does on a system without the feature behind it. The visible consequence is that tracking
-// prevention cannot swap a task onto a stateless jar and SameSite attributes are not enforced at the
-// network layer; both are honest statements about 10.9 rather than something hidden from the caller.
+// Per-task cookie controls (10.13+). 10.9's CFNetwork has no per-task cookie storage and no
+// cookie-transform hook, so each of these accepts and discards -- the same thing the real API does on a
+// system without the feature behind it. The visible consequence is that tracking prevention cannot swap
+// a task onto a stateless jar. The SameSite context these carry is read off the request instead, by the
+// enforcement below.
 static id wk_absentBlock(id self, SEL _cmd) { (void)self; (void)_cmd; return nil; }
+
+// SameSite on the wire. 10.9's CFNetwork builds the Cookie header from the jar and knows nothing of the
+// attribute, so a request whose context withholds a marked cookie carries the header computed here
+// instead: an explicit Cookie header is the one CFNetwork sends (measured), and unlike clearing
+// HTTPShouldHandleCookies it leaves response Set-Cookie storing alone (also measured).
+//
+// ResourceRequestCocoa.mm stamps the context onto the request itself, so the same function serves the
+// first hop and every redirect. Recomputing at each hop is the point: the header is bytes, and CFNetwork
+// carries it verbatim across a cross-host redirect.
+static NSString * const wkSameSiteHeaderComputedForKey = @"WKSameSiteCookieHeaderComputedFor";
+
+static BOOL wk_isSafeHTTPMethod(NSString *method)
+{
+    return [method isEqualToString:@"GET"] || [method isEqualToString:@"HEAD"]
+        || [method isEqualToString:@"OPTIONS"] || [method isEqualToString:@"TRACE"];
+}
+
+static NSURLRequest *wk_requestWithSameSiteApplied(id session, NSURLRequest *request)
+{
+    NSURL *url = [request URL];
+    if (!session || !request || !url)
+        return request;
+
+    // A header written here was computed for exactly one URL; a redirect that carried it to another one
+    // has to lose it whether or not the new hop gets a header of its own.
+    NSString *computedFor = [NSURLProtocol propertyForKey:wkSameSiteHeaderComputedForKey inRequest:request];
+    BOOL carriesStaleHeader = computedFor.length && ![computedFor isEqualToString:[url absoluteString]];
+
+    id siteForCookies = ((id (*)(id, SEL, id))objc_msgSend)(request, sel_registerName("_propertyForKey:"), @"_kCFHTTPCookiePolicyPropertySiteForCookies");
+    BOOL contextIsKnown = [siteForCookies isKindOfClass:[NSURL class]];
+    // The platform -HTTPShouldHandleCookies lies on non-http schemes; wk_HTTPShouldHandleCookies is the
+    // body that reads it truthfully, and a selref inside this library is not rewritten to reach it.
+    BOOL handlesCookies = ((BOOL (*)(id, SEL))objc_msgSend)(request, sel_registerName("wk_HTTPShouldHandleCookies"));
+    if ((!contextIsKnown && !carriesStaleHeader) || !handlesCookies)
+        return request;
+
+    id configuration = ((id (*)(id, SEL))objc_msgSend)(session, sel_registerName("configuration"));
+    NSHTTPCookieStorage *storage = [configuration HTTPCookieStorage];
+    if (!storage)
+        return request;
+
+    BOOL isSameSite = [[siteForCookies absoluteString] length] > 0;
+    BOOL isTopLevelNavigation = [((id (*)(id, SEL, id))objc_msgSend)(request, sel_registerName("_propertyForKey:"), @"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation") boolValue];
+    BOOL isSafeMethod = wk_isSafeHTTPMethod([request HTTPMethod]);
+
+    NSArray *cookies = [storage cookiesForURL:url];
+    NSMutableArray *allowed = [NSMutableArray arrayWithCapacity:cookies.count];
+    BOOL anyWithheld = NO;
+    for (NSHTTPCookie *cookie in cookies) {
+        int policy = contextIsKnown ? wk_sameSitePolicyOfCookie(cookie) : WKSameSiteNone;
+        if (wk_sameSiteAllows(policy, isSameSite, isTopLevelNavigation, isSafeMethod))
+            [allowed addObject:cookie];
+        else
+            anyWithheld = YES;
+    }
+    // Nothing to withhold and no stale header to undo: CFNetwork's own header is already correct.
+    if (!anyWithheld && !carriesStaleHeader && !computedFor.length)
+        return request;
+
+    NSMutableURLRequest *filtered = [[request mutableCopy] autorelease];
+    // An EMPTY Cookie header sends no cookies; an ABSENT one has CFNetwork build its own from the jar
+    // (both measured), so withholding everything still has to write the header.
+    NSString *header = [[NSHTTPCookie requestHeaderFieldsWithCookies:allowed] objectForKey:@"Cookie"];
+    [filtered setValue:(header ?: @"") forHTTPHeaderField:@"Cookie"];
+    [NSURLProtocol setProperty:[url absoluteString] forKey:wkSameSiteHeaderComputedForKey inRequest:filtered];
+    return filtered;
+}
+
+// The one place a request is prepared for a session, so the first hop and every later hop cannot drift.
+static NSURLRequest *wk_requestPreparedForSession(id session, NSURLRequest *request)
+{
+    return wk_requestWithSameSiteApplied(session, wk_requestCarryingStorageCookieAcceptPolicy(session, request));
+}
+
+static void wk_captureSameSiteFromResponse(id session, NSURLResponse *response)
+{
+    if (![response isKindOfClass:[NSHTTPURLResponse class]])
+        return;
+    id configuration = ((id (*)(id, SEL))objc_msgSend)(session, sel_registerName("configuration"));
+    NSHTTPCookieStorage *storage = [configuration HTTPCookieStorage];
+    if (!storage)
+        return;
+    // -allHeaderFields folds repeated Set-Cookie into the one comma-joined header the parser takes.
+    NSString *header = [[(NSHTTPURLResponse *)response allHeaderFields] objectForKey:@"Set-Cookie"];
+    wk_recordSameSiteFromHeader(storage, header, [response URL]);
+}
+
+// NSURLSession asks its delegate what it implements and sends only that, so the wrapper answers for the
+// redirect callback and defers every other question -- and every other message, -isKindOfClass: and
+// -respondsToSelector: included -- to the delegate it wraps.
+//
+// -[NSURLSession delegate] hands back this object, which answers every message the wrapped delegate
+// answers. The selref rewrite is keyed on the selector NAME across every class in an image, so
+// "delegate" is left alone; nothing in the tree reads a session's delegate (measured).
+@interface WKPolyfillScopeSessionDelegateProxy : NSProxy {
+@public
+    id m_delegate;
+}
+@end
+
+@implementation WKPolyfillScopeSessionDelegateProxy
+- (id)wk_initWithDelegate:(id)delegate
+{
+    m_delegate = [delegate retain];
+    return self;
+}
+- (void)dealloc
+{
+    [m_delegate release];
+    [super dealloc];
+}
+- (BOOL)respondsToSelector:(SEL)selector
+{
+    if (selector == @selector(URLSession:task:willPerformHTTPRedirection:newRequest:completionHandler:)
+        || selector == @selector(URLSession:dataTask:didReceiveResponse:completionHandler:)
+        || selector == @selector(URLSession:task:didCompleteWithError:))
+        return YES;
+    return [m_delegate respondsToSelector:selector];
+}
+- (NSMethodSignature *)methodSignatureForSelector:(SEL)selector
+{
+    return [m_delegate methodSignatureForSelector:selector];
+}
+- (void)forwardInvocation:(NSInvocation *)invocation
+{
+    [invocation invokeWithTarget:m_delegate];
+}
+// -didReceiveResponse: is a DATA-task callback, so a download task's response is seen here instead;
+// this one is sent for every task type and -response is available on the task by then.
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error
+{
+    wk_captureSameSiteFromResponse(session, [task response]);
+    if ([m_delegate respondsToSelector:_cmd])
+        ((void (*)(id, SEL, id, id, id))objc_msgSend)(m_delegate, _cmd, session, task, error);
+}
+// A redirect response carries Set-Cookie of its own, and it is the only sight of it.
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler
+{
+    wk_captureSameSiteFromResponse(session, response);
+    if ([m_delegate respondsToSelector:_cmd]) {
+        ((void (*)(id, SEL, id, id, id, id))objc_msgSend)(m_delegate, _cmd, session, dataTask, response, completionHandler);
+        return;
+    }
+    // Allowing the load is what a session with no such callback already does.
+    completionHandler(NSURLSessionResponseAllow);
+}
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completionHandler
+{
+    wk_captureSameSiteFromResponse(session, response);
+    void (^filterAndContinue)(NSURLRequest *) = ^(NSURLRequest *chosen) {
+        completionHandler(chosen ? wk_requestPreparedForSession(session, chosen) : chosen);
+    };
+    if ([m_delegate respondsToSelector:_cmd]) {
+        ((void (*)(id, SEL, id, id, id, id, id))objc_msgSend)(m_delegate, _cmd, session, task, response, request, filterAndContinue);
+        return;
+    }
+    // Completing with the proposed request is what a session with no redirect callback already does.
+    filterAndContinue(request);
+}
+@end
+
+static id wk_urlSession_sessionWithConfigurationDelegateQueue(id self, SEL _cmd, id configuration, id delegate, id queue)
+{
+    SEL real = sel_registerName("sessionWithConfiguration:delegate:delegateQueue:");
+    typedef id (*Fn)(id, SEL, id, id, id);
+    Fn callReal = (Fn)wk_replaces_call_through_imp(self, (IMP)wk_urlSession_sessionWithConfigurationDelegateQueue, _cmd, real);
+    WKPolyfillScopeSessionDelegateProxy *proxy = [[WKPolyfillScopeSessionDelegateProxy alloc] wk_initWithDelegate:delegate];
+    // The session retains its delegate for as long as it needs one.
+    id session = callReal(self, real, configuration, [proxy autorelease], queue);
+    return session;
+}
+
+WK_POLYFILL_ADD_CLASS_METHOD_REPLACES("NSURLSession", "wk_sessionWithConfiguration:delegate:delegateQueue:", wk_urlSession_sessionWithConfigurationDelegateQueue, "@@:@@@");
+WK_POLYFILL_SEL_REPLACES("sessionWithConfiguration:delegate:delegateQueue:", "wk_sessionWithConfiguration:delegate:delegateQueue:");
 
 WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_set_cookieTransformCallback:", wk_noopSetObject, "v@:@?");
 WK_POLYFILL_ADD("NSURLSessionTask", "wk_set_cookieTransformCallback:", wk_noopSetObject, "v@:@?");
@@ -1832,6 +2370,25 @@ static CFDictionaryRef wk_storageSessionProperties(BOOL isPrivate, bool *outFail
         *outFailed = true;
     return properties;
 }
+
+// A null CF storage is how upstream spells "this session uses the process's shared jar" --
+// NetworkStorageSession::nsCookieStorage() maps it to +sharedHTTPCookieStorage itself, and modern
+// CFNetwork answers this initializer with the default store. 10.9 instead logs "Cannot get default
+// cookie store - using a memory store for this process" and substitutes a fresh, EMPTY in-memory store,
+// so a caller that deleted cookies from the shared jar and then flushed through the result was flushing
+// a store its deletions never touched.
+static id wk_httpCookieStorage_initWithCFHTTPCookieStorage(id self, SEL _cmd, CFHTTPCookieStorageRef storage)
+{
+    SEL real = sel_registerName("_initWithCFHTTPCookieStorage:");
+    typedef id (*Fn)(id, SEL, CFHTTPCookieStorageRef);
+    Fn callReal = (Fn)wk_replaces_call_through_imp(self, (IMP)wk_httpCookieStorage_initWithCFHTTPCookieStorage, _cmd, real);
+    if (storage)
+        return callReal(self, real, storage);
+    [self release];
+    return [[NSHTTPCookieStorage sharedHTTPCookieStorage] retain];
+}
+WK_POLYFILL_ADD_REPLACES("NSHTTPCookieStorage", "wk__initWithCFHTTPCookieStorage:", wk_httpCookieStorage_initWithCFHTTPCookieStorage, "@@:^v");
+WK_POLYFILL_SEL_REPLACES("_initWithCFHTTPCookieStorage:", "wk__initWithCFHTTPCookieStorage:");
 
 typedef struct OpaqueCFURLStorageSession *CFURLStorageSessionRef;
 typedef struct OpaqueCFURLCredentialStorage *CFURLCredentialStorageRef;
@@ -2557,7 +3114,7 @@ static id wk_urlSession_dataTaskWithRequest(id self, SEL _cmd, NSURLRequest *req
     SEL real = sel_registerName("dataTaskWithRequest:");
     return wk_urlSession_taskForStreamedRequest(self, real,
         wk_replaces_call_through_imp(self, (IMP)wk_urlSession_dataTaskWithRequest, _cmd, real),
-        wk_requestCarryingStorageCookieAcceptPolicy(self, request));
+        wk_requestPreparedForSession(self, request));
 }
 
 static id wk_urlSession_uploadTaskWithStreamedRequest(id self, SEL _cmd, NSURLRequest *request)
@@ -2565,7 +3122,7 @@ static id wk_urlSession_uploadTaskWithStreamedRequest(id self, SEL _cmd, NSURLRe
     SEL real = sel_registerName("uploadTaskWithStreamedRequest:");
     return wk_urlSession_taskForStreamedRequest(self, real,
         wk_replaces_call_through_imp(self, (IMP)wk_urlSession_uploadTaskWithStreamedRequest, _cmd, real),
-        wk_requestCarryingStorageCookieAcceptPolicy(self, request));
+        wk_requestPreparedForSession(self, request));
 }
 
 // Registered on the public class AND on the concrete one: NSURLSession is a class cluster whose
@@ -2589,7 +3146,7 @@ static id NAME(id self, SEL _cmd, NSURLRequest *request) \
     SEL real = sel_registerName(SEL_NAME); \
     typedef id (*Fn)(id, SEL, id); \
     Fn callReal = (Fn)wk_replaces_call_through_imp(self, (IMP)NAME, _cmd, real); \
-    return callReal(self, real, wk_requestCarryingStorageCookieAcceptPolicy(self, request)); \
+    return callReal(self, real, wk_requestPreparedForSession(self, request)); \
 }
 
 #define WK_URLSESSION_STAMP_REQ_BODY(NAME, SEL_NAME) \
@@ -2598,7 +3155,7 @@ static id NAME(id self, SEL _cmd, NSURLRequest *request, id body) \
     SEL real = sel_registerName(SEL_NAME); \
     typedef id (*Fn)(id, SEL, id, id); \
     Fn callReal = (Fn)wk_replaces_call_through_imp(self, (IMP)NAME, _cmd, real); \
-    return callReal(self, real, wk_requestCarryingStorageCookieAcceptPolicy(self, request), body); \
+    return callReal(self, real, wk_requestPreparedForSession(self, request), body); \
 }
 
 // The request a URL-taking creator stands for: -[NSURLSession dataTaskWithURL:] builds it from the
@@ -2623,14 +3180,43 @@ static id NAME(id self, SEL _cmd, NSURL *url) \
     (void)_cmd; \
     return ((id (*)(id, SEL, id))objc_msgSend)(self, sel_registerName(REQ_SEL_NAME), \
         wk_requestCarryingStorageCookieAcceptPolicy(self, wk_urlSession_requestForURL(self, url))); \
+}  /* the request form it forwards to prepares the request for the session */
+
+// A task created with a completion handler still gets the delegate's redirect callback, but none of the
+// response callbacks (measured), so the handler the caller passed is where its response is seen; it is
+// wrapped and still runs.
+#define WK_URLSESSION_STAMP_REQ_HANDLER(NAME, SEL_NAME) \
+static id NAME(id self, SEL _cmd, NSURLRequest *request, id handler) \
+{ \
+    SEL real = sel_registerName(SEL_NAME); \
+    typedef id (*Fn)(id, SEL, id, id); \
+    Fn callReal = (Fn)wk_replaces_call_through_imp(self, (IMP)NAME, _cmd, real); \
+    id session = self; \
+    id wrapped = handler; \
+    if (handler) { \
+        void (^original)(id, id, id) = (void (^)(id, id, id))handler; \
+        wrapped = [[^(id result, id response, id error) { \
+            wk_captureSameSiteFromResponse(session, response); \
+            original(result, response, error); \
+        } copy] autorelease]; \
+    } \
+    return callReal(self, real, wk_requestPreparedForSession(self, request), wrapped); \
 }
 
+WK_URLSESSION_STAMP_REQ_HANDLER(wk_urlSession_dataTaskWithRequestCompletionHandler, "dataTaskWithRequest:completionHandler:")
+WK_URLSESSION_STAMP_REQ_HANDLER(wk_urlSession_downloadTaskWithRequestCompletionHandler, "downloadTaskWithRequest:completionHandler:")
 WK_URLSESSION_STAMP_REQ(wk_urlSession_downloadTaskWithRequest, "downloadTaskWithRequest:")
 WK_URLSESSION_STAMP_REQ_BODY(wk_urlSession_uploadTaskWithRequestFromData, "uploadTaskWithRequest:fromData:")
 WK_URLSESSION_STAMP_REQ_BODY(wk_urlSession_uploadTaskWithRequestFromFile, "uploadTaskWithRequest:fromFile:")
 WK_URLSESSION_STAMP_URL(wk_urlSession_dataTaskWithURL, "dataTaskWithRequest:")
 WK_URLSESSION_STAMP_URL(wk_urlSession_downloadTaskWithURL, "downloadTaskWithRequest:")
 
+WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_dataTaskWithRequest:completionHandler:", wk_urlSession_dataTaskWithRequestCompletionHandler, "@@:@@?");
+WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_dataTaskWithRequest:completionHandler:", wk_urlSession_dataTaskWithRequestCompletionHandler, "@@:@@?");
+WK_POLYFILL_SEL_REPLACES("dataTaskWithRequest:completionHandler:", "wk_dataTaskWithRequest:completionHandler:");
+WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_downloadTaskWithRequest:completionHandler:", wk_urlSession_downloadTaskWithRequestCompletionHandler, "@@:@@?");
+WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_downloadTaskWithRequest:completionHandler:", wk_urlSession_downloadTaskWithRequestCompletionHandler, "@@:@@?");
+WK_POLYFILL_SEL_REPLACES("downloadTaskWithRequest:completionHandler:", "wk_downloadTaskWithRequest:completionHandler:");
 WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_downloadTaskWithRequest:", wk_urlSession_downloadTaskWithRequest, "@@:@");
 WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_downloadTaskWithRequest:", wk_urlSession_downloadTaskWithRequest, "@@:@");
 WK_POLYFILL_SEL_REPLACES("downloadTaskWithRequest:", "wk_downloadTaskWithRequest:");

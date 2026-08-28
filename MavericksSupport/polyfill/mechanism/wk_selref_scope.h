@@ -90,5 +90,6 @@ struct wk_addmap_entry { const char *cls; const char *sel; void *imp; const char
 // where a send to the class object looks the selector up. The IMP still takes (id self, SEL _cmd, ...),
 // with self being the class.
 #define WK_POLYFILL_ADD_CLASS_METHOD(CLS, SEL, IMP, TYPES) WK_POLYFILL_ADD_("+" CLS, SEL, IMP, TYPES, WK_SELMAP_GAP_FILL)
+#define WK_POLYFILL_ADD_CLASS_METHOD_REPLACES(CLS, SEL, IMP, TYPES) WK_POLYFILL_ADD_("+" CLS, SEL, IMP, TYPES, WK_SELMAP_REPLACES)
 
 #endif // WK_SELREF_SCOPE_H

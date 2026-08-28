@@ -56,7 +56,7 @@ static void wk_registry_full(const char *what, int cap, const char *capName, con
 }
 
 // Resolved public->private SEL map, built from all __wk_selmap sections as their images arrive.
-enum { WK_MAX_SEL = 256 };
+enum { WK_MAX_SEL = 512 };
 static SEL wk_pub[WK_MAX_SEL];          // canonical public SEL (fast-path pointer match)
 static const char *wk_pubname[WK_MAX_SEL]; // public selector NAME (content match — see wk_patch)
 static SEL wk_priv[WK_MAX_SEL];
