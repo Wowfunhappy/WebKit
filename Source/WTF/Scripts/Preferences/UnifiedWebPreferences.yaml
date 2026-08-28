@@ -1765,13 +1765,12 @@ CaptureVideoInGPUProcessEnabled:
   exposed: [ WebKit ]
   defaultValue:
     WebKit:
-      # MAVERICKS_BACKPORT: narrowed with the same `&& !USE(GSTREAMER)` term UseGPUProcessForMediaEnabled
-      # already carries upstream. GPU-process capture marshals audio through
-      # UserMediaCaptureManagerProxySourceProxy, which stores samples with
-      # downcast<WebAudioBufferList>(audioData) -- a CoreAudio type. This port captures through
-      # RealtimeMediaSourceCenterGStreamer (RealtimeMediaSourceCenterMac.cpp is withheld), whose
-      # PlatformAudioData is GStreamerAudioData, so that downcast traps. Capture runs in the web
-      # process here, as it does on the other GStreamer-capture ports.
+      # MAVERICKS_BACKPORT: this default carries the same `&& !USE(GSTREAMER)` term as
+      # UseGPUProcessForMediaEnabled.
+      # This port captures through RealtimeMediaSourceCenterGStreamer (RealtimeMediaSourceCenterMac.cpp
+      # is withheld), whose PlatformAudioData is GStreamerAudioData, while the GPU-process capture
+      # bridge marshals CoreAudio buffers. Capture runs in the web process here, as on upstream's other
+      # GStreamer-capture ports.
       "ENABLE(GPU_PROCESS_BY_DEFAULT) && !USE(GSTREAMER)": true
       default: false
 
@@ -5394,11 +5393,13 @@ MediaSourceUseRemoteAudioVideoRenderer:
     WebKitLegacy:
       default: false
     WebKit:
-      # MAVERICKS_BACKPORT: narrowed with the same `&& !USE(GSTREAMER)` term UseGPUProcessForMediaEnabled
-      # carries upstream. This pref routes MSE through the GPU-process AudioVideoRenderer, an AVFObjC
-      # path: WebPage::updatePreferences feeds it to enableRemoteRenderer(AVFoundationMSE), and
-      # MediaPlayer::load then pins m_activeEngineIdentifier to AVFoundationMSE. This port registers
-      # only the GStreamer engines, so the pin leaves every MSE attach with no matching engine.
+      # MAVERICKS_BACKPORT: this default carries the same `!USE(GSTREAMER)` term as
+      # UseGPUProcessForMediaEnabled.
+      # This pref routes MSE through the GPU-process AudioVideoRenderer, an AVFObjC path:
+      # WebPage::updatePreferences feeds it to enableRemoteRenderer(AVFoundationMSE), and
+      # MediaPlayer::load then pins m_activeEngineIdentifier to AVFoundationMSE, while this port
+      # registers only the GStreamer engines. MSE runs in the web process here, as on upstream's other
+      # GStreamer ports.
       "!USE(GSTREAMER)": true
       default: false
     WebCore:

@@ -145,5 +145,7 @@ Source/WebCore/PAL/pal/PALSwift-Generated.h
 *.10_9_stub
 *.minimal
 
-# WebKit1 test host: built by MavericksSupport/tests/wk1host/build.sh
+# WebKit1 test hosts: built by MavericksSupport/tests/wk1host/build.sh and
+# MavericksSupport/tests/secure-context-window-reuse/run.sh
 MavericksSupport/tests/wk1host/build/
+MavericksSupport/tests/secure-context-window-reuse/build/
