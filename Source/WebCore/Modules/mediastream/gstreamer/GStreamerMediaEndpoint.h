@@ -34,8 +34,6 @@
 #include <gst/webrtc/webrtc.h>
 #undef GST_USE_UNSTABLE_API
 
-// MAVERICKS_BACKPORT: <wtf/Lock.h> for the leaf Lock guarding m_incomingDataChannels (webrtcbin streaming thread vs main thread).
-#include <wtf/Lock.h>
 #include <wtf/LoggerHelper.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/glib/GUniquePtr.h>
@@ -89,17 +87,6 @@ public:
     std::optional<bool> canTrickleIceCandidates() const;
 
     void configureSource(RealtimeOutgoingMediaSourceGStreamer&, GUniquePtr<GstStructure>&&);
-    // MAVERICKS_BACKPORT: outgoing-source codec re-negotiation, see linkOutgoingSources.
-    void reconfigureOutgoingSourceForMedia(unsigned mLineIndex, const GstSDPMedia*);
-    // MAVERICKS_BACKPORT: incoming SSRC attribution from the remote description, see
-    // connectIncomingTrack and reattributeIncomingTracks.
-    struct IncomingSsrcResolution {
-        String mid;
-        String mediaStreamId;
-        String trackId;
-    };
-    std::optional<IncomingSsrcResolution> resolveIncomingSsrc(unsigned ssrc);
-    void reattributeIncomingTracks();
 
     ExceptionOr<Ref<GStreamerRtpSenderBackend>> addTrack(MediaStreamTrack&, const FixedVector<String>&);
     void removeTrack(GStreamerRtpSenderBackend&);
@@ -225,10 +212,7 @@ private:
     UniqueRef<GStreamerDataChannelHandler> findOrCreateIncomingChannelHandler(GRefPtr<GstWebRTCDataChannel>&&);
 
     using DataChannelHandlerIdentifier = ObjectIdentifier<GstWebRTCDataChannel>;
-    // MAVERICKS_BACKPORT: guarded by a leaf lock — prepare-data-channel writes on webrtcbin's
-    // streaming thread while onDataChannel/teardown read on the main thread.
-    Lock m_incomingDataChannelsLock;
-    HashMap<DataChannelHandlerIdentifier, UniqueRef<GStreamerDataChannelHandler>> m_incomingDataChannels WTF_GUARDED_BY_LOCK(m_incomingDataChannelsLock);
+    HashMap<DataChannelHandlerIdentifier, UniqueRef<GStreamerDataChannelHandler>> m_incomingDataChannels;
 
     RefPtr<UniqueSSRCGenerator> m_ssrcGenerator;
 
@@ -239,11 +223,8 @@ private:
 
     bool m_shouldIgnoreNegotiationNeededSignal { false };
 
-// MAVERICKS_BACKPORT: upstream collects incoming tracks here until every expected track arrived
-// (the all-tracks barrier in connectIncomingTrack). This port starts each incoming track as soon
-// as its source is wired — see the per-track liveness divergence in connectIncomingTrack — so
-// nothing populates the list.
-//     Vector<RefPtr<MediaStreamTrackPrivate>> m_pendingIncomingTracks;
+    Vector<RefPtr<MediaStreamTrackPrivate>> m_pendingIncomingTracks;
+
     Vector<RefPtr<RealtimeOutgoingMediaSourceGStreamer>> m_unlinkedOutgoingSources;
 
     bool m_isGatheringRTCLogs { false };

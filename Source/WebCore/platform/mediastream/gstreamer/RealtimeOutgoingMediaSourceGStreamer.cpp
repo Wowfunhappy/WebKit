@@ -30,8 +30,6 @@
 #include <gst/webrtc/webrtc.h>
 #undef GST_USE_UNSTABLE_API
 
-// MAVERICKS_BACKPORT: <limits> for std::numeric_limits used by the stable send-SSRC normalization in initialize().
-#include <limits>
 #include <wtf/UUID.h>
 #include <wtf/glib/GMallocString.h>
 #include <wtf/glib/WTFGType.h>
@@ -82,14 +80,6 @@ void RealtimeOutgoingMediaSourceGStreamer::initialize()
     std::call_once(debugRegisteredFlag, [] {
         GST_DEBUG_CATEGORY_INIT(webkit_webrtc_outgoing_media_debug, "webkitwebrtcoutgoingmedia", 0, "WebKit WebRTC outgoing media");
     });
-
-    // MAVERICKS_BACKPORT: allocate the stable send SSRC up front (see the header). Used both by
-    // the RTP packetizer and, via codec-preferences, by webrtcbin's offer so advertised == sent.
-    // generateSSRC() returns UINT32_MAX when it can't find a free value; normalize that to 0 so
-    // the guards below fall back to letting each packetizer/webrtcbin pick its own SSRC.
-    m_ssrc = m_ssrcGenerator->generateSSRC();
-    if (m_ssrc == std::numeric_limits<uint32_t>::max())
-        m_ssrc = 0;
 
     m_bin = gst_bin_new(nullptr);
     m_inputSelector = gst_element_factory_make("input-selector", nullptr);
@@ -229,13 +219,6 @@ void RealtimeOutgoingMediaSourceGStreamer::removeOutgoingSource()
     gst_element_unlink(m_outgoingSource.get(), m_inputSelector.get());
     gst_bin_remove(GST_BIN_CAST(m_bin.get()), m_outgoingSource.get());
     m_outgoingSource.clear();
-
-    // MAVERICKS_BACKPORT: the fallback becomes the active branch again, so release it if a codec
-    // re-negotiation parked it (see reconfigureForNegotiatedCaps).
-    if (m_fallbackSource && gst_element_is_locked_state(m_fallbackSource.get())) {
-        gst_element_set_locked_state(m_fallbackSource.get(), FALSE);
-        gst_element_sync_state_with_parent(m_fallbackSource.get());
-    }
 }
 
 void RealtimeOutgoingMediaSourceGStreamer::sourceMutedChanged()
@@ -392,180 +375,6 @@ void RealtimeOutgoingMediaSourceGStreamer::codecPreferencesChanged()
     m_isStopped = false;
 }
 
-// MAVERICKS_BACKPORT: rebuild the packetizers when the description being set no longer allows the
-// codec they were built for. Google Meet answers our H264-first offer with a VP8/VP9-only video
-// section; without this the sender keeps emitting the offer's codec on a payload type the remote
-// never accepted, the SFU discards every packet, and the other party never sees our video.
-//
-// This is codecPreferencesChanged()'s rebuild, driven by the negotiated m-section instead of the
-// transceiver's static preferences. It reuses that function's precondition rather than working
-// around it: the packetizer chain carries the video encoder, and re-plugging it while the bin is
-// PLAYING leaves the raw side unable to renegotiate (observed as not-negotiated on the capture
-// appsrc, which kills capture and makes Meet report a blocked camera). So the bin is brought down to
-// READY for the swap and synced back up afterwards.
-void RealtimeOutgoingMediaSourceGStreamer::reconfigureForNegotiatedCaps(GRefPtr<GstCaps>&& negotiatedCaps)
-{
-    if (m_isStopped || m_packetizers.isEmpty())
-        return;
-    if (!negotiatedCaps || gst_caps_is_empty(negotiatedCaps.get()) || gst_caps_is_any(negotiatedCaps.get())) [[unlikely]]
-        return;
-
-    // The active codec is identified by encoding-name + payload of the current RTP caps.
-    auto currentCaps = rtpCaps();
-    if (!currentCaps || !gst_caps_get_size(currentCaps.get()))
-        return;
-    const auto currentStructure = gst_caps_get_structure(currentCaps.get(), 0);
-    auto currentEncoding = gstStructureGetString(currentStructure, "encoding-name"_s);
-    auto currentPayload = gstStructureGet<int>(currentStructure, "payload"_s);
-    if (!currentEncoding || !currentPayload)
-        return;
-
-    unsigned totalNegotiated = gst_caps_get_size(negotiatedCaps.get());
-    for (unsigned i = 0; i < totalNegotiated; i++) {
-        const auto structure = gst_caps_get_structure(negotiatedCaps.get(), i);
-        if (gstStructureGetString(structure, "encoding-name"_s) == currentEncoding
-            && gstStructureGet<int>(structure, "payload"_s) == currentPayload)
-            return; // The active codec is still negotiated, nothing to do.
-    }
-
-    GST_INFO_OBJECT(m_bin.get(), "Negotiated caps %" GST_PTR_FORMAT " exclude the active codec %s/%d, rebuilding packetizers", negotiatedCaps.get(), currentEncoding.utf8(), *currentPayload);
-
-    // The fallback black-frame source feeds the input-selector's INACTIVE pad while a real track is
-    // attached, so nothing downstream consumes it — but it is a live source with its own streaming
-    // task, so it would renegotiate against the new codec's raw format as the packetizers are
-    // re-plugged and fail (not-negotiated posted on the pipeline bus). Park it BEFORE the swap, with
-    // its state kept locked so neither the state change below nor the later sync-children pass can
-    // restart it; removeOutgoingSource() releases it when the fallback becomes the active branch.
-    if (m_outgoingSource && m_fallbackSource) {
-        gst_element_set_locked_state(m_fallbackSource.get(), TRUE);
-        gst_element_set_state(m_fallbackSource.get(), GST_STATE_NULL);
-        // Wait it out: the state change is asynchronous and this is a live source, so its streaming
-        // task can otherwise still be inside a buffer push while the packetizers are re-plugged.
-        gst_element_get_state(m_fallbackSource.get(), nullptr, nullptr, GST_CLOCK_TIME_NONE);
-    }
-
-    auto previousState = GST_STATE(m_bin.get());
-    if (previousState > GST_STATE_READY) {
-        gst_element_set_state(m_bin.get(), GST_STATE_READY);
-        // set_state is asynchronous for a bin; the packetizer swap below re-plugs the encoder, so
-        // the transition has to have completed before it runs.
-        gst_element_get_state(m_bin.get(), nullptr, nullptr, GST_CLOCK_TIME_NONE);
-    }
-
-    // Payload type keyed in a Vector: 0 is a valid payload type (PCMU), which an integer-keyed
-    // HashMap reserves as its empty sentinel.
-    Vector<std::pair<int, unsigned>> payloaderStates;
-    while (!m_packetizers.isEmpty()) {
-        RefPtr packetizer = m_packetizers.takeLast();
-
-        // The live sequence number, not the configured offset: the default offset is -1 (pick a
-        // random base), so carrying it would restart the stream at an unrelated sequence.
-        auto payloadType = packetizer->payloadType();
-        if (payloadType)
-            payloaderStates.append({ *payloadType, (packetizer->currentSequenceNumber() + 1) & 0xFFFF });
-
-        auto bin = packetizer->bin();
-        auto binSinkPad = adoptGRef(gst_element_get_static_pad(bin, "sink"));
-        auto teeSrcPad = adoptGRef(gst_pad_get_peer(binSinkPad.get()));
-        auto binSrcPad = adoptGRef(gst_element_get_static_pad(bin, "src"));
-        auto funnelSinkPad = adoptGRef(gst_pad_get_peer(binSrcPad.get()));
-        gst_element_set_state(bin, GST_STATE_NULL);
-        gst_bin_remove(GST_BIN_CAST(m_bin.get()), bin);
-        gst_element_release_request_pad(m_tee.get(), teeSrcPad.get());
-        gst_element_release_request_pad(m_rtpFunnel.get(), funnelSinkPad.get());
-    }
-
-    // configurePacketizers() expects codec-preferences-shaped caps, which is what upstream's
-    // codecPreferencesChanged() feeds it. An SDP m-section additionally carries attribute fields
-    // (a-*, extmap-*, rtcp-fb-*, ssrc-*) describing the remote side; built into the packetizer
-    // capsfilter they can never match what our payloader produces — the remote's extension
-    // identifiers differ from the ones configureExtensions() assigns — so every buffer would fail
-    // caps negotiation. Keep only the codec identity and its format parameters, and carry the
-    // extmap-* fields over from the caps the packetizer produced so far: RTP header-extension
-    // identifiers are session-wide (BUNDLE funnels every m-line into one RTP session), and
-    // webrtcbin's send funnel rejects caps whose identifiers contradict its other pads.
-    auto sanitizedCaps = adoptGRef(gst_caps_new_empty());
-    unsigned totalStructures = gst_caps_get_size(negotiatedCaps.get());
-    for (unsigned i = 0; i < totalStructures; i++) {
-        GUniquePtr<GstStructure> copy(gst_structure_copy(gst_caps_get_structure(negotiatedCaps.get(), i)));
-        Vector<CString> fieldsToRemove;
-        gstStructureForeach(copy.get(), [&](auto id, const GValue*) -> bool {
-            auto name = gstIdToString(id);
-            if (name.startsWith("a-"_s) || name.startsWith("extmap-"_s) || name.startsWith("rtcp-fb-"_s) || name.startsWith("ssrc-"_s))
-                fieldsToRemove.append(name.utf8());
-            return true;
-        });
-        for (auto& field : fieldsToRemove)
-            gst_structure_remove_field(copy.get(), field.data());
-        gstStructureForeach(currentStructure, [&](auto id, const GValue* value) -> bool {
-            auto name = gstIdToString(id);
-            if (name.startsWith("extmap-"_s))
-                gstStructureIdSetValue(copy.get(), id, value);
-            return true;
-        });
-        gst_caps_append_structure(sanitizedCaps.get(), copy.release());
-    }
-
-    if (!configurePacketizers(WTF::move(sanitizedCaps))) {
-        // Do not fall back to the old packetizers: they emit a payload type the remote discards.
-        // Stop the source so the failure is local, instead of leaving a live tee with no src pads,
-        // which would return GST_FLOW_NOT_LINKED and error the whole pipeline.
-        GST_ERROR_OBJECT(m_bin.get(), "Unable to build a packetizer for the negotiated caps, stopping this source");
-        stopOutgoingSource([] { });
-        m_isStopped = true;
-        return;
-    }
-
-    for (auto& packetizer : m_packetizers) {
-        // checkMid() already ran for this mid and early-returns when it is unchanged, so it will not
-        // re-apply the extension to a packetizer built afterwards. Meet's SFU demultiplexes on the
-        // MID header extension and discards RTP without it.
-        if (!m_mid.isEmpty())
-            packetizer->ensureMidExtension(m_mid);
-        // The rebuilt packetizer keeps sending on the same SSRC (configurePacketizers stamps
-        // m_ssrc), so the RTP sequence numbering must continue where the old packetizer left off:
-        // the receiver's SRTP replay protection is keyed by SSRC and silently discards packets that
-        // jump to an unrelated sequence range. A codec change also changes the payload type, so a
-        // single stream carries its one offset over directly; only a multi-stream (simulcast)
-        // rebuild, which keeps its payload types, can and does match by payload type.
-        auto payloadType = packetizer->payloadType();
-        if (payloaderStates.size() == 1 && m_packetizers.size() == 1)
-            packetizer->setSequenceNumberOffset(payloaderStates[0].second);
-        else if (payloadType) {
-            for (auto& [previousPayloadType, sequenceNumber] : payloaderStates) {
-                if (previousPayloadType == *payloadType) {
-                    packetizer->setSequenceNumberOffset(sequenceNumber);
-                    break;
-                }
-            }
-        }
-    }
-
-    // Refresh the transceiver's codec-preferences BEFORE restarting the bin: webrtcbin answers its
-    // sink pad's caps queries from them, so the rebuilt packetizer's caps event — which flows the
-    // moment the bin comes back up — is rejected as long as they still describe the previous codec
-    // (the not-negotiated latches in the packetizer queue and errors the whole source). requestPad()
-    // stamped them from the pre-rebuild rtpCaps(); webrtcbin's _create_sdp_task also intersects the
-    // sink pad caps against them on every later offer. The notify handler is blocked because it
-    // would run codecPreferencesChanged(), rebuilding once more from the same caps.
-    if (m_transceiver) {
-        auto newRtpCaps = rtpCaps();
-        g_signal_handlers_block_matched(m_transceiver.get(), G_SIGNAL_MATCH_DATA, 0, 0, nullptr, nullptr, this);
-        g_object_set(m_transceiver.get(), "codec-preferences", newRtpCaps.get(), nullptr);
-        g_signal_handlers_unblock_matched(m_transceiver.get(), G_SIGNAL_MATCH_DATA, 0, 0, nullptr, nullptr, this);
-    }
-
-    gst_bin_sync_children_states(GST_BIN_CAST(m_bin.get()));
-    if (previousState > GST_STATE_READY)
-        gst_element_sync_state_with_parent(m_bin.get());
-
-    // The swapped-out packetizers carried the stats pad probes; give the new ones theirs, so
-    // outbound-rtp stats keep reporting (Meet's bandwidth adaptation reads them).
-    startUpdatingStats();
-
-    dumpBinToDotFile(m_bin, "outgoing-media-negotiated-codec"_s);
-}
-
 void RealtimeOutgoingMediaSourceGStreamer::replaceTrack(const RefPtr<MediaStreamTrack>& newTrack)
 {
     if (m_track)
@@ -671,25 +480,6 @@ bool RealtimeOutgoingMediaSourceGStreamer::configurePacketizers(GRefPtr<GstCaps>
     GST_DEBUG_OBJECT(m_bin.get(), "Configuring packetizers for caps %" GST_PTR_FORMAT, codecPreferences.get());
     if (gst_caps_is_empty(codecPreferences.get()) || gst_caps_is_any(codecPreferences.get())) [[unlikely]]
         return false;
-
-    // MAVERICKS_BACKPORT: stamp our stable send SSRC onto every codec structure so each RTP
-    // packetizer built below sends with it (the packetizers keep a pre-set "ssrc" instead of
-    // generating their own). GStreamerMediaEndpoint stamps the SAME value onto the transceiver's
-    // codec-preferences at add-transceiver time, so webrtcbin advertises a=ssrc/a=ssrc-group:FID for
-    // exactly this SSRC — which Google Meet's Safari path requires. Simulcast (multiple encodings,
-    // one packetizer per layer) needs a distinct SSRC per layer, so it is left to webrtcbin.
-    bool hasMultipleEncodings = false;
-    if (m_parameters) {
-        auto encodings = gstStructureGetList<const GstStructure*>(m_parameters.get(), "encodings"_s);
-        hasMultipleEncodings = encodings.size() > 1;
-    }
-    if (m_ssrc && !hasMultipleEncodings) {
-        codecPreferences = adoptGRef(gst_caps_make_writable(codecPreferences.leakRef()));
-        unsigned totalStructures = gst_caps_get_size(codecPreferences.get());
-        for (unsigned i = 0; i < totalStructures; i++)
-            gst_structure_set(gst_caps_get_structure(codecPreferences.get(), i), "ssrc", G_TYPE_UINT, m_ssrc, nullptr);
-        GST_DEBUG_OBJECT(m_bin.get(), "Stamped send SSRC %u onto packetizer caps", m_ssrc);
-    }
 
     auto inputSelectorSrcPad = adoptGRef(gst_element_get_static_pad(m_inputSelector.get(), "src"));
     if (!gst_pad_is_linked(inputSelectorSrcPad.get()) && !gst_element_link(m_inputSelector.get(), m_tee.get()))

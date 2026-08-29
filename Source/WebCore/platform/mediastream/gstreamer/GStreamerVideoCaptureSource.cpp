@@ -30,8 +30,6 @@
 #include "GStreamerCommon.h"
 #include "PipeWireCaptureDevice.h"
 #include "PipeWireCaptureDeviceManager.h"
-// MAVERICKS_BACKPORT: isInWebProcess() for the UIProcess-vs-WebProcess GStreamer-init split below.
-#include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/text/MakeString.h>
 
 namespace WebCore {
@@ -41,12 +39,7 @@ GST_DEBUG_CATEGORY(webkit_video_capture_source_debug);
 
 static void initializeVideoCaptureSourceDebugCategory()
 {
-    // MAVERICKS_BACKPORT: see GStreamerCapturer.cpp — constructed in the UIProcess during getUserMedia
-    // validation, where ensureGStreamerInitialized() RELEASE_ASSERTs isInWebProcess().
-    if (isInWebProcess())
-        ensureGStreamerInitialized();
-    else
-        ensureGStreamerInitializedNonWebProcess();
+    ensureGStreamerInitialized();
 
     static std::once_flag debugRegisteredFlag;
     std::call_once(debugRegisteredFlag, [] {
@@ -121,17 +114,6 @@ CaptureSourceOrError GStreamerVideoCaptureSource::createPipewireSource(const Pip
     return CaptureSourceOrError(WTF::move(source));
 }
 
-// MAVERICKS_BACKPORT: see the header comment — same shape as create(), minus the device-monitor lookup.
-CaptureSourceOrError GStreamerVideoCaptureSource::createFromGStreamerDevice(GStreamerCaptureDevice&& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints)
-{
-    auto source = adoptRef(*new GStreamerVideoCaptureSource(WTF::move(device), WTF::move(hashSalts)));
-    if (constraints) {
-        if (auto result = source->applyConstraints(*constraints))
-            return CaptureSourceOrError(CaptureSourceError { result->invalidConstraint });
-    }
-    return CaptureSourceOrError(WTF::move(source));
-}
-
 VideoCaptureFactory& GStreamerVideoCaptureSource::factory()
 {
     static NeverDestroyed<GStreamerVideoCaptureSourceFactory> factory;
@@ -159,9 +141,7 @@ GStreamerVideoCaptureSource::GStreamerVideoCaptureSource(const PipeWireCaptureDe
 GStreamerVideoCaptureSource::GStreamerVideoCaptureSource(GStreamerCaptureDevice&& device, MediaDeviceHashSalts&& hashSalts)
     : RealtimeVideoCaptureSource(device, WTF::move(hashSalts), { })
     , m_capturer(adoptRef(*new GStreamerVideoCapturer(WTF::move(device))))
-    // MAVERICKS_BACKPORT: take the type from the device (upstream hardcoded Camera because only
-    // cameras reached this constructor; macOS screen-capture devices come through here too).
-    , m_deviceType(m_capturer->deviceType())
+    , m_deviceType(CaptureDevice::DeviceType::Camera)
 {
     initializeVideoCaptureSourceDebugCategory();
     m_capturer->addObserver(*this);

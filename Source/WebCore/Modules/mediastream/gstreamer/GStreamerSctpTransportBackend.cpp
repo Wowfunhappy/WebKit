@@ -31,11 +31,7 @@ GST_DEBUG_CATEGORY(webkit_webrtc_sctp_transport_debug);
 
 namespace WebCore {
 
-// MAVERICKS_BACKPORT: RTCSctpTransportState is an enum class with no heap to allocate from.
-// GStreamerSctpTransportBackend, the class this file implements, declares WTF_MAKE_TZONE_ALLOCATED in
-// its header; the line below is its out-of-line half, defining s_heapRef and operatorNewSlow.
-// WTF_MAKE_TZONE_ALLOCATED_IMPL(RTCSctpTransportState);
-WTF_MAKE_TZONE_ALLOCATED_IMPL(GStreamerSctpTransportBackend);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RTCSctpTransportState);
 
 static inline RTCSctpTransportState toRTCSctpTransportState(GstWebRTCSCTPTransportState state)
 {
@@ -54,8 +50,6 @@ static inline RTCSctpTransportState toRTCSctpTransportState(GstWebRTCSCTPTranspo
 
 GStreamerSctpTransportBackend::GStreamerSctpTransportBackend(GRefPtr<GstWebRTCSCTPTransport>&& transport)
     : m_backend(WTF::move(transport))
-    // MAVERICKS_BACKPORT: the AliveGuard lets the SCTP-thread notify::state callback marshal safely to the main thread (see registerClient).
-    , m_guard(AliveGuard::create(*this))
 {
     static std::once_flag debugRegisteredFlag;
     std::call_once(debugRegisteredFlag, [] {
@@ -78,43 +72,16 @@ UniqueRef<RTCDtlsTransportBackend> GStreamerSctpTransportBackend::dtlsTransportB
 
 void GStreamerSctpTransportBackend::registerClient(RTCSctpTransportBackendClient& client)
 {
-    // MAVERICKS_BACKPORT: registerClient/unregisterClient and the destructor run main-thread only; the guard's backend is read/written only here.
-    ASSERT(isMainThread());
     ASSERT(!m_client);
     m_client = client;
-    m_guard->backend = this;
-
-    // MAVERICKS_BACKPORT: notify::state is emitted on GStreamer's SCTP/usrsctp thread, and this
-    // backend is not ref-counted. The earlier lock-guarded design took a WTF Lock from that thread
-    // and dereferenced the backend cross-thread; it raced backend teardown/GC and crashed
-    // (freed AliveGuard → "Invalid value for lock"). Instead, do the minimum on the SCTP thread —
-    // take a thread-safe ref to the guard (the notifier is kept alive for the duration of the
-    // emission by GObject's handler ref) and marshal to the main thread. backend is then read and
-    // used ONLY on the main thread, where registerClient/unregisterClient/~backend also run, so
-    // there is no cross-thread access at all: an emission that arrives after teardown finds
-    // guard->backend already null.
-    struct Notifier {
-        Ref<AliveGuard> guard;
-        static void destruct(gpointer data, GClosure*) { delete static_cast<Notifier*>(data); }
-    };
-    m_stateSignalHandler = g_signal_connect_data(m_backend.get(), "notify::state", G_CALLBACK(+[](GstWebRTCSCTPTransport*, GParamSpec*, Notifier* notifier) {
-        callOnMainThread([guard = Ref { notifier->guard.get() }] {
-            if (auto* backend = guard->backend)
-                backend->stateChanged();
-        });
-    }), new Notifier { m_guard.copyRef() }, Notifier::destruct, static_cast<GConnectFlags>(0));
+    g_signal_connect_swapped(m_backend.get(), "notify::state", G_CALLBACK(+[](GStreamerSctpTransportBackend* backend) {
+        backend->stateChanged();
+    }), this);
 }
 
 void GStreamerSctpTransportBackend::unregisterClient()
 {
-    // MAVERICKS_BACKPORT: main-thread only (see registerClient). Null the backend so any marshaled
-    // notification that has not yet run becomes a no-op, then disconnect.
-    ASSERT(isMainThread());
-    m_guard->backend = nullptr;
-    if (m_stateSignalHandler) {
-        g_signal_handler_disconnect(m_backend.get(), m_stateSignalHandler);
-        m_stateSignalHandler = 0;
-    }
+    g_signal_handlers_disconnect_by_data(m_backend.get(), this);
     m_client.clear();
 }
 
@@ -123,16 +90,10 @@ void GStreamerSctpTransportBackend::stateChanged()
     if (!m_client)
         return;
 
-    // MAVERICKS_BACKPORT: read each property into a variable of the width g_object_get actually
-    // writes. "max-channels" is installed with g_param_spec_uint, so g_object_get writes a full
-    // guint (4 bytes); passing the address of a guint16 lets it write 2 bytes past that variable.
-    // "state" is an enum property, which g_object_get writes as a gint. Narrow afterwards.
-    gint transportStateValue = 0;
-    guint maxChannelsValue = 0;
-    guint64 maxMessageSize = 0;
-    g_object_get(m_backend.get(), "state", &transportStateValue, "max-message-size", &maxMessageSize, "max-channels", &maxChannelsValue, nullptr);
-    auto transportState = static_cast<GstWebRTCSCTPTransportState>(transportStateValue);
-    auto maxChannels = static_cast<guint16>(maxChannelsValue);
+    GstWebRTCSCTPTransportState transportState;
+    guint16 maxChannels;
+    uint64_t maxMessageSize;
+    g_object_get(m_backend.get(), "state", &transportState, "max-message-size", &maxMessageSize, "max-channels", &maxChannels, nullptr);
     GST_DEBUG("Notifying SCTP transport state, max-message-size: %" G_GUINT64_FORMAT " max-channels: %" G_GUINT16_FORMAT, maxMessageSize, maxChannels);
     callOnMainThread([weakClient = m_client, transportState, maxChannels, maxMessageSize] {
         if (RefPtr client = weakClient.get())

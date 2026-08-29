@@ -26,8 +26,6 @@
 #include "GStreamerVideoCapturer.h"
 
 #include "VideoFrameGStreamer.h"
-// MAVERICKS_BACKPORT: isInWebProcess() for the UIProcess-vs-WebProcess GStreamer-init split below.
-#include <wtf/RuntimeApplicationChecks.h>
 #include <gst/app/gstappsink.h>
 
 GST_DEBUG_CATEGORY(webkit_video_capturer_debug);
@@ -37,12 +35,7 @@ namespace WebCore {
 
 static void initializeVideoCapturerDebugCategory()
 {
-    // MAVERICKS_BACKPORT: see GStreamerCapturer.cpp — capture sources are constructed in the UIProcess
-    // during getUserMedia validation, where ensureGStreamerInitialized() RELEASE_ASSERTs isInWebProcess().
-    if (isInWebProcess())
-        ensureGStreamerInitialized();
-    else
-        ensureGStreamerInitializedNonWebProcess();
+    ensureGStreamerInitialized();
 
     static std::once_flag debugRegisteredFlag;
     std::call_once(debugRegisteredFlag, [] {
@@ -144,15 +137,6 @@ GstElement* GStreamerVideoCapturer::createConverter()
         // https://gitlab.freedesktop.org/gstreamer/gst-plugins-base/issues/97#note_56575
         g_object_set(videorate, "drop-only", TRUE, "average-period", UINT64_C(1), nullptr);
     }
-
-    // MAVERICKS_BACKPORT: the capture pipeline runs on the system clock with base-time 0
-    // (GStreamerCapturer::setupPipeline), so the live source stamps buffers with absolute clock
-    // time — hours of machine uptime — while its segment starts at 0. videorate's output timeline
-    // otherwise begins at segment.start, and on 1.28+ (no drop-only workaround above) it fills
-    // that hours-long gap with duplicates of the first frame at CPU speed, starving the real
-    // frames for minutes (camera feeds froze on the first frame). skip-to-first starts the output
-    // timeline at the first captured buffer instead.
-    g_object_set(videorate, "skip-to-first", TRUE, nullptr);
 
     gst_bin_add_many(GST_BIN_CAST(bin), videoConvert.get(), videorate, nullptr);
 

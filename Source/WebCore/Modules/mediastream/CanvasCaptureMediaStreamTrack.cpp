@@ -34,11 +34,7 @@
 #include "WebGLRenderingContextBase.h"
 #include <wtf/TZoneMallocInlines.h>
 
-#if USE(GSTREAMER)
-// MAVERICKS_BACKPORT: extra includes for the canvas->pixels re-wrap path in captureCanvas() (Cocoa+GStreamer hybrid).
-#include "DestinationColorSpace.h"
-#include "ImageBuffer.h"
-#include "PixelBuffer.h"
+#if USE(GSTREAMER) && !PLATFORM(COCOA) // MAVERICKS_BACKPORT: GStreamer plays media here; MediaStream and its frames are Cocoa (VideoFrameCV).
 #include "VideoFrameGStreamer.h"
 #endif
 
@@ -241,31 +237,9 @@ void CanvasCaptureMediaStreamTrack::Source::captureCanvas()
     VideoFrameTimeMetadata metadata;
     metadata.captureTime = MonotonicTime::now().secondsSinceEpoch();
 
-#if USE(GSTREAMER)
-    // MAVERICKS_BACKPORT: the upstream unconditional downcast<VideoFrameGStreamer>(*videoFrame) is replaced
-    // by the alive/re-wrap path below (Cocoa+GStreamer hybrid hands back a CoreVideo-backed VideoFrame).
+#if USE(GSTREAMER) && !PLATFORM(COCOA) // MAVERICKS_BACKPORT: GStreamer plays media here; MediaStream and its frames are Cocoa (VideoFrameCV).
+    auto& gstVideoFrame = downcast<VideoFrameGStreamer>(*videoFrame);
     static const double s_fixedFrameRate = 60.0;
-
-    // MAVERICKS_BACKPORT: only the GTK/WPE ports return a VideoFrameGStreamer from canvas->toVideoFrame()
-    // / the WebGL surface path. On the Cocoa+GStreamer hybrid those hand back a CoreVideo-backed
-    // VideoFrame, so the upstream unconditional downcast<VideoFrameGStreamer> hits a RELEASE_ASSERT and
-    // crashes the WebProcess — e.g. canvas.captureStream() feeding a WebRTC sender, which is exactly what
-    // the LiveKit browser test does. When we don't already have a GStreamer frame, re-wrap the canvas
-    // pixels as one so the GStreamer MediaStream/WebRTC pipeline gets the type it requires.
-    RefPtr<VideoFrameGStreamer> gstVideoFramePtr = dynamicDowncast<VideoFrameGStreamer>(videoFrame.get());
-    if (!gstVideoFramePtr) {
-        RefPtr imageBuffer = canvas->makeRenderingResultsAvailable();
-        if (!imageBuffer)
-            return;
-        auto pixelBuffer = imageBuffer->getPixelBuffer({ AlphaPremultiplication::Unpremultiplied, PixelFormat::BGRA8, DestinationColorSpace::SRGB() }, { { }, imageBuffer->truncatedLogicalSize() });
-        if (!pixelBuffer)
-            return;
-        gstVideoFramePtr = VideoFrameGStreamer::createFromPixelBuffer(pixelBuffer.releaseNonNull(), imageBuffer->truncatedLogicalSize(), s_fixedFrameRate, { });
-        if (!gstVideoFramePtr)
-            return;
-        videoFrame = gstVideoFramePtr;
-    }
-    auto& gstVideoFrame = *gstVideoFramePtr;
 
     if (!m_clock)
         m_clock = adoptGRef(gst_system_clock_obtain());

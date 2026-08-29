@@ -108,7 +108,7 @@ std::optional<RTCRtpCapabilities> PeerConnectionBackend::senderCapabilities(Scri
 }
 #endif // USE(LIBWEBRTC) || USE(GSTREAMER_WEBRTC)
 
-#if PLATFORM(WPE) || PLATFORM(GTK) || USE(GSTREAMER_WEBRTC) // MAVERICKS_BACKPORT: Mac+GStreamer is a GStreamer-WebRTC port
+#if PLATFORM(WPE) || PLATFORM(GTK)
 class JSONFileHandler {
 public:
     JSONFileHandler(String&& path)
@@ -209,7 +209,7 @@ PeerConnectionBackend::~PeerConnectionBackend()
 #endif
 }
 
-#if !RELEASE_LOG_DISABLED && (PLATFORM(WPE) || PLATFORM(GTK) || USE(GSTREAMER_WEBRTC)) // MAVERICKS_BACKPORT: matches the header's handleLogMessage gate.
+#if !RELEASE_LOG_DISABLED && (PLATFORM(WPE) || PLATFORM(GTK))
 void PeerConnectionBackend::handleLogMessage(const WTFLogChannel& channel, WTFLogLevel, Vector<JSONLogValue>&& values)
 {
     auto name = StringView::fromLatin1(channel.name);
@@ -865,7 +865,7 @@ String PeerConnectionBackend::generateJSONLogEvent(LogEvent&& logEvent, bool isF
 
 void PeerConnectionBackend::emitJSONLogEvent(String&& event)
 {
-#if PLATFORM(WPE) || PLATFORM(GTK) || USE(GSTREAMER_WEBRTC) // MAVERICKS_BACKPORT: Mac+GStreamer is a GStreamer-WebRTC port
+#if PLATFORM(WPE) || PLATFORM(GTK)
     if (!isJSONLogStreamingEnabled())
         return;
 

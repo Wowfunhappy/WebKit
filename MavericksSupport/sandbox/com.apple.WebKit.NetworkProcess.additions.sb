@@ -31,3 +31,10 @@
 ;; Upstream's current profile grants it; in 2015 this process did not check in.
 (allow mach-lookup
     (global-name "com.apple.coreservices.launchservicesd"))
+
+;; WebRTC ICE sockets. libwebrtc's sockets are brokered into this process by NetworkRTCProvider
+;; (NetworkRTCUDPSocketCocoa binds and receives on them); the 2015 profile only allows outbound UDP.
+;; Upstream's current profile grants this process network* on local and remote udp; narrowed here to
+;; the two capabilities the socket path exercises.
+(allow network-bind (local udp))
+(allow network-inbound (local udp))

@@ -19,3 +19,41 @@ WK_POLYFILL_ABSENT("VideoToolbox", void, VTRegisterSupplementalVideoDecoderIfAva
 {
     (void)codecType;
 }
+
+// Two more encoder property keys libwebrtc's VideoToolbox H.264 encoder sets: the constrained-baseline
+// profile level (10.13+) and the base-layer frame-rate fraction for temporal layering (10.15+). Real
+// CFString values; 10.9's session rejects the unknown keys, which the encoder treats as non-fatal.
+WK_POLYFILL_CONST("VideoToolbox", CFStringRef, kVTProfileLevel_H264_ConstrainedBaseline_AutoLevel, CFSTR("H264_ConstrainedBaseline_AutoLevel"));
+WK_POLYFILL_CONST("VideoToolbox", CFStringRef, kVTCompressionPropertyKey_BaseLayerFrameRateFraction, CFSTR("BaseLayerFrameRateFraction"));
+
+// VTGetDefaultColorAttributesWithHints (10.11+) answers the colour attachments VideoToolbox assumes
+// for untagged video of a given size: ITU-R BT.709 from 720 lines up, EBU 3213 primaries with the
+// 601 matrix for 720x576 (PAL/SECAM), SMPTE C primaries with the 601 matrix for everything smaller
+// (NTSC); the transfer function is BT.709 throughout. WebCore's FormatDescriptionUtilities fills a
+// format description's missing colour attachments from it. The answers are the CoreVideo constants'
+// string values (kCVImageBufferColorPrimaries_ITU_R_709_2 is "ITU_R_709_2", and so on -- read off
+// this host, as CoreMedia.c does for its format-description keys), spelled as literals so the layer
+// links into every image, CoreVideo client or not; the callers compare them with CFEqual.
+WK_POLYFILL_ABSENT("VideoToolbox", OSStatus, VTGetDefaultColorAttributesWithHints, (CMVideoCodecType codecType, CFStringRef colorSpaceHint, size_t width, size_t height, CFStringRef* colorPrimariesOut, CFStringRef* transferFunctionOut, CFStringRef* yCbCrMatrixOut))
+{
+    (void)codecType; (void)colorSpaceHint;
+    CFStringRef primaries;
+    CFStringRef matrix;
+    if (height >= 720) {
+        primaries = CFSTR("ITU_R_709_2");
+        matrix = CFSTR("ITU_R_709_2");
+    } else if (width == 720 && height == 576) {
+        primaries = CFSTR("EBU_3213");
+        matrix = CFSTR("ITU_R_601_4");
+    } else {
+        primaries = CFSTR("SMPTE_C");
+        matrix = CFSTR("ITU_R_601_4");
+    }
+    if (colorPrimariesOut)
+        *colorPrimariesOut = primaries;
+    if (transferFunctionOut)
+        *transferFunctionOut = CFSTR("ITU_R_709_2");
+    if (yCbCrMatrixOut)
+        *yCbCrMatrixOut = matrix;
+    return noErr;
+}

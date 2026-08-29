@@ -75,9 +75,8 @@ GUniquePtr<GstStructure> GStreamerDataChannelHandler::fromRTCDataChannelInit(con
 }
 
 struct DataChannelNotifier {
-    // MAVERICKS_BACKPORT: takes the shared alive-guard (not a raw handler ref) so signals can check liveness.
-    explicit DataChannelNotifier(Ref<DataChannelHandlerGuard>&& guard)
-        : m_guard(WTF::move(guard))
+    DataChannelNotifier(GStreamerDataChannelHandler& handler)
+        : m_handler(handler)
     {
     }
 
@@ -86,15 +85,12 @@ struct DataChannelNotifier {
         delete static_cast<DataChannelNotifier*>(notifier);
     }
 
-    // MAVERICKS_BACKPORT: hold the shared guard instead of a raw handler reference, so each signal can
-    // verify under the guard lock that the handler is still alive before calling into it.
-    const Ref<DataChannelHandlerGuard> m_guard;
+    // RTCDataChannelHandler is not refcounted, its unique instance is managed by the RTCDataChannel.
+    GStreamerDataChannelHandler& m_handler;
 };
 
 GStreamerDataChannelHandler::GStreamerDataChannelHandler(GRefPtr<GstWebRTCDataChannel>&& channel)
     : m_channel(WTF::move(channel))
-    // MAVERICKS_BACKPORT: create the shared alive-guard the signal handlers check before deref'ing this handler.
-    , m_guard(DataChannelHandlerGuard::create(*this))
 {
     static Atomic<uint64_t> nChannel = 0;
     m_channelId = makeString("webkit-webrtc-data-channel-"_s, nChannel.exchangeAdd(1));
@@ -112,59 +108,30 @@ GStreamerDataChannelHandler::GStreamerDataChannelHandler(GRefPtr<GstWebRTCDataCh
     }
 
     m_signalHandlers.append(g_signal_connect_data(m_channel.get(), "notify::ready-state", G_CALLBACK(+[](GstWebRTCDataChannel*, GParamSpec*, DataChannelNotifier* notifier) {
-    // MAVERICKS_BACKPORT: each handler runs on the GStreamer streaming thread; take the guard lock and
-    // only call into the handler while it is still alive (the dtor nulls guard->handler under this lock).
-        Locker locker { notifier->m_guard->lock };
-        if (auto* handler = notifier->m_guard->handler)
-            handler->readyStateChanged();
-    }), new DataChannelNotifier { m_guard.copyRef() }, DataChannelNotifier::destruct, static_cast<GConnectFlags>(0)));
+        notifier->m_handler.readyStateChanged();
+    }), new DataChannelNotifier { *this }, DataChannelNotifier::destruct, static_cast<GConnectFlags>(0)));
     m_signalHandlers.append(g_signal_connect_data(m_channel.get(), "notify::buffered-amount", G_CALLBACK(+[](GstWebRTCDataChannel* channel, GParamSpec*, DataChannelNotifier* notifier) {
         uint64_t currentBufferedAmount;
         g_object_get(channel, "buffered-amount", &currentBufferedAmount, nullptr);
-        // MAVERICKS_BACKPORT: guard-lock + alive-check before calling the streaming-thread handler.
-        Locker locker { notifier->m_guard->lock };
-        if (auto* handler = notifier->m_guard->handler)
-            handler->bufferedAmountChanged(static_cast<size_t>(currentBufferedAmount));
-    }), new DataChannelNotifier { m_guard.copyRef() }, DataChannelNotifier::destruct, static_cast<GConnectFlags>(0)));
+        notifier->m_handler.bufferedAmountChanged(static_cast<size_t>(currentBufferedAmount));
+    }), new DataChannelNotifier { *this }, DataChannelNotifier::destruct, static_cast<GConnectFlags>(0)));
     m_signalHandlers.append(g_signal_connect_data(m_channel.get(), "on-message-data", G_CALLBACK(+[](GstWebRTCDataChannel*, GBytes* bytes, DataChannelNotifier* notifier) {
-        // MAVERICKS_BACKPORT: guard-lock + alive-check before calling the streaming-thread handler.
-        Locker locker { notifier->m_guard->lock };
-        if (auto* handler = notifier->m_guard->handler)
-            handler->onMessageData(bytes);
-    }), new DataChannelNotifier { m_guard.copyRef() }, DataChannelNotifier::destruct, static_cast<GConnectFlags>(0)));
+        notifier->m_handler.onMessageData(bytes);
+    }), new DataChannelNotifier { *this }, DataChannelNotifier::destruct, static_cast<GConnectFlags>(0)));
     m_signalHandlers.append(g_signal_connect_data(m_channel.get(), "on-message-string", G_CALLBACK(+[](GstWebRTCDataChannel*, const char* message, DataChannelNotifier* notifier) {
-        // MAVERICKS_BACKPORT: guard-lock + alive-check before calling the streaming-thread handler.
-        Locker locker { notifier->m_guard->lock };
-        if (auto* handler = notifier->m_guard->handler)
-            handler->onMessageString(CStringView::unsafeFromUTF8(message));
-    }), new DataChannelNotifier { m_guard.copyRef() }, DataChannelNotifier::destruct, static_cast<GConnectFlags>(0)));
+        notifier->m_handler.onMessageString(CStringView::unsafeFromUTF8(message));
+    }), new DataChannelNotifier { *this }, DataChannelNotifier::destruct, static_cast<GConnectFlags>(0)));
     m_signalHandlers.append(g_signal_connect_data(m_channel.get(), "on-error", G_CALLBACK(+[](GstWebRTCDataChannel*, GError* error, DataChannelNotifier* notifier) {
-        // MAVERICKS_BACKPORT: guard-lock + alive-check before calling the streaming-thread handler.
-        Locker locker { notifier->m_guard->lock };
-        if (auto* handler = notifier->m_guard->handler)
-            handler->onError(error);
-    }), new DataChannelNotifier { m_guard.copyRef() }, DataChannelNotifier::destruct, static_cast<GConnectFlags>(0)));
+        notifier->m_handler.onError(error);
+    }), new DataChannelNotifier { *this }, DataChannelNotifier::destruct, static_cast<GConnectFlags>(0)));
     m_signalHandlers.append(g_signal_connect_data(m_channel.get(), "on-close", G_CALLBACK(+[](GstWebRTCDataChannel*, DataChannelNotifier* notifier) {
-        // MAVERICKS_BACKPORT: guard-lock + alive-check before calling the streaming-thread handler.
-        Locker locker { notifier->m_guard->lock };
-        if (auto* handler = notifier->m_guard->handler)
-            handler->onClose();
-    }), new DataChannelNotifier { m_guard.copyRef() }, DataChannelNotifier::destruct, static_cast<GConnectFlags>(0)));
+        notifier->m_handler.onClose();
+    }), new DataChannelNotifier { *this }, DataChannelNotifier::destruct, static_cast<GConnectFlags>(0)));
 }
 
 GStreamerDataChannelHandler::~GStreamerDataChannelHandler()
 {
     DC_DEBUG("Deleting GStreamerDataChannelHandler for channel %p", m_channel.get());
-
-    // MAVERICKS_BACKPORT: stop the GStreamer-thread signal handlers from touching this handler. Nulling
-    // under the guard lock blocks until any in-flight handler finishes, and after it no signal will call
-    // into us — closing the use-after-free window left by g_signal_handler_disconnect (which does not wait
-    // for a handler already running on the streaming thread).
-    {
-        Locker locker { m_guard->lock };
-        m_guard->handler = nullptr;
-    }
-
     if (!m_channel) [[unlikely]]
         return;
 

@@ -32,7 +32,6 @@
 #include <wtf/HexNumber.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/PrintStream.h>
-#include <wtf/RuntimeApplicationChecks.h> // MAVERICKS_BACKPORT: declares the isInWebProcess() branch in initializeCapturerDebugCategory().
 #include <wtf/glib/WTFGType.h>
 #include <wtf/text/MakeString.h>
 
@@ -43,14 +42,7 @@ namespace WebCore {
 
 static void initializeCapturerDebugCategory()
 {
-    // MAVERICKS_BACKPORT: capture sources are constructed in the Safari UIProcess during getUserMedia
-    // device validation (RealtimeMediaSourceCenter::getUserMediaDevices). ensureGStreamerInitialized()
-    // RELEASE_ASSERTs isInWebProcess(), so off the web process use the non-web-process initializer
-    // (mirrors GStreamerCaptureDeviceManager). Actual capture still runs in WebContent.
-    if (isInWebProcess())
-        ensureGStreamerInitialized();
-    else
-        ensureGStreamerInitializedNonWebProcess();
+    ensureGStreamerInitialized();
 
     static std::once_flag debugRegisteredFlag;
     std::call_once(debugRegisteredFlag, [] {

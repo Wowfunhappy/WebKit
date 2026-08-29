@@ -373,17 +373,7 @@ void GStreamerMediaEndpoint::teardownPipeline()
     gst_element_set_state(m_pipeline.get(), GST_STATE_NULL);
 
     m_trackProcessors.clear();
-    // MAVERICKS_BACKPORT: tear the incoming-data-channel map down under m_incomingDataChannelsLock so the streaming thread's prepareDataChannel can't race this teardown.
-    {
-        // Swap the handlers out under the lock but destroy them outside it: a handler's
-        // destructor unrefs the GstWebRTCDataChannel, which can take GStreamer-internal locks
-        // that a streaming thread may hold while waiting for this lock in prepareDataChannel.
-        HashMap<DataChannelHandlerIdentifier, UniqueRef<GStreamerDataChannelHandler>> danglingChannels;
-        {
-            Locker locker { m_incomingDataChannelsLock };
-            danglingChannels = std::exchange(m_incomingDataChannels, { });
-        }
-    }
+    m_incomingDataChannels.clear();
     m_remoteStreamsById.clear();
     m_webrtcBin = nullptr;
     m_pipeline = nullptr;
@@ -753,47 +743,6 @@ void GStreamerMediaEndpoint::linkOutgoingSources(GstSDPMessage* sdpMessage)
             });
             return true;
         });
-
-        // MAVERICKS_BACKPORT: a source linked from an earlier description keeps the codec it was
-        // configured with then. If the description being set (typically the remote answer) no longer
-        // allows that codec for this m-section, rebuild its packetizer for the one it does allow.
-        // Google Meet answers our H264-first offer with a VP8/VP9-only video section, and without
-        // this the SFU discards everything we send, so the other party never sees our video.
-        reconfigureOutgoingSourceForMedia(i, media);
-    }
-}
-
-// MAVERICKS_BACKPORT: see the call site above. The outgoing source for an m-section is reached
-// through the objects that already own it: RTCPeerConnection's transceiver list, whose backend
-// carries the webrtcbin transceiver (and so its mlineindex), and whose sender backend holds the
-// source. webrtcbin's "get-transceiver" action is NOT usable here — it indexes transceivers in
-// creation order, which diverges from m-line order as soon as a non-transceiver section (Meet always
-// negotiates an m=application data channel) precedes an audio/video one.
-void GStreamerMediaEndpoint::reconfigureOutgoingSourceForMedia(unsigned mLineIndex, const GstSDPMedia* media)
-{
-    RefPtr peerConnectionBackend = this->peerConnectionBackend();
-    if (!peerConnectionBackend)
-        return;
-
-    for (auto& transceiver : peerConnectionBackend->connection().currentTransceivers()) {
-        auto* rtcTransceiver = static_cast<GStreamerRtpTransceiverBackend*>(&transceiver->backend())->rtcTransceiver();
-        if (!rtcTransceiver)
-            continue;
-
-        unsigned transceiverMLineIndex;
-        g_object_get(rtcTransceiver, "mlineindex", &transceiverMLineIndex, nullptr);
-        if (transceiverMLineIndex != mLineIndex)
-            continue;
-
-        auto& senderBackend = static_cast<GStreamerRtpSenderBackend&>(transceiver->sender().backend());
-        RefPtr<RealtimeOutgoingMediaSourceGStreamer> source;
-        if (auto* audioSource = senderBackend.audioSource())
-            source = audioSource;
-        else if (auto* videoSource = senderBackend.videoSource())
-            source = videoSource;
-        if (source)
-            source->reconfigureForNegotiatedCaps(capsFromSDPMedia(media));
-        return;
     }
 }
 
@@ -1573,128 +1522,6 @@ String GStreamerMediaEndpoint::trackIdFromSDPMedia(const GstSDPMedia& media)
     return components[1];
 }
 
-// MAVERICKS_BACKPORT: find the remote m-section declaring an incoming SSRC, for correcting
-// webrtcbin's session-number fallback attribution (see connectIncomingTrack).
-std::optional<GStreamerMediaEndpoint::IncomingSsrcResolution> GStreamerMediaEndpoint::resolveIncomingSsrc(unsigned ssrc)
-{
-    if (!ssrc)
-        return std::nullopt;
-
-    GUniqueOutPtr<GstWebRTCSessionDescription> remoteDescription;
-    g_object_get(m_webrtcBin.get(), "remote-description", &remoteDescription.outPtr(), nullptr);
-    if (!remoteDescription || !remoteDescription->sdp)
-        return std::nullopt;
-
-    auto ssrcPrefix = makeString(ssrc, ' ');
-    unsigned totalMedias = gst_sdp_message_medias_len(remoteDescription->sdp);
-    for (unsigned i = 0; i < totalMedias; i++) {
-        const auto media = gst_sdp_message_get_media(remoteDescription->sdp, i);
-        bool declaresSsrc = false;
-        String ssrcMsid;
-        unsigned totalAttributes = gst_sdp_media_attributes_len(media);
-        for (unsigned j = 0; j < totalAttributes; j++) {
-            const auto attribute = gst_sdp_media_get_attribute(media, j);
-            if (!attribute->key || !attribute->value || strcmp(attribute->key, "ssrc"))
-                continue;
-            auto value = StringView::fromLatin1(attribute->value);
-            if (!value.startsWith(ssrcPrefix))
-                continue;
-            declaresSsrc = true;
-            auto property = value.substring(ssrcPrefix.length());
-            if (property.startsWith("msid:"_s))
-                ssrcMsid = property.substring(5).toString();
-        }
-        if (!declaresSsrc)
-            continue;
-
-        IncomingSsrcResolution resolution;
-        resolution.mid = String::fromLatin1(gst_sdp_media_get_attribute_val(media, "mid"));
-        auto streamIds = getMediaStreamIdsFromSDPMedia(*media);
-        if (!streamIds.isEmpty())
-            resolution.mediaStreamId = streamIds[0];
-        resolution.trackId = trackIdFromSDPMedia(*media);
-        if ((resolution.mediaStreamId.isEmpty() || resolution.trackId.isEmpty()) && !ssrcMsid.isEmpty()) {
-            auto components = ssrcMsid.split(' ');
-            if (resolution.mediaStreamId.isEmpty() && components.size() >= 1)
-                resolution.mediaStreamId = components[0];
-            if (resolution.trackId.isEmpty() && components.size() >= 2)
-                resolution.trackId = components[1];
-        }
-        return resolution;
-    }
-    return std::nullopt;
-}
-
-// MAVERICKS_BACKPORT: an SFU can start forwarding a stream before the renegotiation declaring its
-// SSRC reaches us — Google Meet does — and webrtcbin never revisits its session-number fallback
-// attribution once the pad exists. So after each applied description, move any incoming stream the
-// description now declares under a different m-section to that section's receiver.
-void GStreamerMediaEndpoint::reattributeIncomingTracks()
-{
-    auto peerConnectionBackend = this->peerConnectionBackend();
-    if (!peerConnectionBackend)
-        return;
-
-    for (auto& processor : m_trackProcessors.values()) {
-        if (!processor->isReady())
-            continue;
-
-        auto& data = processor->data();
-        auto resolution = resolveIncomingSsrc(data.ssrc);
-        if (!resolution || resolution->mid.isEmpty() || resolution->mid == data.mid)
-            continue;
-
-        RefPtr<RTCRtpTransceiver> newTransceiver = peerConnectionBackend->existingTransceiver([&](auto& backend) -> bool {
-            GUniqueOutPtr<char> mid;
-            g_object_get(backend.rtcTransceiver(), "mid", &mid.outPtr(), nullptr);
-            return resolution->mid == StringView::fromLatin1(mid.get());
-        });
-        if (!newTransceiver)
-            continue;
-
-        auto& track = newTransceiver->receiver().track();
-        auto& source = track.privateTrack().source();
-        if (!source.isIncomingAudioSource() && !source.isIncomingVideoSource())
-            continue;
-
-        // The target receiver must be able to take the stream before the previous receiver is
-        // unbound — its setBin() refuses when it already carries another stream's bin, and by then
-        // an unbound stream would be attached to nothing.
-        auto& incomingSource = static_cast<RealtimeIncomingSourceGStreamer&>(source);
-        if (incomingSource.bin())
-            continue;
-
-        GST_INFO_OBJECT(m_pipeline.get(), "Re-attributing incoming SSRC %u from mid '%s' to mid '%s' declared in the remote description", data.ssrc, data.mid.utf8().data(), resolution->mid.utf8().data());
-
-        // Unbind the receiver the stream was mistakenly wired to before binding the new one, so the
-        // bin's sink never carries both receivers' handoff handlers.
-        RefPtr<RTCRtpTransceiver> previousTransceiver = peerConnectionBackend->existingTransceiver([&](auto& backend) -> bool {
-            GUniqueOutPtr<char> mid;
-            g_object_get(backend.rtcTransceiver(), "mid", &mid.outPtr(), nullptr);
-            return data.mid == StringView::fromLatin1(mid.get());
-        });
-        if (previousTransceiver) {
-            auto& previousSource = previousTransceiver->receiver().track().privateTrack().source();
-            if (previousSource.isIncomingAudioSource() || previousSource.isIncomingVideoSource()) {
-                static_cast<RealtimeIncomingSourceGStreamer&>(previousSource).tearDown();
-                previousSource.setMuted(true);
-            }
-        }
-
-        if (!incomingSource.setBin(GRefPtr<GstElement>(processor->bin())))
-            continue;
-
-        data.mid = WTF::move(resolution->mid);
-        if (!resolution->mediaStreamId.isEmpty())
-            data.mediaStreamId = WTF::move(resolution->mediaStreamId);
-        if (!resolution->trackId.isEmpty())
-            data.trackId = WTF::move(resolution->trackId);
-
-        track.privateTrack().dataFlowStarted();
-        source.setMuted(false);
-    }
-}
-
 void GStreamerMediaEndpoint::connectIncomingTrack(WebRTCTrackData& data)
 {
     ASSERT(isMainThread());
@@ -1715,22 +1542,6 @@ void GStreamerMediaEndpoint::connectIncomingTrack(WebRTCTrackData& data)
     auto peerConnectionBackend = this->peerConnectionBackend();
     if (!peerConnectionBackend)
         return;
-
-    // MAVERICKS_BACKPORT: webrtcbin attributes an incoming pad to an m-line by SSRC only when the
-    // remote description declared that SSRC before its RTP arrived; otherwise it guesses the m-line
-    // from the RTP session number, which under BUNDLE lands on the first m-line of the matching
-    // kind — typically our own send section. The description is the authority: when it declares
-    // this SSRC under another m-section, take that section's identity.
-    if (auto resolution = resolveIncomingSsrc(data.ssrc)) {
-        if (!resolution->mid.isEmpty() && resolution->mid != data.mid) {
-            GST_INFO_OBJECT(m_pipeline.get(), "Re-attributing incoming SSRC %u from mid '%s' to mid '%s' declared in the remote description", data.ssrc, data.mid.utf8().data(), resolution->mid.utf8().data());
-            data.mid = WTF::move(resolution->mid);
-            if (!resolution->mediaStreamId.isEmpty())
-                data.mediaStreamId = WTF::move(resolution->mediaStreamId);
-            if (!resolution->trackId.isEmpty())
-                data.trackId = WTF::move(resolution->trackId);
-        }
-    }
 
     // NOTE: Here ideally we should match WebKit-side transceivers with data.transceiver but we
     // cannot because in some situations (simulcast, mostly), we can end-up with multiple webrtcbin
@@ -1760,8 +1571,6 @@ void GStreamerMediaEndpoint::connectIncomingTrack(WebRTCTrackData& data)
     }
 
     auto mediaStreamBin = adoptGRef(gst_bin_get_by_name(GST_BIN_CAST(m_pipeline.get()), data.mediaStreamBinName.ascii().data()));
-    // MAVERICKS_BACKPORT: retain the track bin for the state sync below; setBin() consumes mediaStreamBin.
-    GRefPtr<GstElement> trackBin = mediaStreamBin;
     auto& track = transceiver->receiver().track();
     auto& source = track.privateTrack().source();
     if (source.isIncomingAudioSource()) {
@@ -1774,26 +1583,8 @@ void GStreamerMediaEndpoint::connectIncomingTrack(WebRTCTrackData& data)
             return;
     }
 
-    // MAVERICKS_BACKPORT: each incoming track goes live as soon as its source is wired.
-    // The previous "wait until all expected tracks arrived" barrier counted every negotiated
-    // recvonly/sendrecv transceiver and only then set the pipeline PLAYING — but an SFU
-    // (e.g. Google Meet) negotiates receive transceivers that carry no RTP until much later
-    // (reserved screen-share/participant slots), and tracks arrive across multiple negotiation
-    // rounds while the pending list was cleared per batch. The threshold was then never reached,
-    // so bins added later (connectPad leaves them PAUSED until their source is wired here)
-    // stayed PAUSED forever: their sink prerolled and blocked, the queue behind it filled, a
-    // decoder renegotiation's serialized ALLOCATION query wedged, and backpressure froze ALL
-    // inbound media. Per-track liveness also matches libwebrtc, where each track's media flows
-    // as soon as its RTP arrives.
-    GST_DEBUG_OBJECT(m_pipeline.get(), "Incoming track %s on stream %s ready, notifying observers", track.privateTrack().id().utf8().data(), data.mediaStreamId.ascii().data());
-    ALWAYS_LOG(LOGIDENTIFIER, "Data flow started on track "_s, track.privateTrack().id());
-    track.privateTrack().dataFlowStarted();
-    source.setMuted(false);
+    m_pendingIncomingTracks.append(&track.privateTrack());
 
-    // MAVERICKS_BACKPORT: upstream batches instead -- it counts the transceivers expecting to receive and
-    // holds every incoming track muted until that many have arrived, then flips them all live at once.
-    // Kept here commented out, per the divergence rules, in place of the per-track liveness above.
-    /*
     unsigned totalExpectedMediaTracks = 0;
     forEachTransceiver(m_webrtcBin, [&](auto&& transceiver) -> bool {
         GstWebRTCRTPTransceiverDirection direction;
@@ -1826,9 +1617,6 @@ void GStreamerMediaEndpoint::connectIncomingTrack(WebRTCTrackData& data)
     }
 
     m_pendingIncomingTracks.clear();
-    */ // MAVERICKS_BACKPORT: closes the commented-out upstream batching block above.
-
-    gst_element_sync_state_with_parent(trackBin.get());
     gst_element_set_state(m_pipeline.get(), GST_STATE_PLAYING);
 }
 
@@ -1985,41 +1773,24 @@ ExceptionOr<GStreamerMediaEndpoint::Backends> GStreamerMediaEndpoint::createTran
         }, [](std::nullptr_t&) { });
     }
     StringBuilder msidBuilder;
-    // MAVERICKS_BACKPORT: the outgoing source's stable send SSRC. Stamped onto the first codec
-    // structure below so the codec-preferences handed to add-transceiver carry it; webrtcbin then
-    // advertises a=ssrc plus a=ssrc-group:FID (auto RTX SSRC) in the offer for exactly the SSRC the
-    // packetizer sends with (configurePacketizers stamps the same value). Google Meet requires this.
-    uint32_t sourceSsrc = 0;
     switchOn(source, [&, rtpHeaderExtensionMapping = m_rtpHeaderExtensions](Ref<RealtimeOutgoingAudioSourceGStreamer>& source) {
         msidBuilder.append(source->mediaStreamID());
         if (auto track = source->track())
             msidBuilder.append(' ', track->id());
         source->setRtpHeaderExtensionMapping(rtpHeaderExtensionMapping);
-        // MAVERICKS_BACKPORT: capture the outgoing audio source's send SSRC to stamp onto the codec preferences (see sourceSsrc above).
-        sourceSsrc = source->ssrc();
     }, [&, rtpHeaderExtensionMapping = m_rtpHeaderExtensions](Ref<RealtimeOutgoingVideoSourceGStreamer>& source) {
         msidBuilder.append(source->mediaStreamID());
         if (auto track = source->track())
             msidBuilder.append(' ', track->id());
         source->setRtpHeaderExtensionMapping(rtpHeaderExtensionMapping);
-        // MAVERICKS_BACKPORT: capture the outgoing video source's send SSRC to stamp onto the codec preferences (see sourceSsrc above).
-        sourceSsrc = source->ssrc();
     }, [](std::nullptr_t&) { });
 
     int payloadType = pickAvailablePayloadType();
     auto msid = msidBuilder.toString();
     bool msidSet = false;
-    // MAVERICKS_BACKPORT: track whether the send SSRC has been stamped so it lands on exactly one codec structure (see sourceSsrc above).
-    bool ssrcSet = false;
-    auto caps = capsFromRtpCapabilities(m_rtpHeaderExtensions, { .codecs = codecs, .headerExtensions = rtpExtensions }, [&payloadType, &msid, &msidSet, sourceSsrc, &ssrcSet](GstStructure* structure) {
+    auto caps = capsFromRtpCapabilities(m_rtpHeaderExtensions, { .codecs = codecs, .headerExtensions = rtpExtensions }, [&payloadType, &msid, &msidSet](GstStructure* structure) {
         if (!gst_structure_has_field(structure, "payload"))
             gst_structure_set(structure, "payload", G_TYPE_INT, payloadType++, nullptr);
-        // MAVERICKS_BACKPORT: stamp the send SSRC onto the first codec structure so webrtcbin emits a=ssrc for it (see sourceSsrc above).
-        // Stamp the send SSRC once (webrtcbin reads it from the first codec structure to emit a=ssrc).
-        if (sourceSsrc && !ssrcSet) {
-            gst_structure_set(structure, "ssrc", G_TYPE_UINT, sourceSsrc, nullptr);
-            ssrcSet = true;
-        }
         if (msidSet)
             return;
         if (msid.isEmpty())
@@ -2334,15 +2105,6 @@ void GStreamerMediaEndpoint::prepareDataChannel(GstWebRTCDataChannel* dataChanne
     GST_DEBUG_OBJECT(m_pipeline.get(), "Setting up data channel %p", channel.get());
     auto channelHandler = makeUniqueRef<GStreamerDataChannelHandler>(WTF::move(channel));
     auto identifier = ObjectIdentifier<GstWebRTCDataChannel>(reinterpret_cast<uintptr_t>(channelHandler->channel()));
-    // MAVERICKS_BACKPORT: prepare-data-channel is emitted on webrtcbin's streaming thread with
-    // webrtcbin's data-channel lock held, while onDataChannel's take() and teardown's clear() run
-    // on the main thread — an unguarded HashMap race that over-releases the GstWebRTCDataChannel
-    // and crashes in g_closure_invoke. Marshaling here with callOnMainThreadAndWait is NOT an
-    // option: the main thread can concurrently be inside gst_webrtc_bin_create_data_channel
-    // waiting for the very data-channel lock this emission holds (proven three-way deadlock on
-    // Google Meet: JS createDataChannel + incoming SCTP channel announce). A leaf lock around the
-    // map keeps both threads safe without ever blocking on each other.
-    Locker locker { m_incomingDataChannelsLock };
     m_incomingDataChannels.add(identifier, WTF::move(channelHandler));
 }
 
@@ -2352,12 +2114,7 @@ UniqueRef<GStreamerDataChannelHandler> GStreamerMediaEndpoint::findOrCreateIncom
         return makeUniqueRef<GStreamerDataChannelHandler>(WTF::move(dataChannel));
 
     auto identifier = ObjectIdentifier<GstWebRTCDataChannel>(reinterpret_cast<uintptr_t>(dataChannel.get()));
-    // MAVERICKS_BACKPORT: take from the incoming-data-channel map under m_incomingDataChannelsLock (guards the streaming-thread prepareDataChannel race).
-    std::unique_ptr<GStreamerDataChannelHandler> channelHandler;
-    {
-        Locker locker { m_incomingDataChannelsLock };
-        channelHandler = m_incomingDataChannels.take(identifier);
-    }
+    auto channelHandler = m_incomingDataChannels.take(identifier);
     RELEASE_ASSERT(channelHandler);
     return makeUniqueRefFromNonNullUniquePtr(WTF::move(channelHandler));
 }
@@ -2697,10 +2454,6 @@ void GStreamerMediaEndpoint::collectTransceivers(Vector<Ref<RTCRtpTransceiver>>&
 
     for (auto& transceiver : currentTransceivers)
         peerConnectionBackend->removeTransceiver(transceiver);
-
-    // MAVERICKS_BACKPORT: with this description's transceivers in place, correct any incoming
-    // stream whose SSRC the description now declares under a different m-section.
-    reattributeIncomingTracks();
 }
 
 GUniquePtr<GstStructure> GStreamerMediaEndpoint::preprocessStats(const GRefPtr<GstPad>& pad, const GstStructure* stats)

@@ -2459,17 +2459,6 @@ if (USE_XDGMIME)
     list(APPEND WebCore_LIBRARIES xdgmime)
 endif ()
 
-# MAVERICKS_BACKPORT: WebCore's OWN libwebrtc directory holds LibWebRTCProvider.h, which
-# platform/graphics/cocoa/VP9UtilitiesCocoa.mm includes by bare name regardless of USE_LIBWEBRTC — the
-# file is about VP9 codec configuration, not about libwebrtc being the WebRTC backend. Upstream never
-# notices because its Mac port builds with USE_LIBWEBRTC ON, so the directory is always on the path.
-# Hoist this one out of the guard (the ThirdParty/libwebrtc paths stay inside it, since those really do
-# require the vendored library). This replaces a flat-path COPY of LibWebRTCProvider.h that used to sit in
-# Source/WebCore/ for the same reason; the copy is deleted.
-list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
-    "${WEBCORE_DIR}/platform/mediastream/libwebrtc"
-)
-
 if (USE_LIBWEBRTC)
     add_definitions(-DWEBRTC_ALLOW_DEPRECATED_NAMESPACES)
     list(APPEND WebCore_SYSTEM_INCLUDE_DIRECTORIES
@@ -2481,9 +2470,7 @@ if (USE_LIBWEBRTC)
     list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
         "${WEBCORE_DIR}/Modules/mediastream/libwebrtc"
         "${WEBCORE_DIR}/platform/libwebrtc"
-        # MAVERICKS_BACKPORT: "${WEBCORE_DIR}/platform/mediastream/libwebrtc" was here; it is now
-        # appended unconditionally above the guard, because VP9UtilitiesCocoa.mm needs it even when
-        # USE_LIBWEBRTC is OFF. See the marker on that hoist for the full reason.
+        "${WEBCORE_DIR}/platform/mediastream/libwebrtc"
     )
     # MAVERICKS_BACKPORT: the libwebrtc WebKit ObjC SDK is full of category-only
     # translation units (RTCVideoCodecInfo+Private, NSString+StdString, etc.) whose
@@ -2506,7 +2493,9 @@ if (USE_LIBWEBRTC)
     # references opus_* , so libopus.a must also be on WebCore's link line (listed after
     # libwebrtc.a so its members resolve those references). No force_load needed — opus has
     # no ObjC categories, so a normal archive link pulls exactly the referenced members.
-    list(APPEND WebCore_PRIVATE_LIBRARIES "-Wl,-force_load,$<TARGET_FILE:webrtc>" opus)
+    # The flag string carries no build dependency; the plain webrtc entry after it does (and its
+    # transitive aom), so WebCore relinks when the archive changes.
+    list(APPEND WebCore_PRIVATE_LIBRARIES "-Wl,-force_load,$<TARGET_FILE:webrtc>" webrtc opus)
     list(APPEND WebCore_UNIFIED_SOURCE_LIST_FILES
         "platform/SourcesLibWebRTC.txt"
     )

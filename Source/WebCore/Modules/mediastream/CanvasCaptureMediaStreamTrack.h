@@ -35,7 +35,7 @@
 #include <wtf/TypeCasts.h>
 #include <wtf/WeakPtr.h>
 
-#if USE(GSTREAMER)
+#if USE(GSTREAMER) && !PLATFORM(COCOA) // MAVERICKS_BACKPORT: GStreamer plays media here; MediaStream and its frames are Cocoa (VideoFrameCV).
 #include "GRefPtrGStreamer.h"
 #endif
 
@@ -101,7 +101,7 @@ private:
         std::optional<RealtimeMediaSourceSettings> m_currentSettings;
         WeakPtr<HTMLCanvasElement, WeakPtrImplWithEventTargetData> m_canvas;
         RefPtr<Image> m_currentImage;
-#if USE(GSTREAMER)
+#if USE(GSTREAMER) && !PLATFORM(COCOA) // MAVERICKS_BACKPORT: GStreamer plays media here; MediaStream and its frames are Cocoa (VideoFrameCV).
         GRefPtr<GstClock> m_clock;
 #endif
     };

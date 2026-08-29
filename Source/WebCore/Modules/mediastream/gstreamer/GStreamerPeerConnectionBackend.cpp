@@ -50,21 +50,13 @@
 #include "Settings.h"
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMalloc.h>
-// MAVERICKS_BACKPORT: explicit include for WTF_MAKE_TZONE_ALLOCATED_IMPL below; under this build's
-// non-unified/no-modules config it is not pulled in transitively.
-#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 GST_DEBUG_CATEGORY(webkit_webrtc_pc_backend_debug);
 #define GST_CAT_DEFAULT webkit_webrtc_pc_backend_debug
 
-// MAVERICKS_BACKPORT: WebRTCLogObserver declares no WTF_MAKE_TZONE_ALLOCATED of its own (it inherits
-// WebCoreLogObserver's) and is not declared yet at this point. GStreamerPeerConnectionBackend, the
-// class this file implements, declares one in its header; the line below is its out-of-line half,
-// defining s_heapRef and operatorNewSlow.
-// WTF_MAKE_TZONE_ALLOCATED_IMPL(WebRTCLogObserver);
-WTF_MAKE_TZONE_ALLOCATED_IMPL(GStreamerPeerConnectionBackend);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebRTCLogObserver);
 
 #ifndef GST_DISABLE_GST_DEBUG
 class WebRTCLogObserver : public WebCoreLogObserver {

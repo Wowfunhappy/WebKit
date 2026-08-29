@@ -30,8 +30,6 @@
 #include "GStreamerCaptureDeviceManager.h"
 
 #include <wtf/NeverDestroyed.h>
-// MAVERICKS_BACKPORT: isInWebProcess() for the UIProcess-vs-WebProcess GStreamer-init split below.
-#include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/text/MakeString.h>
 
 namespace WebCore {
@@ -87,35 +85,13 @@ GStreamerAudioCaptureSource::GStreamerAudioCaptureSource(GStreamerCaptureDevice&
     : RealtimeMediaSource(device, WTF::move(hashSalts))
     , m_capturer(adoptRef(*new GStreamerAudioCapturer(WTF::move(device))))
 {
-    // MAVERICKS_BACKPORT: see GStreamerCapturer.cpp — this ctor runs in the UIProcess during getUserMedia
-    // validation, where ensureGStreamerInitialized() RELEASE_ASSERTs isInWebProcess().
-    if (isInWebProcess())
-        ensureGStreamerInitialized();
-    else
-        ensureGStreamerInitializedNonWebProcess();
+    ensureGStreamerInitialized();
 
     static std::once_flag debugRegisteredFlag;
     std::call_once(debugRegisteredFlag, [] {
         GST_DEBUG_CATEGORY_INIT(webkit_audio_capture_source_debug, "webkitaudiocapturesource", 0, "WebKit Audio Capture Source.");
     });
     GST_DEBUG_OBJECT(m_capturer->pipeline(), "Created AudioCaptureSource for device %s", persistentID().utf8().data());
-
-    // MAVERICKS_BACKPORT: report the capture device's sample rate on the source, mirroring
-    // CoreAudioCaptureSource's initializeSampleRate(unit->sampleRate()). Upstream's GStreamer audio source
-    // never sets it, so it stayed 0 (RealtimeMediaSource::m_sampleRate default) — leaving getSettings().sampleRate
-    // at 0 (a web-visible wrong MediaTrackSettings value) and making MediaRecorder build a rate=0 encoding
-    // restriction that encodebin rejects (empty recording). This is only observable on this Cocoa+GStreamer
-    // hybrid because upstream Mac uses the AVFoundation capture+recorder path. Fixating the device caps yields
-    // the concrete rate the pipeline negotiates to (startProducingData's setSampleRate() then pins it), so the
-    // track's cached settings — read by MediaRecorder before the first sample — already carry the real rate.
-    if (auto caps = m_capturer->caps()) {
-        GRefPtr<GstCaps> fixated = adoptGRef(gst_caps_fixate(caps.leakRef()));
-        if (const auto* structure = gst_caps_get_structure(fixated.get(), 0)) {
-            int rate = 0;
-            if (gst_structure_get_int(structure, "rate", &rate) && rate > 0)
-                initializeSampleRate(rate);
-        }
-    }
 
     auto& singleton = GStreamerAudioCaptureDeviceManager::singleton();
     singleton.registerCapturer(m_capturer.copyRef());

@@ -233,3 +233,45 @@ WK_POLYFILL_ABSENT("CoreMedia", OSStatus, CMSampleBufferCallBlockForEachSample,
     return WK_SYSTEM(CMSampleBufferCallForEachSample)(sampleBuffer, wkCallBlockForEachSampleTrampoline,
                                                       (void *)handler);
 }
+
+// HEVC parameter-set format descriptions (10.13+), called by libwebrtc's H.265 VideoToolbox codec
+// classes. 10.9's VideoToolbox has no HEVC, so both answer with the error the modern API documents for
+// a description that is not HEVC, and the codec reports the format unsupported.
+WK_POLYFILL_ABSENT("CoreMedia", OSStatus, CMVideoFormatDescriptionCreateFromHEVCParameterSets, (CFAllocatorRef allocator, size_t parameterSetCount, const uint8_t* const* parameterSetPointers, const size_t* parameterSetSizes, int NALUnitHeaderLength, CFDictionaryRef extensions, CMFormatDescriptionRef* formatDescriptionOut))
+{
+    (void)allocator; (void)parameterSetCount; (void)parameterSetPointers; (void)parameterSetSizes; (void)NALUnitHeaderLength; (void)extensions;
+    if (formatDescriptionOut)
+        *formatDescriptionOut = NULL;
+    return kCMFormatDescriptionError_InvalidParameter;
+}
+
+WK_POLYFILL_ABSENT("CoreMedia", OSStatus, CMVideoFormatDescriptionGetHEVCParameterSetAtIndex, (CMFormatDescriptionRef videoDesc, size_t parameterSetIndex, const uint8_t** parameterSetPointerOut, size_t* parameterSetSizeOut, size_t* parameterSetCountOut, int* NALUnitHeaderLengthOut))
+{
+    (void)videoDesc; (void)parameterSetIndex;
+    if (parameterSetPointerOut)
+        *parameterSetPointerOut = NULL;
+    if (parameterSetSizeOut)
+        *parameterSetSizeOut = 0;
+    if (parameterSetCountOut)
+        *parameterSetCountOut = 0;
+    if (NALUnitHeaderLengthOut)
+        *NALUnitHeaderLengthOut = 0;
+    return kCMFormatDescriptionError_InvalidParameter;
+}
+
+// CMSampleBufferCreateReadyWithImageBuffer (10.10+) is the dataReady = true form of the 10.7
+// CMSampleBufferCreateForImageBuffer, beside CMSampleBufferCreateReady above; WebCore's MediaStream
+// renderer builds every video sample buffer through it (createVideoSampleBuffer).
+WK_SYSTEM_FN("CoreMedia", OSStatus, CMSampleBufferCreateForImageBuffer,
+    (CFAllocatorRef, CVImageBufferRef, Boolean, CMSampleBufferMakeDataReadyCallback, void *,
+     CMFormatDescriptionRef, const CMSampleTimingInfo *, CMSampleBufferRef *));
+
+WK_POLYFILL_ABSENT("CoreMedia", OSStatus, CMSampleBufferCreateReadyWithImageBuffer,
+    (CFAllocatorRef allocator, CVImageBufferRef imageBuffer, CMFormatDescriptionRef formatDescription,
+     const CMSampleTimingInfo *sampleTiming, CMSampleBufferRef *sampleBufferOut))
+{
+    if (!WK_SYSTEM(CMSampleBufferCreateForImageBuffer))
+        return kCMSampleBufferError_AllocationFailed;
+    return WK_SYSTEM(CMSampleBufferCreateForImageBuffer)(allocator, imageBuffer, true, NULL, NULL,
+                                                          formatDescription, sampleTiming, sampleBufferOut);
+}

@@ -214,12 +214,13 @@ list(REMOVE_ITEM WebKit_PRIVATE_LIBRARIES
 )
 
 list(REMOVE_ITEM WebKit_SOURCES
+    # PlatformMac.cmake lists this file; it is not in the tree (NetworkRTCProvider is a .cpp).
     NetworkProcess/webrtc/NetworkRTCProvider.mm
-    # Both of these are listed in upstream's SourcesCocoa.txt as well as PlatformMac.cmake, so each
-    # already compiles inside a WebKit unified bundle. Dropping the PlatformMac.cmake copy leaves them
-    # built exactly once instead of twice; it withholds nothing.
+    # The Network.framework WebRTC sockets and their helpers (!HAVE(NETWORK_FRAMEWORK); see PlatformHave.h).
+    # The socket pair is also in SourcesCocoa.txt and withheld there below.
     NetworkProcess/webrtc/NetworkRTCTCPSocketCocoa.mm
     NetworkProcess/webrtc/NetworkRTCUDPSocketCocoa.mm
+    NetworkProcess/webrtc/NetworkRTCUtilitiesCocoa.mm
     UIProcess/Cocoa/WKSafeBrowsingWarning.mm
 )
 
@@ -478,6 +479,10 @@ set(MAVERICKS_ADDED_WEBKIT_SOURCES
 # smart-magnification and device-orientation paths, none of which exist at this deployment target, plus
 # _WKUserContentExtensionStore/_WKUserContentFilter, which need WKContentRuleListStore's enums.
 set(MAVERICKS_WITHHELD_WEBKIT_COCOA_SOURCES
+    # The Network.framework WebRTC path (!HAVE(NETWORK_FRAMEWORK); see PlatformHave.h).
+    "NetworkProcess/webrtc/NetworkRTCSharedMonitorCocoa.mm @nonARC"
+    "NetworkProcess/webrtc/NetworkRTCTCPSocketCocoa.mm @nonARC"
+    "NetworkProcess/webrtc/NetworkRTCUDPSocketCocoa.mm @nonARC"
     "UIProcess/API/Cocoa/_WKUserContentExtensionStore.mm @nonARC"
     "UIProcess/API/Cocoa/_WKUserContentFilter.mm @nonARC"
     "UIProcess/API/Cocoa/WKWebView.mm @nonARC"

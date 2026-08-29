@@ -27,29 +27,14 @@
 #include <JavaScriptCore/ArrayBuffer.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/glib/GMallocString.h>
-// MAVERICKS_BACKPORT: include for the ThreadSafeWeakPtr the DTLS signal callback holds the observer through (see below).
-#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/glib/GUniquePtr.h>
 
-// MAVERICKS_BACKPORT: explicit include for WTF_MAKE_TZONE_ALLOCATED_IMPL below; under this build's
-// non-unified/no-modules config it is not pulled in transitively.
-#include <wtf/TZoneMallocInlines.h>
-
 namespace WebCore {
-
-// MAVERICKS_BACKPORT: GStreamerDtlsTransportBackend declares WTF_MAKE_TZONE_ALLOCATED in its header;
-// this is its out-of-line half, defining s_heapRef and operatorNewSlow under USE(TZONE_MALLOC).
-WTF_MAKE_TZONE_ALLOCATED_IMPL(GStreamerDtlsTransportBackend);
 
 GST_DEBUG_CATEGORY(webkit_webrtc_dtls_transport_debug);
 #define GST_CAT_DEFAULT webkit_webrtc_dtls_transport_debug
 
-// MAVERICKS_BACKPORT: base widened to ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr so the
-// notify::state callback (which fires on GStreamer's DTLS/transport thread) can hold the observer
-// through a ThreadSafeWeakPtr instead of a raw `this` — g_signal_handlers_disconnect* does not wait
-// for an in-flight emission, so a raw pointer is a use-after-free when the observer is destroyed
-// while the transport thread is mid-notify.
-class GStreamerDtlsTransportBackendObserver final : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<GStreamerDtlsTransportBackendObserver> {
+class GStreamerDtlsTransportBackendObserver final : public ThreadSafeRefCounted<GStreamerDtlsTransportBackendObserver> {
     WTF_MAKE_NONCOPYABLE(GStreamerDtlsTransportBackendObserver);
 public:
     static Ref<GStreamerDtlsTransportBackendObserver> create(RTCDtlsTransportBackendClient& client, GRefPtr<GstWebRTCDTLSTransport>&& backend) { return adoptRef(*new GStreamerDtlsTransportBackendObserver(client, WTF::move(backend))); }
@@ -64,8 +49,6 @@ private:
 
     GRefPtr<GstWebRTCDTLSTransport> m_backend;
     WeakPtr<RTCDtlsTransportBackendClient> m_client;
-    // MAVERICKS_BACKPORT: retained signal-handler id so stop() disconnects exactly this notify::state handler.
-    unsigned long m_stateSignalHandler { 0 };
 };
 
 GStreamerDtlsTransportBackendObserver::GStreamerDtlsTransportBackendObserver(RTCDtlsTransportBackendClient& client, GRefPtr<GstWebRTCDTLSTransport>&& backend)
@@ -109,31 +92,17 @@ void GStreamerDtlsTransportBackendObserver::stateChanged()
     });
 }
 
-// MAVERICKS_BACKPORT: heap-held weak reference passed as signal user-data (see the class comment);
-// the destroy-notify runs when the handler is disconnected or the emitting object is finalized.
-struct DtlsObserverNotifier {
-    ThreadSafeWeakPtr<GStreamerDtlsTransportBackendObserver> weakObserver;
-    static void destruct(gpointer data, GClosure*) { delete static_cast<DtlsObserverNotifier*>(data); }
-};
-
 void GStreamerDtlsTransportBackendObserver::start()
 {
-    // MAVERICKS_BACKPORT: connect through a heap DtlsObserverNotifier holding a ThreadSafeWeakPtr so the
-    // transport-thread notify::state callback never dereferences a destroyed observer (see the class comment).
-    m_stateSignalHandler = g_signal_connect_data(m_backend.get(), "notify::state", G_CALLBACK(+[](GstWebRTCDTLSTransport*, GParamSpec*, DtlsObserverNotifier* notifier) {
-        if (RefPtr observer = notifier->weakObserver.get())
-            observer->stateChanged();
-    }), new DtlsObserverNotifier { ThreadSafeWeakPtr<GStreamerDtlsTransportBackendObserver> { *this } }, DtlsObserverNotifier::destruct, static_cast<GConnectFlags>(0));
+    g_signal_connect_swapped(m_backend.get(), "notify::state", G_CALLBACK(+[](GStreamerDtlsTransportBackendObserver* observer) {
+        observer->stateChanged();
+    }), this);
 }
 
 void GStreamerDtlsTransportBackendObserver::stop()
 {
     m_client = nullptr;
-    // MAVERICKS_BACKPORT: disconnect the retained handler id (its user-data is the heap DtlsObserverNotifier, not this).
-    if (m_stateSignalHandler) {
-        g_signal_handler_disconnect(m_backend.get(), m_stateSignalHandler);
-        m_stateSignalHandler = 0;
-    }
+    g_signal_handlers_disconnect_by_data(m_backend.get(), this);
 }
 
 GStreamerDtlsTransportBackend::GStreamerDtlsTransportBackend(GRefPtr<GstWebRTCDTLSTransport>&& transport)

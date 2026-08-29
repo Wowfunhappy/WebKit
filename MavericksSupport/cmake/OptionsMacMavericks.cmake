@@ -11,6 +11,21 @@ endif ()
 
 if (MAVERICKS_OPTIONS_PHASE STREQUAL "OPTIONS")
 
+# the third-party libraries this port links that 10.9 does not supply — ICU,
+# libgcrypt/libtasn1/libgpg-error, brotli, woff2, libwebp, libxml2, and the whole GStreamer media
+# runtime. MavericksSupport/deps/build_deps.sh builds them all from source with the in-tree
+# toolchain into deps/build/{include,lib,bin}; MavericksSupport/bootstrap.sh runs it. Every
+# reference resolves through MAVERICKS_DEPS, so the artifact tree has exactly one location. Defined in
+# the OPTIONS phase: WebKitFindPackage.cmake's ICU lookup (find_package in OptionsMac.cmake) reads it
+# before the POST phase runs.
+set(MAVERICKS_SUPPORT "${CMAKE_SOURCE_DIR}/MavericksSupport" CACHE INTERNAL "MavericksSupport dir")
+set(MAVERICKS_DEPS "${MAVERICKS_SUPPORT}/deps/build" CACHE INTERNAL "third-party libraries built by deps/build_deps.sh")
+if (NOT EXISTS "${MAVERICKS_DEPS}/lib/libgcrypt.a")
+    message(FATAL_ERROR
+        "${MAVERICKS_DEPS} holds no built dependencies.\n"
+        "Run MavericksSupport/bootstrap.sh (or MavericksSupport/deps/build_deps.sh) first.")
+endif ()
+
 # upstream injects WEBKIT_BUNDLE_VERSION from Version.xcconfig via the Xcode
 # build; the CMake port never defines it, so the UI-process/child version handshake in
 # ProcessLauncherCocoa.mm and XPCServiceMain.mm has no macro to reference. Define it here from the
@@ -123,8 +138,8 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_LEGACY_ENCRYPTED_MEDIA PRIVATE OFF)
 # fires `#if !defined(ENABLE_MEDIA_RECORDER)`, and WebKitFeatures.cmake already defines it as 0 for ports
 # that do not opt in — so the CMake Mac port silently ends up with it OFF. Same shape as the
 # ENABLE_VIDEO_PRESENTATION_MODE problem. Two consequences of leaving it off: MediaRecorder (a real web
-# API, and one this port can serve — MediaRecorderPrivateGStreamer.cpp is already in SourcesGStreamer.txt
-# and merely compiles to nothing) is missing, and ENABLE_MEDIA_RECORDER_WEBM stays off with it, which
+# API, served here by MediaRecorderPrivateAVFImpl with the libwebm writer) is missing, and
+# ENABLE_MEDIA_RECORDER_WEBM stays off with it, which
 # removes MediaSourceConfiguration::supportsLimitedMatroska — a member upstream's own byte-upstream
 # SourceBufferPrivateAVFObjC.mm:795 reads unguarded, so that TU cannot compile without this.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_RECORDER PRIVATE ON)
@@ -159,9 +174,10 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WK_WEB_EXTENSIONS PRIVATE OFF)
 
 # ON — WebCodecs, matching what Apple ships (PlatformEnableCocoa.h defaults it
 # to 1 on Mac; the cmake feature default is OFF only because non-Apple ports opt in per-port).
-# Backed by the GStreamer Audio/Video Encoder/Decoder implementations (AudioEncoder.cpp etc. pick
-# the GStreamer branch since USE_LIBWEBRTC is off), same as GTK/WPE. Sites feature-detect these
-# (Google Meet's media session setup uses VideoEncoder/AudioEncoder).
+# Video codecs come from libwebrtc (VideoEncoder.cpp/VideoDecoder.cpp take the USE(LIBWEBRTC) &&
+# PLATFORM(COCOA) branch), audio codecs from the GStreamer AudioEncoder/AudioDecoder implementations
+# (USE(GSTREAMER) wins that selection). Sites feature-detect these (Google Meet's media session setup
+# uses VideoEncoder/AudioEncoder).
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_CODECS PRIVATE ON)
 # ON. Everything WebMemorySampler.mac.mm calls is present on this OS -- probed here
 # with dlsym: malloc_get_all_zones, malloc_get_zone_name, malloc_zone_statistics, task_info; and
@@ -248,31 +264,16 @@ SET_AND_EXPOSE_TO_BUILD(ENABLE_DECLARATIVE_WEB_PUSH FALSE)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_AVIF PRIVATE ON)
 else ()
 
-# WebRTC runs on the GStreamer webrtcbin backend, NOT libwebrtc. USE_GSTREAMER_WEBRTC
-# is set TRUE in OptionsMacGStreamer.cmake (included below) and PeerConnectionBackend selects the
-# GStreamer backend. The two backends are mutually exclusive — each defines the same
-# PeerConnectionBackend::create factory and a WebRTCProvider, so building both is a duplicate-symbol
-# link error. libwebrtc is therefore OFF: this also skips the entire ThirdParty/libwebrtc build
-# (Source/CMakeLists.txt gates it on USE_LIBWEBRTC) and the WK_RTCVideoDecoder* ObjC classes (10.10+
-# VideoToolbox SPI that crash WebContent at load on 10.9). ENABLE_WEB_RTC stays ON.
-SET_AND_EXPOSE_TO_BUILD(USE_LIBWEBRTC OFF)
+# WebRTC is libwebrtc (ThirdParty/libwebrtc, gated on USE_LIBWEBRTC in Source/CMakeLists.txt) with
+# Apple's Cocoa glue (LibWebRTCProviderCocoa, the VideoToolbox WK_RTCVideo* codec factories, Cocoa
+# capture sources), so sites see the same WebRTC stack Safari ships. USE_GSTREAMER_WEBRTC is FALSE in
+# OptionsMacGStreamer.cmake; the two backends each define PeerConnectionBackend::create, so exactly one is built.
+SET_AND_EXPOSE_TO_BUILD(USE_LIBWEBRTC ON)
 # WebCrypto via libgcrypt instead of CommonCrypto/CryptoKit.
 # See PlatformMac.cmake for libgcrypt include + link, and SourcesCocoa.txt
 # for the crypto/gcrypt/ source replacements.
 SET_AND_EXPOSE_TO_BUILD(USE_GCRYPT TRUE)
 
-# the third-party libraries this port links that 10.9 does not supply — ICU,
-# libgcrypt/libtasn1/libgpg-error, brotli, woff2, libwebp, libxml2, and the whole GStreamer media
-# runtime. MavericksSupport/deps/build_deps.sh builds them all from source with the in-tree
-# toolchain into deps/build/{include,lib,bin}; MavericksSupport/bootstrap.sh runs it. Every
-# reference below resolves through MAVERICKS_DEPS, so the artifact tree has exactly one location.
-set(MAVERICKS_SUPPORT "${CMAKE_SOURCE_DIR}/MavericksSupport" CACHE INTERNAL "MavericksSupport dir")
-set(MAVERICKS_DEPS "${MAVERICKS_SUPPORT}/deps/build" CACHE INTERNAL "third-party libraries built by deps/build_deps.sh")
-if (NOT EXISTS "${MAVERICKS_DEPS}/lib/libgcrypt.a")
-    message(FATAL_ERROR
-        "${MAVERICKS_DEPS} holds no built dependencies.\n"
-        "Run MavericksSupport/bootstrap.sh (or MavericksSupport/deps/build_deps.sh) first.")
-endif ()
 
 # HTML5 <video>/<audio> via the upstream GStreamer media player instead of the
 # custom AVAssetReader pump (AVPlayer is dead on 10.9). GStreamer 1.28.5 comes from deps/build,
@@ -393,8 +394,12 @@ add_compile_options(
 # SYSTEM libc++ dylib then. This build ships the clang-22 libc++ privately (install_name
 # @rpath/libc++.1.dylib, deployed beside the frameworks) and forces its use, so those
 # symbols are always present regardless of the OS libc++. Disable the vendor
-# availability markup so the standard library is usable against the 10.9 target.
+# availability markup so the standard library is usable against the 10.9 target, and tell the
+# compiler the same for C++17 aligned new/delete (operator new(size_t, align_val_t) and friends),
+# whose availability clang checks itself rather than through libc++'s markup: the private
+# libc++abi exports them, so `new` of an over-aligned type is fine here.
 add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-D_LIBCPP_DISABLE_AVAILABILITY>)
+add_compile_options($<$<COMPILE_LANGUAGE:CXX,OBJCXX>:-faligned-allocation>)
 
 # gap-fill header overlay, searched AFTER the real SDK (-idirafter) so
 # the SDK's header always wins where present and only genuinely-missing headers fall

@@ -13,7 +13,7 @@
 #   libxml2 2.13.6 (shared)             -> WebCore XML/SVG parsing, in place of 10.9's
 #                                          crash-prone system libxml2 2.9.0
 #   GLib + GStreamer (GLIB_VER/GST_VER)  -> the media runtime (core, plugins-base/
-#     (+ codecs, OpenSSL, libnice, ...)     good/bad, gst-libav on FFmpeg 8.1.2 with
+#     (+ codecs, OpenSSL for HLS keys)      good/bad, gst-libav on FFmpeg 8.1.2 with
 #                                          dav1d AV1 decode, libvpx VP8/VP9) that
 #                                          MediaPlayerPrivateGStreamer drives; built
 #                                          shared with @rpath install names
@@ -823,12 +823,37 @@ fi
 ( cd "$d" && "$MESON" compile -C b -j 2 \
   && "$MESON" install -C b ) || exit 1
 
+echo "==== libyuv (ThirdParty/libwebrtc's copy) ===="
+# libavif's libyuv. WebCore force-loads libwebrtc.a, which carries the whole of
+# Source/ThirdParty/libwebrtc/Source/third_party/libyuv, and libavif built without libyuv compiles
+# its own subset of it under the same global symbol names -- two definitions of ScalePlane in one
+# link. So libavif is built against that same libyuv as a system library: it then references
+# libyuv rather than defining it, and WebCore resolves those references from the copy inside
+# libwebrtc.a. The archive built here exists only for libavif's configure and link; it is not
+# collected into deps/build.
+YUV_SRC="$REPO/Source/ThirdParty/libwebrtc/Source/third_party/libyuv"
+if ! built libyuv install/lib/libyuv.a; then
+    d="$SCRATCH/build-libyuv"; rm -rf "$d"; mkdir -p "$d"
+    ( cd "$d" \
+      && "$CMAKE" -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
+           -DCMAKE_BUILD_TYPE=Release \
+           -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_CXX_COMPILER="$CXX_BIN" \
+           ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE" -DCMAKE_CXX_COMPILER_LAUNCHER="$CCACHE"} \
+           -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
+           -DCMAKE_DISABLE_FIND_PACKAGE_JPEG=ON "$YUV_SRC" \
+      && "$NINJA" -j2 yuv \
+      && cp -p libyuv.a "$STAGE/lib/libyuv.a" \
+      && rm -rf "$STAGE/include/libyuv" "$STAGE/include/libyuv.h" \
+      && cp -Rp "$YUV_SRC/include/libyuv" "$STAGE/include/" \
+      && cp -p "$YUV_SRC/include/libyuv.h" "$STAGE/include/" ) || exit 1
+    finished libyuv "$d"
+fi
+
 echo "==== libavif 1.3.0 ===="
 # WebCore's AVIFImageDecoder (USE_AVIF): 10.9's ImageIO predates AVIF entirely. Decode only --
 # no encoder codec is enabled, so this is the demuxer plus the AV1 decode path. It builds here
 # rather than beside libwebp because it needs the dav1d above, which it finds through
-# pkg-config in $STAGE. libyuv is off: it is a conversion-speed option, and its absence only
-# routes avifImageYUVToRGB through libavif's own built-in conversion.
+# pkg-config in $STAGE, and the libyuv above (see there for why it must be libwebrtc's).
 u=https://github.com/AOMediaCodec/libavif/archive/refs/tags/v1.3.0.tar.gz
 if ! built libavif install/lib/libavif.a; then
     d=$(get "$u" libavif)
@@ -839,7 +864,8 @@ if ! built libavif install/lib/libavif.a; then
            ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE" -DCMAKE_CXX_COMPILER_LAUNCHER="$CCACHE"} \
            -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
            -DPKG_CONFIG_EXECUTABLE="$PKG_CONFIG" \
-           -DAVIF_CODEC_DAV1D=SYSTEM -DAVIF_LIBYUV=OFF \
+           -DAVIF_CODEC_DAV1D=SYSTEM -DAVIF_LIBYUV=SYSTEM \
+           -DLIBYUV_INCLUDE_DIR="$STAGE/include" -DLIBYUV_LIBRARY="$STAGE/lib/libyuv.a" \
            -DAVIF_BUILD_APPS=OFF -DAVIF_BUILD_TESTS=OFF -DAVIF_BUILD_EXAMPLES=OFF \
            -DAVIF_BUILD_MAN_PAGES=OFF \
            -DCMAKE_INSTALL_PREFIX="$STAGE" .. \
@@ -853,7 +879,7 @@ fi
   || { echo "  FATAL: libavif has no dav1d codec (avifCodecCreateDav1d absent); AVIF would decode nothing."; exit 1; }
 
 echo "==== OpenSSL 3.0.16 ===="
-# WebRTC's DTLS-SRTP and WebKit's OpenSSL::Crypto cmake target consume these.
+# HLS AES-128 key decryption: libgsthls and libgstadaptivedemux2 link libcrypto.
 d=$(get https://www.openssl.org/source/openssl-3.0.16.tar.gz openssl)
 if prepare "$d"; then
     ( cd "$d" && ./Configure darwin64-x86_64-cc shared --prefix="$STAGE" --libdir=lib \
@@ -862,39 +888,6 @@ if prepare "$d"; then
 fi
 ( cd "$d" && make -s -j2 > /dev/null && make -s install_sw > /dev/null ) || exit 1
 
-echo "==== libsrtp ===="
-d=$(get https://github.com/cisco/libsrtp/archive/refs/tags/v2.6.0.tar.gz srtp)
-if prepare "$d"; then
-    ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release \
-        -Ddefault_library=shared ) || exit 1
-    prepared "$d"
-fi
-( cd "$d" && "$MESON" compile -C b -j 2 \
-  && "$MESON" install -C b ) || exit 1
-
-echo "==== webrtc-audio-processing ===="
-# Echo cancellation / noise suppression for getUserMedia audio (gst's webrtcdsp).
-d=$(get https://www.freedesktop.org/software/pulseaudio/webrtc-audio-processing/webrtc-audio-processing-1.3.tar.xz webrtcap)
-if prepare "$d"; then
-    # Pre-populate meson's packagecache from the wrap files, so the subproject sources come down here
-    # -- and into the tarball cache, so a later extraction of this tree needs no network -- rather
-    # than at meson-setup time. A layout change must fail loudly: a silent no-op would quietly make
-    # the build depend on the network reaching meson's wrapdb instead.
-    [ -d "$d/subprojects" ] || { echo "  FATAL: $d has no subprojects/ to pre-cache"; exit 1; }
-    ( cd "$d/subprojects" && mkdir -p packagecache && cd packagecache \
-      && for w in ../*.wrap; do
-           [ -f "$w" ] || continue
-           su=$(sed -n 's/^source_url *= *//p' "$w"); sf=$(sed -n 's/^source_filename *= *//p' "$w")
-           pu=$(sed -n 's/^patch_url *= *//p' "$w");  pf=$(sed -n 's/^patch_filename *= *//p' "$w")
-           if [ -n "$su" ] && [ ! -f "$sf" ]; then fetch_cached "$su" "$sf" || exit 1; fi
-           if [ -n "$pu" ] && [ ! -f "$pf" ]; then fetch_cached "$pu" "$pf" || exit 1; fi
-         done ) || { echo "  FATAL: webrtc-audio-processing wrap pre-cache failed"; exit 1; }
-    ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release ) || exit 1
-    prepared "$d"
-fi
-( cd "$d" && "$MESON" compile -C b -j 2 \
-  && "$MESON" install -C b ) || exit 1
-
 echo "==== GStreamer $GST_VER (core) ===="
 # -Dc_std=gnu11: GStreamer 1.28's project() sets c_std=gnu11,c11 (a meson fallback list),
 # which add_languages('objc') propagates to objc_std; meson 1.5.2 rejects a list for
@@ -902,7 +895,7 @@ echo "==== GStreamer $GST_VER (core) ===="
 # value gnu11 (fully supported by clang-22) so objc_std inherits a valid single value.
 GSTOPTS="-Dbuildtype=release -Dtests=disabled -Dexamples=disabled -Ddoc=disabled -Dc_std=gnu11"
 # -Dtools=enabled: gst-inspect-1.0/gst-launch-1.0 deploy into deps/build/bin for
-# on-box verification of the shipped runtime (webrtcbin present, plugins load).
+# on-box verification of the shipped runtime (plugins load, pipelines run).
 d=$(get https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-$GST_VER.tar.xz gstcore)
 if prepare "$d"; then
     # multiqueue: report the queue's current buffering level. See patches/README.md.
@@ -958,41 +951,12 @@ fi
 ( cd "$d" && "$MESON" compile -C b -j 2 \
   && "$MESON" install -C b ) || exit 1
 
-echo "==== libnice ===="
-# libnice sits between gst core (its own "nice" ICE-transport gst plugin needs
-# gstreamer-1.0 discoverable) and gst-plugins-bad (whose webrtc option needs nice.pc
-# discoverable at setup time -- webrtcbin, libgstwebrtc and libgstwebrtcnice only
-# build when libnice is already installed).
-# libnice >= 0.1.23 is required by gst-plugins-bad 1.28 (gst-libs/gst/webrtc/nice).
-d=$(get https://libnice.freedesktop.org/releases/libnice-0.1.23.tar.gz nice)
-if prepare "$d"; then
-    ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release -Dtests=disabled \
-        -Dexamples=disabled -Dgtk_doc=disabled -Dintrospection=disabled -Dgupnp=disabled \
-        -Dgstreamer=enabled -Dcrypto-library=openssl ) || exit 1
-    prepared "$d"
-fi
-( cd "$d" && "$MESON" compile -C b -j 2 \
-  && "$MESON" install -C b ) || exit 1
-
 echo "==== gst-plugins-bad ===="
-# sctp (WebRTC datachannels) builds from the usrsctp copy bundled in the tarball's
-# ext/sctp/usrsctp -- no extra download. webp is off because the plugin has no caller: WebP
-# images decode in WebCore's own WEBPImageDecoder.
+# webp is off because the plugin has no caller: WebP images decode in WebCore's own
+# WEBPImageDecoder. The WebRTC plugin set (webrtc, dtls, srtp, sctp, webrtcdsp) is off: WebRTC is
+# libwebrtc, inside WebCore.
 d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-$GST_VER.tar.xz gstbad)
 if prepare "$d"; then
-    # patch webrtcbin's over-strict remote-ICE-credential charset check so
-    # base64url ufrag/pwd (Google Meet) don't fail set-remote-description. See
-    # patches/README.md.
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-ice-credential-charset.patch" \
-        && patch -p1 < "$HERE/patches/gst-plugins-bad-ice-credential-charset.patch" ) \
-      || { echo "gst-plugins-bad ICE patch failed to apply"; exit 1; }
-    # vtenc wraps its source pixel buffers around raw GstMemory without stating
-    # their colorimetry, and 10.9's VideoToolbox cannot color-match an untagged source: every frame
-    # fails with kVTInsufficientSourceColorDataErr (-12917), so WebRTC outbound H.264 encodes nothing.
-    # This tags those buffers from the negotiated caps. See patches/README.md.
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtenc-tag-source-colorimetry.patch" \
-        && patch -p1 < "$HERE/patches/gst-plugins-bad-vtenc-tag-source-colorimetry.patch" ) \
-      || { echo "gst-plugins-bad vtenc colorimetry patch failed to apply"; exit 1; }
     # vtdec_hw advertises codecs the machine cannot hardware-decode; the -8973
     # session failure then lands outside decodebin3's candidate window and kills playbin3 (MSE)
     # pipelines that avdec could have played. This gates its getcaps on a per-codec RequireHardware
@@ -1029,7 +993,7 @@ if prepare "$d"; then
         && patch -p1 < "$HERE/patches/gst-plugins-bad-adaptivedemux-release-manifest-lock-for-downloads.patch" ) \
       || { echo "gst-plugins-bad adaptivedemux manifest-lock patch failed to apply"; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
-        -Dwebrtc=enabled -Dwebrtcdsp=enabled -Ddtls=enabled -Dsrtp=enabled -Dsctp=enabled \
+        -Dwebrtc=disabled -Dwebrtcdsp=disabled -Ddtls=disabled -Dsrtp=disabled -Dsctp=disabled \
         -Dapplemedia=enabled -Dwebp=disabled -Dorc=enabled ) || exit 1
     prepared "$d"
 fi
@@ -1134,7 +1098,7 @@ cp -Rp "$STAGE/include/avif"       "$DEST/include/"
 # libxml2 headers: WebCore compiles against these. OptionsMac.cmake points
 # LIBXML2_INCLUDE_DIR here so the headers match the 2.13 dylib deployed alongside them.
 cp -Rp "$STAGE/include/libxml2"    "$DEST/include/"
-for inc in glib-2.0 gio-unix-2.0 gstreamer-1.0 orc-0.4 openssl nice; do
+for inc in glib-2.0 gio-unix-2.0 gstreamer-1.0 orc-0.4 openssl; do
   [ -d "$STAGE/include/$inc" ] && cp -Rp "$STAGE/include/$inc" "$DEST/include/"
 done
 mkdir -p "$DEST/lib/glib-2.0/include"
@@ -1292,9 +1256,6 @@ require_glob() {
 require_glob "$DEST/include/cdm/content_decryption_module.h"
 require_glob "$DEST/lib/libglib-2.0.*.dylib"
 require_glob "$DEST/lib/libgstreamer-1.0.*.dylib"
-require_glob "$DEST/lib/libgstwebrtc-1.0.*.dylib"
-require_glob "$DEST/lib/libgstwebrtcnice-1.0.*.dylib"
-require_glob "$DEST/lib/libnice.*.dylib"
 require_glob "$DEST/lib/libavcodec.*.dylib"
 require_glob "$DEST/lib/libvpx.*.dylib"
 require_glob "$DEST/lib/libxml2.*.dylib"
@@ -1316,8 +1277,7 @@ require_glob "$DEST/include/libxml2/libxml/parser.h"
 if [ -e "$DEST/lib/libunwind.1.dylib" ]; then
   echo "  FAIL: $DEST/lib/libunwind.1.dylib exists (mixed-unwinder hazard; must bind /usr/lib/system/libunwind.dylib)"; REQFAIL=1
 fi
-for p in libgstcoreelements libgstlibav libgstwebrtc libgstnice libgstdtls libgstsrtp \
-         libgstsctp libgstvpx libgstwebrtcdsp libgstopus libgstapplemedia libgstosxaudio \
+for p in libgstcoreelements libgstlibav libgstvpx libgstopus libgstapplemedia libgstosxaudio \
          libgsttypefindfunctions libgstplayback libgstisomp4 libgstmatroska \
          libgstvideoconvertscale libgstaudioconvert libgstaudioresample libgstapp \
          libgstvorbis libgstogg libgstflac libgstwavparse libgstdeinterlace \

@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>WebRTC GStreamer Loopback Test</title>
+<title>WebRTC Loopback Test</title>
 <style>
   body { font-family: -apple-system, Helvetica, sans-serif; margin: 24px; background:#fff; }
   #verdict { font-size: 42px; font-weight: bold; padding: 16px; border-radius: 8px; }
@@ -46,7 +46,7 @@ async function runLoopback() {
     const dc = pc1.createDataChannel('test');
     dc.onopen = ()=>{ log('pc1 data channel OPEN — sending ping','ok'); dc.send('ping-from-pc1'); };
     dc.onmessage = e => { log('pc1 received: '+e.data,'ok');
-      if (e.data === 'pong-from-pc2') { gotMessage = true; if(!timedOut) pass('data channel round-trip over GStreamer webrtcbin (DTLS+SCTP+ICE)'); } };
+      if (e.data === 'pong-from-pc2') { gotMessage = true; if(!timedOut) pass('data channel round-trip over libwebrtc (DTLS+SCTP+ICE)'); } };
 
     pc2.ondatachannel = ev => {
       const ch = ev.channel;

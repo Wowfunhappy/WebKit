@@ -58,11 +58,6 @@ public:
     GRefPtr<GstWebRTCRTPSender> sender() const { return m_sender; }
     GRefPtr<GstElement> bin() const { return m_bin; }
 
-    // MAVERICKS_BACKPORT: this source's stable send SSRC (see m_ssrc). GStreamerMediaEndpoint reads
-    // it to stamp the transceiver's codec-preferences at add-transceiver time so webrtcbin advertises
-    // the same value it is packetized with.
-    uint32_t ssrc() const { return m_ssrc; }
-
     bool configurePacketizers(GRefPtr<GstCaps>&&);
 
     GUniquePtr<GstStructure> parameters();
@@ -70,9 +65,6 @@ public:
     void setParameters(GUniquePtr<GstStructure>&&);
 
     void configure(GRefPtr<GstCaps>&&);
-    // MAVERICKS_BACKPORT: rebuild the packetizers for the codec the m-section actually negotiated;
-    // called by GStreamerMediaEndpoint::linkOutgoingSources. See the implementation.
-    void reconfigureForNegotiatedCaps(GRefPtr<GstCaps>&&);
 
     [[nodiscard]] GUniquePtr<GstStructure> stats();
 
@@ -128,11 +120,6 @@ protected:
     GRefPtr<GstWebRTCRTPSender> m_sender;
     GRefPtr<GstPad> m_webrtcSinkPad;
     RefPtr<UniqueSSRCGenerator> m_ssrcGenerator;
-    // MAVERICKS_BACKPORT: one stable send SSRC per source. configurePacketizers() stamps it onto the
-    // RTP packetizer's caps, and GStreamerMediaEndpoint stamps the SAME value onto the transceiver's
-    // codec-preferences at add-transceiver time, so webrtcbin advertises a=ssrc/a=ssrc-group:FID for
-    // exactly the SSRC we send with (Google Meet requires the match). Replaces the WK-side SDP munge.
-    uint32_t m_ssrc { 0 };
     GUniquePtr<GstStructure> m_parameters;
     RTPHeaderExtensionMapping m_rtpHeaderExtensionMapping;
     Vector<RefPtr<GStreamerRTPPacketizer>> m_packetizers;

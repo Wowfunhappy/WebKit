@@ -10,7 +10,7 @@ them all from source with the in-tree toolchain into **`build/`** (`build/lib` +
 - libxml2 2.13 (`lib/libxml2.2.dylib`, `include/libxml2`), which WebCore links in place of
   the crash-prone 10.9 system libxml2 2.9;
 - the complete GStreamer 1.28.5 runtime — glib 2.80.5, gstreamer core/base/good/bad,
-  FFmpeg + gst-libav, libvpx, dav1d, libnice/srtp/dtls + OpenSSL, WebRTC audio DSP —
+  FFmpeg + gst-libav, libvpx, dav1d, OpenSSL (HLS AES-128 keys) —
   plus `bin/gst-inspect-1.0` and `bin/gst-launch-1.0` for on-box debugging;
 - `include/cdm`, the Chromium Content Decryption Module interface (pinned to one revision of
   Chromium's own repository) that WebCore's `CDMWidevine.cpp` hosts. Headers only: the module

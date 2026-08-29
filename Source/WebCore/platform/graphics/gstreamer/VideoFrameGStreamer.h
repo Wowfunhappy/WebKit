@@ -127,13 +127,13 @@ private:
     RefPtr<NativeImage> copyNativeImage() const final;
 
     // MAVERICKS_BACKPORT: VideoFrame::pixelBuffer() answers null unless the frame is CoreVideo-backed,
-    // and every Cocoa consumer that moves a frame across a process boundary reaches for it --
-    // SharedVideoFrameWriter::writeBuffer() and UserMediaCaptureManagerProxy's VideoFrameAvailableCV
-    // among them. Wrap this frame's pixels in a CVPixelBuffer so those paths carry GStreamer frames.
+    // and every Cocoa consumer that moves a frame across a process boundary or into a CoreVideo API
+    // reaches for it -- SharedVideoFrameWriter::writeBuffer(), VideoFrameCV-based WebCodecs and canvas
+    // paths among them. Wrap this frame's pixels in a CVPixelBuffer so those paths carry GStreamer frames.
     CVPixelBufferRef pixelBuffer() const final;
-    // VideoFrame is ThreadSafeRefCounted and UserMediaCaptureManagerProxy reaches pixelBuffer() from
-    // a background thread, so the lazy build is locked: two racing builds would map the same
-    // GstVideoFrame twice and unmap it twice.
+    // VideoFrame is ThreadSafeRefCounted and pixelBuffer() is reached from worker and rendering
+    // threads, so the lazy build is locked: two racing builds would map the same GstVideoFrame twice
+    // and unmap it twice.
     mutable Lock m_cvPixelBufferLock;
     mutable RetainPtr<CVPixelBufferRef> m_cvPixelBuffer WTF_GUARDED_BY_LOCK(m_cvPixelBufferLock);
 #endif

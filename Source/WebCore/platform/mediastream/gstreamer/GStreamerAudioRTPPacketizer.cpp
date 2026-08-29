@@ -62,14 +62,9 @@ RefPtr<GStreamerAudioRTPPacketizer> GStreamerAudioRTPPacketizer::create(RefPtr<U
     auto inputCaps = adoptGRef(gst_caps_new_any());
     GUniquePtr<GstStructure> structure(gst_structure_copy(codecParameters));
 
-    // MAVERICKS_BACKPORT: keep a pre-set "ssrc" (pinned on codec-preferences by
-    // RealtimeOutgoingMediaSourceGStreamer so webrtcbin advertises the same value) instead of
-    // always generating a fresh one — the SSRC we send with then matches the one advertised.
-    if (!gst_structure_has_field(structure.get(), "ssrc")) {
-        auto ssrc = ssrcGenerator->generateSSRC();
-        if (ssrc != std::numeric_limits<uint32_t>::max())
-            gst_structure_set(structure.get(), "ssrc", G_TYPE_UINT, ssrc, nullptr);
-    }
+    auto ssrc = ssrcGenerator->generateSSRC();
+    if (ssrc != std::numeric_limits<uint32_t>::max())
+        gst_structure_set(structure.get(), "ssrc", G_TYPE_UINT, ssrc, nullptr);
 
     GRefPtr<GstElement> encoder;
     if (encoding == "opus"_s) {

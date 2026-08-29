@@ -8,12 +8,11 @@
 # MediaPlayerPrivateGStreamer compiles unchanged. Software/appsink path only (GL + TextureMapper
 # + CoordinatedGraphics OFF); decoded frames reach CG via ImageGStreamerCG.cpp.
 #
-# Full GStreamer media stack (like the GTK/WPE ports): the GStreamer player handles <video>/<audio>,
-# GStreamer mediastream handles getUserMedia capture, and GStreamer webrtcbin handles WebRTC, so
-# libwebrtc and the AVFoundation media engines are not used for playback/capture/WebRTC. The WebRTC
-# plugins (libgstwebrtc/nice/srtp/sctp/dtls + OpenSSL) build alongside the rest.
-SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER_MEDIA_STREAM TRUE)
-SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER_WEBRTC TRUE)
+# GStreamer handles <video>/<audio> playback only; the AVFoundation playback engines are not used.
+# getUserMedia capture and WebRTC are the Cocoa stack (AVFoundation/CoreAudio capture sources +
+# libwebrtc, USE_LIBWEBRTC in OptionsMacMavericks.cmake), so webrtcbin and GStreamer capture are not built.
+SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER_MEDIA_STREAM FALSE)
+SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER_WEBRTC FALSE)
 
 set(GST_ROOT "${MAVERICKS_DEPS}")
 set(GST_LIB "${GST_ROOT}/lib")
@@ -80,12 +79,6 @@ _GST_DEFINE_COMPONENT(GSTREAMER_FFT      libgstfft-1.0.dylib)
 _GST_DEFINE_COMPONENT(GSTREAMER_ALLOCATORS libgstallocators-1.0.dylib)
 _GST_DEFINE_COMPONENT(GSTREAMER_RTP    libgstrtp-1.0.dylib)
 _GST_DEFINE_COMPONENT(GSTREAMER_SDP    libgstsdp-1.0.dylib)
-_GST_DEFINE_COMPONENT(GSTREAMER_WEBRTC libgstwebrtc-1.0.dylib)
-# OpenSSL (built alongside GStreamer) — WebCore GStreamer WebRTC links OpenSSL::Crypto.
-if (NOT TARGET OpenSSL::Crypto)
-    add_library(OpenSSL::Crypto UNKNOWN IMPORTED GLOBAL)
-    set_target_properties(OpenSSL::Crypto PROPERTIES IMPORTED_LOCATION "${GST_LIB}/libcrypto.3.dylib" INTERFACE_INCLUDE_DIRECTORIES "${GST_ROOT}/include")
-endif ()
 # Components the Mac/software build does not use are left empty (GL, mpegts, codecparsers, etc.).
 set(GSTREAMER_GL_INCLUDE_DIRS "")
 set(GSTREAMER_GL_LIBRARIES "")

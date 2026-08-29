@@ -1025,6 +1025,26 @@
 #define HAVE_UNIFIED_SPEECHSYNTHESIS_FIX_FOR_81465164 1
 #endif
 
+// MAVERICKS_BACKPORT: VideoToolbox gained HEVC encode and decode in macOS 10.13; below it there is no HEVC
+// codec at all, so WebRTC must not advertise H.265 (UnifiedWebPreferences.yaml's WebRTCH265CodecEnabled).
+#if PLATFORM(COCOA) && (!PLATFORM(MAC) || !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101300)
+#define HAVE_VIDEOTOOLBOX_HEVC 1
+#endif
+
+// MAVERICKS_BACKPORT: the segment-emitting AVAssetWriter (-initWithFileType:error:, AVAssetWriterDelegate,
+// -setPreferredOutputSegmentInterval:) is macOS 11+. Below it MediaRecorder has no MP4 writer, so the MP4
+// container is reported unsupported and the default container is WebM.
+#if PLATFORM(COCOA) && (!PLATFORM(MAC) || !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 110000)
+#define HAVE_AVASSETWRITER_DELEGATE 1
+#endif
+
+// MAVERICKS_BACKPORT: Network.framework (nw_connection, nw_path_monitor, nw_parameters) is macOS 10.14+. Below it
+// the Network process's WebRTC sockets and interface monitor take the same path the non-Cocoa ports use:
+// libwebrtc's BasicPacketSocketFactory and the ifaddrs-based NetworkRTCMonitor.
+#if PLATFORM(COCOA) && (!PLATFORM(MAC) || !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101400)
+#define HAVE_NETWORK_FRAMEWORK 1
+#endif
+
 // MAVERICKS_BACKPORT: ScreenCaptureKit is macOS 12.3+; gate it off on older deployment targets (10.9 has no SCKit).
 #if PLATFORM(MAC) && (!defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 120300)
 #define HAVE_SCREEN_CAPTURE_KIT 1

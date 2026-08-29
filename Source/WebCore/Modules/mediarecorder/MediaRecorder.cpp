@@ -62,16 +62,11 @@ bool MediaRecorder::isTypeSupported(Document& document, const String& value)
         return true;
 
     ContentType mimeType(value);
-// MAVERICKS_BACKPORT: prefer the GStreamer recorder on this Cocoa+GStreamer hybrid. The Cocoa
-// recorder's writer needs the segment-delegate AVAssetWriter (-initWithFileType:error:, macOS 11+),
-// which 10.9's AVFoundation does not have, and GStreamer is this port's media engine — the
-// MediaStream capture sources it records from are GStreamer sources.
-#if USE(GSTREAMER)
+#if PLATFORM(COCOA)
+    return MediaRecorderPrivateAVFImpl::isTypeSupported(document, mimeType);
+#elif USE(GSTREAMER)
     UNUSED_PARAM(document);
     return MediaRecorderPrivateGStreamer::isTypeSupported(mimeType);
-// MAVERICKS_BACKPORT: second half of the branch reorder above — AVF stays the non-GStreamer fallback.
-#elif PLATFORM(COCOA)
-    return MediaRecorderPrivateAVFImpl::isTypeSupported(document, mimeType);
 #endif
 #else
     UNUSED_PARAM(document);
@@ -103,11 +98,10 @@ ExceptionOr<std::unique_ptr<MediaRecorderPrivate>> MediaRecorder::createMediaRec
     if (m_customCreator)
         return m_customCreator(stream, options);
 
-// MAVERICKS_BACKPORT: prefer the GStreamer recorder; see the matching note in isTypeSupported().
-#if USE(GSTREAMER)
-    std::unique_ptr<MediaRecorderPrivate> result = MediaRecorderPrivateGStreamer::create(stream, options);
-#elif PLATFORM(COCOA) && USE(AVFOUNDATION)
+#if PLATFORM(COCOA) && USE(AVFOUNDATION)
     std::unique_ptr<MediaRecorderPrivate> result = MediaRecorderPrivateAVFImpl::create(stream, options);
+#elif USE(GSTREAMER)
+    std::unique_ptr<MediaRecorderPrivate> result = MediaRecorderPrivateGStreamer::create(stream, options);
 #else
     std::unique_ptr<MediaRecorderPrivate> result;
 #endif

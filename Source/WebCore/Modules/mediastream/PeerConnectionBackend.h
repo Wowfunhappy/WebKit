@@ -92,7 +92,7 @@ class PeerConnectionBackend
     : public CanMakeWeakPtr<PeerConnectionBackend>
 #if !RELEASE_LOG_DISABLED
     , private LoggerHelper
-#if PLATFORM(WPE) || PLATFORM(GTK) || USE(GSTREAMER_WEBRTC) // MAVERICKS_BACKPORT: Mac+GStreamer is a GStreamer-WebRTC port
+#if PLATFORM(WPE) || PLATFORM(GTK)
     , public Logger::MessageHandlerObserver
 #endif
 #endif
@@ -175,7 +175,7 @@ public:
     uint64_t logIdentifier() const final { return m_logIdentifier; }
     ASCIILiteral logClassName() const override { return "PeerConnectionBackend"_s; }
     WTFLogChannel& NODELETE logChannel() const final;
-#if PLATFORM(WPE) || PLATFORM(GTK) || USE(GSTREAMER_WEBRTC) // MAVERICKS_BACKPORT: Mac+GStreamer is a GStreamer-WebRTC port
+#if PLATFORM(WPE) || PLATFORM(GTK)
     void handleLogMessage(const WTFLogChannel&, WTFLogLevel, Vector<JSONLogValue>&&) final;
 #endif
 #endif
@@ -252,7 +252,7 @@ protected:
 
     void NODELETE validateSDP(const String&) const;
 
-#if PLATFORM(WPE) || PLATFORM(GTK) || USE(GSTREAMER_WEBRTC) // MAVERICKS_BACKPORT: Mac+GStreamer is a GStreamer-WebRTC port
+#if PLATFORM(WPE) || PLATFORM(GTK)
     bool isJSONLogStreamingEnabled() const { return !m_jsonFilePath.isEmpty(); }
 #endif
 
@@ -291,7 +291,7 @@ private:
     bool m_finishedGatheringCandidates { false };
     bool m_isProcessingLocalDescriptionAnswer { false };
 
-#if PLATFORM(WPE) || PLATFORM(GTK) || USE(GSTREAMER_WEBRTC) // MAVERICKS_BACKPORT: Mac+GStreamer is a GStreamer-WebRTC port
+#if PLATFORM(WPE) || PLATFORM(GTK)
     String m_jsonFilePath;
 #endif
 };

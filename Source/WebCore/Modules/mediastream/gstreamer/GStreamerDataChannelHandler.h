@@ -30,34 +30,14 @@
 #include <wtf/Condition.h>
 #include <wtf/Lock.h>
 #include <wtf/TZoneMalloc.h>
-// MAVERICKS_BACKPORT: base class for the DataChannelHandlerGuard alive-guard below.
-#include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class Document;
-// MAVERICKS_BACKPORT: forward-declared for the DataChannelHandlerGuard alive-guard below.
-class GStreamerDataChannelHandler;
 class RTCDataChannelEvent;
 class RTCDataChannelHandlerClient;
 struct RTCDataChannelInit;
-
-// MAVERICKS_BACKPORT: the GstWebRTCDataChannel GObject signals (on-message-*, notify::*, on-error,
-// on-close) fire on GStreamer's streaming thread and deref the (non-refcounted) handler. The handler is
-// destroyed on the main thread; g_signal_handler_disconnect does NOT wait for an in-flight handler on
-// another thread, so a signal racing setup/teardown used to deref freed memory → heap corruption (#94,
-// observed as a garbage GstSample on the CoreAudio thread). This shared guard lets every signal check,
-// under a lock, whether the handler is still alive; the handler nulls it (under the same lock) before
-// teardown, so an in-flight signal either completes before destruction or is skipped.
-class DataChannelHandlerGuard : public ThreadSafeRefCounted<DataChannelHandlerGuard> {
-public:
-    static Ref<DataChannelHandlerGuard> create(GStreamerDataChannelHandler& handler) { return adoptRef(*new DataChannelHandlerGuard(handler)); }
-    Lock lock;
-    GStreamerDataChannelHandler* handler { nullptr };
-private:
-    explicit DataChannelHandlerGuard(GStreamerDataChannelHandler& handlerRef) : handler(&handlerRef) { }
-};
 
 class GStreamerDataChannelHandler final : public RTCDataChannelHandler {
     WTF_MAKE_TZONE_ALLOCATED(GStreamerDataChannelHandler);
@@ -109,10 +89,6 @@ private:
     String m_channelId;
 
     Vector<unsigned long, 6> m_signalHandlers;
-
-    // MAVERICKS_BACKPORT: keeps the GObject signal handlers from deref'ing this handler after it is
-    // destroyed (see DataChannelHandlerGuard). Shared with every per-signal DataChannelNotifier.
-    const Ref<DataChannelHandlerGuard> m_guard;
 };
 
 } // namespace WebCore

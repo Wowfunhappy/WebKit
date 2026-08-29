@@ -86,12 +86,3 @@
 ;; getUserMedia permission prompt, which those ports rely on for the same reason. The audio mach-lookups
 ;; (com.apple.audio.coreaudiod, com.apple.audio.audiohald) are in the base profile ungated.
 (allow device-microphone)
-
-;; WebRTC ICE sockets. This build uses GSTREAMER_WEBRTC with upstream's default LIBRICE-off
-;; configuration, in which libnice opens the ICE/media UDP sockets inside the web process
-;; (upstream's NetworkRTCProvider broker is LIBWEBRTC-only). Upstream grants the socket-owning
-;; process this capability class in com.apple.WebKit.NetworkProcess.sb.in; here that process is
-;; WebContent, and the grant is narrowed to UDP. The base profile already allows
-;; network-outbound (remote udp).
-(allow network-bind (local udp))
-(allow network-inbound (local udp))

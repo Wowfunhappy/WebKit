@@ -46,8 +46,6 @@ public:
     String rtpStreamId() const;
     std::optional<int> payloadType() const;
     unsigned currentSequenceNumberOffset() const;
-    // MAVERICKS_BACKPORT: the live sequence number, for continuity across a packetizer rebuild.
-    unsigned currentSequenceNumber() const;
     void setSequenceNumberOffset(unsigned);
 
     std::optional<std::pair<unsigned, GstStructure*>> stats() const;

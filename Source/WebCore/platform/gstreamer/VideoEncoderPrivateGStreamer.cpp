@@ -148,9 +148,6 @@ enum EncoderId {
     SvtAv1,
     QualcommH264,
     QualcommH265,
-    // MAVERICKS_BACKPORT: VideoToolbox supplies the H.264 encoder present on macOS; the
-    // software/Linux encoders above are absent here.
-    VtH264,
 };
 
 class Encoders {
@@ -745,18 +742,6 @@ static void webkit_video_encoder_class_init(WebKitVideoEncoderClass* klass)
             g_object_set(self->priv->parser.get(), "config-interval", 1, nullptr);
             g_object_set(self->priv->outputCapsFilter.get(), "caps", self->priv->encodedCaps.get(), nullptr);
         }, "bitrate"_s, setBitrateBitPerSec, "gop-size"_s, [](GstElement*, BitrateMode) {
-            notImplemented();
-        }, [](GstElement*, LatencyMode) {
-            notImplemented();
-        });
-    // MAVERICKS_BACKPORT: Apple VideoToolbox H.264 encoder, the H.264 encoder present on macOS.
-    // Realtime, no frame reordering (no B-frames, low latency); its "bitrate" is in kbit/s.
-    Encoders::registerEncoder(VtH264, "vtenc_h264"_s, "h264parse"_s, "video/x-h264"_s,
-        "video/x-h264,alignment=au,stream-format=avc"_s,
-        [](WebKitVideoEncoder* self) {
-            g_object_set(self->priv->encoder.get(), "realtime", TRUE, "allow-frame-reordering", FALSE, nullptr);
-            g_object_set(self->priv->parser.get(), "config-interval", 1, nullptr);
-        }, "bitrate"_s, setBitrateKbitPerSec, "max-keyframe-interval"_s, [](GstElement*, BitrateMode) {
             notImplemented();
         }, [](GstElement*, LatencyMode) {
             notImplemented();

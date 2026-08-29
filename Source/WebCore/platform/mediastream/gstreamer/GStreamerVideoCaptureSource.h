@@ -36,10 +36,6 @@ class GStreamerVideoCaptureSource final : public RealtimeVideoCaptureSource, GSt
 public:
     static CaptureSourceOrError create(String&& deviceID, MediaDeviceHashSalts&&, const MediaConstraints*);
     static CaptureSourceOrError createPipewireSource(const PipeWireCaptureDevice&, MediaDeviceHashSalts&&, const MediaConstraints*);
-    // MAVERICKS_BACKPORT: create from an explicit GStreamerCaptureDevice that is not registered with
-    // the device monitor — used for macOS screen-capture devices (avfvideosrc capture-screen), which
-    // GStreamerDisplayCaptureDeviceManager fabricates per display.
-    static CaptureSourceOrError createFromGStreamerDevice(GStreamerCaptureDevice&&, MediaDeviceHashSalts&&, const MediaConstraints*);
 
     WEBCORE_EXPORT static VideoCaptureFactory& factory();
 

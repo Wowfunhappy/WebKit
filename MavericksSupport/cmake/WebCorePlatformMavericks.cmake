@@ -70,21 +70,11 @@ endif ()
 # search path, which is why it never has to say so; the CMake port lists them individually. Verified no
 # filename collisions with platform/mac, platform/cocoa, platform, or platform/graphics/cocoa.
 
-# libwebm (webm_parser component + the VP9
-# uncompressed-header parser). Apple's Mac port gets libwebm from its internal SDK, so upstream's CMake
-# never has to name it; without it the sources that include <webm/...> cannot compile. That is a
-# third-party gap, not a 10.9 one, and it reaches live code -- AudioFileReaderCocoa.mm (Web Audio
-# decodeAudioData) calls SourceBufferParserWebM::create() directly.
-#
-# The copy used is the one already vendored in-tree under ThirdParty/libwebrtc -- unbuilt otherwise,
-# since USE_LIBWEBRTC is OFF, but present. That is deliberate rather than incidental: it is the vintage
-# WebKit is written against. Current upstream libwebm has dropped webm::Callback::OnElementEnd, which
-# SourceBufferParserWebM.h declares `final`, so building against a fresh checkout fails with
-# "only virtual member functions can be marked 'final'".
-#
-# The headers are staged into the build tree rather than added as two include directories because WebKit
-# spells one of them <webm/common/vp9_header_parser.h> while libwebm ships it at common/, outside the
-# webm/ include root -- so no directory in the source tree satisfies every spelling at once.
+# libwebm headers. The `webm` library target comes from ThirdParty/libwebrtc/CMakeLists.txt, which
+# stages its headers flat under ${CMAKE_BINARY_DIR}/libwebrtc/PrivateHeaders/webm/. WebCore also spells
+# <webm/common/vp9_header_parser.h> and <webm/mkvmuxer/mkvmuxer.h>, and libwebm's own headers include
+# each other relative to the library root ("common/webmids.h", "mkvmuxer/mkvmuxertypes.h"), so both
+# layouts are staged here and put on the include path.
 set(LIBWEBM_DIR "${THIRDPARTY_DIR}/libwebrtc/Source/third_party/libwebm")
 set(LIBWEBM_STAGED_INCLUDE "${CMAKE_BINARY_DIR}/libwebm/Headers")
 # The staging below runs at configure time: the glob tracks the header set, the property their contents.
@@ -94,57 +84,14 @@ file(GLOB_RECURSE LIBWEBM_HEADERS CONFIGURE_DEPENDS
     "${LIBWEBM_DIR}/common/*.h")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${LIBWEBM_HEADERS})
 file(COPY "${LIBWEBM_DIR}/webm_parser/include/webm" DESTINATION "${LIBWEBM_STAGED_INCLUDE}")
-file(COPY "${LIBWEBM_DIR}/common/vp9_header_parser.h" DESTINATION "${LIBWEBM_STAGED_INCLUDE}/webm/common")
-# the muxer half of libwebm. MediaRecorderPrivateWriterWebM.cpp includes
-# <webm/mkvmuxer/mkvmuxer.h>, and that TU is built now that ENABLE_MEDIA_RECORDER_WEBM is on, so the
-# parser alone is not enough.
 file(COPY "${LIBWEBM_DIR}/mkvmuxer" DESTINATION "${LIBWEBM_STAGED_INCLUDE}/webm"
      FILES_MATCHING PATTERN "*.h")
 file(COPY "${LIBWEBM_DIR}/common" DESTINATION "${LIBWEBM_STAGED_INCLUDE}/webm"
      FILES_MATCHING PATTERN "*.h")
-# libwebm's own headers include each other by paths relative to the library root -- mkvmuxer.h does
-# `#include "common/webmids.h"` and `#include "mkvmuxer/mkvmuxertypes.h"`. Those do not resolve against
-# the webm/-prefixed tree above, so stage the root layout as well and put both on the include path.
 file(COPY "${LIBWEBM_DIR}/mkvmuxer" DESTINATION "${LIBWEBM_STAGED_INCLUDE}"
      FILES_MATCHING PATTERN "*.h")
 file(COPY "${LIBWEBM_DIR}/common" DESTINATION "${LIBWEBM_STAGED_INCLUDE}"
      FILES_MATCHING PATTERN "*.h")
-
-# NOTE: the source list must be complete BEFORE add_library() -- appending to LIBWEBM_SOURCES after the
-# target exists has no effect on it.
-file(GLOB LIBWEBM_SOURCES CONFIGURE_DEPENDS "${LIBWEBM_DIR}/webm_parser/src/*.cc")
-list(APPEND LIBWEBM_SOURCES
-    "${LIBWEBM_DIR}/common/vp9_header_parser.cc"
-    "${LIBWEBM_DIR}/mkvmuxer/mkvmuxer.cc"
-    "${LIBWEBM_DIR}/mkvmuxer/mkvmuxerutil.cc"
-    "${LIBWEBM_DIR}/mkvmuxer/mkvwriter.cc"
-    "${LIBWEBM_DIR}/common/webm_endian.cc"
-)
-add_library(webm STATIC ${LIBWEBM_SOURCES})
-target_include_directories(webm PRIVATE
-    "${LIBWEBM_DIR}"
-    "${LIBWEBM_DIR}/webm_parser"
-    "${LIBWEBM_DIR}/webm_parser/include"
-)
-# WEBRTC_WEBKIT_BUILD is what makes this vendored libwebm the version WebKit is
-# written against. It guards seven places in the library -- including webm::Callback::OnElementEnd,
-# which SourceBufferParserWebM.h declares `final`, and Vp9HeaderParser's color_range()/subsampling_x()/
-# subsampling_y(), which VP9UtilitiesCocoa.mm calls. WebKit defines it in
-# platform/mediastream/libwebrtc/LibWebRTCMacros.h (as 1), but that header is only reached through the
-# libwebrtc code paths, which this port does not build (USE_LIBWEBRTC is OFF) -- so without defining it
-# here the library and its WebCore consumers see an unpatched libwebm and fail to compile.
-#
-# It is defined for ALL of WebCore rather than just the translation units that name these symbols, and
-# that is deliberate: webm::Callback::OnElementEnd is a VIRTUAL function inside the guard, so a TU that
-# sees it and a TU that does not disagree about webm::Callback's vtable layout. Mixing them would be an
-# ODR violation that links cleanly and then dispatches to the wrong slot at runtime, rather than
-# failing loudly. The library target gets the same define for the same reason.
-target_compile_definitions(webm PRIVATE WEBRTC_WEBKIT_BUILD=1)
-add_definitions(-DWEBRTC_WEBKIT_BUILD=1)
-
-# libwebm is third-party: do not fail this build on its warnings.
-target_compile_options(webm PRIVATE -w)
-set_target_properties(webm PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 
 # re-export /usr/lib/libobjc.A.dylib through WebCore, exactly as stock 10.9 did.
@@ -189,11 +136,7 @@ list(REMOVE_ITEM WebCore_PRIVATE_FRAMEWORK_HEADERS
 )
 
 list(REMOVE_ITEM WebCore_SOURCES
-    # Defines MediaStreamAudioSource::consumeAudio and ::setNumberOfChannels, which
-    # Modules/webaudio/MediaStreamAudioSourceGStreamer.cpp also defines. GStreamer is this port's
-    # mediastream backend (USE_GSTREAMER_MEDIA_STREAM) and its file is the one built, inside a unified
-    # bundle; compiling both makes those two symbols duplicate and the WebCore link fails.
-    Modules/webaudio/MediaStreamAudioSourceCocoa.cpp
+    # PlatformMac.cmake lists this beside the .cpp that exists; only the .cpp is in the tree.
     platform/mediastream/mac/RealtimeOutgoingVideoSourceCocoa.mm
 
     # The AudioToolbox WebCodecs pair. USE(GSTREAMER) wins the backend selection in
@@ -249,13 +192,16 @@ set(MAVERICKS_WITHHELD_COCOA_SOURCES
     "platform/ios/PlaybackSessionInterfaceAVKitLegacy.mm @nonARC @no-unify"
     "platform/ios/PlaybackSessionInterfaceIOS.mm @nonARC @no-unify"
     "platform/ios/WebAVPlayerController.mm @nonARC"
-    "platform/mediastream/mac/RealtimeMediaSourceCenterMac.cpp"
 )
 
-# Withheld from SourcesGStreamer.txt: the libwebrtc-backed GStreamer WebRTC set (USE_LIBWEBRTC is
-# off; webrtcbin is the backend), and the GStreamer mock capture TUs whose
-# MockRealtimeVideoSource::create / MockRealtimeAudioSource::create the Cocoa mock pair defines --
-# MockRealtimeMediaSourceCenter selects the Cocoa mock display capturer first under PLATFORM(COCOA).
+# Withheld from SourcesGStreamer.txt: the GStreamer flavor of the libwebrtc glue (its
+# LibWebRTCProviderGStreamer.cpp defines the same WebRTCProvider::create as LibWebRTCProviderCocoa.cpp),
+# and the GStreamer capture stack -- RealtimeMediaSourceCenterGStreamer.cpp and
+# MediaStreamAudioSourceGStreamer.cpp define the same symbols as the Cocoa TUs, and the GStreamer mock
+# capture sources define the MockRealtime*Source::create the Cocoa mocks define. The GStreamer capture
+# sources, capturers and device managers stay compiled: RealtimeMediaSourceCenterMac selects the Cocoa
+# factories, so they are never instantiated, while the GStreamer player's audio-output selection and
+# GStreamerCommon's teardown call into GStreamerCaptureDeviceManager, which needs the rest of them.
 set(MAVERICKS_WITHHELD_GSTREAMER_SOURCES
     "Modules/mediastream/RTCRtpSFrameTransformerOpenSSL.cpp"
     "platform/mediastream/libwebrtc/gstreamer/GStreamerVideoCommon.cpp"
@@ -270,12 +216,17 @@ set(MAVERICKS_WITHHELD_GSTREAMER_SOURCES
     "platform/mediastream/gstreamer/MockDisplayCaptureSourceGStreamer.cpp"
     "platform/mediastream/gstreamer/MockRealtimeAudioSourceGStreamer.cpp"
     "platform/mediastream/gstreamer/MockRealtimeVideoSourceGStreamer.cpp"
+    "Modules/webaudio/MediaStreamAudioSourceGStreamer.cpp"
+    "platform/mediastream/gstreamer/RealtimeMediaSourceCenterGStreamer.cpp"
 )
 
 # Added to SourcesCocoa.txt: the GCrypt crypto backend that replaces the withheld CommonCrypto one,
 # this port's own glue TU, and Cocoa TUs upstream builds only from WebCore.xcodeproj. Lines are copied
 # verbatim, so @nonARC / @no-unify are preserved.
 set(MAVERICKS_ADDED_COCOA_SOURCES
+    # upstream builds this only from WebCore.xcodeproj (SourcesCocoa.txt lists just the .cpp); its
+    # HAVE(AVAUDIOAPPLICATION)/HAVE(VOICEACTIVITYDETECTION) branches compile out below macOS 14.
+    "platform/mediastream/mac/CoreAudioCaptureUnit.mm @nonARC"
     "crypto/gcrypt/CryptoAlgorithmAESCBCGCrypt.cpp"
     "crypto/gcrypt/CryptoAlgorithmAESCFBGCrypt.cpp"
     "crypto/gcrypt/CryptoAlgorithmAESCTRGCrypt.cpp"
@@ -564,7 +515,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/mediastream/mac/ScreenCaptureKitSharingSessionManager.h
     # export RangeResponseGenerator.h (byte-range media response handling).
     platform/network/cocoa/RangeResponseGenerator.h
-    # export WebRTCVideoDecoder.h (GStreamer/WebRTC video-codecs path).
+    # export WebRTCVideoDecoder.h (libwebrtc video-codecs path).
     platform/video-codecs/cocoa/WebRTCVideoDecoder.h
     # export RenderThemeMac.h (restored Aqua form-control theme; needed by the WK build).
     rendering/mac/RenderThemeMac.h
@@ -600,21 +551,14 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     # USE_AVIF is ON here, so ScalableImageDecoder.cpp resolves a bare
     # `#include "AVIFImageDecoder.h"`. Upstream's Mac build never compiles that branch.
     "${WEBCORE_DIR}/platform/image-decoders/avif"
-    # Same gap: USE_GSTREAMER_WEBRTC is ON here, so Modules/mediastream/gstreamer headers resolve bare
-    # `#include "RealtimeOutgoingAudioSourceGStreamer.h"` and RTCController.cpp a bare
-    # `#include "GStreamerWebRTCLogSink.h"`, both of which live in platform/mediastream/gstreamer;
-    # GStreamerWebRTCUtils.cpp reaches "OpenSSLCryptoUniquePtr.h" in crypto/openssl, and
-    # GStreamerCommon.cpp reaches "ApplicationGLib.h" in platform/glib, whose ApplicationGLib.cpp this
-    # port builds. Only the GTK and WPE ports list these directories as include paths. No basename in
-    # any of the three is reachable from a directory already on this list.
+    # Same gap: MediaPlayerPrivateGStreamer.cpp resolves a bare `#include "GStreamerMediaStreamSource.h"`
+    # from platform/mediastream/gstreamer, and GStreamerCommon.cpp reaches "ApplicationGLib.h" in
+    # platform/glib, whose ApplicationGLib.cpp this port builds. Only the GTK and WPE ports list these
+    # directories as include paths. No basename in either is reachable from a directory already on this list.
     "${WEBCORE_DIR}/platform/mediastream/gstreamer"
-    "${WEBCORE_DIR}/crypto/openssl"
     "${WEBCORE_DIR}/platform/glib"
     "${WEBCORE_DIR}/platform/ios"
     "${LIBWEBM_STAGED_INCLUDE}"
-    # libwebm's headers include each other by paths relative to the library root
-    # ("common/webmids.h", "mkvmuxer/mkvmuxertypes.h"), which do not resolve against the
-    # webm/-prefixed spellings WebKit uses -- so the webm/ subdirectory is on the path too.
     "${LIBWEBM_STAGED_INCLUDE}/webm"
 )
 

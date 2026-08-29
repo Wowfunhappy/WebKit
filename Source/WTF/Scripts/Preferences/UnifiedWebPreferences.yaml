@@ -1765,12 +1765,9 @@ CaptureVideoInGPUProcessEnabled:
   exposed: [ WebKit ]
   defaultValue:
     WebKit:
-      # MAVERICKS_BACKPORT: this default carries the same `&& !USE(GSTREAMER)` term as
-      # UseGPUProcessForMediaEnabled.
-      # This port captures through RealtimeMediaSourceCenterGStreamer (RealtimeMediaSourceCenterMac.cpp
-      # is withheld), whose PlatformAudioData is GStreamerAudioData, while the GPU-process capture
-      # bridge marshals CoreAudio buffers. Capture runs in the web process here, as on upstream's other
-      # GStreamer-capture ports.
+      # MAVERICKS_BACKPORT: this port's GPU process rasterizes only (DOM, canvas, WebGL; see
+      # MavericksSupport/sandbox/com.apple.WebKit.GPUProcess.sb.in); capture, media and WebRTC platform
+      # codecs stay in the web process, so the GPU-process default carries the port's !USE(GSTREAMER) term.
       "ENABLE(GPU_PROCESS_BY_DEFAULT) && !USE(GSTREAMER)": true
       default: false
 
@@ -9781,7 +9778,8 @@ WebRTCH265CodecEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      "PLATFORM(COCOA)": true
+      # MAVERICKS_BACKPORT: only where VideoToolbox has an HEVC codec (see HAVE(VIDEOTOOLBOX_HEVC)).
+      "PLATFORM(COCOA) && HAVE(VIDEOTOOLBOX_HEVC)": true
       default: false
     WebCore:
       "PLATFORM(COCOA)": true
@@ -9843,9 +9841,10 @@ WebRTCPlatformCodecsInGPUProcessEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      # MAVERICKS_BACKPORT: the GPU-process codec path is LibWebRTCCodecs, which is
-      # USE(LIBWEBRTC)-only; this port's WebRTC backend is GStreamer's webrtcbin.
-      "ENABLE(GPU_PROCESS_BY_DEFAULT) && USE(LIBWEBRTC)": true
+      # MAVERICKS_BACKPORT: this port's GPU process rasterizes only (DOM, canvas, WebGL; see
+      # MavericksSupport/sandbox/com.apple.WebKit.GPUProcess.sb.in); capture, media and WebRTC platform
+      # codecs stay in the web process, so the GPU-process default carries the port's !USE(GSTREAMER) term.
+      "ENABLE(GPU_PROCESS_BY_DEFAULT) && !USE(GSTREAMER)": true
       default: false
     WebCore:
       default: false

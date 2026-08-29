@@ -11,10 +11,10 @@
 ; `iokit-open` rather than iokit-open-service/iokit-open-user-client, no with-filter, no
 ; file-map-executable, no message filters -- and grants what this port's GPU process actually
 ; does: DOM and canvas rasterization, and WebGL. Media playback, capture and WebRTC codecs all stay
-; in the web process, where this port's GStreamer engine lives (UseGPUProcessForMediaEnabled,
-; CaptureVideoInGPUProcessEnabled and WebRTCPlatformCodecsInGPUProcessEnabled are all false for
-; USE(GSTREAMER)), so upstream's AVFoundation playback, capture and codec grants -- and the camera,
-; microphone and TCC rules that go with them -- have no counterpart here.
+; in the web process (UseGPUProcessForMediaEnabled, CaptureAudio/Video/DisplayInGPUProcessEnabled and
+; WebRTCPlatformCodecsInGPUProcessEnabled carry the port's !USE(GSTREAMER) term; the web process
+; profile holds the camera and microphone grants), so upstream's AVFoundation playback, capture and
+; codec grants -- and the camera, microphone and TCC rules that go with them -- have no counterpart here.
 ;
 ; The font, ColorSync and CoreGraphics rules are the ones the recovered 10.9 WebProcess profile
 ; carries, because rasterizing is the work that moved: the same CoreText and CoreGraphics paths

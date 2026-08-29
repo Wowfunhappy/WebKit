@@ -146,14 +146,7 @@ static ResolutionCategory NODELETE resolutionCategory(const FloatSize& size)
 
 void registerWebKitVP9Decoder()
 {
-    // MAVERICKS_BACKPORT: another of upstream's inconsistent guards -- this function is unguarded, but
-    // everything it can call is not: LibWebRTCProvider is declared entirely inside #if USE(LIBWEBRTC)
-    // (LibWebRTCProvider.h:28..181). Upstream's Mac port always builds with libwebrtc, so it never meets
-    // this combination; this port uses the GStreamer WebRTC backend instead (USE_LIBWEBRTC is OFF), so
-    // there is no libwebrtc decoder to register. Match the guard its dependency already carries.
-#if USE(LIBWEBRTC)
     LibWebRTCProvider::registerWebKitVP9Decoder();
-#endif // USE(LIBWEBRTC) — MAVERICKS_BACKPORT
 }
 
 static std::optional<bool> s_vp9HardwareDecoderAvailableInProcess = { };

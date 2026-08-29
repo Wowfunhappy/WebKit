@@ -513,10 +513,9 @@ bool ensureGStreamerInitialized()
     // only in-process renderer is the WebProcess. WebKitLegacy hosts render in-process too
     // (Dictionary's panel, Mail's inline attachments, Dashboard web clips); !processType() is a
     // non-auxiliary application process, so the NetworkProcess and the GPU process still trip this.
-    // That is the intended reach: media playback, capture and WebRTC codecs all stay in the web
-    // process here (UseGPUProcessForMediaEnabled, CaptureVideoInGPUProcessEnabled and
-    // WebRTCPlatformCodecsInGPUProcessEnabled are all false for USE(GSTREAMER)), and the GPU process
-    // reconstructs a frame the web process shares as a VideoFrameCV, never a VideoFrameGStreamer.
+    // That is the intended reach: media playback stays in the web process here
+    // (UseGPUProcessForMediaEnabled is false for USE(GSTREAMER)), and the GPU process reconstructs a
+    // frame the web process shares as a VideoFrameCV, never a VideoFrameGStreamer.
     RELEASE_ASSERT(isInWebProcess() || !processType());
     static std::once_flag onceFlag;
     static bool isGStreamerInitialized;
