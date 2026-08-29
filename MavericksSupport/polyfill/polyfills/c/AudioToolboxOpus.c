@@ -83,7 +83,6 @@ enum { kWKOpusChunkFrames = 4096 };       // frames requested from the caller's 
 static const OSStatus kWKOpusInputExhausted = 'wknd'; // nested-resampler sentinel, never escapes.
 
 typedef struct WKOpusConverter {
-    uint32_t magic; // 'WKop' tags handles owned here; everything else belongs to the system.
     AudioStreamBasicDescription sourceFormat;
     AudioStreamBasicDescription destinationFormat;
     OpusEncoder *encoder;
@@ -105,12 +104,35 @@ typedef struct WKOpusConverter {
     UInt32 bitRate;
 } WKOpusConverter;
 
-enum { kWKOpusMagic = 'WKop' };
+// Handles owned here are tracked in a registry, looked up by pointer identity. The system's
+// AudioConverterRef values on 10.9 are opaque non-pointer cookies (small, consecutive, misaligned),
+// so an unknown handle must never be dereferenced to classify it.
+enum { kWKOpusMaxConverters = 32 };
+static WKOpusConverter * volatile wkOpusLiveConverters[kWKOpusMaxConverters];
+
+static bool wkOpusRegister(WKOpusConverter *c)
+{
+    for (int i = 0; i < kWKOpusMaxConverters; ++i) {
+        if (__sync_bool_compare_and_swap(&wkOpusLiveConverters[i], NULL, c))
+            return true;
+    }
+    return false;
+}
+
+static void wkOpusUnregister(WKOpusConverter *c)
+{
+    for (int i = 0; i < kWKOpusMaxConverters; ++i)
+        __sync_bool_compare_and_swap(&wkOpusLiveConverters[i], c, NULL);
+}
 
 static WKOpusConverter *wkOpusConverter(AudioConverterRef converter)
 {
-    WKOpusConverter *c = (WKOpusConverter *)converter;
-    return c && c->magic == kWKOpusMagic ? c : NULL;
+    for (int i = 0; i < kWKOpusMaxConverters; ++i) {
+        WKOpusConverter *c = wkOpusLiveConverters[i];
+        if (c && (AudioConverterRef)c == converter)
+            return c;
+    }
+    return NULL;
 }
 
 static void wkOpusFifoEnsure(WKOpusConverter *c, size_t additionalFrames)
@@ -178,10 +200,10 @@ WK_POLYFILL_REPLACES("AudioToolbox", OSStatus, AudioConverterDispose, (AudioConv
     WKOpusConverter *c = wkOpusConverter(inAudioConverter);
     if (!c)
         return WK_ORIGINAL(AudioConverterDispose)(inAudioConverter);
+    wkOpusUnregister(c);
     wk_opus.encoder_destroy(c->encoder);
     WK_ORIGINAL(AudioConverterDispose)(c->resampler);
     free(c->fifo);
-    c->magic = 0;
     free(c);
     return noErr;
 }
@@ -200,7 +222,6 @@ WK_POLYFILL_REPLACES("AudioToolbox", OSStatus, AudioConverterNew, (const AudioSt
         return kAudioFormatUnsupportedDataFormatError;
 
     WKOpusConverter *c = calloc(1, sizeof(WKOpusConverter));
-    c->magic = kWKOpusMagic;
     c->sourceFormat = *inSourceFormat;
     c->destinationFormat = *inDestinationFormat;
     c->destinationFormat.mFramesPerPacket = kWKOpusFrameSize;
@@ -230,6 +251,13 @@ WK_POLYFILL_REPLACES("AudioToolbox", OSStatus, AudioConverterNew, (const AudioSt
         WK_ORIGINAL(AudioConverterDispose)(c->resampler);
         free(c);
         return kAudioFormatUnsupportedDataFormatError;
+    }
+
+    if (!wkOpusRegister(c)) {
+        wk_opus.encoder_destroy(c->encoder);
+        WK_ORIGINAL(AudioConverterDispose)(c->resampler);
+        free(c);
+        return kAudioConverterErr_UnspecifiedError;
     }
 
     *outAudioConverter = (AudioConverterRef)c;
