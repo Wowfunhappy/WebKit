@@ -1765,10 +1765,9 @@ CaptureVideoInGPUProcessEnabled:
   exposed: [ WebKit ]
   defaultValue:
     WebKit:
-      # MAVERICKS_BACKPORT: this port's GPU process rasterizes only (DOM, canvas, WebGL; see
-      # MavericksSupport/sandbox/com.apple.WebKit.GPUProcess.sb.in); capture, media and WebRTC platform
-      # codecs stay in the web process, so the GPU-process default carries the port's !USE(GSTREAMER) term.
-      "ENABLE(GPU_PROCESS_BY_DEFAULT) && !USE(GSTREAMER)": true
+      # MAVERICKS_BACKPORT: video capture runs in the web process here, which holds the camera grant;
+      # see ENABLE_GPU_PROCESS_RASTERIZATION_ONLY in MavericksSupport/cmake/OptionsMacMavericks.cmake.
+      "ENABLE(GPU_PROCESS_BY_DEFAULT) && !ENABLE(GPU_PROCESS_RASTERIZATION_ONLY)": true
       default: false
 
 CaretBrowsingEnabled:
@@ -9841,10 +9840,9 @@ WebRTCPlatformCodecsInGPUProcessEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      # MAVERICKS_BACKPORT: this port's GPU process rasterizes only (DOM, canvas, WebGL; see
-      # MavericksSupport/sandbox/com.apple.WebKit.GPUProcess.sb.in); capture, media and WebRTC platform
-      # codecs stay in the web process, so the GPU-process default carries the port's !USE(GSTREAMER) term.
-      "ENABLE(GPU_PROCESS_BY_DEFAULT) && !USE(GSTREAMER)": true
+      # MAVERICKS_BACKPORT: the WebRTC platform codecs run in the web process here; see
+      # ENABLE_GPU_PROCESS_RASTERIZATION_ONLY in MavericksSupport/cmake/OptionsMacMavericks.cmake.
+      "ENABLE(GPU_PROCESS_BY_DEFAULT) && !ENABLE(GPU_PROCESS_RASTERIZATION_ONLY)": true
       default: false
     WebCore:
       default: false

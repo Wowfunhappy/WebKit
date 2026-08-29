@@ -116,9 +116,9 @@ bool defaultAppleMailPaginationQuirkEnabled()
 #if ENABLE(MEDIA_STREAM)
 bool defaultCaptureAudioInGPUProcessEnabled()
 {
-    // MAVERICKS_BACKPORT: same !USE(GSTREAMER) term as UnifiedWebPreferences.yaml's CaptureVideoInGPUProcessEnabled:
-    // this port's GPU process rasterizes only, capture stays in the web process.
-#if ENABLE(GPU_PROCESS_BY_DEFAULT) && !USE(GSTREAMER)
+    // MAVERICKS_BACKPORT: audio capture runs in the web process here, which holds the microphone grant;
+    // same term as UnifiedWebPreferences.yaml's CaptureVideoInGPUProcessEnabled.
+#if ENABLE(GPU_PROCESS_BY_DEFAULT) && !ENABLE(GPU_PROCESS_RASTERIZATION_ONLY)
     return true;
 #else
     return false;

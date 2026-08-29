@@ -227,6 +227,8 @@ set(MAVERICKS_ADDED_COCOA_SOURCES
     # upstream builds this only from WebCore.xcodeproj (SourcesCocoa.txt lists just the .cpp); its
     # HAVE(AVAUDIOAPPLICATION)/HAVE(VOICEACTIVITYDETECTION) branches compile out below macOS 14.
     "platform/mediastream/mac/CoreAudioCaptureUnit.mm @nonARC"
+    # the CGDisplayStream screen capturer serving getDisplayMedia below ScreenCaptureKit (macOS < 12.3).
+    "platform/mediastream/mac/ScreenDisplayCapturerMac.mm"
     "crypto/gcrypt/CryptoAlgorithmAESCBCGCrypt.cpp"
     "crypto/gcrypt/CryptoAlgorithmAESCFBGCrypt.cpp"
     "crypto/gcrypt/CryptoAlgorithmAESCTRGCrypt.cpp"

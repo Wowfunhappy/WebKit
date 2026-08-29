@@ -74,6 +74,13 @@ add_compile_definitions(
     ENABLE_DNS_SERVER_FOR_TESTING_IN_NETWORKING_PROCESS=0
 )
 
+# This port's own flag, not an upstream one. The GPU process here is provisioned for rasterization:
+# its profile (MavericksSupport/sandbox/com.apple.WebKit.GPUProcess.sb.in) grants DOM and canvas
+# rasterization and WebGL, and no camera, microphone or AVFoundation access. Capture and the WebRTC
+# platform codecs therefore run in the web process, which holds those grants, and the GPU-process
+# defaults for them key on this flag.
+add_compile_definitions(ENABLE_GPU_PROCESS_RASTERIZATION_ONLY=1)
+
 # The source-list filter macro used by the WebCore/WebKit platform overlays.
 include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/MavericksSourceLists.cmake)
 

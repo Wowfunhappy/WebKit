@@ -34,6 +34,9 @@
 
 #if HAVE(SCREEN_CAPTURE_KIT)
 #include "ScreenCaptureKitCaptureSource.h"
+#else
+// MAVERICKS_BACKPORT: screen devices are enumerated by the CGDisplayStream capturer.
+#include "ScreenDisplayCapturerMac.h"
 #endif
 
 namespace WebCore {
@@ -46,6 +49,12 @@ DisplayCaptureManagerCocoa& DisplayCaptureManagerCocoa::singleton()
 
 const Vector<CaptureDevice>& DisplayCaptureManagerCocoa::captureDevices()
 {
+#if !HAVE(SCREEN_CAPTURE_KIT)
+    // MAVERICKS_BACKPORT: without ScreenCaptureKit nothing else fills m_devices; list the active
+    // CG displays through the CGDisplayStream capturer.
+    m_devices.clear();
+    ScreenDisplayCapturerMac::screenCaptureDevices(m_devices);
+#endif
     return m_devices;
 }
 
@@ -57,8 +66,10 @@ std::optional<CaptureDevice> DisplayCaptureManagerCocoa::screenCaptureDeviceWith
     ASSERT_NOT_REACHED();
     return std::nullopt;
 #else
-    UNUSED_PARAM(deviceID);
-    return std::nullopt;
+    // MAVERICKS_BACKPORT: answered by the CGDisplayStream capturer.
+    // UNUSED_PARAM(deviceID);
+    // return std::nullopt;
+    return ScreenDisplayCapturerMac::screenCaptureDeviceWithPersistentID(deviceID);
 #endif
 }
 

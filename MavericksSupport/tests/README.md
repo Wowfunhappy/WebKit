@@ -41,6 +41,7 @@ click, a key press, or a hardware/manual step.
 | `qltest.html` | Quick Look HTML preview launches WebContent and renders (not source text) | visual | `qlmanage -p qltest.html` |
 | `quicklook-webloc/*.webloc` | Quick Look preview of `.webloc` bookmarks: local host, `/etc/hosts` alias, numeric IP, dead host, https; spinner vs "cannot be displayed" card | manual, visual | `python3 -m http.server 8899`, `127.0.0.1 wktest.example` in `/etc/hosts`, network for the remote ones |
 | `search-event-test.html` | `<input type=search incremental>` fires `onsearch` on Enter | manual, title + banner | — |
+| `screen-capture-test.html` | `getDisplayMedia` screen sharing: the consent sheet, then a live preview of this screen; PASS = the sampled frames keep changing | manual (click + Allow), title + banner | — |
 | `secure-context-window-reuse/run.sh` | A WebKit1 host that touches JavaScript before it loads gets a fresh window for the loaded document, with `crypto.subtle`, `SubtleCrypto`, `CryptoKey` and `showPopover` on it | shell output (PASS/FAIL) | — |
 | `speech-test.html` | Web Speech synthesis: voices list, speak/pause/resume/stop | manual, banner | audio out |
 | `text/zerofont.html` | `font-size:0` runs measure 0 (system, UI-type and web fonts); 1px/16px controls unmoved; icon offset matches reference. Expected values in the page's head comment | title + banner | — |

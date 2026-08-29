@@ -11,8 +11,9 @@
 ; `iokit-open` rather than iokit-open-service/iokit-open-user-client, no with-filter, no
 ; file-map-executable, no message filters -- and grants what this port's GPU process actually
 ; does: DOM and canvas rasterization, and WebGL. Media playback, capture and WebRTC codecs all stay
-; in the web process (UseGPUProcessForMediaEnabled, CaptureAudio/Video/DisplayInGPUProcessEnabled and
-; WebRTCPlatformCodecsInGPUProcessEnabled carry the port's !USE(GSTREAMER) term; the web process
+; in the web process (CaptureAudio/Video/DisplayInGPUProcessEnabled and
+; WebRTCPlatformCodecsInGPUProcessEnabled key on ENABLE_GPU_PROCESS_RASTERIZATION_ONLY, and
+; UseGPUProcessForMediaEnabled on upstream's own GStreamer term; the web process
 ; profile holds the camera and microphone grants), so upstream's AVFoundation playback, capture and
 ; codec grants -- and the camera, microphone and TCC rules that go with them -- have no counterpart here.
 ;

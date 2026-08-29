@@ -88,8 +88,7 @@ void UserMediaPermissionRequestProxyMac::promptForGetDisplayMedia(UserMediaDispl
 #else
     // MAVERICKS_BACKPORT: without ScreenCaptureKit there is no system picker to prompt with, so this
     // runs the base class's alertForPermission consent sheet, which grants the first eligible screen
-    // device — the shape avfvideosrc screen capture consumes. WebKit's own permission plumbing, so
-    // the adaptation belongs in the source rather than the polyfill layer.
+    // device.
     UserMediaPermissionRequestProxy::promptForGetDisplayMedia(promptType);
 #endif
 #else
