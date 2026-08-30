@@ -8,9 +8,11 @@
 // declares these with, rather than a pointer to const.
 typedef NSString *PolyNSStringConst;
 
-// NSHTTPCookie SameSite property key (NSString, 10.13+). WebKit only reads it behind a
-// respondsToSelector(@selector(sameSitePolicy)) guard that fails on 10.9, so it is never dereferenced.
-WK_POLYFILL_CONST("Foundation", PolyNSStringConst, NSHTTPCookieSameSitePolicy, @"SameSitePolicy");
+// NSHTTPCookie SameSite property key (NSString, 10.13+). REAL Foundation value: upstream writes the
+// same cookie property under this constant in NetworkStorageSessionCocoa's setAllCookiesToSameSiteStrict
+// and under the literal @"SameSite" in CookieCocoa's createNSHTTPCookie, and reads both back through
+// -sameSitePolicy, so the constant is that literal.
+WK_POLYFILL_CONST("Foundation", PolyNSStringConst, NSHTTPCookieSameSitePolicy, @"SameSite");
 
 // NSError userInfo key NSLocalizedFailureErrorKey (NSString, 10.13+). CoreIPCError reads and writes
 // it when round-tripping NSErrors over IPC. REAL Foundation value, not the name-string: the key is
