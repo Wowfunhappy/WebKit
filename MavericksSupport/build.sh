@@ -281,13 +281,6 @@ else
     echo "### staging skipped: the link failed, so there is nothing complete to stage"
 fi
 
-# symbolscache(1)'s documented build-phase pattern: replace the previous build's entries with this
-# one's under a tag of our own, so the cache carries one build's binaries rather than every build's.
-if [ "$RC" = 0 ]; then
-    SYMBOLS_TAG=wkbuild   # at most seven characters
-    cached=$(/usr/bin/symbolscache delete --tag "$SYMBOLS_TAG" compact add --tag "$SYMBOLS_TAG" "$BUILD/staged" 2>/dev/null | grep -c '^  ADDED:')
-    echo "### symbol cache: $cached built binaries under tag $SYMBOLS_TAG"
-fi
 for audit in scripts/check-absent-references.sh scripts/check-gap-archive-current.sh sandbox/scripts/check-sandbox-profiles.sh host-abi/check-abi-gap.sh; do
     [ "$RC" = 0 ] || break
     echo "### $audit"
