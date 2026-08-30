@@ -114,6 +114,21 @@ void *wk_polyfill_system_symbol(const char *provider, const char *name, void **c
 
 #define WK_SYSTEM(NAME) wk_sysfn_get_##NAME()
 
+// The same resolution for a system DATA symbol: wk_polyfill_system_symbol returns the variable's
+// address, so the value is one dereference away. WK_SYSTEM(NAME) reads it, and is the type's null
+// value when the symbol is missing.
+//
+//   WK_SYSTEM_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms);
+//   ... WK_SYSTEM(kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms)
+#define WK_SYSTEM_CONST(PROVIDER, TYPE, NAME)                                          \
+    static void *wk_sysfn_cache_##NAME;                                                \
+    static inline TYPE wk_sysfn_get_##NAME(void)                                       \
+    {                                                                                  \
+        TYPE *slot = (TYPE *)wk_polyfill_system_symbol(PROVIDER, #NAME,                \
+                                                       &wk_sysfn_cache_##NAME);        \
+        return slot ? *slot : (TYPE)0;                                                 \
+    }
+
 // Taking &NAME for a symbol the modern SDK marks as introduced after our deployment target is the
 // point of this layer, so silence the availability warning it necessarily produces. The trailing
 // incomplete-struct declaration exists only to consume the caller's semicolon, so that the pragma
