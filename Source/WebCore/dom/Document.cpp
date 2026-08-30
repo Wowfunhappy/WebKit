@@ -6494,12 +6494,17 @@ void Document::invalidateEventListenerRegions()
         protect(documentElement())->invalidateStyleInternal();
 }
 
-void Document::invalidateRenderingDependentRegions()
+void Document::invalidateRenderingDependentRegions(AnnotationsAction annotationsAction) // MAVERICKS_BACKPORT: the argument drives the Dashboard branch below.
 {
 #if ENABLE(DASHBOARD_SUPPORT)
-    // MAVERICKS_BACKPORT: recompute Dashboard control regions after layout-affecting changes so
-    // DashboardClient learns where the widget's interactive controls are.
-    updateAnnotatedRegions();
+    // MAVERICKS_BACKPORT: a caller on a post-layout or post-scroll path asks for Update, which recollects the
+    // Dashboard regions and reports any change; the rest only mark them dirty.
+    if (annotationsAction == AnnotationsAction::Update)
+        updateAnnotatedRegions();
+    else
+        setAnnotatedRegionsDirty();
+#else
+    UNUSED_PARAM(annotationsAction);
 #endif
 
 #if PLATFORM(IOS_FAMILY) && ENABLE(TOUCH_EVENTS)
@@ -6513,6 +6518,23 @@ void Document::invalidateRenderingDependentRegions()
                 scrollingCoordinator->frameViewEventTrackingRegionsChanged(*frameView);
         }
     }
+#endif
+}
+
+// MAVERICKS_BACKPORT: the scrollbar and z-order region bottlenecks, both Dashboard-only.
+void Document::invalidateScrollbarDependentRegions()
+{
+#if ENABLE(DASHBOARD_SUPPORT)
+    if (hasAnnotatedRegions())
+        setAnnotatedRegionsDirty();
+#endif
+}
+
+void Document::updateZOrderDependentRegions()
+{
+#if ENABLE(DASHBOARD_SUPPORT)
+    if (annotatedRegionsDirty())
+        updateAnnotatedRegions();
 #endif
 }
 

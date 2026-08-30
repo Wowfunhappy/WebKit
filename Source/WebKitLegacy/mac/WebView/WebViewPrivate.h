@@ -280,8 +280,21 @@ typedef enum {
 @interface WebView (WebPrivate)
 
 // MAVERICKS_BACKPORT: legacy Dashboard control regions, consumed by DashboardClient via
-// -webView:dashboardRegionsChanged: and read internally by WebChromeClient.
+// -webView:dashboardRegionsChanged: and read internally by WebChromeClient. The behavior flags below
+// are the ones DashboardClient declares on a widget's WebView during setup; WebHTMLView reads
+// AlwaysAcceptsFirstMouse through -_dashboardBehavior:.
 - (NSDictionary *)_dashboardRegions;
+
+typedef enum {
+    WebDashboardBehaviorAlwaysSendMouseEventsToAllWindows,
+    WebDashboardBehaviorAlwaysSendActiveNullEventsToPlugIns,
+    WebDashboardBehaviorAlwaysAcceptsFirstMouse,
+    WebDashboardBehaviorAllowWheelScrolling,
+    WebDashboardBehaviorUseBackwardCompatibilityMode
+} WebDashboardBehavior;
+
+- (void)_setDashboardBehavior:(WebDashboardBehavior)behavior to:(BOOL)flag;
+- (BOOL)_dashboardBehavior:(WebDashboardBehavior)behavior;
 
 + (void)_setIconLoadingEnabled:(BOOL)enabled;
 + (BOOL)_isIconLoadingEnabled;

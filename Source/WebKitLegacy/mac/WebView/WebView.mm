@@ -1331,14 +1331,6 @@ static RetainPtr<CFMutableSetRef>& NODELETE allWebViewsSet()
 // Backward-compatibility mode is the host saying this surface is authored against the pre-HTML5
 // parser, so it carries into the setting that selects those quirks; widget markup uses self-closing
 // start tags and unquoted attributes that the HTML5 tokenizer otherwise reads as text.
-typedef enum {
-    WebDashboardBehaviorAlwaysSendMouseEventsToAllWindows,
-    WebDashboardBehaviorAlwaysSendActiveNullEventsToPlugIns,
-    WebDashboardBehaviorAlwaysAcceptsFirstMouse,
-    WebDashboardBehaviorAllowWheelScrolling,
-    WebDashboardBehaviorUseBackwardCompatibilityMode
-} WebDashboardBehavior;
-
 - (void)_setDashboardBehavior:(WebDashboardBehavior)behavior to:(BOOL)flag
 {
     switch (behavior) {
@@ -3185,6 +3177,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     // This parses the user stylesheet synchronously so anything that may affect it should be done first.
     if ([preferences userStyleSheetEnabled]) {
         NSString* location = [[preferences userStyleSheetLocation] _web_originalDataAsString];
+        // MAVERICKS_BACKPORT: DashboardClient names its widget stylesheet by this sentinel, which WebKit
+        // resolves to the file. That sheet is what gives every native control in a widget its
+        // -apple-dashboard-region, so without the translation no widget reports a control region.
+        if ([location isEqualToString:@"apple-dashboard://stylesheet"])
+            location = @"file:///System/Library/PrivateFrameworks/DashboardClient.framework/Resources/widget.css";
         settings.setUserStyleSheetLocation([NSURL URLWithString:(location ? location : @"")]);
     } else
         settings.setUserStyleSheetLocation([NSURL URLWithString:@""]);

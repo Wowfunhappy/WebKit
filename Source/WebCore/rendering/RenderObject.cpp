@@ -3164,9 +3164,8 @@ void printGraphicsLayerTreeForLiveDocuments()
 
 #if ENABLE(DASHBOARD_SUPPORT)
 
-// MAVERICKS_BACKPORT: collect -apple-dashboard-region control regions. Shipping widgets use zero offsets,
-// so each region is the element's absolute border box (used as both bounds and clip; widget controls are
-// not clipped).
+// MAVERICKS_BACKPORT: collect -apple-dashboard-region control regions. Each region is the element's border
+// box inset by the declaration's four offsets, clipped to what actually repaints.
 void RenderObject::addAnnotatedRegions(Vector<AnnotatedRegionValue>& regions)
 {
     if (style().visibility() != Visibility::Visible)
@@ -3176,29 +3175,24 @@ void RenderObject::addAnnotatedRegions(Vector<AnnotatedRegionValue>& regions)
     if (!box)
         return;
 
-    auto absoluteRect = LayoutRect(box->absoluteBoundingBoxRect());
+    auto absolutePosition = localToAbsolute();
     for (auto& styleRegion : style().dashboardRegions().list) {
         AnnotatedRegionValue region;
         region.label = styleRegion.label;
         region.type = styleRegion.type;
-        region.bounds = absoluteRect;
-        region.clip = absoluteRect;
-        regions.append(region);
-    }
+        region.bounds = LayoutRect(LayoutUnit(styleRegion.left), LayoutUnit(styleRegion.top),
+            box->width() - LayoutUnit(styleRegion.left) - LayoutUnit(styleRegion.right),
+            box->height() - LayoutUnit(styleRegion.top) - LayoutUnit(styleRegion.bottom));
 
-    // MAVERICKS_BACKPORT: a native text control (<textarea>/<input>) is implicitly a "control" region so a
-    // Dashboard widget that is a bare native text field (and declares no -apple-dashboard-region in CSS) is
-    // still interactive: DashboardClient/Dock forwards drags inside the control's box to the web content (text
-    // drag-select, scrollbar drag) instead of treating the area as a drag handle. The surrounding widget chrome
-    // (outside the control's border box) carries no region and stays a drag handle, matching stock's "drag the
-    // border to move, drag the text to select" behaviour. hasAnnotatedRegions() is primed in
-    // RenderTextControl::styleDidChange so updateAnnotatedRegions() runs for these widgets.
-    if (is<RenderTextControl>(*this)) {
-        AnnotatedRegionValue region;
-        region.label = "control"_s;
-        region.type = StyleDashboardRegion::Rectangle;
-        region.bounds = absoluteRect;
-        region.clip = absoluteRect;
+        region.clip = computeRects({ region.bounds }, nullptr, visibleRectContextForRepaint()).clippedOverflowRect;
+        if (region.clip.height() < 0) {
+            region.clip.setHeight(0);
+            region.clip.setWidth(0);
+        }
+
+        region.bounds.setX(LayoutUnit(absolutePosition.x() + styleRegion.left));
+        region.bounds.setY(LayoutUnit(absolutePosition.y() + styleRegion.top));
+
         regions.append(region);
     }
 }

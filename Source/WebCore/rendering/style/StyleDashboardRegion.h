@@ -23,11 +23,9 @@
  */
 
 // MAVERICKS_BACKPORT: restored with legacy Dashboard control-region support (removed upstream in 2d364c6).
-// Every Dashboard widget declares its regions as `dashboard-region(<label> <geometry> 0 0 0 0)` — i.e. zero
-// offsets, so the control region is simply the element's own border box. The 2019 implementation also carried a
-// LengthBox of per-edge offsets, but that box type no longer exists in modern WebKit and no shipping widget uses
-// non-zero offsets, so the offsets are parsed (for compatibility) and the region rect is taken from the renderer's
-// border box at collection time.
+// `dashboard-region(<label> <geometry> <top> <right> <bottom> <left>)` insets the region from the element's
+// border box by the four offsets, which shipping widgets do use (Calculator splits one element into two 43px-
+// apart circles that way). They resolve to fixed pixels at style-build time.
 
 #pragma once
 
@@ -42,6 +40,10 @@ namespace WebCore {
 struct StyleDashboardRegion {
     String label;
     int type;
+    float top { 0 };
+    float right { 0 };
+    float bottom { 0 };
+    float left { 0 };
 
     enum {
         None,
@@ -51,7 +53,8 @@ struct StyleDashboardRegion {
 
     bool operator==(const StyleDashboardRegion& o) const
     {
-        return type == o.type && label == o.label;
+        return type == o.type && label == o.label
+            && top == o.top && right == o.right && bottom == o.bottom && left == o.left;
     }
 
     bool operator!=(const StyleDashboardRegion& o) const

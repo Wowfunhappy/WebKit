@@ -1322,7 +1322,7 @@ void LocalFrameView::didLayout(SingleThreadWeakPtr<RenderElement> layoutRoot, bo
 #endif
 
     m_frame->invalidateContentEventRegionsIfNeeded(LocalFrame::InvalidateContentEventRegionsReason::Layout);
-    document->invalidateRenderingDependentRegions();
+    document->invalidateRenderingDependentRegions(Document::AnnotationsAction::Update); // MAVERICKS_BACKPORT: the post-layout path recollects the Dashboard regions.
 
     updateCanBlitOnScrollRecursively();
 
@@ -5717,6 +5717,10 @@ void LocalFrameView::didPaintContents(GraphicsContext& context, const IntRect& d
         // FIXME: should probably not fire milestones for snapshot painting. https://bugs.webkit.org/show_bug.cgi?id=117623
         firePaintRelatedMilestonesIfNeeded();
     }
+
+    // MAVERICKS_BACKPORT: Dashboard regions may have changed with the visibility or z-index of an element.
+    if (RefPtr document = m_frame->document())
+        document->updateZOrderDependentRegions();
 }
 
 void LocalFrameView::paintContents(GraphicsContext& context, const IntRect& dirtyRect, SecurityOriginPaintPolicy securityOriginPaintPolicy, RegionContext* regionContext)

@@ -1409,7 +1409,12 @@ public:
     void updateAccessibilityObjectRegions();
     void updateEventRegions();
 
-    void invalidateRenderingDependentRegions();
+    // MAVERICKS_BACKPORT: the AnnotationsAction argument and the two entry points below it carry the
+    // Dashboard half of these region bottlenecks.
+    enum class AnnotationsAction : bool { Invalidate, Update };
+    void invalidateRenderingDependentRegions(AnnotationsAction = AnnotationsAction::Invalidate);
+    void invalidateScrollbarDependentRegions();
+    void updateZOrderDependentRegions();
     void invalidateEventRegionsForFrame(HTMLFrameOwnerElement&);
 
 #if ENABLE(DASHBOARD_SUPPORT)

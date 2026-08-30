@@ -22,9 +22,6 @@
 #include "config.h"
 #include "RenderTextControl.h"
 
-// MAVERICKS_BACKPORT: Chrome/ChromeClient for the DASHBOARD_SUPPORT annotated-region priming in styleDidChange() below.
-#include "Chrome.h"
-#include "ChromeClient.h"
 #include "ContainerNodeInlines.h"
 #include "HTMLTextFormControlElement.h"
 #include "HitTestResult.h"
@@ -68,19 +65,6 @@ RefPtr<TextControlInnerTextElement> RenderTextControl::innerTextElement() const
 void RenderTextControl::styleDidChange(Style::Difference diff, const RenderStyle* oldStyle)
 {
     RenderBlockFlow::styleDidChange(diff, oldStyle);
-
-#if ENABLE(DASHBOARD_SUPPORT)
-    // MAVERICKS_BACKPORT: a native text control is implicitly a Dashboard "control" region (see
-    // RenderObject::addAnnotatedRegions). Prime the document's annotated-regions flag so updateAnnotatedRegions()
-    // actually collects + reports it; otherwise the regions pipeline is gated off for a widget that declares no
-    // -apple-dashboard-region in CSS, and DashboardClient would treat the whole widget as a drag handle. Gated
-    // on the client to avoid the region-collection walk on non-Dashboard clients (Safari/Mail).
-    if (RefPtr page = document().page(); page && page->chrome().client().isDashboardWidgetClient()) {
-        document().setHasAnnotatedRegions(true);
-        document().setAnnotatedRegionsDirty();
-    }
-#endif
-
     auto innerText = innerTextElement();
     if (!innerText)
         return;

@@ -38,12 +38,6 @@ namespace WTF {
 
 static bool linkedBefore(dyld_build_version_t version, uint32_t fallbackIOSVersion, uint32_t fallbackMacOSVersion)
 {
-    // MAVERICKS_BACKPORT: the applications this WebKit runs under record SDKs older than every
-    // version asked about here, so the comparison below answers true for each of them and each
-    // behavior. Every host is answered as linked on or after all of them, the answer the caller
-    // gives Safari.
-    return false;
-
 #if USE(APPLE_INTERNAL_SDK)
     // dyld_build_version_t values cannot be forward declared, so we fall back to
     // traditional SDK version checks when building against an SDK that

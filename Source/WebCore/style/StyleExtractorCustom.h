@@ -1889,19 +1889,19 @@ inline void ExtractorCustom::extractContentSerialization(ExtractorState& state, 
 
 #if ENABLE(DASHBOARD_SUPPORT)
 // MAVERICKS_BACKPORT: computed value for the legacy -apple-dashboard-region property, restored with the
-// rest of Dashboard support (removed upstream in 2d364c6). Offsets are always zero: StyleDashboardRegion
-// carries only the label and geometry, and the region rect comes from the renderer's border box.
+// rest of Dashboard support (removed upstream in 2d364c6). The four offsets are the pixel values
+// StyleDashboardRegion resolved at style-build time.
 inline Ref<CSSValue> ExtractorCustom::extractWebkitDashboardRegion(ExtractorState& state)
 {
     auto& regions = state.style.dashboardRegions().list;
     if (regions.isEmpty())
         return CSSPrimitiveValue::create(CSSValueNone);
 
-    auto zero = [] { return CSSPrimitiveValue::create(0, CSSUnitType::CSS_PX); };
+    auto px = [](float value) { return CSSPrimitiveValue::create(value, CSSUnitType::CSS_PX); };
     Vector<CSSDashboardRegionValue::Region> values;
     values.reserveInitialCapacity(regions.size());
     for (auto& region : regions)
-        values.append({ region.label, region.type, zero().ptr(), zero().ptr(), zero().ptr(), zero().ptr() });
+        values.append({ region.label, region.type, px(region.top).ptr(), px(region.right).ptr(), px(region.bottom).ptr(), px(region.left).ptr() });
     return CSSDashboardRegionValue::create(WTF::move(values));
 }
 

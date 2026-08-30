@@ -8,6 +8,20 @@
 
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
+#import <dlfcn.h>
+
+// WTF::enableAllSDKAlignedBehaviors(), which +[WKProcessPool _setLinkedOnOrAfterEverything] calls, is
+// how a host asks for the whole SDK-aligned behavior set. It postdates the 10.9 SDK this builds
+// against, so it is resolved from the loaded JavaScriptCore by its mangled name.
+static void enableAllSDKAlignedBehaviors(void)
+{
+    void (*fn)(void) = (void (*)(void))dlsym(RTLD_DEFAULT, "_ZN3WTF28enableAllSDKAlignedBehaviorsEv");
+    if (!fn) {
+        fprintf(stderr, "WTF::enableAllSDKAlignedBehaviors() not found in the loaded WebKit\n");
+        exit(2);
+    }
+    fn();
+}
 
 @interface Host : NSObject
 @end
@@ -43,6 +57,8 @@ int main(int argc, const char *argv[])
     }
 
     @autoreleasepool {
+        enableAllSDKAlignedBehaviors();
+
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
 

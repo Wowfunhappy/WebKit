@@ -775,35 +775,6 @@ static RetainPtr<NSMenuItem> createMenuActionItem(const WebContextMenuItemData& 
     return menuItem;
 }
 
-// MAVERICKS_BACKPORT: getContextMenuFromItems() both filters whole items out of the proposal
-// (LookUpInDictionary, Translate, WritingTools below) and lets getContextMenuItem() decline to build one
-// — Share resolves to nil when the hit test carries nothing shareable or the machine has no sharing
-// services — and -[NSPointerArray allObjects] drops those nils. Either way the separator WebCore appended
-// to introduce the missing group survives and AppKit draws it as a blank row: on 10.9 a right-click in an
-// empty text field showed a double-height gap above Inspect Element. The twin of this in the WK1
-// converter is WebHTMLView.mm's removeOrphanedSeparators(). Drop separators that lost the group they
-// introduced (leading, trailing, and runs) so the menu AppKit displays is well formed.
-static void removeOrphanedSeparators(NSMutableArray *menuItems)
-{
-    bool previousItemWasSeparator = true; // The start of the menu separates as effectively as a separator does.
-    for (NSUInteger index = 0; index < [menuItems count]; ) {
-        if (![[menuItems objectAtIndex:index] isSeparatorItem]) {
-            previousItemWasSeparator = false;
-            ++index;
-            continue;
-        }
-        if (previousItemWasSeparator) {
-            [menuItems removeObjectAtIndex:index];
-            continue;
-        }
-        previousItemWasSeparator = true;
-        ++index;
-    }
-
-    while ([menuItems count] && [[menuItems lastObject] isSeparatorItem])
-        [menuItems removeLastObject];
-}
-
 void WebContextMenuProxyMac::getContextMenuFromItems(const Vector<WebContextMenuItemData>& items, CompletionHandler<void(NSMenu *)>&& completionHandler)
 {
     auto menu = adoptNS([[NSMenu alloc] initWithTitle:@""]);
@@ -883,10 +854,35 @@ void WebContextMenuProxyMac::getContextMenuFromItems(const Vector<WebContextMenu
         if (--itemsRemaining)
             return;
 
-        // MAVERICKS_BACKPORT: was `[menu setItemArray:[sparseMenuItems allObjects]]` — see
-        // removeOrphanedSeparators() above.
-        RetainPtr menuItems = adoptNS([[sparseMenuItems allObjects] mutableCopy]);
-        removeOrphanedSeparators(menuItems.get());
+        // MAVERICKS_BACKPORT: was `[menu setItemArray:[sparseMenuItems allObjects]]`. A slot the
+        // converter declined stays null here, and the separator WebCore appended to introduce that item
+        // would outlive it and draw as a blank row. Assemble the items group by group and close each
+        // group as it ends: a separator is dropped only when a member of the group it introduced was
+        // declined and no member of that group survived.
+        RetainPtr menuItems = adoptNS([[NSMutableArray alloc] initWithCapacity:[sparseMenuItems count]]);
+        std::optional<NSUInteger> groupSeparatorIndex;
+        bool groupHasItem = false;
+        bool groupHadDecline = false;
+        auto closeGroup = [&] {
+            if (groupSeparatorIndex && groupHadDecline && !groupHasItem)
+                [menuItems removeObjectAtIndex:*groupSeparatorIndex];
+        };
+        for (NSUInteger slot = 0; slot < [sparseMenuItems count]; ++slot) {
+            RetainPtr<NSMenuItem> slotItem = (__bridge NSMenuItem *)[sparseMenuItems pointerAtIndex:slot];
+            if (!slotItem) {
+                groupHadDecline = true;
+                continue;
+            }
+            if ([slotItem isSeparatorItem]) {
+                closeGroup();
+                groupSeparatorIndex = [menuItems count];
+                groupHasItem = false;
+                groupHadDecline = false;
+            } else
+                groupHasItem = true;
+            [menuItems addObject:slotItem.get()];
+        }
+        closeGroup();
         [menu setItemArray:menuItems.get()];
 
         RefPtr page = weakPage.get();

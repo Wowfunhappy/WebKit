@@ -51,9 +51,29 @@
     return type;
 }
 
+static const char* typeName(WebDashboardRegionType type)
+{
+    switch (type) {
+    case WebDashboardRegionTypeNone:
+        return "None";
+    case WebDashboardRegionTypeCircle:
+        return "Circle";
+    case WebDashboardRegionTypeRectangle:
+        return "Rectangle";
+    case WebDashboardRegionTypeScrollerRectangle:
+        return "ScrollerRectangle";
+    }
+    return "Unknown";
+}
+
 - (NSString *)description
 {
-    return [NSString stringWithFormat:@"WebDashboardRegion rect:%@ clip:%@ type:%d", NSStringFromRect(rect), NSStringFromRect(clip), (int)type];
+    return [NSString stringWithFormat:@"rect:%@ clip:%@ type:%s", NSStringFromRect(rect), NSStringFromRect(clip), typeName(type)];
+}
+
+- (BOOL)isEqual:(id)other
+{
+    return NSEqualRects(rect, [other dashboardRegionRect]) && NSEqualRects(clip, [other dashboardRegionClip]) && type == [other dashboardRegionType];
 }
 
 @end

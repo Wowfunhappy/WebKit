@@ -566,9 +566,8 @@ inline void BuilderCustom::applyValueWebkitTextZoom(BuilderState& builderState, 
 
 #if ENABLE(DASHBOARD_SUPPORT)
 
-// MAVERICKS_BACKPORT: legacy -apple-dashboard-region control regions. Shipping widgets always use zero
-// offsets, so a region is simply the element's border box (computed at collection time); only the label
-// and geometry type are retained on the style.
+// MAVERICKS_BACKPORT: legacy -apple-dashboard-region control regions. The style keeps each region's label,
+// geometry type and four offsets; the rect itself is computed against the border box at collection time.
 inline void BuilderCustom::applyInitialWebkitDashboardRegion(BuilderState& builderState)
 {
     builderState.style().setDashboardRegions(DashboardRegions { });
@@ -596,8 +595,20 @@ inline void BuilderCustom::applyValueWebkitDashboardRegion(BuilderState& builder
     if (!regionValue)
         return;
 
-    for (auto& region : regionValue->regions())
-        regions.list.append(WebCore::StyleDashboardRegion { region.label, region.geometryType });
+    auto resolveOffset = [&](const RefPtr<CSSPrimitiveValue>& offset) -> float {
+        if (!offset || offset->valueID() == CSSValueAuto)
+            return 0;
+        if (offset->isPercentage())
+            return offset->resolveAsPercentage<float>(builderState.cssToLengthConversionData());
+        return offset->resolveAsLength<float>(builderState.cssToLengthConversionData());
+    };
+
+    for (auto& region : regionValue->regions()) {
+        regions.list.append(WebCore::StyleDashboardRegion {
+            region.label, region.geometryType,
+            resolveOffset(region.top), resolveOffset(region.right),
+            resolveOffset(region.bottom), resolveOffset(region.left) });
+    }
 
     if (!regions.list.isEmpty()) {
         // Flag the document so it recomputes/reports annotated regions after layout.

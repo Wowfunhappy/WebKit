@@ -387,7 +387,7 @@ void RenderLayerScrollableArea::scrollTo(const ScrollPosition& position)
         }
 
         // Update regions, scrolling may change the clip of a particular region.
-        protect(renderer.document())->invalidateRenderingDependentRegions();
+        protect(renderer.document())->invalidateRenderingDependentRegions(Document::AnnotationsAction::Update); // MAVERICKS_BACKPORT: a scroll changes a Dashboard region's clip, so this path recollects them.
         DebugPageOverlays::didLayout(protect(renderer.frame()));
     }
 
@@ -897,19 +897,6 @@ Ref<Scrollbar> RenderLayerScrollableArea::createScrollbar(ScrollbarOrientation o
             scrollAnimator().setWheelEventTestMonitor(page->wheelEventTestMonitor());
     }
     protect(renderer.view().frameView())->addChild(*widget);
-
-#if ENABLE(DASHBOARD_SUPPORT)
-    // MAVERICKS_BACKPORT: a native scrollbar is auto-reported as a Dashboard "control" region by
-    // -[WebView _addScrollerDashboardRegions:]. Prime the document's annotated-regions flag so
-    // updateAnnotatedRegions() runs and that report reaches DashboardClient (otherwise dragging a
-    // scrollbar inside a widget that declares no -apple-dashboard-region moves the widget). Gated on the
-    // client to avoid the region-collection walk on non-Dashboard clients (Safari/Mail).
-    if (RefPtr page = renderer.document().page(); page && page->chrome().client().isDashboardWidgetClient()) {
-        renderer.document().setHasAnnotatedRegions(true);
-        renderer.document().setAnnotatedRegionsDirty();
-    }
-#endif
-
     return widget.releaseNonNull();
 }
 
@@ -950,6 +937,8 @@ void RenderLayerScrollableArea::setHasHorizontalScrollbar(bool hasScrollbar)
         m_hBar->styleChanged();
     if (m_vBar)
         m_vBar->styleChanged();
+
+    m_layer.renderer().document().invalidateScrollbarDependentRegions(); // MAVERICKS_BACKPORT
 }
 
 void RenderLayerScrollableArea::setHasVerticalScrollbar(bool hasScrollbar)
@@ -976,6 +965,8 @@ void RenderLayerScrollableArea::setHasVerticalScrollbar(bool hasScrollbar)
         m_hBar->styleChanged();
     if (m_vBar)
         m_vBar->styleChanged();
+
+    m_layer.renderer().document().invalidateScrollbarDependentRegions(); // MAVERICKS_BACKPORT
 }
 
 ScrollableArea* RenderLayerScrollableArea::enclosingScrollableArea() const
@@ -1327,6 +1318,7 @@ void RenderLayerScrollableArea::updateScrollbarsAfterLayout()
         m_layer.updateSelfPaintingLayer();
 
         auto& renderer = m_layer.renderer();
+        renderer.document().invalidateScrollbarDependentRegions(); // MAVERICKS_BACKPORT
         renderer.repaint();
 
         if (renderer.style().overflowX() == Overflow::Auto || renderer.style().overflowY() == Overflow::Auto) {

@@ -42,7 +42,7 @@ click, a key press, or a hardware/manual step.
 | `quicklook-webloc/*.webloc` | Quick Look preview of `.webloc` bookmarks: local host, `/etc/hosts` alias, numeric IP, dead host, https; spinner vs "cannot be displayed" card | manual, visual | `python3 -m http.server 8899`, `127.0.0.1 wktest.example` in `/etc/hosts`, network for the remote ones |
 | `search-event-test.html` | `<input type=search incremental>` fires `onsearch` on Enter | manual, title + banner | — |
 | `screen-capture-test.html` | `getDisplayMedia` screen sharing: the consent sheet, then a live preview of this screen; PASS = the sampled frames keep changing | manual (click + Allow), title + banner | — |
-| `secure-context-window-reuse/run.sh` | A WebKit1 host that touches JavaScript before it loads gets a fresh window for the loaded document, with `crypto.subtle`, `SubtleCrypto`, `CryptoKey` and `showPopover` on it | shell output (PASS/FAIL) | — |
+| `secure-context-window-reuse/run.sh` | A WebKit1 host that enables the whole SDK-aligned behavior set and touches JavaScript before it loads gets a fresh window for the loaded document, with `crypto.subtle`, `SubtleCrypto`, `CryptoKey` and `showPopover` on it | shell output (PASS/FAIL) | — |
 | `speech-test.html` | Web Speech synthesis: voices list, speak/pause/resume/stop | manual, banner | audio out |
 | `text/zerofont.html` | `font-size:0` runs measure 0 (system, UI-type and web fonts); 1px/16px controls unmoved; icon offset matches reference. Expected values in the page's head comment | title + banner | — |
 | `text/zerofallback.html` | `font-size:0` through the system-fallback path (CJK, emoji, symbols, Arabic) measures 0. Expected values in head comment | title + banner | — |
@@ -51,7 +51,7 @@ click, a key press, or a hardware/manual step.
 | `upload-file-drop.html` | File drop -> `FileReader` + `FormData`/raw-file XHR POST | banner (or DRT text dump) | DRT (`eventSender`), `upload-test.png` next to the page, an upload endpoint on `127.0.0.1:8765/upload` |
 | `variable-font-test.html` | Variable-font axis instances (Amstelvar wght/wdth) realize the requested point, judged by advance width | title + banner | `LayoutTests/fast/text/variations/...` (relative) |
 | `web-inspector-styles/issue87b..g.html` | Web Inspector Styles sidebar: comments in rules, one-line multi-property rules, nested rules, declarations after nested rules, non-rule braces | manual (open Inspector > Styles), visual | — |
-| `webrtc-loopback-test.html` | Two in-page `RTCPeerConnection`s complete a data-channel ping/pong over GStreamer webrtcbin (DTLS+SCTP+ICE), no media | banner | — |
+| `webrtc-loopback-test.html` | Two in-page `RTCPeerConnection`s complete a data-channel ping/pong over libwebrtc (DTLS+SCTP+ICE), no media | banner | — |
 | `webrtc-nodc-test.html` | Loopback with an audio transceiver and no data channel: offer/answer + ICE reach `connected` | banner | — |
 | `webshare-quarantine-test.html` | `navigator.share({files})` -> `WKShareSheet writeFileToShareableURL:` quarantine attribute | manual, banner | — |
 | `widevine-image/` | Mach-O fixup conversion and CRX3 extraction for Google's Widevine module (`WidevineCdmImage.cpp`, `WidevineCdmArchive.mm`); see `run.sh` | shell output | a built tree; optionally a real `libwidevinecdm.dylib` / `.crx3` |

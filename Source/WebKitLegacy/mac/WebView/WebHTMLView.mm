@@ -3598,43 +3598,45 @@ static RetainPtr<NSMenuItem> createShareMenuItem(const WebCore::HitTestResult& h
     return [NSMenuItem standardShareMenuItemForItems:items.get()];
 }
 
-// MAVERICKS_BACKPORT: createMenuItem() returns nil for an item the platform declines to build — Share
-// when the hit test carries nothing shareable or the machine has no sharing services, Translate when the
-// OS cannot handle it — and createNSArray() (WTF::addUnlessNil) drops those nils while keeping the
-// separators WebCore appended to introduce them. AppKit draws such an orphan as a blank row, which is
-// what a host that filters the surrounding items is left holding: Syncthing removes Back/Forward/Stop/
-// Reload from every menu, so an empty-space right-click showed nothing but stray dividers above Inspect
-// Element. Stock 10.9 WebKit proposed no Share item and no such separator. Drop separators that lost the
-// group they introduced (leading, trailing, and runs) so what the delegate and AppKit see is well formed.
-static void removeOrphanedSeparators(NSMutableArray *menuItems)
-{
-    bool previousItemWasSeparator = true; // The start of the menu separates as effectively as a separator does.
-    for (NSUInteger index = 0; index < [menuItems count]; ) {
-        if (![[menuItems objectAtIndex:index] isSeparatorItem]) {
-            previousItemWasSeparator = false;
-            ++index;
-            continue;
-        }
-        if (previousItemWasSeparator) {
-            [menuItems removeObjectAtIndex:index];
-            continue;
-        }
-        previousItemWasSeparator = true;
-        ++index;
-    }
-
-    while ([menuItems count] && [[menuItems lastObject] isSeparatorItem])
-        [menuItems removeLastObject];
-}
-
 static RetainPtr<NSMutableArray> createMenuItems(const WebCore::HitTestResult& hitTestResult, const Vector<WebCore::ContextMenuItem>& items)
 {
-    // MAVERICKS_BACKPORT: was a bare `return createNSArray(…)`; the result now goes through
-    // removeOrphanedSeparators() — see the note on that function above.
-    auto menuItems = createNSArray(items, [&] (auto& item) {
-        return createMenuItem(hitTestResult, item);
-    });
-    removeOrphanedSeparators(menuItems.get()); // MAVERICKS_BACKPORT: see above.
+    // MAVERICKS_BACKPORT: was
+    // return createNSArray(items, [&] (auto& item) {
+    //     return createMenuItem(hitTestResult, item);
+    // });
+    // createMenuItem() returns nil for an item the platform declines to build -- Share when the hit test
+    // carries nothing shareable -- and createNSArray() drops the nil while the separator WebCore appended
+    // to introduce that item outlives it, which AppKit draws as a blank row. Assemble the items group by
+    // group and close each group as it ends: a separator is dropped only when a member of the group it
+    // introduced was declined and no member of that group survived.
+    RetainPtr menuItems = adoptNS([[NSMutableArray alloc] initWithCapacity:items.size()]);
+
+    std::optional<NSUInteger> groupSeparatorIndex;
+    bool groupHasItem = false;
+    bool groupHadDecline = false;
+
+    auto closeGroup = [&] {
+        if (groupSeparatorIndex && groupHadDecline && !groupHasItem)
+            [menuItems removeObjectAtIndex:*groupSeparatorIndex];
+    };
+
+    for (auto& item : items) {
+        RetainPtr menuItem = createMenuItem(hitTestResult, item);
+        if (!menuItem) {
+            groupHadDecline = true;
+            continue;
+        }
+        if ([menuItem isSeparatorItem]) {
+            closeGroup();
+            groupSeparatorIndex = [menuItems count];
+            groupHasItem = false;
+            groupHadDecline = false;
+        } else
+            groupHasItem = true;
+        [menuItems addObject:menuItem.get()];
+    }
+    closeGroup();
+
     return menuItems;
 }
 
@@ -4152,21 +4154,17 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     // the current event prevents that from causing a problem inside WebKit or AppKit code.
     retainPtr(event).autorelease();
 
-    // MAVERICKS_BACKPORT: a WebHTMLView hosted in a window that can never become the key window — a
-    // Dashboard widget window or a Safari legacy-extension popover (_NSPopoverWindow), both borderless
-    // and non-activating — would otherwise have non-selection content swallowed. AppKit treats a click
-    // in a non-key window as a first-mouse event and, by the default rule below, only accepts it for
-    // selection/drag/scrollbar hits. Since such a window can never "activate then click", a click that
-    // is not a selection (a <select> pop-up button, a uBlock popup button) never receives its mouseDown
-    // and the whole gesture is discarded (in Dashboard it falls through to the backdrop and dismisses).
-    // For these windows accept the first mouse unconditionally so the content is interactive. Key-capable
-    // windows (Safari, Mail) fall through to the default rule and preserve ordinary click-through.
-    NSWindow *hostWindow = [self window];
-    if (hostWindow && ![hostWindow isKeyWindow] && ![hostWindow canBecomeKeyWindow])
-        return YES;
-
     NSView *hitView = [self _hitViewForEvent:event];
     RetainPtr<WebHTMLView> hitHTMLView = dynamic_objc_cast<WebHTMLView>(hitView);
+
+#if ENABLE(DASHBOARD_SUPPORT)
+    // MAVERICKS_BACKPORT: DashboardClient declares a widget's WebView AlwaysAcceptsFirstMouse, which
+    // means every click in the widget belongs to the content. The default rule below accepts only
+    // selection, drag and scrollbar hits, so a click elsewhere is refused, DashboardClient never sees
+    // the mouse-down consumed, and it moves the widget instead.
+    if ([[self _webView] _dashboardBehavior:WebDashboardBehaviorAlwaysAcceptsFirstMouse])
+        return YES;
+#endif
 
     if (hitHTMLView) {
         bool result = false;
