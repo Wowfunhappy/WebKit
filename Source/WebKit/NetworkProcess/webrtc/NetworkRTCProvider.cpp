@@ -52,7 +52,12 @@
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <webrtc/api/environment/environment_factory.h>
 #include <webrtc/rtc_base/async_packet_socket.h>
+#include <webrtc/rtc_base/ssl_certificate.h> // MAVERICKS_BACKPORT: SSLCertificateVerifier for the system-trust verifier below.
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+#if PLATFORM(COCOA) // MAVERICKS_BACKPORT: system trust evaluation for TURN-over-TLS sockets.
+#include <Security/Security.h>
+#include <wtf/RetainPtr.h>
+#endif // MAVERICKS_BACKPORT: closes PLATFORM(COCOA).
 #endif // !HAVE(NETWORK_FRAMEWORK) -- MAVERICKS_BACKPORT: see HAVE(NETWORK_FRAMEWORK).
 
 namespace WebKit {
@@ -330,6 +335,44 @@ void NetworkRTCProvider::createUDPSocket(LibWebRTCSocketIdentifier identifier, c
     createSocket(identifier, WTF::move(socket), Socket::Type::UDP, m_ipcConnection.copyRef());
 }
 
+#if PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: libwebrtc's OpenSSLAdapter validates a TLS server chain against its embedded root
+// list and consults this verifier when that fails. Evaluating the chain with SecTrust adds the system and
+// user Keychain trust settings, so a certificate the user trusts in Keychain Access is accepted for
+// TURN-over-TLS the way it is for every other TLS connection. Hostname matching stays with OpenSSLAdapter.
+class SystemTrustCertificateVerifier final : public webrtc::SSLCertificateVerifier {
+public:
+    bool VerifyChain(const webrtc::SSLCertChain& chain) final
+    {
+        auto certificates = adoptCF(CFArrayCreateMutable(kCFAllocatorDefault, chain.GetSize(), &kCFTypeArrayCallBacks));
+        for (size_t i = 0; i < chain.GetSize(); ++i) {
+            webrtc::Buffer der;
+            chain.Get(i).ToDER(&der);
+            auto data = adoptCF(CFDataCreate(kCFAllocatorDefault, der.data(), der.size()));
+            auto certificate = adoptCF(SecCertificateCreateWithData(kCFAllocatorDefault, data.get()));
+            if (!certificate)
+                return false;
+            CFArrayAppendValue(certificates.get(), certificate.get());
+        }
+        auto policy = adoptCF(SecPolicyCreateSSL(true, nullptr));
+        SecTrustRef trustRef = nullptr;
+        if (SecTrustCreateWithCertificates(certificates.get(), policy.get(), &trustRef) != errSecSuccess)
+            return false;
+        auto trust = adoptCF(trustRef);
+        SecTrustResultType result = kSecTrustResultInvalid;
+        if (SecTrustEvaluate(trust.get(), &result) != errSecSuccess)
+            return false;
+        return result == kSecTrustResultProceed || result == kSecTrustResultUnspecified;
+    }
+};
+
+static webrtc::SSLCertificateVerifier& systemTrustCertificateVerifier()
+{
+    static NeverDestroyed<SystemTrustCertificateVerifier> verifier;
+    return verifier.get();
+}
+#endif // MAVERICKS_BACKPORT: closes PLATFORM(COCOA).
+
 void NetworkRTCProvider::createClientTCPSocket(LibWebRTCSocketIdentifier identifier, const RTCNetwork::SocketAddress& localAddress, const RTCNetwork::SocketAddress& remoteAddress, String&& userAgent, int options, WebPageProxyIdentifier pageIdentifier, RTCSocketCreationFlags, WebCore::RegistrableDomain&& domain)
 {
     assertIsRTCNetworkThread();
@@ -356,6 +399,9 @@ void NetworkRTCProvider::createClientTCPSocket(LibWebRTCSocketIdentifier identif
 
             webrtc::PacketSocketTcpOptions tcpOptions;
             tcpOptions.opts = options;
+#if PLATFORM(COCOA) // MAVERICKS_BACKPORT: see SystemTrustCertificateVerifier.
+            tcpOptions.tls_cert_verifier = &systemTrustCertificateVerifier();
+#endif // MAVERICKS_BACKPORT: closes PLATFORM(COCOA).
             std::unique_ptr<webrtc::AsyncPacketSocket> socket(m_packetSocketFactory->CreateClientTcpSocket(webrtc::CreateEnvironment(), localAddress, remoteAddress, tcpOptions));
             createSocket(identifier, WTF::move(socket), Socket::Type::ClientTCP, m_ipcConnection.copyRef());
         });

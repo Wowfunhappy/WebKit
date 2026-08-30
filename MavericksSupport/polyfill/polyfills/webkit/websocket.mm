@@ -121,6 +121,7 @@ typedef NS_ENUM(NSInteger, WKWSState) {
     WKWSState _state;
     BOOL _writeStreamOpen;
     BOOL _sentClose;
+    uint16_t _sentCloseCode;        // status the close reports; 1005 when the sent Close frame carried no code
 
     BOOL _secure;                   // wss
     BOOL _usingProxy;               // tunneling through an HTTP CONNECT proxy
@@ -275,12 +276,17 @@ static void wsDispatchToCallbackQueue(NSURLSession *session, void (^work)(void))
     dispatch_async(_ioQueue, ^{ [self teardownStreams]; });
 }
 
+// Sends a Close frame and leaves the connection open until the peer's Close frame (processInput) or its
+// EOF (handleReadEvent) completes the closing handshake and delivers didCloseWithCode:.
 - (void)cancelWithCloseCode:(NSInteger)closeCode reason:(NSData *)reason
 {
     dispatch_async(_ioQueue, ^{
-        if (self->_state == WKWSStateOpen)
-            [self sendCloseFrameWithCode:(uint16_t)closeCode reason:reason];
-        [self teardownStreams];
+        if (self->_state != WKWSStateOpen) {
+            [self teardownStreams];
+            return;
+        }
+        self->_state = WKWSStateClosing;
+        [self sendCloseFrameWithCode:(uint16_t)closeCode reason:reason];
     });
 }
 
@@ -571,6 +577,12 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
     case kCFStreamEventEndEncountered:
         if (_state != WKWSStateClosed && _state != WKWSStateClosing) {
             [self failWithReason:@"WebSocket connection closed unexpectedly"];
+        } else if (_state == WKWSStateClosing && _sentClose) {
+            // The peer ended the connection without echoing a Close frame: the close completes with the
+            // status this side sent.
+            [self deliverDidCloseWithCode:_sentCloseCode reason:nil];
+            [self deliverError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNetworkConnectionLost userInfo:nil]];
+            [self teardownStreams];
         } else
             [self teardownStreams];
         break;
@@ -870,9 +882,8 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
         }
         if (!_sentClose) {
             _sentClose = YES;
-            // A Close with no payload carries no status code. 1005 is the value REPORTED for that
-            // case, but RFC 6455 7.4.1 forbids putting it on the wire, so echo an empty payload
-            // back rather than inventing a code the peer never sent.
+            // A Close with no payload carries no status code (reported as 1005); it is echoed
+            // with an empty payload.
             NSData *echoPayload = [NSData data];
             if (length >= 2) {
                 uint8_t echo[2] = { (uint8_t)(code >> 8), (uint8_t)(code & 0xFF) };
@@ -939,27 +950,29 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
     return YES;
 }
 
+// NSURLSessionWebSocketCloseCodeInvalid (0) means "no status code": the Close frame then carries an
+// empty payload (RFC 6455 5.5.1), which the peer reports as 1005.
 - (void)sendCloseFrameWithCode:(uint16_t)code reason:(NSData *)reason
 {
     if (_sentClose)
         return;
     _sentClose = YES;
+    _sentCloseCode = code ? code : 1005;
     NSMutableData *payload = [NSMutableData data];
-    uint8_t codeBytes[2] = { (uint8_t)(code >> 8), (uint8_t)(code & 0xFF) };
-    [payload appendBytes:codeBytes length:2];
-    if (reason.length)
-        [payload appendData:reason];
+    if (code) {
+        uint8_t codeBytes[2] = { (uint8_t)(code >> 8), (uint8_t)(code & 0xFF) };
+        [payload appendBytes:codeBytes length:2];
+        if (reason.length)
+            [payload appendData:reason];
+    }
     [self enqueueFrameWithOpcode:0x8 payload:payload];
     [self flushOutput];
 }
 
 // ----- teardown / failure -----
 
-// A transport failure carries CFNetwork's own NSError; delivering a hand-written
-// NSURLErrorNetworkConnectionLost in its place would report one invented cause for every distinct failure
-// (refused, reset, TLS, unreachable) and make a real fault indistinguishable from any other. The
-// synthesised error is used only where there IS no underlying one -- an unexpected close, a protocol
-// violation -- and then says so.
+// The transport's own NSError is delivered; the synthesized NSURLErrorNetworkConnectionLost is used only
+// where no underlying error exists (an unexpected close, a protocol violation).
 - (void)failWithError:(NSError *)error reason:(NSString *)reason
 {
     if (_state == WKWSStateClosed)

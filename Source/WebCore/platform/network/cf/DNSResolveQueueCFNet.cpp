@@ -103,12 +103,6 @@ private:
     std::optional<uint64_t> m_identifier;
 };
 
-// MAVERICKS_BACKPORT: gate on the DEPLOYMENT TARGET (MIN_REQUIRED), not the SDK (MAX_ALLOWED).
-// The nw_endpoint_create_host / nw_resolver_* path is a 10.14+ runtime API; on the modern 26.1
-// SDK MAX_ALLOWED is always >= 101400, which would route the 10.9 deploy target through symbols
-// absent at runtime on Mavericks. MIN_REQUIRED is 1090 here, so we select the no-op fallback.
-// extractIPAddress is inside the gate because performDNSLookup below is its only caller.
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
 static std::optional<IPAddress> extractIPAddress(const struct sockaddr* address)
 {
     if (!address)
@@ -121,6 +115,7 @@ static std::optional<IPAddress> extractIPAddress(const struct sockaddr* address)
     return std::nullopt;
 }
 
+#if HAVE(NETWORK_FRAMEWORK) // MAVERICKS_BACKPORT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw_resolver path.
 static constexpr auto timeoutForDNSResolution = 60_s;
 
 void DNSResolveQueueCFNet::performDNSLookup(const String& hostname, Ref<CompletionHandlerWrapper>&& completionHandler)
@@ -185,14 +180,80 @@ void DNSResolveQueueCFNet::performDNSLookup(const String& hostname, Ref<Completi
             callCompletionHandler(WTF::move(result));
     }).get());
 }
-// MAVERICKS_BACKPORT: no-op DNS fallback for the 10.9 deploy target (the nw_resolver_* path above
-// is 10.14+ runtime API absent on Mavericks); resolve always reports CannotResolve.
-#else
-void DNSResolveQueueCFNet::performDNSLookup(const String&, Ref<CompletionHandlerWrapper>&& completionHandler)
+#else // MAVERICKS_BACKPORT: Network.framework is absent below 10.14; the lookup goes through dns_sd (DNSServiceGetAddrInfo).
+class DNSAddressAccumulator : public RefCounted<DNSAddressAccumulator> {
+public:
+    static Ref<DNSAddressAccumulator> create(Ref<DNSResolveQueueCFNet::CompletionHandlerWrapper>&& completionHandler) { return adoptRef(*new DNSAddressAccumulator(WTF::move(completionHandler))); }
+
+    void addIPAddress(IPAddress&& address)
+    {
+        m_hasReceivedIPv4 |= address.isIPv4();
+        m_hasReceivedIPv6 |= address.isIPv6();
+        if (!address.containsOnlyZeros())
+            m_addresses.append(WTF::move(address));
+    }
+
+    bool receivedIPv4AndIPv6() const { return m_hasReceivedIPv4 && m_hasReceivedIPv6; }
+
+    void complete(std::optional<DNSError> error)
+    {
+        if (error)
+            return m_completionHandler->complete(makeUnexpected(*error));
+        if (m_addresses.isEmpty())
+            return m_completionHandler->complete(makeUnexpected(DNSError::CannotResolve));
+        m_completionHandler->complete(std::exchange(m_addresses, { }));
+    }
+
+private:
+    explicit DNSAddressAccumulator(Ref<DNSResolveQueueCFNet::CompletionHandlerWrapper>&& completionHandler)
+        : m_completionHandler(WTF::move(completionHandler)) { }
+
+    const Ref<DNSResolveQueueCFNet::CompletionHandlerWrapper> m_completionHandler;
+    Vector<IPAddress> m_addresses;
+    bool m_hasReceivedIPv4 { false };
+    bool m_hasReceivedIPv6 { false };
+};
+
+static void dnsLookupCallback(DNSServiceRef serviceRef, DNSServiceFlags flags, uint32_t, DNSServiceErrorType errorCode, const char*, const struct sockaddr* address, uint32_t, void* accumulatorPointer)
 {
-    completionHandler->complete(makeUnexpected(DNSError::CannotResolve));
+    ASSERT(isMainThread());
+    ASSERT(accumulatorPointer);
+    auto accumulator = adoptRef(*static_cast<DNSAddressAccumulator*>(accumulatorPointer));
+
+    struct DNSServiceDeallocator {
+        void operator()(DNSServiceRef service) const { DNSServiceRefDeallocate(service); }
+    };
+    auto service = std::unique_ptr<_DNSServiceRef_t, DNSServiceDeallocator>(serviceRef);
+
+    if (errorCode != kDNSServiceErr_NoError && errorCode != kDNSServiceErr_NoSuchRecord)
+        return accumulator->complete(DNSError::Unknown);
+
+    if (auto ipAddress = extractIPAddress(address))
+        accumulator->addIPAddress(WTF::move(*ipAddress));
+
+    if (flags & kDNSServiceFlagsMoreComing || !accumulator->receivedIPv4AndIPv6()) {
+        // These will be adopted again by a future callback.
+        UNUSED_VARIABLE(accumulator.leakRef());
+        service.release();
+        return;
+    }
+    accumulator->complete(std::nullopt);
 }
-#endif
+
+void DNSResolveQueueCFNet::performDNSLookup(const String& hostname, Ref<CompletionHandlerWrapper>&& completionHandler)
+{
+    ASSERT(isMainThread());
+    DNSServiceRef service { nullptr };
+    auto& leakedAccumulator = DNSAddressAccumulator::create(WTF::move(completionHandler)).leakRef();
+    DNSServiceErrorType result = DNSServiceGetAddrInfo(&service, kDNSServiceFlagsReturnIntermediates, kDNSServiceInterfaceIndexAny, kDNSServiceProtocol_IPv4 | kDNSServiceProtocol_IPv6, hostname.utf8().data(), dnsLookupCallback, &leakedAccumulator);
+    if (result != kDNSServiceErr_NoError) {
+        ASSERT(!service);
+        return adoptRef(leakedAccumulator)->complete(DNSError::CannotResolve);
+    }
+    result = DNSServiceSetDispatchQueue(service, mainDispatchQueueSingleton());
+    ASSERT_UNUSED(result, result == kDNSServiceErr_NoError);
+}
+#endif // MAVERICKS_BACKPORT: closes the HAVE(NETWORK_FRAMEWORK) resolver selection above.
 
 void DNSResolveQueueCFNet::platformResolve(const String& hostname)
 {
