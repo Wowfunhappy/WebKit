@@ -21,10 +21,16 @@ WK_POLYFILL_ABSENT("VideoToolbox", void, VTRegisterSupplementalVideoDecoderIfAva
     (void)codecType;
 }
 
-// Two more encoder property keys libwebrtc's VideoToolbox H.264 encoder sets: the constrained-baseline
-// profile level (10.13+) and the base-layer frame-rate fraction for temporal layering (10.15+). Real
-// CFString values; 10.9's session rejects the unknown keys, which the encoder treats as non-fatal.
-WK_POLYFILL_CONST("VideoToolbox", CFStringRef, kVTProfileLevel_H264_ConstrainedBaseline_AutoLevel, CFSTR("H264_ConstrainedBaseline_AutoLevel"));
+// The constrained-baseline profile level (10.13+). 10.9 spells the same encoder configuration
+// "H264_Baseline_AutoLevel": its baseline encoder writes profile_idc 66 with constraint_set1_flag
+// set, which is a Constrained Baseline bitstream. Naming the 10.13 string instead makes
+// VTSessionSetProperty answer kVTPropertyValueNotSupportedErr, after which the session emits sample
+// buffers whose format description carries no parameter sets at all -- so
+// H264CMSampleBufferToAnnexBBuffer rejects every frame and a WebRTC sender transmits nothing.
+WK_POLYFILL_CONST("VideoToolbox", CFStringRef, kVTProfileLevel_H264_ConstrainedBaseline_AutoLevel, CFSTR("H264_Baseline_AutoLevel"));
+
+// The base-layer frame-rate fraction for temporal layering (10.15+). Real CFString value; 10.9's
+// session rejects the unknown key, which the encoder treats as non-fatal.
 WK_POLYFILL_CONST("VideoToolbox", CFStringRef, kVTCompressionPropertyKey_BaseLayerFrameRateFraction, CFSTR("BaseLayerFrameRateFraction"));
 
 // VTGetDefaultColorAttributesWithHints (10.11+) answers the colour attachments VideoToolbox assumes

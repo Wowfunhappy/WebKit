@@ -26,6 +26,21 @@
 #import "webkit_sdk/objc/api/video_codec/RTCVideoEncoderAV1.h"
 #endif
 
+// MAVERICKS_BACKPORT: drop the H.264 entries whose profile this machine's VideoToolbox cannot
+// encode. RTCVideoEncoderH264 answers by running its own encode path over one frame, so the
+// question is asked of exactly the encoder and profile a negotiated call would use; see
+// +canEncodeProfileLevelId:.
+static void mavericksRemoveUnencodableH264Codecs(NSMutableArray<RTCVideoCodecInfo *> *codecs) {
+  NSMutableArray<RTCVideoCodecInfo *> *unencodable = [[NSMutableArray alloc] init];
+  for (RTCVideoCodecInfo *info in codecs) {
+    NSString *profileLevelId = info.parameters[@"profile-level-id"];
+    if ([info.name isEqualToString:kRTCVideoCodecH264Name] && profileLevelId
+        && ![RTCVideoEncoderH264 canEncodeProfileLevelId:profileLevelId])
+      [unencodable addObject:info];
+  }
+  [codecs removeObjectsInArray:unencodable];
+}
+
 @implementation RTCDefaultVideoEncoderFactory {
   bool _supportsH265;
   bool _supportsVP9Profile0;
@@ -73,6 +88,7 @@
     @"level-asymmetry-allowed" : @"1",
     @"packetization-mode" : @"0",
   }]];
+  mavericksRemoveUnencodableH264Codecs(codecs); // MAVERICKS_BACKPORT: see the probe above.
 
 #if !defined(RTC_DISABLE_H265)
   if (supportsH265) {

@@ -474,6 +474,86 @@ uint32_t computeFramerate(uint32_t proposedFramerate, uint32_t maxAllowedFramera
   [self destroyCompressionSession];
 }
 
+// MAVERICKS_BACKPORT: whether this machine's VideoToolbox can encode a profile-level-id.
+//
+// The encoder hands VideoToolbox a profile and then packetizes through
+// H264CMSampleBufferToAnnexBBuffer, which needs the SPS and PPS off the encoded sample's format
+// description. An encoder that has no such profile fails in two shapes -- the ProfileLevel set is
+// refused, or it is accepted and the samples come back with no parameter sets -- and both leave a
+// sender that negotiated the profile transmitting nothing while the codec list still advertised it.
+// Which shapes occur depends on the machine: the encoder is whichever VTCopyVideoEncoderList
+// resolves for the specification below, and a Mac with a hardware H.264 encoder carries profiles a
+// software-only one does not.
+//
+// So the question is asked by running THIS class over one frame -- the same encoder specification,
+// the same ExtractProfile mapping, the same Annex-B conversion -- rather than by a separate session
+// that could resolve a different encoder or set a profile value the real path never sets. An encoded
+// image reaching the callback is the whole contract the advertisement promises.
++ (BOOL)canEncodeProfileLevelId:(NSString *)profileLevelId {
+  static NSMutableDictionary<NSString *, NSNumber *> *cache;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    cache = [[NSMutableDictionary alloc] init];
+  });
+  @synchronized(cache) {
+    NSNumber *cached = cache[profileLevelId];
+    if (cached)
+      return cached.boolValue;
+  }
+
+  RTCVideoCodecInfo *info = [[RTCVideoCodecInfo alloc]
+      initWithName:kRTCVideoCodecH264Name
+        parameters:@{ @"profile-level-id" : profileLevelId,
+                      @"level-asymmetry-allowed" : @"1",
+                      @"packetization-mode" : @"1" }];
+  RTCVideoEncoderH264 *encoder = [[RTCVideoEncoderH264 alloc] initWithCodecInfo:info];
+  if (!encoder) {
+    // Nothing parsed the profile-level-id, so no session would ever be created for it either.
+    @synchronized(cache) { cache[profileLevelId] = @NO; }
+    return NO;
+  }
+
+  __block BOOL encoded = NO;
+  [encoder setCallback:^BOOL(RTCEncodedImage *frame, id<RTCCodecSpecificInfo> codecInfo,
+                             RTCRtpFragmentationHeader *header) {
+    encoded = encoded || frame.buffer.length > 0;
+    return YES;
+  }];
+
+  RTCVideoEncoderSettings *settings = [[RTCVideoEncoderSettings alloc] init];
+  settings.name = kRTCVideoCodecH264Name;
+  settings.width = 320;
+  settings.height = 240;
+  settings.startBitrate = 300;
+  settings.maxFramerate = 30;
+  settings.mode = RTCVideoCodecModeRealtimeVideo;
+
+  BOOL undetermined = [encoder startEncodeWithSettings:settings numberOfCores:1] != 0;
+  CVPixelBufferRef pixelBuffer = NULL;
+  if (!undetermined
+      && CVPixelBufferCreate(nullptr, settings.width, settings.height, kNV12PixelFormat, nullptr,
+                             &pixelBuffer) == kCVReturnSuccess) {
+    RTCVideoFrame *frame = [[RTCVideoFrame alloc]
+        initWithBuffer:[[RTCCVPixelBuffer alloc] initWithPixelBuffer:pixelBuffer]
+              rotation:RTCVideoRotation_0
+           timeStampNs:0];
+    [encoder encode:frame codecSpecificInfo:nil frameTypes:@[ @(RTCFrameTypeVideoFrameKey) ]];
+    [encoder flush];
+    CVPixelBufferRelease(pixelBuffer);
+  } else {
+    undetermined = YES;
+  }
+  [encoder releaseEncoder];
+
+  // An encoder that could not start, or a frame this instant had no memory for, describes this
+  // moment rather than the machine: keep the profile advertised and let the next caller ask again.
+  if (undetermined)
+    return YES;
+
+  @synchronized(cache) { cache[profileLevelId] = @(encoded); }
+  return encoded;
+}
+
 - (NSInteger)startEncodeWithSettings:(RTCVideoEncoderSettings *)settings
                        numberOfCores:(int)numberOfCores {
   RTC_DCHECK(settings);
