@@ -586,7 +586,14 @@ void WebProcessPool::platformInitializeNetworkProcess(NetworkProcessCreationPara
 #endif
 
     parameters.enablePrivateClickMeasurement = ![defaults objectForKey:WebPreferencesKey::privateClickMeasurementEnabledKey().createNSString().get()] || [defaults boolForKey:WebPreferencesKey::privateClickMeasurementEnabledKey().createNSString().get()];
-    parameters.ftpEnabled = [defaults objectForKey:WebPreferencesKey::ftpEnabledKey().createNSString().get()] && [defaults boolForKey:WebPreferencesKey::ftpEnabledKey().createNSString().get()];
+    // MAVERICKS_BACKPORT: Safari 7 hands an ftp:// URL to LaunchServices, and so to the Finder, from
+    // its response policy: 10.9's CFNetwork answers the navigation with a synthesized
+    // application/x-ftp-directory response Safari cannot display. Refusing the load in
+    // NetworkDataTask's constructor produces no response at all, only WebKit's internal "FTP URLs
+    // are disabled" failure and Safari's generic error page, so FTP is on unless the developer
+    // default turns it off.
+    // parameters.ftpEnabled = [defaults objectForKey:WebPreferencesKey::ftpEnabledKey().createNSString().get()] && [defaults boolForKey:WebPreferencesKey::ftpEnabledKey().createNSString().get()];
+    parameters.ftpEnabled = ![defaults objectForKey:WebPreferencesKey::ftpEnabledKey().createNSString().get()] || [defaults boolForKey:WebPreferencesKey::ftpEnabledKey().createNSString().get()];
 
 #if ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
     parameters.storageAccessPromptQuirksData = StorageAccessPromptQuirkController::sharedSingleton().cachedListData();
