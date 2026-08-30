@@ -2,6 +2,8 @@
 # exclusively needed in only one subdirectory of Source (e.g. only needed by
 # WebCore), then put it there instead.
 
+include("${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WebKitBuildRulesMavericks.cmake") # MAVERICKS_BACKPORT: build rules owned by the port.
+
 macro(WEBKIT_COMPUTE_SOURCES _framework)
     set(_derivedSourcesPath ${${_framework}_DERIVED_SOURCES_DIR})
 
@@ -49,11 +51,8 @@ macro(WEBKIT_COMPUTE_SOURCES _framework)
         foreach (_file IN LISTS _outputTmp)
             if (_file MATCHES "\\.c$")
                 list(APPEND ${_framework}_C_SOURCES ${_file})
-            # MAVERICKS_BACKPORT: compile unified bundles of -ARC.mm sources with -fobjc-arc so ARC files (added for the 10.9 build) get ARC even when unified.
-            elseif (_file MATCHES "-ARC\\.mm$")
-                set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS "-fobjc-arc")
-                list(APPEND ${_framework}_SOURCES ${_file})
             else ()
+                _MAVERICKS_SET_ARC_IF_NEEDED("${_file}") # MAVERICKS_BACKPORT: apply the port's ARC source policy.
                 list(APPEND ${_framework}_SOURCES ${_file})
             endif ()
         endforeach ()
@@ -149,24 +148,7 @@ macro(_WEBKIT_TARGET_SETUP _target _logical_name)
         target_compile_options(${_target} PRIVATE ${${_logical_name}_COMPILE_OPTIONS})
     endif ()
 
-    # MAVERICKS_BACKPORT: link the polyfill ObjC-class stubs dylib into every WebKit framework. The polyfilled
-    # classes have absent-on-10.9 SYSTEM names (UTType, NSScrollingPredominantAxisFilter, CABackdropLayer,
-    # SecKeyProxy, ...) that the build SDK declares in system frameworks (AppKit/QuartzCore/Foundation/Security/
-    # CFNetwork/CoreServices); under the two-level namespace a reference binds to whichever provider the linker
-    # resolves it against. Linking this dylib here covers the classes the linker resolves against IT — those
-    # owned by frameworks the linker reaches after it (AppKit/QuartzCore/Foundation) — which then bind to this
-    # ONE shared definition (no "Class X is implemented in both ..." warning, no "Symbol not found" crash). It
-    # only ever wins for the absent classes it defines; real 10.9 classes (NSColor, NSView, ...) are not in the
-    # dylib and still bind to their system framework. CMake link-line ordering is NOT controllable enough to
-    # make this dylib beat EVERY system framework, so classes owned by frameworks linked earlier (Security ->
-    # SecKeyProxy; CFNetwork -> _NSHTTPAlternativeServices*/_NSHSTSStorage; CoreServices -> LSBundleProxy;
-    # QuartzCore in some binaries) are handled deterministically when the product is staged instead:
-    # libpolyfill_classes.dylib reexports those four frameworks and MavericksSupport/scripts/stage-frameworks.sh
-    # repoints each binary's dependency on them to it (see rewrite_abs_deps). Together that resolves all of them
-    # to this one dylib.
-    if (MAVERICKS_SUPPORT)
-        target_link_libraries(${_target} PRIVATE ${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_classes.dylib)
-    endif ()
+    _MAVERICKS_LINK_POLYFILL_CLASSES(${_target}) # MAVERICKS_BACKPORT: link the port's shared Objective-C class definitions.
     if (${_logical_name}_LIBRARIES)
         target_link_libraries(${_target} PUBLIC ${${_logical_name}_LIBRARIES})
     endif ()
@@ -373,81 +355,13 @@ macro(_WEBKIT_TARGET_INTERFACE _target)
     add_library(WebKit::${_target} ALIAS ${_target}_PostBuild)
 endmacro()
 
-# MAVERICKS_BACKPORT: force-load libpolyfill.a into a shipped WebKit binary.
-#
-# The polyfill layer replaces symbols 10.9 has as well as adding ones it lacks, so which definition
-# wins has to be decided by us rather than by the linker. Linked as an ordinary archive (which is
-# what OptionsMac.cmake still does for build-time tools) a member is pulled only if it resolves a
-# still-undefined symbol at the point the archive is reached, so the winner depends on where the
-# archive sits relative to the SDK stub that also defines the symbol, and on whether some unrelated
-# symbol in the same object happens to drag the member in. Both move under edits that have nothing
-# to do with the polyfill, which puts a working system function one link-line reordering away from
-# being replaced by a polyfill copy, and leaves a polyfill whose callers reference it only weakly
-# dependent on sharing an object file with something that is referenced strongly.
-#
-# Force-loading makes every member part of the image, and an image binds its own references to its
-# own definitions in preference to importing from a dylib -- regardless of link order and of weak
-# imports. Listing the archive again as a plain library (via link_libraries) is harmless: nothing is
-# left undefined for it to satisfy, so no member is pulled twice.
-#
-# Applied to everything this port SHIPS: the four frameworks (from WEBKIT_FRAMEWORK, below) and the
-# three XPC process executables (WebProcess/NetworkProcess/GPUProcess, from their own definitions in
-# Source/WebKit/CMakeLists.txt). Those executables are thin entry-point shims, but "thin" is not
-# "none" -- AuxiliaryProcessMain and the crash/sandbox setup around it run before the framework is
-# entered -- and the guarantee this macro exists to provide is that the polyfill wins EVERYWHERE we
-# ship, not that it wins where we guessed it would matter.
-#
-# NOT applied via WEBKIT_EXECUTABLE, because that macro also builds the build-time tools
-# (LLIntSettingsExtractor, LLIntOffsetsExtractor, the jsc shell, DumpRenderTree/WebKitTestRunner).
-# Force-loading the whole archive into a tool means every library any polyfill references has to be
-# on that tool's link line, for polyfills it will never call. Those tools do not ship, so ordinary
-# archive semantics -- resolve what is undefined, ignore the rest -- are all they need
-# (link_libraries in OptionsMac.cmake).
-#
-# A shipped executable does have to link what the archive's members reference, since force_load makes
-# every member part of the image whether or not that image calls it. The frameworks all link these
-# already; the executables link almost nothing on their own, so name them here rather than at each
-# call site. The list is exactly what libpolyfill.a leaves undefined: CoreGraphics and CoreText for
-# the graphics gap-fills, Security for the trust-evaluation ones, CoreFoundation for CF types and the
-# ObjC runtime it reexports.
-macro(_WEBKIT_FORCE_LOAD_POLYFILL _target)
-    if (MAVERICKS_SUPPORT)
-        target_link_options(${_target} PRIVATE "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill.a")
-        # Make it a real link input, so regenerating the archive (build-polyfill.sh) relinks.
-        set_property(TARGET ${_target} APPEND PROPERTY LINK_DEPENDS
-            "${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill.a")
-        # The libcompression polyfill (polyfills/compression.c) codes Brotli through the vendored
-        # codec, so every force-load consumer needs the brotli archives (plain, not force-loaded:
-        # only the members the polyfill references are pulled).
-        target_link_libraries(${_target} PRIVATE
-            "${MAVERICKS_DEPS}/lib/libbrotlienc.a"
-            "${MAVERICKS_DEPS}/lib/libbrotlidec.a"
-            "${MAVERICKS_DEPS}/lib/libbrotlicommon.a")
-        get_target_property(_wkPolyfillTargetType ${_target} TYPE)
-        if (_wkPolyfillTargetType STREQUAL "EXECUTABLE")
-            target_link_libraries(${_target} PRIVATE
-                "-framework CoreFoundation" "-framework CoreGraphics"
-                "-framework CoreText" "-framework Security")
-        endif ()
-    endif ()
-endmacro()
-
 macro(WEBKIT_FRAMEWORK _target)
     _WEBKIT_FRAMEWORK_LINK_FRAMEWORK(${_target})
     _WEBKIT_TARGET(${_target})
     _WEBKIT_TARGET_ANALYZE(${_target})
-    _WEBKIT_FORCE_LOAD_POLYFILL(${_target})
+    _WEBKIT_FORCE_LOAD_POLYFILL(${_target}) # MAVERICKS_BACKPORT: force-load the port's symbol polyfills.
 
-    # MAVERICKS_BACKPORT: tag every WebKit framework with __DATA,__wk_marker (libwk_marker.a). The
-    # selref patcher (wk_selref_scope.o, force-loaded into WebCore) rewrites __objc_selrefs only in
-    # marked images, so the method polyfills (WK_POLYFILL_ADD_METHODS) are scoped to WebKit's own
-    # binaries — a host app embedding WebKit is never patched and never sees the modern public
-    # selectors. Pure data (no initializer), so it is safe even in frameworks like JavaScriptCore.
-    if (MAVERICKS_SUPPORT)
-        target_link_options(${_target} PRIVATE "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libwk_marker.a")
-        set_property(TARGET ${_target} APPEND PROPERTY LINK_DEPENDS
-            "${MAVERICKS_SUPPORT}/polyfill/build/libwk_marker.a")
-    endif ()
+    _WEBKIT_FORCE_LOAD_WK_MARKER(${_target}) # MAVERICKS_BACKPORT: scope selector rewriting to WebKit images.
 
     if (${_target}_OUTPUT_NAME)
         set_target_properties(${_target} PROPERTIES OUTPUT_NAME ${${_target}_OUTPUT_NAME})
@@ -464,10 +378,7 @@ macro(WEBKIT_FRAMEWORK _target)
 
     if (APPLE AND NOT PORT STREQUAL "GTK" AND NOT ${${_target}_LIBRARY_TYPE} MATCHES STATIC)
         set_target_properties(${_target} PROPERTIES FRAMEWORK TRUE)
-        # MAVERICKS_BACKPORT: CMake's default Info.plist leaves CFBundleIdentifier empty; stamp the
-        # canonical identifier that CFBundleGetBundleWithIdentifier resolves for
-        # WebCore::copyLocalizedString.
-        set_target_properties(${_target} PROPERTIES MACOSX_FRAMEWORK_IDENTIFIER "com.apple.${_target}")
+        _MAVERICKS_SET_FRAMEWORK_IDENTIFIER(${_target}) # MAVERICKS_BACKPORT: apply the port's framework bundle identifier.
         install(TARGETS ${_target} FRAMEWORK DESTINATION ${LIB_INSTALL_DIR})
     endif ()
 

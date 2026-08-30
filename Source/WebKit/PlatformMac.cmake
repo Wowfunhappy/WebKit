@@ -885,5 +885,5 @@ endfunction()
 
 set(WebKit_GENERATED_SERIALIZERS_SUFFIX mm)
 
-# MAVERICKS_BACKPORT: single seam -- see MavericksSupport/cmake/WebCorePlatformMavericks.cmake.
+# MAVERICKS_BACKPORT: single seam -- see MavericksSupport/cmake/WebKitPlatformMavericks.cmake.
 include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WebKitPlatformMavericks.cmake)

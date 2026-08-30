@@ -824,13 +824,11 @@ fi
   && "$MESON" install -C b ) || exit 1
 
 echo "==== libyuv (ThirdParty/libwebrtc's copy) ===="
-# libavif's libyuv. WebCore force-loads libwebrtc.a, which carries the whole of
-# Source/ThirdParty/libwebrtc/Source/third_party/libyuv, and libavif built without libyuv compiles
-# its own subset of it under the same global symbol names -- two definitions of ScalePlane in one
-# link. So libavif is built against that same libyuv as a system library: it then references
-# libyuv rather than defining it, and WebCore resolves those references from the copy inside
-# libwebrtc.a. The archive built here exists only for libavif's configure and link; it is not
-# collected into deps/build.
+# libavif's libyuv. Built without a system libyuv, libavif compiles a subset of it into libavif.a
+# under libyuv's own global symbol names; built against a real one it references those symbols
+# instead, which keeps one definition and one vendored copy of the source. That copy is
+# Source/ThirdParty/libwebrtc/Source/third_party/libyuv, the tree libwebrtc already carries, and it
+# collects into deps/build so WebCore links it beside libavif.
 YUV_SRC="$REPO/Source/ThirdParty/libwebrtc/Source/third_party/libyuv"
 if ! built libyuv install/lib/libyuv.a; then
     d="$SCRATCH/build-libyuv"; rm -rf "$d"; mkdir -p "$d"
@@ -1107,7 +1105,7 @@ cp -p "$STAGE/lib/glib-2.0/include/glibconfig.h" "$DEST/lib/glib-2.0/include/"
 for l in libicuuc.a libicui18n.a libicudata.a \
          libgpg-error.a libgcrypt.a libtasn1.a \
          libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a \
-         libwebp.a libwebpdemux.a libsharpyuv.a libavif.a; do
+         libwebp.a libwebpdemux.a libsharpyuv.a libavif.a libyuv.a; do
   cp -p "$STAGE/lib/$l" "$DEST/lib/"
 done
 
@@ -1267,7 +1265,7 @@ require_glob "$DEST/lib/libc++abi.1.dylib"
 # dropout now instead of as an unresolved-symbol link failure in WebCore.
 for a in libicuuc.a libicui18n.a libicudata.a libgpg-error.a libgcrypt.a libtasn1.a \
          libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a \
-         libwebp.a libwebpdemux.a libsharpyuv.a libavif.a; do
+         libwebp.a libwebpdemux.a libsharpyuv.a libavif.a libyuv.a; do
   require_glob "$DEST/lib/$a"
 done
 require_glob "$DEST/include/webp/decode.h"

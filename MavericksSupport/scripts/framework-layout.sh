@@ -133,6 +133,11 @@ wk_verify_tree() {
         [ -f "$pre$f" ] || { echo "  MISSING in-bundle dylib: $pre$f" >&2; bad=1; }
     done
 
+    # libwebrtc: WebCore and WebKit2 both carry a hard LC_LOAD_DYLIB on it, so a tree without it is
+    # a tree where no WebKit app reaches its entry point.
+    [ -f "$pre$PRIVLIB/libwebrtc.dylib" ] || {
+        echo "  MISSING libwebrtc: $pre$PRIVLIB/libwebrtc.dylib" >&2; bad=1; }
+
     # GStreamer, the sole media engine.
     [ -f "$pre$GST_DEPLOY/libgstreamer-1.0.0.dylib" ] || {
         echo "  MISSING GStreamer runtime: $pre$GST_DEPLOY/libgstreamer-1.0.0.dylib" >&2; bad=1; }
@@ -208,5 +213,5 @@ com.apple.WebKit.webpushd.relocatable.mac.sb"
         echo "### FAILED: $label is not a complete WebKit product (see the errors above)." >&2
         return 1
     fi
-    echo "  verified: $label is complete (4 framework binaries fat with i386, $(set -- $WK_XPC_SERVICES; echo $#) XPC services, webpushd, private runtime + GStreamer, single unwinder)"
+    echo "  verified: $label is complete (4 framework binaries fat with i386, $(set -- $WK_XPC_SERVICES; echo $#) XPC services, webpushd, private runtime + libwebrtc + GStreamer, single unwinder)"
 }

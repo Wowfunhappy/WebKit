@@ -5,9 +5,66 @@
 # PlatformMac.cmake never conflicts, and everything this port changes is visible in one place.
 #
 # This file is included at the END of upstream's PlatformMac.cmake, which is itself included from
-# Source/WebCore/CMakeLists.txt:2772 -- before the lists are consumed (CSS_VALUE_PLATFORM_DEFINES at
-# :2879, WebCore_USER_AGENT_SCRIPTS at :2906, the WebCore target later still). So appending to,
-# removing from, and re-setting those variables here all take effect.
+# Source/WebCore/CMakeLists.txt:2730 -- before most of the lists are consumed
+# (CSS_VALUE_PLATFORM_DEFINES at :2837, WebCore_USER_AGENT_SCRIPTS at :2864, GENERATE_BINDINGS at
+# :2906, the WebCore target later still). So appending to, removing from, and re-setting those
+# variables here all take effect. WebCore_NON_SVG_IDL_FILES is the exception: :2094 has already
+# folded it into WebCore_IDL_FILES, which is the list an IDL has to be added to from here.
+
+# WebCoreCALayerExtras.mm reaches DynamicContentScalingTypes.h by its bare name, which the Xcode Mac
+# build resolves from its source-wide header search and this CMake build resolves only from the
+# directories listed here.
+list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
+    "${WEBCORE_DIR}/platform/graphics/re"
+)
+
+# libwebrtc/CMakeLists.txt is the GTK and WPE ports' CMake, and puts libwebrtc in WebCore_LIBRARIES,
+# which propagates a hard load command to everything that links WebCore -- WebKitLegacy included, which
+# references nothing in it. The Cocoa build links it weakly and only where its symbols are used:
+# WebCore.xcconfig and WebKit.xcconfig each pass -weak-lwebrtc.
+list(REMOVE_ITEM WebCore_LIBRARIES webrtc)
+
+macro(_MAVERICKS_FINALIZE_WEBCORE_TARGET _target)
+    set_target_properties(${_target} PROPERTIES
+        LINKER_LANGUAGE CXX
+        LINK_FLAGS "-fuse-ld=lld -weak-lxslt -undefined dynamic_lookup -weak_framework Metal -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy -allowable_client DumpRenderTree -allowable_client WebKitTestRunner -allowable_client TestRunnerInjectedBundle")
+    _MAVERICKS_LINK_LIBWEBRTC(${_target})
+
+    if (EXISTS "${WEBCORE_DIR}/platform/audio/resources/Composite.wav")
+        add_custom_command(TARGET ${_target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${_target}>/Resources/audio"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${WEBCORE_DIR}/platform/audio/resources/Composite.wav"
+                "$<TARGET_FILE_DIR:${_target}>/Resources/audio/Composite.wav"
+            VERBATIM)
+    endif ()
+
+    add_custom_command(TARGET ${_target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${_target}>/Resources/modern-media-controls/images"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${WEBCORE_DIR}/en.lproj/modern-media-controls-localized-strings.js"
+            "$<TARGET_FILE_DIR:${_target}>/Resources/modern-media-controls-localized-strings.js"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${WEBCORE_DIR}/Modules/modern-media-controls/images/macOS"
+            "$<TARGET_FILE_DIR:${_target}>/Resources/modern-media-controls/images"
+        VERBATIM)
+
+    if (APPLE)
+        target_link_options(${_target} PRIVATE
+            "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_methods.a")
+        set_property(TARGET ${_target} APPEND PROPERTY LINK_DEPENDS
+            "${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_methods.a")
+    endif ()
+endmacro()
+
+macro(_MAVERICKS_FINALIZE_WEBCORE_TEST_SUPPORT _target)
+    set_target_properties(${_target} PROPERTIES LINKER_LANGUAGE CXX)
+endmacro()
+
+macro(_MAVERICKS_SET_WEBCORE_FRAMEWORK_VERSION _target)
+    set_property(TARGET ${_target} PROPERTY VERSION)
+    set_target_properties(${_target} PROPERTIES SOVERSION "A")
+endmacro()
 
 # --------------------------------------------------------------------------
 # Standalone backport blocks (targets, definitions, framework lookups, staging).
@@ -312,6 +369,9 @@ list(APPEND WebCoreTestSupport_SOURCES
 )
 
 list(APPEND WebCore_IDL_FILES
+    # the legacy beforeload event, which Safari extensions' network blocking dispatches on.
+    dom/BeforeLoadEvent.idl
+
     # also generate the ApplePayDisbursementRequest IDL binding.
     Modules/applepay/ApplePayDisbursementRequest.idl
 
@@ -353,6 +413,9 @@ list(APPEND WebCore_LIBRARIES
     # the same libdav1d the media stack loads, so the process carries one AV1 decoder; that
     # dylib's @rpath install name is repointed at the deployed copy by stage-frameworks.sh.
     "${MAVERICKS_DEPS}/lib/libavif.a"
+    # libavif is built against libwebrtc's libyuv as a system library (deps/build_deps.sh), so its
+    # colour-conversion and scaling paths reference libyuv rather than defining it.
+    "${MAVERICKS_DEPS}/lib/libyuv.a"
     # The unversioned symlink, not the majored name: it records @rpath/libdav1d.7.dylib as the
     # load command either way, and this keeps dav1d's SOVERSION out of a second file.
     "${MAVERICKS_DEPS}/lib/libdav1d.dylib"

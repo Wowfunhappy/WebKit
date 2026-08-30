@@ -143,10 +143,9 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_LEGACY_ENCRYPTED_MEDIA PRIVATE OFF)
 # ON — this is the value Apple's Mac build actually uses. PlatformEnableCocoa.h:598
 # turns MEDIA_RECORDER on for every Cocoa port with MEDIA_STREAM + VIDEO (both ON here), but that only
 # fires `#if !defined(ENABLE_MEDIA_RECORDER)`, and WebKitFeatures.cmake already defines it as 0 for ports
-# that do not opt in — so the CMake Mac port silently ends up with it OFF. Same shape as the
-# ENABLE_VIDEO_PRESENTATION_MODE problem. Two consequences of leaving it off: MediaRecorder (a real web
-# API, served here by MediaRecorderPrivateAVFImpl with the libwebm writer) is missing, and
-# ENABLE_MEDIA_RECORDER_WEBM stays off with it, which
+# that do not opt in — so the CMake Mac port silently ends up with it OFF. Two consequences of leaving
+# it off: MediaRecorder (a real web API, served here by MediaRecorderPrivateAVFImpl with the libwebm
+# writer) is missing, and ENABLE_MEDIA_RECORDER_WEBM stays off with it, which
 # removes MediaSourceConfiguration::supportsLimitedMatroska — a member upstream's own byte-upstream
 # SourceBufferPrivateAVFObjC.mm:795 reads unguarded, so that TU cannot compile without this.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_RECORDER PRIVATE ON)
@@ -335,14 +334,14 @@ link_libraries(${MAVERICKS_TC}/lib/libc++abi.1.dylib)
 # ordinary archive semantics are fine for them: they just need the libc gap-fills to resolve, and
 # they never ship. Anything that DOES ship additionally force-loads the archive, because for shipped
 # code it matters which definition wins rather than merely that the link succeeds -- see
-# _WEBKIT_FORCE_LOAD_POLYFILL in WebKitMacros.cmake. Force-loading it here instead would drag the
+# _WEBKIT_FORCE_LOAD_POLYFILL in WebKitBuildRulesMavericks.cmake. Force-loading it here instead would drag the
 # whole archive into every build tool, which then needs every framework the polyfill references on
 # its link line.
 link_libraries(${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill.a)
 # libpolyfill_classes.dylib (the polyfill ObjC class stubs) is NOT link_libraries'd here: it is linked
-# per-framework in WEBKIT_FRAMEWORK (WebKitMacros.cmake) so it covers the framework targets without also
+# per-framework by _MAVERICKS_LINK_POLYFILL_CLASSES so it covers framework targets without also
 # being dragged into build tools, and the classes its owning framework is linked earlier than are handled by
-# the reexport+repoint in MavericksSupport/scripts/stage-frameworks.sh (see the WEBKIT_FRAMEWORK note).
+# the reexport+repoint in MavericksSupport/scripts/stage-frameworks.sh.
 # QuartzCore's CALayer is the superclass of the CABackdropLayer stub; linking it everywhere (it is a 10.9
 # system framework) is harmless and also covers any binary that uses CALayer directly.
 link_libraries("-framework QuartzCore")

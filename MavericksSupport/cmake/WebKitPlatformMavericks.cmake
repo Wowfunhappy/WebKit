@@ -3,6 +3,51 @@
 # Source/WebKit/PlatformMac.cmake is kept BYTE-UPSTREAM and ends with a single `include()` of this
 # file. See MavericksSupport/cmake/WebCorePlatformMavericks.cmake for the rationale.
 
+# SOVERSION "A" pins the standard Versions/A framework layout, matching WebCore/JavaScriptCore/
+# WebKitLegacy, the nested XPCServices (which build into Versions/A/XPCServices) and Safari 7's
+# absolute LC_LOAD_DYLIB of .../WebKit2.framework/Versions/A/WebKit2. current_version (615.1.1, which
+# satisfies Safari's >= 537.78.x check) is applied separately via -current_version in OptionsMac.cmake.
+#
+# libpolyfill_webkit.a carries the RFC 6455 WebSocket client that provides
+# NSURLSessionWebSocketTask/Message (10.15+, absent on 10.9) and the stub @implementations Safari 7
+# binds out of WebKit.framework. A static archive linked into a framework contributes its symbols to
+# that framework, which is what satisfies both the two-level "Expected in: WebKit" bind and the weak
+# _OBJC_CLASS_$_NSURLSessionWebSocketMessage import. It is a SEPARATE archive from libpolyfill_methods.a
+# so these ObjC classes are registered exactly once, here, rather than in every image that links the
+# shared archive.
+macro(_MAVERICKS_FINALIZE_WEBKIT_TARGET _target)
+    set_target_properties(${_target} PROPERTIES
+        LINKER_LANGUAGE CXX
+        SOVERSION "A"
+        MACOSX_FRAMEWORK_IDENTIFIER "com.apple.WebKit")
+    _MAVERICKS_LINK_LIBWEBRTC(${_target})
+    if (APPLE)
+        target_link_options(${_target} PRIVATE
+            "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_webkit.a")
+        set_property(TARGET ${_target} APPEND PROPERTY LINK_DEPENDS
+            "${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_webkit.a")
+    endif ()
+endmacro()
+
+# The webpushd daemon executable, which upstream builds only from WebKit.xcodeproj. As there, the tool
+# is a thin main() over WKWebPushDaemonMain -- the daemon implementation lives in WebKit.framework (see
+# PlatformMac.cmake). The binary lands in Versions/A/Daemons inside the framework, the relocatable-
+# webpushd layout, so the staging and install scripts carry it with the framework; launchd starts it
+# from the LaunchAgent MavericksSupport/install-safari7.sh installs, as upstream's relocatable flavor
+# also does.
+macro(_MAVERICKS_DEFINE_WEBPUSHD)
+    if (ENABLE_WEB_PUSH_NOTIFICATIONS)
+        WEBKIT_EXECUTABLE_DECLARE(webpushd)
+        set(webpushd_SOURCES webpushd/webpushd.cpp)
+        set(webpushd_PRIVATE_INCLUDE_DIRECTORIES $<TARGET_PROPERTY:WebKit,INCLUDE_DIRECTORIES>)
+        set(webpushd_LIBRARIES WebKit)
+        WEBKIT_EXECUTABLE(webpushd)
+        ADD_WEBKIT_PREFIX_HEADER(webpushd)
+        set_target_properties(webpushd PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WebKit.framework/Versions/A/Daemons")
+    endif ()
+endmacro()
+
 # --------------------------------------------------------------------------
 # Standalone backport blocks (targets, definitions, framework lookups, staging).
 # --------------------------------------------------------------------------

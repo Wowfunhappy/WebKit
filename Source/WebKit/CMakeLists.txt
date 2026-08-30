@@ -840,11 +840,6 @@ if (PORT STREQUAL GTK OR PORT STREQUAL WPE)
     )
 endif ()
 
-# MAVERICKS_BACKPORT: SYMLINK (not copy) the forwarded framework headers. WebKit's
-# own code includes some headers both via <WebKit/X.h> (forwarded) and "X.h"
-# (source) in the same TU (e.g. _WKJSHandle.h vs WKJSHandleInternal.h); a copy
-# has a different realpath than the source so #pragma once fails to dedup and the
-# class is defined twice. Symlinks share the source realpath, so #pragma once works.
 if (WebKit_PUBLIC_FRAMEWORK_HEADERS)
     # MAVERICKS_BACKPORT: SYMLINK (not copy) so forwarded headers share the source realpath and #pragma once dedups across <WebKit/X.h> and "X.h" in one TU.
     WEBKIT_SYMLINK_FILES(WebKit_CopyHeaders
@@ -1123,34 +1118,7 @@ list(APPEND WebKit_SOURCES ${WebKit_DERIVED_SOURCES})
 
 WEBKIT_COMPUTE_SOURCES(WebKit)
 WEBKIT_FRAMEWORK(WebKit)
-# MAVERICKS_BACKPORT: pin the Versions/A framework layout (SOVERSION "A") + com.apple.WebKit identifier so Safari 7's absolute WebKit2 LC_LOAD_DYLIB resolves.
-set_target_properties(WebKit PROPERTIES
-    LINKER_LANGUAGE CXX
-    # 10.9 / Safari-7 backport: use the standard Versions/A framework layout
-    # (SOVERSION "A"), matching WebCore/JavaScriptCore/WebKitLegacy, the nested
-    # XPCServices (which build into Versions/A/XPCServices), and Safari 7's
-    # absolute LC_LOAD_DYLIB of .../WebKit2.framework/Versions/A/WebKit2. A
-    # VERSION of "615.1.1" here previously forced the binary into Versions/615.1.1,
-    # splitting it from the XPC services and breaking the bundle. current_version
-    # (615.1.1, which satisfies Safari's >= 537.78.x check) is applied separately
-    # via the -current_version link option in OptionsMac.cmake.
-    SOVERSION "A"
-    MACOSX_FRAMEWORK_IDENTIFIER "com.apple.WebKit"
-)
-# MAVERICKS_BACKPORT: force-load the WebKit-scoped polyfill archive. It carries the RFC 6455 WebSocket
-# client that provides NSURLSessionWebSocketTask/Message (10.15+, absent on 10.9) and the stub
-# @implementations Safari 7 binds out of WebKit.framework. A static archive linked into a framework
-# contributes its symbols to that framework, which is what satisfies both the two-level "Expected in:
-# WebKit" bind and the weak _OBJC_CLASS_$_NSURLSessionWebSocketMessage import -- the same arrangement
-# libpolyfill_methods.a already uses for WebCore. It is a SEPARATE archive from that
-# one so these ObjC classes are registered exactly once, here, rather than in every image that links the
-# shared archive. -force_load keeps members nothing references (the categories and +load registrations);
-# LINK_DEPENDS makes the raw -Wl input a real ninja dependency so WebKit relinks when the archive changes.
-if (APPLE)
-    target_link_options(WebKit PRIVATE "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_webkit.a")
-    set_property(TARGET WebKit APPEND PROPERTY LINK_DEPENDS
-        "${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_webkit.a")
-endif ()
+_MAVERICKS_FINALIZE_WEBKIT_TARGET(WebKit) # MAVERICKS_BACKPORT: apply the port's target and polyfill rules.
 
 ADD_WEBKIT_PREFIX_HEADER(WebKit)
 
@@ -1160,7 +1128,8 @@ ADD_WEBKIT_PREFIX_HEADER(WebProcess)
 # MAVERICKS_BACKPORT: these three are the only SHIPPED binaries WEBKIT_EXECUTABLE produces, so the
 # polyfill force-load is applied here rather than inside that macro -- which also builds the
 # build-time tools, where dragging the whole archive in would only add link-line requirements for
-# polyfills they never call. See _WEBKIT_FORCE_LOAD_POLYFILL in Source/cmake/WebKitMacros.cmake.
+# polyfills they never call. See _WEBKIT_FORCE_LOAD_POLYFILL in
+# MavericksSupport/cmake/WebKitBuildRulesMavericks.cmake.
 _WEBKIT_FORCE_LOAD_POLYFILL(WebProcess)
 
 list(APPEND NetworkProcess_PRIVATE_INCLUDE_DIRECTORIES $<TARGET_PROPERTY:WebKit,INCLUDE_DIRECTORIES>)
@@ -1192,22 +1161,7 @@ endif ()
 
 if ("${PORT}" STREQUAL "Mac")
     WEBKIT_DEFINE_XPC_SERVICES()
-
-    # MAVERICKS_BACKPORT: the webpushd daemon executable, which upstream builds only from
-    # WebKit.xcodeproj. As there, the tool is a thin main() over WKWebPushDaemonMain — the daemon
-    # implementation lives in WebKit.framework (see PlatformMac.cmake). The binary lands in
-    # Versions/A/Daemons inside the framework, the relocatable-webpushd layout, so the staging and
-    # install scripts carry it with the framework; launchd starts it from the LaunchAgent
-    # MavericksSupport/install-safari7.sh installs, as upstream's relocatable flavor also does.
-    if (ENABLE_WEB_PUSH_NOTIFICATIONS)
-        WEBKIT_EXECUTABLE_DECLARE(webpushd)
-        set(webpushd_SOURCES webpushd/webpushd.cpp)
-        set(webpushd_PRIVATE_INCLUDE_DIRECTORIES $<TARGET_PROPERTY:WebKit,INCLUDE_DIRECTORIES>)
-        set(webpushd_LIBRARIES WebKit)
-        WEBKIT_EXECUTABLE(webpushd)
-        ADD_WEBKIT_PREFIX_HEADER(webpushd)
-        set_target_properties(webpushd PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WebKit.framework/Versions/A/Daemons")
-    endif ()
+    _MAVERICKS_DEFINE_WEBPUSHD() # MAVERICKS_BACKPORT: define the port's relocatable web push daemon.
 else ()
     if (NOT ANDROID)
         WEBKIT_POPULATE_LIBRARY_VERSION(WEBKIT)

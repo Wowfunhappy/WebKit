@@ -177,11 +177,6 @@ set(WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/platform/graphics/controls"
     "${WEBCORE_DIR}/platform/graphics/iso"
     "${WEBCORE_DIR}/platform/graphics/opentype"
-    # MAVERICKS_BACKPORT: WebCoreCALayerExtras.mm reaches DynamicContentScalingTypes.h by its bare
-    # name, which the Xcode Mac build resolves from its own source-wide header search. This CMake
-    # Mac build searches only the directories listed here, so name the one that holds it and let
-    # the source keep upstream's include.
-    "${WEBCORE_DIR}/platform/graphics/re"
     "${WEBCORE_DIR}/platform/graphics/transforms"
     "${WEBCORE_DIR}/platform/mediacapabilities"
     "${WEBCORE_DIR}/platform/mediarecorder"
@@ -1150,8 +1145,6 @@ set(WebCore_NON_SVG_IDL_FILES
     dom/AddEventListenerOptions.idl
     dom/AriaNotifyOptions.idl
     dom/Attr.idl
-    # MAVERICKS_BACKPORT: legacy beforeload event restored (used by extension network blocking).
-    dom/BeforeLoadEvent.idl
     dom/BeforeUnloadEvent.idl
     dom/BroadcastChannel.idl
     dom/CDATASection.idl
@@ -2472,30 +2465,7 @@ if (USE_LIBWEBRTC)
         "${WEBCORE_DIR}/platform/libwebrtc"
         "${WEBCORE_DIR}/platform/mediastream/libwebrtc"
     )
-    # MAVERICKS_BACKPORT: the libwebrtc WebKit ObjC SDK is full of category-only
-    # translation units (RTCVideoCodecInfo+Private, NSString+StdString, etc.) whose
-    # methods are invoked dynamically by the C++ codec factories. A plain archive link
-    # drops those .o files (no external symbol references them), so the selectors are
-    # missing at runtime and `new RTCPeerConnection` crashes with doesNotRecognizeSelector.
-    #
-    # -force_load pulls every member of libwebrtc.a, including the category-only ObjC
-    # TUs. (-ObjC would do the same for just the ObjC members, but it is a GLOBAL flag
-    # and would also force-load ObjC++ members of the other archives on WebCore's link
-    # line — e.g. libANGLE.a's WindowSurfaceCGL.mm.o — producing hundreds of duplicate
-    # symbols. -force_load is per-archive, so it is the correct tool here.)
-    #
-    # libwebrtc.a's vendored source list includes test/fake C++ TUs and an incomplete
-    # abseil; those have been cleaned up above so force_load resolves cleanly. PRIVATE so
-    # the flag stays on WebCore's own link (WebKitLegacy/WebKit link WebCore, not the .a).
-    #
-    # opus is built as a separate static archive (libopus.a) — unlike vpx/libsrtp it is not
-    # merged into libwebrtc.a via $<TARGET_OBJECTS>. The force-loaded webrtc audio code
-    # references opus_* , so libopus.a must also be on WebCore's link line (listed after
-    # libwebrtc.a so its members resolve those references). No force_load needed — opus has
-    # no ObjC categories, so a normal archive link pulls exactly the referenced members.
-    # The flag string carries no build dependency; the plain webrtc entry after it does (and its
-    # transitive aom), so WebCore relinks when the archive changes.
-    list(APPEND WebCore_PRIVATE_LIBRARIES "-Wl,-force_load,$<TARGET_FILE:webrtc>" webrtc opus)
+    list(APPEND WebCore_LIBRARIES webrtc)
     list(APPEND WebCore_UNIFIED_SOURCE_LIST_FILES
         "platform/SourcesLibWebRTC.txt"
     )
@@ -3132,76 +3102,11 @@ list(APPEND WebCore_INTERFACE_DEPENDENCIES WebCore_CopyPrivateHeaders)
 list(APPEND WebCoreTestSupport_INTERFACE_DEPENDENCIES WebCore_CopyPrivateHeaders)
 
 WEBKIT_FRAMEWORK(WebCore)
-# MAVERICKS_BACKPORT: force C++ linker driver so libc++ and the C++ runtime are pulled in correctly under the clang-22 toolchain.
-set_target_properties(WebCore PROPERTIES LINKER_LANGUAGE CXX)
-
-# MAVERICKS_BACKPORT (#162): stage the Web Audio HRTF database into the framework bundle at build time.
-# AudioBus::loadPlatformResource() reads audio/<name>.wav from WebCore.framework/Resources; the CMake build
-# otherwise leaves Resources with only Info.plist, so an HRTF PannerNode aborts the process on a nil URL.
-# Copying it here makes the build output a complete, runnable framework (required by the layout-test drivers
-# and any tool run against the build tree), instead of relying on install-safari7.sh to bolt it on at
-# install time. copy_if_different keeps incremental builds cheap.
-if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/platform/audio/resources/Composite.wav")
-    add_custom_command(TARGET WebCore POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:WebCore>/Resources/audio"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/platform/audio/resources/Composite.wav"
-            "$<TARGET_FILE_DIR:WebCore>/Resources/audio/Composite.wav"
-        VERBATIM)
-endif ()
-
-# MAVERICKS_BACKPORT: stage the modern-media-controls bundle resources the same way. RenderThemeCocoa
-# loads the localized-strings script (mediaControlsScripts — without it the controls JS throws at load
-# and no control bar renders) and looks up <icon>.svg in modern-media-controls/images
-# (mediaControlsImageDataForIconNameAndType — a miss yields a 0-byte blob and every Button logs
-# "Button failed to load"). The upstream Xcode build copies these as bundle resources; the CMake Mac
-# build otherwise omits them, leaving the build-tree framework incomplete for the layout-test drivers.
-add_custom_command(TARGET WebCore POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:WebCore>/Resources/modern-media-controls/images"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/en.lproj/modern-media-controls-localized-strings.js"
-        "$<TARGET_FILE_DIR:WebCore>/Resources/modern-media-controls-localized-strings.js"
-    # Flat icon dir: the runtime lookup is pathForResource:inDirectory:@"modern-media-controls/images".
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/Modules/modern-media-controls/images/macOS"
-        "$<TARGET_FILE_DIR:WebCore>/Resources/modern-media-controls/images"
-    VERBATIM)
 
 if (APPLE)
-    # [MAVERICKS_BACKPORT] The macOS 10.9 system ld64 (ld64-241.9) crashes encoding WebCore's export trie
-    # (Assertion bindingDirectlyBound in ExportInfoAtom::encode -> SIGSEGV) for certain symbol sets — it
-    # broke once the global -fno-rtti removed the weak C++ typeinfo/vtable exports the .mm files used to
-    # emit. lld (shipped with the clang-22 toolchain) has no such bug and emits a 10.9-loadable Mach-O for
-    # a 10.9 deployment target, so link WebCore with it. Other frameworks still link fine with system ld.
-    # MAVERICKS_BACKPORT: drop `-sub_library libobjc` — lld rejects it ("does not match a
-    # supplied dylib") and clients link libobjc directly anyway.
-    # MAVERICKS_BACKPORT: also allow the layout-test drivers to link WebCore directly (they pull in the
-    # WebCoreTestSupport/Internals code that calls into WebCore); without this, DumpRenderTree/WebKitTestRunner
-    # fail to link with "not an allowed client".
-    # MAVERICKS_BACKPORT: weak-link Metal. It is absent on 10.9, so the hard framework link was dropped
-    # (WebCore_LIBRARIES REMOVE_ITEM in the overlay), but the WebGL/ANGLE EGL-image path still compiles hard
-    # ObjC class references (MTLSharedTextureHandle, MTLTextureDescriptor, ...). Those bind eagerly at dyld
-    # load regardless of -undefined dynamic_lookup, so without a weak reference every WebKit client aborts at
-    # launch. -weak_framework makes the class refs nil when Metal is absent; the Metal code path is unreachable
-    # on 10.9's OpenGL backend, so nil is never dereferenced.
-    set_target_properties(WebCore PROPERTIES LINK_FLAGS "-fuse-ld=lld -weak-lxslt -undefined dynamic_lookup -weak_framework Metal -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy -allowable_client DumpRenderTree -allowable_client WebKitTestRunner -allowable_client TestRunnerInjectedBundle")
-
-    # MAVERICKS_BACKPORT: force-load the method polyfills (libpolyfill_methods.a = wk_selref_scope.o
-    # the mechanism + the wk_ category methods on NSColor/NSScreen/NSWindow/NSWorkspace/
-    # NSEvent/NSAppearance/NSGraphicsContext that WebCore's rendering code calls). It lives here, in WebCore,
-    # rather than in JavaScriptCore: WebCore links AppKit and loads in every WebKit rendering process, so the
-    # polyfills are present everywhere they are needed — but a dyld-restricted setuid program that loads ONLY
-    # JavaScriptCore (e.g. the macOS Installer's privileged `runner`, which loads JSC via Install.framework/
-    # DistributionKit to run a package's Distribution scripts) then never pulls AppKit in. Loading-and-
-    # initializing AppKit inside such a setugid process trips AppKit's "running setugid(), which is not
-    # allowed" abort, which killed the runner before it connected back to the Installer and hung it on the
-    # "Install" step. -force_load (not plain link) keeps the members even though nothing references them (the
-    # load-time constructor + the categories); LINK_DEPENDS makes the raw -Wl input a real ninja dependency
-    # so WebCore relinks when build-polyfill.sh regenerates the archive.
-    target_link_options(WebCore PRIVATE "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_methods.a")
-    set_property(TARGET WebCore APPEND PROPERTY LINK_DEPENDS
-        "${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_methods.a")
+    set_target_properties(WebCore PROPERTIES LINK_FLAGS "-weak-lxslt -sub_library libobjc -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy")
 endif ()
+_MAVERICKS_FINALIZE_WEBCORE_TARGET(WebCore) # MAVERICKS_BACKPORT: apply the port's target and resource rules.
 
 # The -ftree-sra optimization (implicit with -O2) causes crashes when
 # allocating large chunks of memory using bmalloc on Intel 32bit.
@@ -3225,11 +3130,10 @@ list(APPEND WebCoreTestSupport_PRIVATE_INCLUDE_DIRECTORIES ${WebCore_PRIVATE_INC
 list(APPEND WebCoreTestSupport_SYSTEM_INCLUDE_DIRECTORIES ${WebCore_SYSTEM_INCLUDE_DIRECTORIES})
 
 WEBKIT_LIBRARY(WebCoreTestSupport)
-# MAVERICKS_BACKPORT: force C++ linker driver so libc++ and the C++ runtime are pulled in correctly under the clang-22 toolchain.
-set_target_properties(WebCoreTestSupport PROPERTIES LINKER_LANGUAGE CXX)
+_MAVERICKS_FINALIZE_WEBCORE_TEST_SUPPORT(WebCoreTestSupport) # MAVERICKS_BACKPORT: select the port's linker driver.
 
 if (${WebCore_LIBRARY_TYPE} MATCHES "SHARED")
-    # MAVERICKS_BACKPORT: install name versioning is "A" (the WebCore.framework/Versions/A layout) instead of the numeric PROJECT_VERSION.
-    set_target_properties(WebCore PROPERTIES SOVERSION "A")
+    set_target_properties(WebCore PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR})
+    _MAVERICKS_SET_WEBCORE_FRAMEWORK_VERSION(WebCore) # MAVERICKS_BACKPORT: use the port's framework layout.
     install(TARGETS WebCore DESTINATION "${LIB_INSTALL_DIR}")
 endif ()

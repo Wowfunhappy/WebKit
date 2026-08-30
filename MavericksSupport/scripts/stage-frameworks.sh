@@ -152,6 +152,9 @@ absolute_for_rpath_dep() {
         # links it — and the WK2 layout-test harness, which also redirects the post-10.9 frameworks onto the
         # reexporting libpolyfill_classes — records @rpath/<leaf>. Map it to its deployed in-bundle home.
         @rpath/libpolyfill_classes.dylib)  echo "$PRIVLIBCXX/libpolyfill_classes.dylib";;
+        # libwebrtc is a dylib on Cocoa (Source/ThirdParty/libwebrtc/CMakeLists.txt) and ships where
+        # libwebrtc.xcconfig installs it, inside WebCore.framework's own Frameworks dir.
+        @rpath/libwebrtc.dylib)            echo "$PRIVLIB/libwebrtc.dylib";;
         # GStreamer (#90): any remaining @rpath/libX.dylib present in the vendored GStreamer tree maps
         # to its deployed copy inside WebCore.framework. The -e guard avoids mis-mapping a stray dep.
         @rpath/*.dylib)
@@ -463,6 +466,16 @@ else
     exit 1
 fi
 
+echo "### Deploying libwebrtc into WebCore.framework ($PRIVLIB)"
+mkdir -p "$(s "$PRIVLIB")"
+if [ -f "$LIBDIR/libwebrtc.dylib" ]; then
+    cp -f "$LIBDIR/libwebrtc.dylib" "$(s "$PRIVLIB")/libwebrtc.dylib"
+    int_or_die -id "$PRIVLIB/libwebrtc.dylib" "$(s "$PRIVLIB")/libwebrtc.dylib"
+else
+    echo "ERROR: libwebrtc.dylib missing — WebCore and WebKit2 both load it, so no WebKit app would launch." >&2
+    exit 1
+fi
+
 # GStreamer (#90), the sole media engine: deploy the dylibs + plugins into WebCore.framework. They
 # are self-contained via their own LC_RPATH @loader_path/../lib, so they ship as-is; only the WebKit
 # frameworks' @rpath/libg*/libgst*/etc. deps are rewritten to these absolute paths (step 4).
@@ -496,11 +509,15 @@ fi
 # Sandbox grants read only to world-readable files under /System with traversable parents.
 # Make the in-bundle lib dirs traversable and the dylibs world-readable, here in the staged tree,
 # so a plain copy carries the right modes onto the system.
-chmod 755 "$(s "$PRIVLIBCXX")" "$(s "$PRIVLIB")" 2>/dev/null || true
-chmod 644 "$(s "$PRIVLIBCXX")"/*.dylib 2>/dev/null || true
+chmod 755 "$(s "$PRIVLIBCXX")" "$(s "$PRIVLIB")" "$(s "$GST_DEPLOY")"
+chmod 644 \
+    "$(s "$PRIVLIBCXX")/libc++.1.dylib" \
+    "$(s "$PRIVLIBCXX")/libc++abi.1.dylib" \
+    "$(s "$PRIVLIBCXX")/libpolyfill_classes.dylib" \
+    "$(s "$PRIVLIB")/libwebrtc.dylib"
 # GStreamer tree: every dir traversable, every dylib world-readable (sandboxed WebContent loads them).
-find "$(s "$GST_DEPLOY")" -type d -exec chmod 755 {} + 2>/dev/null || true
-find "$(s "$GST_DEPLOY")" -type f -name '*.dylib' -exec chmod 644 {} + 2>/dev/null || true
+find "$(s "$GST_DEPLOY")" -type d -exec chmod 755 {} +
+find "$(s "$GST_DEPLOY")" -type f -name '*.dylib' -exec chmod 644 {} +
 
 # ---------------------------------------------------------------------------
 # Step 4: every WebKit binary advertises and loads absolute /System paths. This covers the four
@@ -520,6 +537,13 @@ while IFS= read -r f; do
     strip_rpaths "$f"
     verify_no_rpath "$f"
 done < <(webkit_machos)
+# webkit_machos skips each bundle's Versions/A/Frameworks dir, so libwebrtc — deployed there, and
+# carrying @rpath deps on the C++ runtime and the polyfill classes dylib — gets the same pass here.
+WEBRTC_STAGED="$(s "$PRIVLIB")/libwebrtc.dylib"
+rewrite_rpath_deps "$WEBRTC_STAGED"
+rewrite_abs_deps   "$WEBRTC_STAGED"
+strip_rpaths       "$WEBRTC_STAGED"
+verify_no_rpath    "$WEBRTC_STAGED"
 echo "  rewritten: $(webkit_machos | wc -l | tr -d ' ') Mach-O binaries carry absolute paths and no LC_RPATH"
 
 # ---------------------------------------------------------------------------
@@ -544,7 +568,7 @@ DEMANGLER_GUARD_BINS="$(s "$JSC_BUNDLE")/Versions/A/JavaScriptCore
 $(s "$WEBKIT_BUNDLE")/Versions/A/WebKit
 $(s "$WEBCORE_BUNDLE")/Versions/A/WebCore
 $(s "$WEBKIT2_BUNDLE")/Versions/A/WebKit2
-$(find "$(s "$PRIVLIBCXX")" "$(s "$PRIVLIB")" -name '*.dylib' -type f 2>/dev/null || true)"
+$(find "$(s "$PRIVLIBCXX")" "$(s "$PRIVLIB")" -type f -name '*.dylib')"
 echo "$DEMANGLER_GUARD_BINS" | grep -v '^$' | sort -u | \
     xargs /usr/bin/python "$WK_SUPPORT/demangler/neutralize-demangler-crashers.py" || {
         echo "ERROR: demangler guard (pass 2) failed" >&2; exit 1; }
