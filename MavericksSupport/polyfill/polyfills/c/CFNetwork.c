@@ -142,8 +142,9 @@ WK_POLYFILL_ABSENT("CFNetwork", void, _CFURLStorageSessionDisableCache, (void *s
 // WITHOUT ONE (MavericksSupport/polyfill/README.md carries the same rule).
 static const char kFormMediaType[] = "application/x-www-form-urlencoded";
 
-// The network process is the only one whose HTTP requests are all WebKit's, so it is the only one
-// this runs in. A host application loading WebKit keeps the CFNetwork it had for its own traffic.
+// The network process is the only one whose HTTP requests are all WebKit's, so it is the only one the
+// media-type patch below runs in: a host application loading WebKit keeps the CFNetwork it had for the
+// requests it makes itself.
 static bool isWebKitNetworkProcess(void)
 {
     const char *name = getprogname();
@@ -210,9 +211,12 @@ __attribute__((constructor)) static void clearDefaultFormMediaType(void)
 //
 // Storing has no such boundary to draw. HTTPProtocol::updateCookieStoreDuringHeaderRead holds the
 // request, but neither it nor performHeaderRead nor updateForHeader occupies a vtable slot anywhere in
-// this image, and the storage this replacement is handed names no requester. So it runs where every
-// HTTP request is WebKit's, and nowhere else -- the same boundary, and for the same reason, as the
-// undeclared-post-body patch above.
+// this image, and the storage this replacement is handed names no requester. So it marks every response
+// the process receives, and marks only a restriction: an attribute reading "None", or a value the
+// modern constants do not name, restricts nothing, and its field is left exactly as the server sent it.
+// A cookie the host application's own response set is withheld from nothing -- the read side subtracts
+// only from a request WebKit stamped -- and carries the encoded comment, which this layer's readers
+// decode and a reader outside it reads as it stands.
 // ---------------------------------------------------------------------------------------------------
 
 typedef const struct OpaqueCFHTTPCookie *WKHTTPCookieRef;
@@ -394,11 +398,6 @@ static void wk_setCookiesWithResponseHeaderFields(const void *storage, CFURLRef 
         original(storage, url, headerFields, mainDocumentURL, acceptPolicy);
         return;
     }
-    // A cookie that was given a restriction is stored with it or not at all: storing this field as it
-    // stands would store those cookies unrestricted, which reads as permissive.
-    if (disposition == WK_SAMESITE_HEADER_REFUSED)
-        return;
-
     CFMutableDictionaryRef replaced = CFDictionaryCreateMutableCopy(NULL, 0, headerFields);
     if (!replaced)
         wk_patch_fail(kSameSiteHooks, "the response header fields carrying the attribute could not be copied");
@@ -442,10 +441,6 @@ __attribute__((constructor)) static void wk_installSameSiteCookieHooks(void)
     wk_image image;
     if (!wk_find_image(kCFNetworkSuffix, &image))
         return;
-
-    // A response is rewritten only where every request is WebKit's; a request is read for wherever
-    // WebKit made it.
-    bool storesHere = isWebKitNetworkProcess();
 
     // Resolved and published before anything is patched, so the first call to reach a replacement finds
     // the implementation it stands in for already recorded.
@@ -492,7 +487,7 @@ __attribute__((constructor)) static void wk_installSameSiteCookieHooks(void)
         else
             ++alreadyDone;
 
-        if (!classes[i].setCookiesWithResponseHeaderFields || !storesHere)
+        if (!classes[i].setCookiesWithResponseHeaderFields)
             continue;
         patch.originalSymbol = classes[i].setCookiesWithResponseHeaderFields;
         patch.replacement = (const void *)wk_setCookiesWithResponseHeaderFields;

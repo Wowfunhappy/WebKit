@@ -50,6 +50,15 @@ class H(BaseHTTPServer.BaseHTTPRequestHandler):
                 ("Set-Cookie", "laxc=LAX_%s; Path=/; SameSite=Lax" % tag),
                 ("Set-Cookie", "nonec=NONE_%s; Path=/" % tag),
             ])
+        elif path == "/setnone":
+            # A restriction of "None" is what a cookie with no attribute already means, so this one must
+            # reach the jar exactly as it was sent: no marker, and the comment the server wrote.
+            tag = (self.headers.get("Host") or "?").split(":")[0]
+            self.emit("SETNONE")
+            self.body("<h1>none set for %s</h1>" % tag, extra=[
+                ("Set-Cookie", "nonesame=NONESAME_%s; Path=/; SameSite=None" % tag),
+                ("Set-Cookie", "commented=COMMENTED_%s; Path=/; Comment=servertext; SameSite=None" % tag),
+            ])
         elif path == "/setstrict":
             # This host ends up holding a Strict cookie and NOTHING else, so a cross-site request to it
             # has every cookie withheld. That is the case where an absent Cookie header fails open.

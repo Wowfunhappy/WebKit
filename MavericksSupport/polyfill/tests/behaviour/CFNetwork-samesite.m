@@ -115,11 +115,7 @@ static void checkRewrite(const char *label, const char *header, const char *expe
     CFStringRef rewritten = NULL;
     wk_samesite_header_disposition disposition = wk_sameSiteRewriteSetCookieHeader(field, url, &rewritten);
 
-    CFStringRef described = NULL;
-    if (disposition == WK_SAMESITE_HEADER_REFUSED)
-        described = (CFStringRef)CFRetain(CFSTR("REFUSED"));
-    else
-        described = parseAndDescribe(disposition == WK_SAMESITE_HEADER_REWRITTEN ? rewritten : field, url);
+    CFStringRef described = parseAndDescribe(disposition == WK_SAMESITE_HEADER_REWRITTEN ? rewritten : field, url);
 
     char *actual = utf8(described);
     if (strcmp(actual, expected)) {
@@ -183,12 +179,20 @@ int main(void)
     check(wk_sameSiteCopyServerComment(NULL) == NULL, "no comment stays no comment");
     check(wk_sameSiteCommentCreate(NULL, NULL) == NULL, "nothing to carry encodes to nothing");
 
-    // A field this layer cannot carry is refused rather than trimmed to fit.
+    // A field as long as the record carries: 10.9 stores a comment of thousands of characters and hands
+    // it back whole (measured), so the encoding has no length of its own to stop at.
     {
         CFMutableStringRef huge = CFStringCreateMutable(NULL, 0);
-        for (int i = 0; i < 300; ++i)
+        for (int i = 0; i < 3000; ++i)
             CFStringAppend(huge, CFSTR("S"));
-        check(wk_sameSiteCommentCreate(huge, NULL) == NULL, "an attribute past the cap is refused");
+        CFStringRef blob = wk_sameSiteCommentCreate(CFSTR("Lax"), huge);
+        CFStringRef carried = blob ? wk_sameSiteCopyServerComment(blob) : NULL;
+        check(carried && CFEqual(carried, huge), "a comment of 3000 characters is carried whole");
+        check(blob && wk_sameSitePolicyOfComment(blob) == WK_SAME_SITE_LAX, "alongside the attribute");
+        if (carried)
+            CFRelease(carried);
+        if (blob)
+            CFRelease(blob);
         CFRelease(huge);
     }
 
@@ -234,20 +238,56 @@ int main(void)
                  "trap=\"x; SameSite=Lax y\"; Path=/, q=2; Path=/; SameSite=Strict",
                  "[trap=\"x; SameSite=Lax y\"|-][q=2|wk:1 ss=Strict]");
 
-    // The parse cap: past it the field is refused, so the cap is not the way around the attribute.
+    // A value that restricts nothing is left for 10.9 to drop, so the cookie is stored exactly as it
+    // would have been without this layer.
+    checkRewrite("none", "a=1; Path=/; SameSite=None", "[a=1|-]");
+    checkRewrite("a value the constants do not name", "a=1; Path=/; SameSite=Sometimes", "[a=1|-]");
+    checkRewrite("none alongside a comment", "a=1; Path=/; Comment=mine; SameSite=None", "[a=1|mine]");
+    checkRewrite("none and a restriction in one field",
+                 "p=1; Path=/; SameSite=None, q=2; Path=/; SameSite=Lax", "[p=1|-][q=2|wk:1 ss=Lax]");
+    // The grammar allows space around an attribute's value.
+    checkRewrite("spaces around the value", "a=1; Path=/; SameSite = Lax ", "[a=1|wk:1 ss=Lax]");
+
+    // A field carrying as many attributes as a busy response: every one of them is carried, and the
+    // cost is one parse for the round that attributes them all rather than one parse each.
     {
         CFMutableStringRef many = CFStringCreateMutable(NULL, 0);
-        CFStringAppend(many, CFSTR("a=1; Path=/"));
-        for (int i = 0; i < 65; ++i)
-            CFStringAppend(many, CFSTR("; SameSite=Lax"));
+        CFMutableStringRef expected = CFStringCreateMutable(NULL, 0);
+        for (int i = 0; i < 100; ++i) {
+            CFStringAppendFormat(many, NULL, CFSTR("%sc%d=v%d; Path=/; SameSite=Lax"), i ? ", " : "", i, i);
+            CFStringAppendFormat(expected, NULL, CFSTR("[c%d=v%d|wk:1 ss=Lax]"), i, i);
+        }
         char *text = utf8(many);
-        checkRewrite("past the parse cap", text, "REFUSED");
+        char *want = utf8(expected);
+        checkRewrite("a hundred cookies, each restricted", text, want);
         free(text);
+        free(want);
         CFRelease(many);
+        CFRelease(expected);
     }
 
-    // The refusal path of the constructors this layer replaces: a cookie whose attribute does not fit
-    // the field that carries it is refused, and refusing it leaves a live process behind.
+    // A comment far longer than any field this layer writes for itself: the record carries it, so the
+    // rewrite carries it too rather than dropping the cookie that has it.
+    {
+        CFMutableStringRef longComment = CFStringCreateMutable(NULL, 0);
+        for (int i = 0; i < 500; ++i)
+            CFStringAppend(longComment, CFSTR("c"));
+        CFMutableStringRef header = CFStringCreateMutable(NULL, 0);
+        CFStringAppendFormat(header, NULL, CFSTR("a=1; Path=/; Comment=%@; SameSite=Strict"), longComment);
+        CFMutableStringRef expected = CFStringCreateMutable(NULL, 0);
+        CFStringAppendFormat(expected, NULL, CFSTR("[a=1|wk:2 c=%@ ss=Strict]"), longComment);
+        char *text = utf8(header);
+        char *want = utf8(expected);
+        checkRewrite("a long comment alongside the attribute", text, want);
+        free(text);
+        free(want);
+        CFRelease(longComment);
+        CFRelease(header);
+        CFRelease(expected);
+    }
+
+    // The constructors this layer replaces: a property dictionary's attribute travels into the Comment
+    // the record has, and a value that restricts nothing leaves the cookie as the caller wrote it.
     {
         SEL initWithProperties = sel_getUid("wk_initWithProperties:");
         SEL cookieWithProperties = sel_getUid("wk_cookieWithProperties:");
@@ -258,20 +298,48 @@ int main(void)
             CFMutableStringRef huge = CFStringCreateMutable(NULL, 0);
             for (int i = 0; i < 300; ++i)
                 CFStringAppend(huge, CFSTR("S"));
-            NSDictionary *refused = @{ NSHTTPCookieName: @"c", NSHTTPCookieValue: @"v",
-                                       NSHTTPCookiePath: @"/", NSHTTPCookieDomain: @"z.test",
-                                       @"SameSite": (NSString *)huge };
-            id built = ((id (*)(id, SEL, id))objc_msgSend)([NSHTTPCookie alloc], initWithProperties, refused);
-            check(!built, "an attribute past the cap refuses the cookie rather than building it");
-            check(!((id (*)(id, SEL, id))objc_msgSend)([NSHTTPCookie class], cookieWithProperties, refused),
-                  "and refuses it through the class method too");
-            NSDictionary *accepted = @{ NSHTTPCookieName: @"c", NSHTTPCookieValue: @"v",
-                                        NSHTTPCookiePath: @"/", NSHTTPCookieDomain: @"z.test",
-                                        @"SameSite": @"Strict" };
-            id cookie = [((id (*)(id, SEL, id))objc_msgSend)([NSHTTPCookie alloc], initWithProperties, accepted) autorelease];
-            check(cookie != nil, "an attribute that fits builds the cookie");
+            NSDictionary *unrestricted = @{ NSHTTPCookieName: @"c", NSHTTPCookieValue: @"v",
+                                            NSHTTPCookiePath: @"/", NSHTTPCookieDomain: @"z.test",
+                                            @"SameSite": (NSString *)huge };
+            id built = [((id (*)(id, SEL, id))objc_msgSend)([NSHTTPCookie alloc], initWithProperties, unrestricted) autorelease];
+            check(built != nil, "a value the constants do not name still builds the cookie");
+            check(built && !((NSString *(*)(id, SEL))objc_msgSend)(built, sel_getUid("wk_sameSitePolicy")),
+                  "and the cookie reports no policy");
+            check(((id (*)(id, SEL, id))objc_msgSend)([NSHTTPCookie class], cookieWithProperties, unrestricted) != nil,
+                  "and the class method builds it too");
+            NSDictionary *restricted = @{ NSHTTPCookieName: @"c", NSHTTPCookieValue: @"v",
+                                          NSHTTPCookiePath: @"/", NSHTTPCookieDomain: @"z.test",
+                                          NSHTTPCookieComment: (NSString *)huge,
+                                          @"SameSite": @"Strict" };
+            id cookie = [((id (*)(id, SEL, id))objc_msgSend)([NSHTTPCookie alloc], initWithProperties, restricted) autorelease];
+            check(cookie != nil, "a restriction alongside a long comment builds the cookie");
             check(cookie && [((NSString *(*)(id, SEL))objc_msgSend)(cookie, sel_getUid("wk_sameSitePolicy"))
                              isEqualToString:@"strict"], "and the cookie reports it");
+            check(cookie && [((NSString *(*)(id, SEL))objc_msgSend)(cookie, sel_getUid("wk_comment"))
+                             isEqualToString:(NSString *)huge], "and hands back the comment it was given");
+
+            // Text with no UTF-8 of its own, which a script can put in a comment: the cookie built from
+            // it is the one those properties make without a restriction at all -- 10.9 stores a lone
+            // surrogate as the empty comment (measured) -- rather than a process that ended.
+            unichar loneSurrogate = 0xD800;
+            NSString *unencodable = [NSString stringWithCharacters:&loneSurrogate length:1];
+            NSDictionary *restrictedText = @{ NSHTTPCookieName: @"c", NSHTTPCookieValue: @"v",
+                                              NSHTTPCookiePath: @"/", NSHTTPCookieDomain: @"z.test",
+                                              NSHTTPCookieComment: unencodable, @"SameSite": @"Strict" };
+            NSDictionary *plainText = @{ NSHTTPCookieName: @"c", NSHTTPCookieValue: @"v",
+                                         NSHTTPCookiePath: @"/", NSHTTPCookieDomain: @"z.test",
+                                         NSHTTPCookieComment: unencodable };
+            id kept = [((id (*)(id, SEL, id))objc_msgSend)([NSHTTPCookie alloc], initWithProperties, restrictedText) autorelease];
+            id plain = [((id (*)(id, SEL, id))objc_msgSend)([NSHTTPCookie alloc], initWithProperties, plainText) autorelease];
+            check(kept != nil, "a comment with no encoding still builds the cookie");
+            NSString *keptComment = ((NSString *(*)(id, SEL))objc_msgSend)(kept, sel_getUid("wk_comment"));
+            NSString *plainComment = ((NSString *(*)(id, SEL))objc_msgSend)(plain, sel_getUid("wk_comment"));
+            check(kept && plain && (keptComment ? [keptComment isEqualToString:plainComment] : !plainComment),
+                  "and is the cookie those properties make with no restriction at all");
+            check(kept && !((NSString *(*)(id, SEL))objc_msgSend)(kept, sel_getUid("wk_sameSitePolicy")),
+                  "and reports no policy rather than ending the process");
+            check(wk_sameSiteCommentCreate(CFSTR("Lax"), (CFStringRef)unencodable) == NULL,
+                  "and the encoding answers that it cannot carry it");
             CFRelease(huge);
         }
     }

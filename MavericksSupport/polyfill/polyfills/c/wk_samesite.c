@@ -3,6 +3,7 @@
 
 #include "wk_hosts.h"
 #include "wk_polyfill.h"
+#include "wk_symbols.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -37,11 +38,8 @@ WK_SYSTEM_FN("CFNetwork", uint32_t, CFHTTPCookieGetFlags, (WKHTTPCookieRef));
 
 #define WK_BLOB_PREFIX "wk:"
 #define WK_BLOB_PREFIX_LENGTH 3
-// A field this layer writes and cannot carry is a cookie this layer refuses, never a cookie stored
-// with the field cut down to fit: "Strict" trimmed to "Str" reads as unrecognised, which is permissive.
-#define WK_FIELD_CAP 256
-#define WK_MAX_FIELDS 8
-#define WK_MAX_KEY_LENGTH 8
+
+static const char kSameSiteEncoding[] = "CFNetwork SameSite cookie encoding";
 
 static bool wk_isUnreserved(UniChar c)
 {
@@ -92,12 +90,15 @@ static bool wk_blobScan(CFStringRef comment, const char *key, CFRange *valueRang
         UniChar c = WK_AT(position);
         if (c < '0' || c > '9')
             break;
-        count = count * 10 + (c - '0');
-        if (++digits > 2)
+        // A count larger than the characters left cannot be one of this layer's, and stopping here
+        // keeps the arithmetic inside the type.
+        if (count > length)
             return false;
+        count = count * 10 + (c - '0');
+        ++digits;
         ++position;
     }
-    if (!digits || count < 1 || count > WK_MAX_FIELDS)
+    if (!digits || count < 1)
         return false;
 
     size_t keyLength = strlen(key);
@@ -114,7 +115,7 @@ static bool wk_blobScan(CFStringRef comment, const char *key, CFRange *valueRang
             ++position;
         }
         CFIndex thisKeyLength = position - keyStart;
-        if (!thisKeyLength || thisKeyLength > WK_MAX_KEY_LENGTH)
+        if (!thisKeyLength)
             return false;
         if (position >= length || WK_AT(position) != '=')
             return false;
@@ -136,9 +137,6 @@ static bool wk_blobScan(CFStringRef comment, const char *key, CFRange *valueRang
             ++position;
         }
         CFIndex valueLength = position - valueStart;
-        if (valueLength > WK_FIELD_CAP)
-            return false;
-
         if (valueRange->location == kCFNotFound && thisKeyLength == (CFIndex)keyLength) {
             bool matches = true;
             for (CFIndex i = 0; i < thisKeyLength && matches; ++i)
@@ -180,8 +178,8 @@ static CFIndex wk_decodeFieldInto(CFStringRef comment, CFRange range, uint8_t *b
 
 static CFStringRef wk_copyDecodedField(CFStringRef comment, CFRange range)
 {
-    // A field is capped, and each escape is three characters for one byte, so the decoded form fits the
-    // encoded length.
+    // Each escape is three characters for one byte and every other character is one, so the decoded
+    // form fits the encoded length.
     CFIndex capacity = range.length + 1;
     uint8_t *bytes = (uint8_t *)malloc((size_t)capacity);
     if (!bytes)
@@ -251,29 +249,27 @@ CFStringRef wk_sameSiteCommentCreate(CFStringRef sameSite, CFStringRef comment)
     if (!sameSite)
         return comment ? (CFStringRef)CFRetain(comment) : NULL;
 
+    // Text that does not convert -- a lone surrogate, which a script can put in a cookie's comment --
+    // has no encoding, so there is nothing to carry and the caller stores the cookie without it.
     CFStringRef encodedSameSite = wk_copyPercentEncoded(sameSite);
     CFStringRef encodedComment = comment ? wk_copyPercentEncoded(comment) : NULL;
     CFMutableStringRef blob = NULL;
-
-    if (encodedSameSite && (!comment || encodedComment)
-        && CFStringGetLength(encodedSameSite) <= WK_FIELD_CAP
-        && (!encodedComment || CFStringGetLength(encodedComment) <= WK_FIELD_CAP)) {
+    if (encodedSameSite && (!comment || encodedComment)) {
         blob = CFStringCreateMutable(NULL, 0);
-        if (blob) {
-            CFStringAppendFormat(blob, NULL, CFSTR(WK_BLOB_PREFIX "%d"), encodedComment ? 2 : 1);
-            if (encodedComment)
-                CFStringAppendFormat(blob, NULL, CFSTR(" c=%@"), encodedComment);
-            CFStringAppendFormat(blob, NULL, CFSTR(" ss=%@"), encodedSameSite);
-        }
+        if (!blob)
+            wk_patch_fail(kSameSiteEncoding, "a comment could not be allocated");
+        CFStringAppendFormat(blob, NULL, CFSTR(WK_BLOB_PREFIX "%d"), encodedComment ? 2 : 1);
+        if (encodedComment)
+            CFStringAppendFormat(blob, NULL, CFSTR(" c=%@"), encodedComment);
+        CFStringAppendFormat(blob, NULL, CFSTR(" ss=%@"), encodedSameSite);
     }
     if (encodedSameSite)
         CFRelease(encodedSameSite);
     if (encodedComment)
         CFRelease(encodedComment);
 
-    // Only this layer writes one of these, so a blob that does not read back is this layer's own bug --
-    // and a cookie whose restriction did not survive the write reads as permissive. Checking it here
-    // keeps that failure inside the gate that can still refuse the cookie.
+    // A blob that does not read back carries nothing this layer could read either, so the cookie is
+    // stored the way 10.9 stores every cookie: without the restriction.
     if (blob && (!wk_fieldReadsBackAs(blob, "ss", sameSite) || !wk_fieldReadsBackAs(blob, "c", comment))) {
         CFRelease(blob);
         blob = NULL;
@@ -301,23 +297,40 @@ CFStringRef wk_sameSiteCopyServerComment(CFStringRef comment)
     return wk_copyDecodedField(comment, range);
 }
 
+// The policy |value| names: a value the modern constants do not name is unspecified, which is
+// permissive (RFC 6265bis 5.3.7), and so is "None" itself.
+static wk_same_site_policy wk_policyOfValueBytes(const char *value)
+{
+    if (!strcasecmp(value, "strict"))
+        return WK_SAME_SITE_STRICT;
+    if (!strcasecmp(value, "lax"))
+        return WK_SAME_SITE_LAX;
+    return WK_SAME_SITE_NONE;
+}
+
+// Longer than the longest value the modern constants name, so a longer one is unrecognised either way.
+#define WK_POLICY_VALUE_CAPACITY 16
+
+wk_same_site_policy wk_sameSitePolicyOfValue(CFStringRef value)
+{
+    char bytes[WK_POLICY_VALUE_CAPACITY];
+    if (!value || !CFStringGetCString(value, bytes, (CFIndex)sizeof(bytes), kCFStringEncodingUTF8))
+        return WK_SAME_SITE_NONE;
+    return wk_policyOfValueBytes(bytes);
+}
+
 wk_same_site_policy wk_sameSitePolicyOfComment(CFStringRef comment)
 {
     CFRange range;
     if (!wk_blobScan(comment, "ss", &range) || range.location == kCFNotFound)
         return WK_SAME_SITE_NONE;
 
-    // Longer than the longest value the modern constants name, so unrecognised either way.
-    uint8_t value[16];
+    uint8_t value[WK_POLICY_VALUE_CAPACITY];
     CFIndex length = wk_decodeFieldInto(comment, range, value, (CFIndex)sizeof(value) - 1);
     if (length < 0)
         return WK_SAME_SITE_NONE;
     value[length] = 0;
-    if (!strcasecmp((const char *)value, "strict"))
-        return WK_SAME_SITE_STRICT;
-    if (!strcasecmp((const char *)value, "lax"))
-        return WK_SAME_SITE_LAX;
-    return WK_SAME_SITE_NONE;
+    return wk_policyOfValueBytes((const char *)value);
 }
 
 bool wk_sameSiteAllows(wk_same_site_policy policy, bool isSameSite, bool isTopLevelNavigation, bool isSafeMethod)
@@ -375,18 +388,12 @@ struct wk_attribute {
     bool isSameSite;    // false: Comment
     CFRange name;       // replaced in place by a name of the same length, which the parser drops
     CFRange whole;      // the name, the '=' and the value
-    CFRange value;
+    CFRange value;      // the value alone, without the space the grammar allows around it
     long cookie;        // the cookie that owns it, or -1 for bytes that are no attribute at all
 };
 
-// Each occurrence costs a parse, so a field carrying more of them than a jar's worth is refused rather
-// than parsed thousands of times -- and refused rather than stored unmarked, which would make the cap
-// the way around the attribute.
-#define WK_MAX_ATTRIBUTES 64
-
-// The comment one occurrence is offered the chance to produce. A cookie whose own comment is this
-// exact text makes an occurrence unattributable, which is refused rather than guessed at.
-#define WK_PROBE_COMMENT "wk-attributing-this-one"
+// The comment an occurrence is offered the chance to produce, one text per occurrence.
+#define WK_PROBE_PREFIX "wk-attributing-"
 
 struct wk_edit {
     CFRange range;
@@ -411,16 +418,16 @@ static bool wk_rangeEqualsLowercase(CFStringInlineBuffer *buffer, CFRange range,
 
 // Every attribute of a Set-Cookie header field opens with ';'. A ';' inside a quoted value opens one
 // too as far as this scan is concerned -- 10.9's parser keeps such a value whole (measured) -- and the
-// classification below is what tells the two apart, by asking the parser. Answers -1 when there are
-// more than |capacity| of them.
-static long wk_findAttributes(CFStringRef header, struct wk_attribute *found, long capacity)
+// attribution below is what tells the two apart, by asking the parser. The caller owns the result.
+static struct wk_attribute *wk_copyAttributes(CFStringRef header, long *outCount)
 {
     CFIndex length = CFStringGetLength(header);
     CFStringInlineBuffer buffer;
     CFStringInitInlineBuffer(header, &buffer, CFRangeMake(0, length));
 #define WK_AT(index) CFStringGetCharacterFromInlineBuffer(&buffer, (index))
 
-    long count = 0;
+    struct wk_attribute *found = NULL;
+    long count = 0, capacity = 0;
     CFIndex position = 0;
     while (position < length) {
         if (WK_AT(position) != ';') {
@@ -458,17 +465,28 @@ static long wk_findAttributes(CFStringRef header, struct wk_attribute *found, lo
             }
             valueEnd = position;
         }
+        CFIndex trimmedStart = valueStart, trimmedEnd = valueEnd;
+        while (trimmedStart < trimmedEnd && wk_isHeaderSpace(WK_AT(trimmedStart)))
+            ++trimmedStart;
+        while (trimmedEnd > trimmedStart && wk_isHeaderSpace(WK_AT(trimmedEnd - 1)))
+            --trimmedEnd;
 
-        if (count >= capacity)
-            return -1;
+        if (count == capacity) {
+            capacity = capacity ? capacity * 2 : 16;
+            struct wk_attribute *grown = (struct wk_attribute *)realloc(found, (size_t)capacity * sizeof(*found));
+            if (!grown)
+                wk_patch_fail(kSameSiteEncoding, "a Set-Cookie field's attributes did not fit in memory");
+            found = grown;
+        }
         found[count].isSameSite = isSameSite;
         found[count].name = name;
-        found[count].value = CFRangeMake(valueStart, valueEnd - valueStart);
+        found[count].value = CFRangeMake(trimmedStart, trimmedEnd - trimmedStart);
         found[count].whole = CFRangeMake(nameStart, valueEnd - nameStart);
         found[count].cookie = -1;
         ++count;
     }
-    return count;
+    *outCount = count;
+    return found;
 #undef WK_AT
 }
 
@@ -561,22 +579,106 @@ static bool wk_cookiesMatchApartFromComment(CFArrayRef a, CFArrayRef b)
     return true;
 }
 
-// The one cookie of |cookies| whose comment is |text|: -1 for none, -2 when more than one is.
-static CFIndex wk_indexOfCookieCommented(CFArrayRef cookies, CFStringRef text)
+// The occurrence |comment| is the probe of, or -1 when it is not one.
+static long wk_probedIndexOfComment(CFStringRef comment, long attributeCount)
 {
-    CFIndex found = -1;
-    for (CFIndex i = 0, count = CFArrayGetCount(cookies); i < count; ++i) {
-        CFStringRef comment = WK_SYSTEM(CFHTTPCookieCopyComment)((WKHTTPCookieRef)CFArrayGetValueAtIndex(cookies, i));
-        bool matches = comment && CFEqual(comment, text);
-        if (comment)
-            CFRelease(comment);
-        if (!matches)
-            continue;
-        if (found >= 0)
-            return -2;
-        found = i;
+    if (!comment)
+        return -1;
+    CFIndex length = CFStringGetLength(comment);
+    CFIndex prefix = (CFIndex)strlen(WK_PROBE_PREFIX);
+    if (length <= prefix)
+        return -1;
+    CFStringInlineBuffer buffer;
+    CFStringInitInlineBuffer(comment, &buffer, CFRangeMake(0, length));
+    for (CFIndex i = 0; i < prefix; ++i) {
+        if (CFStringGetCharacterFromInlineBuffer(&buffer, i) != (UniChar)WK_PROBE_PREFIX[i])
+            return -1;
     }
-    return found;
+    long index = 0;
+    for (CFIndex i = prefix; i < length; ++i) {
+        UniChar c = CFStringGetCharacterFromInlineBuffer(&buffer, i);
+        if (c < '0' || c > '9' || index > attributeCount)
+            return -1;
+        index = index * 10 + (c - '0');
+    }
+    return index < attributeCount ? index : -1;
+}
+
+// Attributes each of |pending| to the cookie whose bytes carry it. One parse answers for the whole
+// list: every occurrence in it is offered as the only comment its cookie can take, and 10.9's parser
+// keeps the FIRST comment a cookie is given (measured), so a cookie that comes back carrying
+// occurrence k's probe owns k. The occurrences a round does not attribute are offered again without
+// the ones it did, so the cost is one parse per attribute a single cookie carries rather than one per
+// attribute in the field. A list whose probe changes any other field of any cookie holds bytes that
+// are no attribute -- a ';' inside a quoted value -- and is split until each of those stands alone;
+// they are attributed to no cookie and keep every byte they came with.
+static bool wk_attributeOccurrences(CFStringRef inert, CFURLRef url, struct wk_attribute *attributes,
+                                    long attributeCount, long *pending, long pendingCount,
+                                    CFArrayRef baseline)
+{
+    while (pendingCount > 0) {
+        struct wk_edit *edits = (struct wk_edit *)calloc((size_t)pendingCount, sizeof(*edits));
+        CFStringRef *probes = (CFStringRef *)calloc((size_t)pendingCount, sizeof(*probes));
+        if (!edits || !probes)
+            wk_patch_fail(kSameSiteEncoding, "a Set-Cookie field's probes did not fit in memory");
+        for (long i = 0; i < pendingCount; ++i) {
+            probes[i] = CFStringCreateWithFormat(NULL, NULL, CFSTR("Comment=" WK_PROBE_PREFIX "%ld"), pending[i]);
+            if (!probes[i])
+                wk_patch_fail(kSameSiteEncoding, "a probe comment could not be made");
+            edits[i].range = attributes[pending[i]].whole;
+            edits[i].replacement = probes[i];
+        }
+        CFStringRef probedHeader = wk_copyHeaderWithEdits(inert, edits, pendingCount);
+        if (!probedHeader)
+            wk_patch_fail(kSameSiteEncoding, "a field carrying the probes could not be made");
+        CFArrayRef probed = wk_parseSetCookieHeader(probedHeader, url);
+        bool clean = wk_cookiesMatchApartFromComment(baseline, probed);
+        bool ambiguous = false;
+        long attributed = 0;
+        for (CFIndex c = 0, cookies = clean ? CFArrayGetCount(probed) : 0; c < cookies; ++c) {
+            CFStringRef comment = WK_SYSTEM(CFHTTPCookieCopyComment)((WKHTTPCookieRef)CFArrayGetValueAtIndex(probed, c));
+            long k = wk_probedIndexOfComment(comment, attributeCount);
+            if (comment)
+                CFRelease(comment);
+            if (k < 0)
+                continue;
+            // Two cookies answering for one occurrence is a field this layer cannot account for, and
+            // what it cannot account for it does not touch.
+            if (attributes[k].cookie >= 0)
+                ambiguous = true;
+            attributes[k].cookie = (long)c;
+            ++attributed;
+        }
+        for (long i = 0; i < pendingCount; ++i)
+            CFRelease(probes[i]);
+        free(probes);
+        free(edits);
+        CFRelease(probedHeader);
+        if (probed)
+            CFRelease(probed);
+        if (ambiguous)
+            return false;
+
+        if (!clean) {
+            if (pendingCount == 1)
+                return true;
+            long half = pendingCount / 2;
+            return wk_attributeOccurrences(inert, url, attributes, attributeCount, pending, half, baseline)
+                && wk_attributeOccurrences(inert, url, attributes, attributeCount, pending + half,
+                                           pendingCount - half, baseline);
+        }
+        // A round that attributes nothing has reached bytes no cookie claims: a segment the parser
+        // drops carries its attributes nowhere.
+        if (!attributed)
+            return true;
+        long remaining = 0;
+        for (long i = 0; i < pendingCount; ++i) {
+            if (attributes[pending[i]].cookie < 0)
+                pending[remaining++] = pending[i];
+        }
+        pendingCount = remaining;
+    }
+    return true;
 }
 
 wk_samesite_header_disposition wk_sameSiteRewriteSetCookieHeader(CFStringRef header, CFURLRef url, CFStringRef *rewritten)
@@ -588,144 +690,132 @@ wk_samesite_header_disposition wk_sameSiteRewriteSetCookieHeader(CFStringRef hea
     if (CFStringFind(header, CFSTR("samesite"), kCFCompareCaseInsensitive).location == kCFNotFound)
         return WK_SAMESITE_HEADER_UNCHANGED;
 
-    struct wk_attribute attributes[WK_MAX_ATTRIBUTES];
-    struct wk_edit edits[WK_MAX_ATTRIBUTES];
-    CFStringRef inertNames[WK_MAX_ATTRIBUTES];
-    long attributeCount = wk_findAttributes(header, attributes, WK_MAX_ATTRIBUTES);
-    if (attributeCount < 0) {
-        syslog(LOG_ERR, "[wk_polyfill] SameSite: a Set-Cookie field carries more than %d SameSite and Comment "
-                        "attributes; refusing it rather than storing its cookies unrestricted.", WK_MAX_ATTRIBUTES);
-        return WK_SAMESITE_HEADER_REFUSED;
-    }
+    long attributeCount = 0;
+    struct wk_attribute *attributes = wk_copyAttributes(header, &attributeCount);
     bool anySameSite = false;
-    for (long i = 0; i < attributeCount; ++i) {
-        inertNames[i] = NULL;
+    for (long i = 0; i < attributeCount; ++i)
         anySameSite = anySameSite || attributes[i].isSameSite;
-    }
-    if (!anySameSite)
-        return WK_SAMESITE_HEADER_UNCHANGED;
 
-    wk_samesite_header_disposition disposition = WK_SAMESITE_HEADER_REFUSED;
-    CFArrayRef original = wk_parseSetCookieHeader(header, url);
-    CFArrayRef baseline = NULL;
-    CFStringRef inert = NULL;
-    CFStringRef *blobs = NULL;
-    CFStringRef *commentFields = NULL;
-    CFStringRef *originalComments = NULL;
-    long *firstSameSiteFor = NULL;
+    wk_samesite_header_disposition disposition = WK_SAMESITE_HEADER_UNCHANGED;
+    CFArrayRef original = anySameSite ? wk_parseSetCookieHeader(header, url) : NULL;
     CFIndex cookieCount = original ? CFArrayGetCount(original) : 0;
+    CFStringRef *inertNames = NULL, *blobs = NULL, *commentFields = NULL, *originalComments = NULL;
+    long *pending = NULL, *firstOwned = NULL, *lastSameSite = NULL;
+    struct wk_edit *edits = NULL;
+    CFStringRef inert = NULL;
+    CFArrayRef baseline = NULL;
     long editCount = 0;
 
-    if (!cookieCount) {
-        disposition = WK_SAMESITE_HEADER_UNCHANGED;
+    if (!cookieCount)
         goto done;
-    }
+
+    inertNames = (CFStringRef *)calloc((size_t)attributeCount, sizeof(CFStringRef));
+    pending = (long *)calloc((size_t)attributeCount, sizeof(long));
+    edits = (struct wk_edit *)calloc((size_t)attributeCount, sizeof(struct wk_edit));
+    blobs = (CFStringRef *)calloc((size_t)cookieCount, sizeof(CFStringRef));
+    commentFields = (CFStringRef *)calloc((size_t)cookieCount, sizeof(CFStringRef));
+    originalComments = (CFStringRef *)calloc((size_t)cookieCount, sizeof(CFStringRef));
+    firstOwned = (long *)calloc((size_t)cookieCount, sizeof(long));
+    lastSameSite = (long *)calloc((size_t)cookieCount, sizeof(long));
+    if (!inertNames || !pending || !edits || !blobs || !commentFields || !originalComments
+        || !firstOwned || !lastSameSite)
+        wk_patch_fail(kSameSiteEncoding, "a Set-Cookie field's working set did not fit in memory");
 
     for (long i = 0; i < attributeCount; ++i) {
         inertNames[i] = wk_copyInertName(attributes[i].name.length);
         if (!inertNames[i])
-            goto done;
+            wk_patch_fail(kSameSiteEncoding, "an inert attribute name could not be made");
+        edits[i].range = attributes[i].name;
+        edits[i].replacement = inertNames[i];
+        pending[i] = i;
     }
 
     // Attribution runs against a copy of the field with every one of these names replaced by one the
-    // parser drops, so no cookie in it carries a comment and each occurrence in turn can be the only
-    // thing in the whole field that produces one. Each name keeps its length, so the offsets measured
-    // above still address the same bytes.
-    for (long i = 0; i < attributeCount; ++i) {
-        edits[i].range = attributes[i].name;
-        edits[i].replacement = inertNames[i];
-    }
+    // parser drops, so no cookie in it carries a comment and a probe is the only thing that can give
+    // one. Each name keeps its length, so the offsets measured above still address the same bytes.
     inert = wk_copyHeaderWithEdits(header, edits, attributeCount);
-    baseline = inert ? wk_parseSetCookieHeader(inert, url) : NULL;
-    if (!baseline || CFArrayGetCount(baseline) != cookieCount)
+    if (!inert)
+        wk_patch_fail(kSameSiteEncoding, "a field with inert attribute names could not be made");
+    baseline = wk_parseSetCookieHeader(inert, url);
+    if (!baseline || CFArrayGetCount(baseline) != cookieCount) {
+        syslog(LOG_ERR, "[wk_polyfill] SameSite: a Set-Cookie field's attribute names cannot be told from "
+                        "its cookies; leaving the field as the server sent it.");
         goto done;
-
-    // The cookie that comes back carrying the probe comment owns those bytes. Bytes that are no
-    // attribute -- a ';' inside a quoted value, which 10.9's parser keeps whole -- change that value
-    // instead, which the comparison sees, so they are left exactly as they were.
-    for (long k = 0; k < attributeCount; ++k) {
-        edits[0].range = attributes[k].whole;
-        edits[0].replacement = CFSTR("Comment=" WK_PROBE_COMMENT);
-        CFStringRef probeHeader = wk_copyHeaderWithEdits(inert, edits, 1);
-        CFArrayRef probe = probeHeader ? wk_parseSetCookieHeader(probeHeader, url) : NULL;
-        CFIndex owner = -1;
-        bool ambiguous = false;
-        if (probe && wk_cookiesMatchApartFromComment(baseline, probe)) {
-            owner = wk_indexOfCookieCommented(probe, CFSTR(WK_PROBE_COMMENT));
-            ambiguous = owner == -2;
-        }
-        if (probeHeader)
-            CFRelease(probeHeader);
-        if (probe)
-            CFRelease(probe);
-        if (ambiguous) {
-            syslog(LOG_ERR, "[wk_polyfill] SameSite: a Set-Cookie field's attributes cannot be told apart; "
-                            "refusing it rather than storing its cookies unrestricted.");
-            goto done;
-        }
-        attributes[k].cookie = (long)owner;
     }
 
-    blobs = (CFStringRef *)calloc((size_t)cookieCount, sizeof(CFStringRef));
-    commentFields = (CFStringRef *)calloc((size_t)cookieCount, sizeof(CFStringRef));
-    originalComments = (CFStringRef *)calloc((size_t)cookieCount, sizeof(CFStringRef));
-    firstSameSiteFor = (long *)calloc((size_t)cookieCount, sizeof(long));
-    if (!blobs || !commentFields || !originalComments || !firstSameSiteFor)
+    if (!wk_attributeOccurrences(inert, url, attributes, attributeCount, pending, attributeCount, baseline)) {
+        syslog(LOG_ERR, "[wk_polyfill] SameSite: a Set-Cookie field's attributes cannot be told apart; "
+                        "leaving the field as the server sent it.");
         goto done;
+    }
+
     for (CFIndex c = 0; c < cookieCount; ++c)
         originalComments[c] = WK_SYSTEM(CFHTTPCookieCopyComment)((WKHTTPCookieRef)CFArrayGetValueAtIndex(original, c));
 
     for (CFIndex c = 0; c < cookieCount; ++c) {
-        long lastSameSite = -1;
-        firstSameSiteFor[c] = -1;
+        firstOwned[c] = -1;
+        lastSameSite[c] = -1;
         for (long i = 0; i < attributeCount; ++i) {
-            if (attributes[i].cookie != (long)c || !attributes[i].isSameSite)
+            if (attributes[i].cookie != (long)c)
                 continue;
-            if (firstSameSiteFor[c] < 0)
-                firstSameSiteFor[c] = i;
-            lastSameSite = i;
+            if (firstOwned[c] < 0)
+                firstOwned[c] = i;
+            if (attributes[i].isSameSite)
+                lastSameSite[c] = i;
         }
-        // A cookie this field gave no attribute to keeps every byte it came with.
-        if (firstSameSiteFor[c] < 0)
+        if (lastSameSite[c] < 0)
             continue;
 
-        // RFC 6265 4.1.2: where an attribute repeats, the last one is the cookie's. The comment is the
-        // one the parser already made of the field as the server sent it.
-        CFStringRef sameSite = CFStringCreateWithSubstring(NULL, header, attributes[lastSameSite].value);
-        if (sameSite) {
-            blobs[c] = wk_sameSiteCommentCreate(sameSite, originalComments[c]);
-            CFRelease(sameSite);
+        // RFC 6265 4.1.2: where an attribute repeats, the last one is the cookie's.
+        CFStringRef value = CFStringCreateWithSubstring(NULL, header, attributes[lastSameSite[c]].value);
+        if (!value)
+            wk_patch_fail(kSameSiteEncoding, "an attribute's value could not be read");
+        wk_same_site_policy policy = wk_sameSitePolicyOfValue(value);
+        // A restriction is carried; a value that restricts nothing is left for 10.9 to drop as the
+        // unknown attribute it is, which stores the cookie exactly as this field would have without
+        // this layer. "None" and a value the modern constants do not name are both permissive.
+        if (policy == WK_SAME_SITE_NONE) {
+            CFRelease(value);
+            lastSameSite[c] = -1;
+            continue;
         }
+        blobs[c] = wk_sameSiteCommentCreate(value, originalComments[c]);
+        CFRelease(value);
+        // Text this layer cannot encode leaves the cookie as the server sent it, which is the cookie
+        // 10.9 stores for every restriction it is given.
         if (!blobs[c]) {
-            syslog(LOG_ERR, "[wk_polyfill] SameSite: a cookie's attribute does not fit the field that carries "
-                            "it; refusing the header rather than storing the cookie unrestricted.");
-            goto done;
+            syslog(LOG_ERR, "[wk_polyfill] SameSite: a cookie's restriction cannot be carried in a "
+                            "comment; leaving its field as the server sent it.");
+            lastSameSite[c] = -1;
+            continue;
         }
         commentFields[c] = CFStringCreateWithFormat(NULL, NULL, CFSTR("Comment=%@"), blobs[c]);
         if (!commentFields[c])
-            goto done;
+            wk_patch_fail(kSameSiteEncoding, "a comment field could not be allocated");
     }
 
     for (CFIndex c = 0; c < cookieCount; ++c) {
-        if (firstSameSiteFor[c] < 0)
+        if (lastSameSite[c] < 0)
             continue;
         for (long i = 0; i < attributeCount; ++i) {
             if (attributes[i].cookie != (long)c)
                 continue;
-            if (i == firstSameSiteFor[c]) {
-                edits[editCount].range = attributes[i].whole;
-                edits[editCount].replacement = commentFields[c];
-            } else {
-                edits[editCount].range = attributes[i].name;
-                edits[editCount].replacement = inertNames[i];
-            }
+            bool carriesTheBlob = i == firstOwned[c];
+            edits[editCount].range = carriesTheBlob ? attributes[i].whole : attributes[i].name;
+            edits[editCount].replacement = carriesTheBlob ? commentFields[c] : inertNames[i];
             ++editCount;
         }
     }
+    // Every SameSite this field carries restricts nothing, so the field is already what should be
+    // parsed.
+    if (!editCount)
+        goto done;
 
     {
         CFStringRef result = wk_copyHeaderWithEdits(header, edits, editCount);
-        CFArrayRef reparsed = result ? wk_parseSetCookieHeader(result, url) : NULL;
+        if (!result)
+            wk_patch_fail(kSameSiteEncoding, "the field carrying the attribute could not be made");
+        CFArrayRef reparsed = wk_parseSetCookieHeader(result, url);
         bool intact = wk_cookiesMatchApartFromComment(original, reparsed);
         // Every cookie's comment is checked too, so a cookie either carries the field this rewrite gave
         // it or the comment the server sent, and nothing else.
@@ -740,16 +830,18 @@ wk_samesite_header_disposition wk_sameSiteRewriteSetCookieHeader(CFStringRef hea
         if (intact) {
             *rewritten = result;
             disposition = WK_SAMESITE_HEADER_REWRITTEN;
-        } else if (result) {
+        } else {
             CFRelease(result);
+            // The field reaches the parser as the server sent it, so every cookie it sets is stored:
+            // the restriction is what is lost, and 10.9 without this layer loses it for every cookie.
             syslog(LOG_ERR, "[wk_polyfill] SameSite: carrying the attribute would have changed a cookie; "
-                            "refusing the header.");
+                            "leaving the field as the server sent it.");
         }
     }
 
 done:
     for (long i = 0; i < attributeCount; ++i) {
-        if (inertNames[i])
+        if (inertNames && inertNames[i])
             CFRelease(inertNames[i]);
     }
     for (CFIndex c = 0; c < cookieCount; ++c) {
@@ -760,10 +852,15 @@ done:
         if (originalComments && originalComments[c])
             CFRelease(originalComments[c]);
     }
+    free(inertNames);
+    free(pending);
+    free(edits);
     free(blobs);
     free(commentFields);
     free(originalComments);
-    free(firstSameSiteFor);
+    free(firstOwned);
+    free(lastSameSite);
+    free(attributes);
     if (inert)
         CFRelease(inert);
     if (baseline)

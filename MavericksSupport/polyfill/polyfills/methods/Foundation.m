@@ -476,15 +476,20 @@ static NSDictionary *wk_propertiesWithSameSiteEncoded(NSDictionary *properties)
     if (![policy isKindOfClass:[NSString class]])
         return properties;
 
+    NSMutableDictionary *translated = [[properties mutableCopy] autorelease];
+    [translated removeObjectForKey:NSHTTPCookieSameSitePolicy];
+    // A restriction is carried in the Comment the record does have; a value that restricts nothing is
+    // a cookie with no attribute, which is what the key's absence already says.
+    if (wk_sameSitePolicyOfValue((CFStringRef)policy) == WK_SAME_SITE_NONE)
+        return translated;
+
     id comment = properties[NSHTTPCookieComment];
     CFStringRef encoded = wk_sameSiteCommentCreate((CFStringRef)policy,
         [comment isKindOfClass:[NSString class]] ? (CFStringRef)comment : NULL);
-    if (!encoded)
-        return nil;
-
-    NSMutableDictionary *translated = [[properties mutableCopy] autorelease];
-    [translated removeObjectForKey:NSHTTPCookieSameSitePolicy];
-    translated[NSHTTPCookieComment] = [(NSString *)encoded autorelease];
+    // Text with no encoding -- a lone surrogate, which a script can put in a comment -- leaves the
+    // cookie as the caller wrote it, carrying the restriction 10.9 carries for every cookie.
+    if (encoded)
+        translated[NSHTTPCookieComment] = [(NSString *)encoded autorelease];
     return translated;
 }
 #pragma clang diagnostic pop
@@ -622,20 +627,11 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookie)
 }
 + (NSHTTPCookie *)cookieWithProperties:(NSDictionary<NSHTTPCookiePropertyKey, id> *)properties
 {
-    NSDictionary *encoded = wk_propertiesWithSameSiteEncoded(properties);
-    return encoded ? WK_ORIGINAL_METHOD(id, (NSDictionary *), encoded) : nil;
+    return WK_ORIGINAL_METHOD(id, (NSDictionary *), wk_propertiesWithSameSiteEncoded(properties));
 }
 - (instancetype)initWithProperties:(NSDictionary<NSHTTPCookiePropertyKey, id> *)properties
 {
-    NSDictionary *encoded = wk_propertiesWithSameSiteEncoded(properties);
-    if (encoded)
-        return WK_ORIGINAL_METHOD(id, (NSDictionary *), encoded);
-    // Refusing the cookie still leaves an instance to let go of, and 10.9's NSHTTPCookie traps on
-    // -release of one that was allocated and never initialised (measured), so it is initialised from
-    // what the caller sent -- a cookie that goes no further than this line -- and released as any
-    // finished object is.
-    [WK_ORIGINAL_METHOD(id, (NSDictionary *), properties) release];
-    return nil;
+    return WK_ORIGINAL_METHOD(id, (NSDictionary *), wk_propertiesWithSameSiteEncoded(properties));
 }
 // Used directly by WebKit as well as by the cookie jar (SOAuthorizationSession), so the attribute is
 // put into the Comment field here too, before the parser this stands in for sees the header.
@@ -661,9 +657,6 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookie)
         replaced[name] = [(NSString *)rewritten autorelease];
         return WK_ORIGINAL_METHOD(NSArray *, (NSDictionary *, NSURL *), replaced, url);
     }
-    case WK_SAMESITE_HEADER_REFUSED:
-        // A cookie that was given a restriction is made with it or not at all.
-        return @[];
     }
     return WK_ORIGINAL_METHOD(NSArray *, (NSDictionary *, NSURL *), headerFields, url);
 }
