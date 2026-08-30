@@ -10,6 +10,7 @@
 // literal. A polyfill's contract is the system API's modern behavior, so it is correct at every caller.
 
 #import "wk_polyfill.h"
+#import "wk_samesite.h"
 #import "wk_selref_scope.h"
 #import <AppKit/AppKit.h>
 #import <CoreServices/CoreServices.h>
@@ -418,11 +419,100 @@ static WKPolyfillCookieWatcher *wk_cookieWatcherForStorage(NSHTTPCookieStorage *
 
 @end
 // ---------------------------------------------------------------------------------------------------
+// -comment is REPLACED below, so a reader of the encoded form has to reach the implementation that body
+// stands in for. @selector(comment) here is a selref of this library, rewritten to the body's private
+// selector like any other.
+static NSString *wk_rawCookieComment(NSHTTPCookie *cookie)
+{
+    struct wk_original original = wk_original_of(cookie, @selector(comment));
+    return ((NSString *(*)(id, SEL))original.imp)(cookie, original.sel);
+}
+
+// NSHTTPCookieSameSitePolicy and NSHTTPCookieSameSiteLax/Strict are 10.13+/10.15+ in the SDK and absent
+// on the 10.9 runtime; c/Foundation.m supplies all three.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
+
+// The value -sameSitePolicy answers with, which is the constant CookieCocoa's coreSameSitePolicy
+// compares against. A cookie keeps the attribute's text as the server wrote it; this is the platform's
+// own spelling of it, and nil for a value the modern constants do not name, which coreSameSitePolicy
+// reads as unspecified either way.
+static NSString *wk_canonicalSameSitePolicy(NSHTTPCookie *cookie)
+{
+    switch (wk_sameSitePolicyOfComment((CFStringRef)wk_rawCookieComment(cookie))) {
+    case WK_SAME_SITE_LAX:
+        return NSHTTPCookieSameSiteLax;
+    case WK_SAME_SITE_STRICT:
+        return NSHTTPCookieSameSiteStrict;
+    case WK_SAME_SITE_NONE:
+        break;
+    }
+    return nil;
+}
+
+// A property dictionary carries the attribute under NSHTTPCookieSameSitePolicy, which is the literal
+// "SameSite" CookieCocoa's createNSHTTPCookie writes and NetworkStorageSessionCocoa's
+// setAllCookiesToSameSiteStrict writes through the constant. It is lifted out and encoded into the
+// Comment the record does carry, so the caller's own Created still reaches the constructor.
+// -properties reports Created as the NSNumber of seconds the record holds, and 10.9's constructors
+// answer that spelling with the value 1 rather than with the number or with a fresh timestamp
+// (measured; an NSDate is ignored and a fresh one assigned, which is also what an absent key gets).
+// A cookie whose creation time reads as 1 sorts ahead of every other cookie of its path, which is the
+// order RFC 6265 5.4 composes the Cookie header in. Dropping the key leaves the constructor to stamp
+// the record it is making, which is the answer it gives for every spelling it does understand.
+static NSDictionary *wk_propertiesWithoutUnreadableCreated(NSDictionary *properties)
+{
+    if (![properties objectForKey:@"Created"])
+        return properties;
+    NSMutableDictionary *stamped = [[properties mutableCopy] autorelease];
+    [stamped removeObjectForKey:@"Created"];
+    return stamped;
+}
+
+static NSDictionary *wk_propertiesWithSameSiteEncoded(NSDictionary *properties)
+{
+    properties = wk_propertiesWithoutUnreadableCreated(properties);
+    id policy = properties[NSHTTPCookieSameSitePolicy];
+    if (![policy isKindOfClass:[NSString class]])
+        return properties;
+
+    id comment = properties[NSHTTPCookieComment];
+    CFStringRef encoded = wk_sameSiteCommentCreate((CFStringRef)policy,
+        [comment isKindOfClass:[NSString class]] ? (CFStringRef)comment : NULL);
+    if (!encoded)
+        return nil;
+
+    NSMutableDictionary *translated = [[properties mutableCopy] autorelease];
+    [translated removeObjectForKey:NSHTTPCookieSameSitePolicy];
+    translated[NSHTTPCookieComment] = [(NSString *)encoded autorelease];
+    return translated;
+}
+#pragma clang diagnostic pop
+
 WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
 - (void)_getCookiesForURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL partition:(NSString *)partition policyProperties:(NSDictionary *)policyProperties completionHandler:(void (^)(NSArray<NSHTTPCookie *> *))completionHandler
 {
-    (void)mainDocumentURL; (void)partition; (void)policyProperties;
-    completionHandler([self cookiesForURL:url]);
+    (void)mainDocumentURL; (void)partition;
+    NSArray<NSHTTPCookie *> *cookies = [self cookiesForURL:url];
+    // policyProperties carries this read's SameSite context. 10.13+ CFNetwork withholds a Strict or Lax
+    // cookie from a cross-site read here; the same rule is applied from what the cookie carries. Which
+    // site this read is for is derived from SiteForCookies against the URL being read rather than read
+    // off the presence of the stamp, because a stamp travels unchanged across a redirect that changes
+    // host.
+    id siteForCookies = policyProperties[@"_kCFHTTPCookiePolicyPropertySiteForCookies"];
+    if ([siteForCookies isKindOfClass:[NSURL class]] && cookies.count) {
+        bool isSameSite = wk_sameSiteURLsAreSameSite((CFURLRef)siteForCookies, (CFURLRef)url);
+        bool isTopLevelNavigation = [policyProperties[@"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation"] boolValue];
+        NSMutableArray<NSHTTPCookie *> *allowed = [NSMutableArray arrayWithCapacity:cookies.count];
+        for (NSHTTPCookie *cookie in cookies) {
+            // A read carries no HTTP method, so a navigation is the only safe-method case there is.
+            if (wk_sameSiteAllows(wk_sameSitePolicyOfComment((CFStringRef)wk_rawCookieComment(cookie)),
+                                  isSameSite, isTopLevelNavigation, isTopLevelNavigation))
+                [allowed addObject:cookie];
+        }
+        cookies = allowed;
+    }
+    completionHandler(cookies);
 }
 - (void)_setCookies:(NSArray<NSHTTPCookie *> *)cookies forURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL policyProperties:(NSDictionary *)policyProperties
 {
@@ -470,20 +560,112 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
 // +[NSHTTPCookie _cookieForSetCookieString:forURL:partition:] parses a single Set-Cookie header field
 // into a cookie — -cookiesWithResponseHeaderFields:forURL: is 10.9's parser for exactly that.
 // -[NSHTTPCookie sameSitePolicy] (10.13+) reports a cookie's stored SameSite attribute (paired with the
-// NSHTTPCookieSameSiteLax/Strict constants polyfilled in c/Foundation.m). 10.9's parser drops the
-// attribute while reading Set-Cookie — it reaches neither -properties nor the jar — so nil
-// ("None"/unspecified, which coreSameSitePolicy maps to SameSitePolicy::None) is the only value the
-// cookie carries here.
+// NSHTTPCookieSameSiteLax/Strict constants polyfilled in c/Foundation.m), which on 10.9 is what the
+// cookie carries in its Comment field (wk_samesite.h).
 WK_POLYFILL_ADD_METHODS(NSHTTPCookie)
-- (NSString *)sameSitePolicy { return nil; }
+- (NSString *)sameSitePolicy { return wk_canonicalSameSitePolicy(self); }
 - (NSString *)_storagePartition { return nil; }
 + (NSHTTPCookie *)_cookieForSetCookieString:(NSString *)setCookieString forURL:(NSURL *)url partition:(NSString *)partition
 {
     (void)partition;
     if (!setCookieString.length || !url)
         return nil;
+    // A script's cookie carries the attribute in the same syntax and loses it the same way. This send is
+    // a selref of this library, so it reaches the body below, which is where the attribute goes into the
+    // Comment field.
     NSHTTPCookie *cookie = [[NSHTTPCookie cookiesWithResponseHeaderFields:@{ @"Set-Cookie": setCookieString } forURL:url] firstObject];
     return wk_cookieWithUsableDomain(cookie, url);
+}
+@end
+
+// The Comment a cookie carries the attribute in is the server's field, so no reader is ever handed the
+// encoded form: -comment and -properties give back the comment the server sent, and -description prints
+// that one. The attribute reaches a caller under its own modern name instead.
+WK_POLYFILL_REPLACE_METHODS(NSHTTPCookie)
+- (NSString *)comment
+{
+    NSString *comment = WK_ORIGINAL_METHOD(NSString *, ());
+    return [(NSString *)wk_sameSiteCopyServerComment((CFStringRef)comment) autorelease];
+}
+- (NSDictionary<NSHTTPCookiePropertyKey, id> *)properties
+{
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
+    NSDictionary *properties = WK_ORIGINAL_METHOD(NSDictionary *, ());
+    id comment = properties[NSHTTPCookieComment];
+    if (![comment isKindOfClass:[NSString class]])
+        return properties;
+    NSString *sameSite = [(NSString *)wk_sameSiteCopyValue((CFStringRef)comment) autorelease];
+    if (!sameSite)
+        return properties;
+
+    NSMutableDictionary *decoded = [[properties mutableCopy] autorelease];
+    NSString *server = [(NSString *)wk_sameSiteCopyServerComment((CFStringRef)comment) autorelease];
+    if (server)
+        decoded[NSHTTPCookieComment] = server;
+    else
+        [decoded removeObjectForKey:NSHTTPCookieComment];
+    decoded[NSHTTPCookieSameSitePolicy] = sameSite;
+    return decoded;
+#pragma clang diagnostic pop
+}
+- (NSString *)description
+{
+    NSString *description = WK_ORIGINAL_METHOD(NSString *, ());
+    NSString *raw = wk_rawCookieComment(self);
+    NSString *sameSite = [(NSString *)wk_sameSiteCopyValue((CFStringRef)raw) autorelease];
+    if (!sameSite)
+        return description;
+    NSString *server = [(NSString *)wk_sameSiteCopyServerComment((CFStringRef)raw) autorelease];
+    return [description stringByReplacingOccurrencesOfString:[NSString stringWithFormat:@" comment:\"%@\"", raw]
+                                                  withString:server ? [NSString stringWithFormat:@" comment:\"%@\"", server] : @""];
+}
++ (NSHTTPCookie *)cookieWithProperties:(NSDictionary<NSHTTPCookiePropertyKey, id> *)properties
+{
+    NSDictionary *encoded = wk_propertiesWithSameSiteEncoded(properties);
+    return encoded ? WK_ORIGINAL_METHOD(id, (NSDictionary *), encoded) : nil;
+}
+- (instancetype)initWithProperties:(NSDictionary<NSHTTPCookiePropertyKey, id> *)properties
+{
+    NSDictionary *encoded = wk_propertiesWithSameSiteEncoded(properties);
+    if (encoded)
+        return WK_ORIGINAL_METHOD(id, (NSDictionary *), encoded);
+    // Refusing the cookie still leaves an instance to let go of, and 10.9's NSHTTPCookie traps on
+    // -release of one that was allocated and never initialised (measured), so it is initialised from
+    // what the caller sent -- a cookie that goes no further than this line -- and released as any
+    // finished object is.
+    [WK_ORIGINAL_METHOD(id, (NSDictionary *), properties) release];
+    return nil;
+}
+// Used directly by WebKit as well as by the cookie jar (SOAuthorizationSession), so the attribute is
+// put into the Comment field here too, before the parser this stands in for sees the header.
++ (NSArray<NSHTTPCookie *> *)cookiesWithResponseHeaderFields:(NSDictionary<NSString *, NSString *> *)headerFields forURL:(NSURL *)url
+{
+    NSString *name = nil;
+    for (NSString *field in headerFields) {
+        if ([field caseInsensitiveCompare:@"Set-Cookie"] == NSOrderedSame) {
+            name = field;
+            break;
+        }
+    }
+    id header = name ? headerFields[name] : nil;
+    if (![header isKindOfClass:[NSString class]] || !url)
+        return WK_ORIGINAL_METHOD(NSArray *, (NSDictionary *, NSURL *), headerFields, url);
+
+    CFStringRef rewritten = NULL;
+    switch (wk_sameSiteRewriteSetCookieHeader((CFStringRef)header, (CFURLRef)url, &rewritten)) {
+    case WK_SAMESITE_HEADER_UNCHANGED:
+        break;
+    case WK_SAMESITE_HEADER_REWRITTEN: {
+        NSMutableDictionary *replaced = [[headerFields mutableCopy] autorelease];
+        replaced[name] = [(NSString *)rewritten autorelease];
+        return WK_ORIGINAL_METHOD(NSArray *, (NSDictionary *, NSURL *), replaced, url);
+    }
+    case WK_SAMESITE_HEADER_REFUSED:
+        // A cookie that was given a restriction is made with it or not at all.
+        return @[];
+    }
+    return WK_ORIGINAL_METHOD(NSArray *, (NSDictionary *, NSURL *), headerFields, url);
 }
 @end
 

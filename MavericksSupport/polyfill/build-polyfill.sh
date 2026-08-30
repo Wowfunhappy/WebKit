@@ -89,9 +89,13 @@ done
 # BLOCKCF: a polyfill block is a subclass nothing instantiates, so an initializer it replaces has no
 # designated-initializer chain of its own to keep.
 BLOCKCF='-Wno-objc-designated-initializers'
+# -I polyfills/c: a method block and a C function of the same framework share a helper header there
+# (README: "A helper two files need goes in a header in c/"). Both archives are force-loaded into
+# WebCore, so the definition is in the image the reference is.
+MINC="$INC -I$PF/c"
 echo "### compiling polyfills/methods (WebCore)"
 for f in "$PF"/methods/*.m; do
-    cc_queue "$CLANG" -c $MODERN $BLOCKCF $INC -DWK_POLYFILL_UNIT="$(basename "${f%.m}")" -o "$OBJ/methods/$(basename "${f%.m}").o" "$f"
+    cc_queue "$CLANG" -c $MODERN $BLOCKCF $MINC -DWK_POLYFILL_UNIT="$(basename "${f%.m}")" -o "$OBJ/methods/$(basename "${f%.m}").o" "$f"
 done
 
 echo "### compiling polyfills/classes (one shared definition each)"
@@ -180,7 +184,7 @@ for f in "$PF"/methods/*.m; do
     # 10.9 headers, so the modern SDK's own declarations do not collide with the stubs it defines.
     # -Wno-everything first: this pass asks one question, and the renaming leaves sends through a
     # receiver other than self unresolved, which is noise here and is checked by the real compile.
-    cc_queue "$CLANG" -fsyntax-only $MODERN $BLOCKCF $INC $GATEONLY \
+    cc_queue "$CLANG" -fsyntax-only $MODERN $BLOCKCF $MINC $GATEONLY \
         -DWK_POLYFILL_UNIT="$(basename "${f%.m}")" -I"$(dirname "$f")" "$copy"
 done
 cc_wait
@@ -341,6 +345,19 @@ PROBE_LIBS="$OUT/libpolyfill.a -framework Foundation -framework CoreFoundation -
 "$T/task_vm_info"
 "$CLANG" $MODERN $INC -Wno-unguarded-availability-new -o "$T/unfair_lock" "$TBEHAV/libSystem-unfair-lock.c" $PROBE_LIBS
 "$T/unfair_lock"
+# SameSite: the encoding a cookie carries the attribute in, the rule, and the Set-Cookie rewrite, all
+# against 10.9's own cookie parser.
+# force_load of the method archive so the blocks install their private selectors on NSHTTPCookie here,
+# which is how the constructors this layer replaces can be driven from a program of our own.
+# The whole method archive comes in, so the frameworks owning every class its other blocks extend are on
+# the line too -- and libpolyfill.a ahead of them, so the layer's own absent-on-10.9 constants satisfy
+# the method archive's references the way force_load does inside a shipped framework.
+"$CLANG" $MODERN $INC -fno-objc-arc -o "$T/samesite" "$TBEHAV/CFNetwork-samesite.m" \
+    -Wl,-force_load,"$OUT/libpolyfill_methods.a" -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+    -framework AppKit -framework QuartzCore -framework ApplicationServices -framework CoreServices \
+    -framework AVFoundation -framework CoreLocation -framework PDFKit "$OUT/libpolyfill_classes.dylib" \
+    $PROBE_LIBS
+"$T/samesite"
 # -lc++: realizing a font reaches the variable-font instancer, which is C++.
 "$CLANG" $MODERN $INC -o "$T/optical_size" "$TBEHAV/CoreText-optical-size.c" $PROBE_LIBS \
     -framework CoreText -framework CoreGraphics -lc++

@@ -16,6 +16,7 @@ A = "localhost"
 C = "127.0.0.1"
 STRICTHOST = "127.0.0.2"
 WEIRDHOST = "127.0.0.3"
+EXPIRES = "Expires=Fri, 01 Jan 2100 00:00:00 GMT"
 
 class H(BaseHTTPServer.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -65,6 +66,28 @@ class H(BaseHTTPServer.BaseHTTPRequestHandler):
                 ("Set-Cookie", 'weird="x; Path=/'),
                 ("Set-Cookie", "sid=SID_%s; Path=/; SameSite=Strict" % tag),
             ])
+        elif path == "/setquoted":
+            # A cookie whose VALUE contains the literal text of the attribute. Rewriting the header must
+            # leave that value byte-identical while still carrying sid3's real attribute.
+            self.emit("SETQUOTED")
+            tag = (self.headers.get("Host") or "?").split(":")[0]
+            # Persistent, so a reader outside WebKit can be shown what reaches the shared jar.
+            self.body("<h1>quoted set for %s</h1>" % tag, extra=[
+                ("Set-Cookie", 'trap="x SameSite=Lax y"; Path=/; %s' % EXPIRES),
+                ("Set-Cookie", "sid3=SID3_%s; Path=/; SameSite=Strict; %s" % (tag, EXPIRES)),
+                ("Set-Cookie", "keep=KEEP_%s; Path=/; Comment=servers-own; %s" % (tag, EXPIRES)),
+                ("Set-Cookie", "both=BOTH_%s; Path=/; Comment=mine; SameSite=Lax; %s" % (tag, EXPIRES)),
+            ])
+        elif path == "/redirsame":
+            # Both hops are the SAME host, so a Strict cookie rides both. The pair with /redir is what
+            # separates "the redirect withheld it" from "nothing was ever sent".
+            self.emit("REDIRSAME-HOP1")
+            host = (self.headers.get("Host") or "").split(":")[0] or A
+            self.send_response(302)
+            self.send_header("Location", "http://%s:%d/probe" % (host, PORT))
+            self.send_header("Content-Length", "0")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
         elif path == "/link3":
             self.emit("LINK3")
             self.body("<a id=go href='http://%s:%d/probe'>go</a>" % (WEIRDHOST, PORT))

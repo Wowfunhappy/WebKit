@@ -1,18 +1,17 @@
 // CFNetwork: entry points and constants modern WebKit references that 10.9's CFNetwork does not export,
 // and a load-time patch of one CFNetwork constant in the network process.
 #include "wk_polyfill.h"
+#include "wk_samesite.h"
+#include "wk_symbols.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <dlfcn.h>
-#include <mach-o/dyld.h>
-#include <mach-o/loader.h>
-#include <mach-o/nlist.h>
 #include <stdbool.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
 #include <unistd.h>
+
+static const char kCFNetworkSuffix[] = "/CFNetwork.framework/Versions/A/CFNetwork";
 
 WK_POLYFILL_CONST("CFNetwork", CFStringRef, kCFURLRequestContentDecoderSkipURLCheck, CFSTR("kCFURLRequestContentDecoderSkipURLCheck"));
 
@@ -134,25 +133,14 @@ WK_POLYFILL_ABSENT("CFNetwork", void, _CFURLStorageSessionDisableCache, (void *s
 // field is absent.
 //
 // The constant is non-external, so nothing links to it and no interposition reaches the call, which
-// is direct and intra-image. It is a named entry in CFNetwork's symbol table, and it is found by
-// that name -- never a fixed offset or a byte pattern -- and cleared only once the value it holds
-// has been confirmed to be the media type in question, so a CFNetwork this does not describe keeps
-// whatever it has.
+// is direct and intra-image. It is reached through wk_symbols.h, by name and never by offset, and it
+// is cleared only once the value it holds has been confirmed to be the media type described here.
 //
-// THIS HACK WAS EXPLICITLY APPROVED BY THE MAINTAINER AS AN EXCEPTION TO OUR STANDARD POLICY.
-// DO NOT COPY THIS PATTERN ELSEWHERE IN THE CODEBASE, OR REMOVE THIS HACK WITHOUT EXPLICIT APPROVAL.
-//
-
-static const char kSymbolName[] = "_kCFHTTPProtocolDefaultFormMimeType";
+// THE MAINTAINER APPROVED THIS PATCH EXPLICITLY, AS AN EXCEPTION TO OUR STANDARD POLICY, AND IT STANDS
+// ONLY FOR THIS ONE CONSTANT IN THIS ONE PROCESS. wk_symbols.h IS NOT A GENERAL TOOL: EVERY OTHER USE
+// OF IT NEEDS THE MAINTAINER'S EXPLICIT APPROVAL OF ITS OWN, AND NONE OF THEM MAY BE ADDED OR REMOVED
+// WITHOUT ONE (MavericksSupport/polyfill/README.md carries the same rule).
 static const char kFormMediaType[] = "application/x-www-form-urlencoded";
-static const char kCFNetworkSuffix[] = "/CFNetwork.framework/Versions/A/CFNetwork";
-
-static void __attribute__((noreturn)) fail(const char *reason)
-{
-    fprintf(stderr, "[wk_polyfill] FATAL: CFNetwork undeclared-post-body patch: %s.\n", reason);
-    fflush(stderr);
-    abort();
-}
 
 // The network process is the only one whose HTTP requests are all WebKit's, so it is the only one
 // this runs in. A host application loading WebKit keeps the CFNetwork it had for its own traffic.
@@ -160,49 +148,6 @@ static bool isWebKitNetworkProcess(void)
 {
     const char *name = getprogname();
     return name && !strcmp(name, "com.apple.WebKit.Networking");
-}
-
-// The runtime address of |name| in the image at |index|, from that image's own symbol table.
-static void *symbolAddress(uint32_t index, const char *name)
-{
-    const struct mach_header_64 *header = (const struct mach_header_64 *)_dyld_get_image_header(index);
-    if (!header || header->magic != MH_MAGIC_64)
-        return NULL;
-
-    const struct load_command *command = (const struct load_command *)(header + 1);
-    const struct symtab_command *symtab = NULL;
-    uint64_t linkeditVMAddress = 0, linkeditFileOffset = 0;
-    bool foundLinkedit = false;
-
-    for (uint32_t i = 0; i < header->ncmds; ++i) {
-        if (command->cmd == LC_SYMTAB)
-            symtab = (const struct symtab_command *)command;
-        else if (command->cmd == LC_SEGMENT_64) {
-            const struct segment_command_64 *segment = (const struct segment_command_64 *)command;
-            if (!strcmp(segment->segname, SEG_LINKEDIT)) {
-                linkeditVMAddress = segment->vmaddr;
-                linkeditFileOffset = segment->fileoff;
-                foundLinkedit = true;
-            }
-        }
-        command = (const struct load_command *)((const uint8_t *)command + command->cmdsize);
-    }
-    if (!symtab || !foundLinkedit)
-        return NULL;
-
-    intptr_t slide = _dyld_get_image_vmaddr_slide(index);
-    const uint8_t *linkedit = (const uint8_t *)(uintptr_t)(linkeditVMAddress + slide - linkeditFileOffset);
-    const struct nlist_64 *symbols = (const struct nlist_64 *)(linkedit + symtab->symoff);
-    const char *strings = (const char *)(linkedit + symtab->stroff);
-
-    for (uint32_t i = 0; i < symtab->nsyms; ++i) {
-        if (!symbols[i].n_un.n_strx || (symbols[i].n_type & N_TYPE) != N_SECT)
-            continue;
-        if (strcmp(strings + symbols[i].n_un.n_strx, name))
-            continue;
-        return (void *)(uintptr_t)(symbols[i].n_value + slide);
-    }
-    return NULL;
 }
 
 // The constant is a compiler-built CFString: { isa, flags, const char *bytes, length }. Reading it
@@ -215,55 +160,354 @@ struct constantCFString {
     unsigned long length;
 };
 
+static bool holdsTheFormMediaType(const void *value)
+{
+    const struct constantCFString *string = (const struct constantCFString *)value;
+    return string && string->bytes && string->length == strlen(kFormMediaType)
+        && !strcmp(string->bytes, kFormMediaType);
+}
+
 __attribute__((constructor)) static void clearDefaultFormMediaType(void)
 {
-    if (!isWebKitNetworkProcess())
-        return;
+    static const wk_pointer_patch patch = {
+        .what = "CFNetwork undeclared-post-body patch",
+        .imagePathSuffix = kCFNetworkSuffix,
+        .symbol = "_kCFHTTPProtocolDefaultFormMimeType",
+        .isInScope = isWebKitNetworkProcess,
+        .describes = holdsTheFormMediaType,
+        .replacement = NULL,
+    };
+    wk_patch_pointer(&patch);
+}
 
-    for (uint32_t i = 0, count = _dyld_image_count(); i < count; ++i) {
-        const char *path = _dyld_get_image_name(i);
-        if (!path)
+// ---------------------------------------------------------------------------------------------------
+// SameSite, where 10.9 decides cookies.
+//
+// CFNetwork-673.3 has never heard of the attribute -- it contains no occurrence of the name in its
+// strings or its symbols -- and it composes the Cookie header of a request and parses the Set-Cookie of
+// a response entirely below the Objective-C layer, so neither can be reached from there. What can be
+// reached is the two virtual calls those paths make. HTTPProtocol::addCookies calls the connection
+// session's copyCookiesForRequestUsingAllAppropriateStorageSemantics, which selects the storage, merges
+// any additional cookies the request carries, and then asks the storage for the cookies of a URL through
+// XCookieStorage::copyRequestHeaderFieldsForURL before composing the header from them.
+// HTTPProtocol::updateCookieStoreDuringHeaderRead calls the storage's setCookiesWithResponseHeaderFields
+// with the response's raw header fields, which is the last point at which the attribute is still there
+// to read.
+//
+// So the outer replacement reads the request's cookie-policy context and leaves it where the inner one
+// can see it, the inner one subtracts the cookies that context withholds, and CFNetwork's own code does
+// the selecting, the merging and the composing. The storing replacement puts the attribute into the
+// Comment field of the header it is given and hands it on, so CFNetwork applies the accept policy,
+// parses and stores exactly once, with the cookie's Created assigned exactly once.
+//
+// The two sides are scoped differently because what they can see differs. Reading scopes itself to a
+// request: a request carries the cookie-policy properties only because ResourceRequestCocoa's
+// doUpdatePlatformRequest put them there, and the key naming them appears nowhere in 10.9's CFNetwork
+// or Foundation, so nothing but WebKit can put one on a request. A request made by a host application
+// around WebKit therefore has no context stashed for it and reaches the implementation this stands in
+// for with nothing subtracted. That is a per-request boundary, and it is what covers a WebKitLegacy
+// load, which is composed by this same CFNetwork code inside the application's own process.
+//
+// Storing has no such boundary to draw. HTTPProtocol::updateCookieStoreDuringHeaderRead holds the
+// request, but neither it nor performHeaderRead nor updateForHeader occupies a vtable slot anywhere in
+// this image, and the storage this replacement is handed names no requester. So it runs where every
+// HTTP request is WebKit's, and nowhere else -- the same boundary, and for the same reason, as the
+// undeclared-post-body patch above.
+// ---------------------------------------------------------------------------------------------------
+
+typedef const struct OpaqueCFHTTPCookie *WKHTTPCookieRef;
+typedef const struct _CFURLRequest *WKCFURLRequestRef;
+WK_SYSTEM_FN("CFNetwork", CFStringRef, CFHTTPCookieCopyComment, (WKHTTPCookieRef));
+WK_SYSTEM_FN("CFNetwork", CFTypeRef, _CFURLRequestCopyProtocolPropertyForKey, (WKCFURLRequestRef, CFStringRef));
+WK_SYSTEM_FN("CFNetwork", CFStringRef, CFURLRequestCopyHTTPRequestMethod, (WKCFURLRequestRef));
+WK_SYSTEM_FN("CFNetwork", CFURLRef, CFURLRequestGetURL, (WKCFURLRequestRef));
+
+static const char kSameSiteHooks[] = "CFNetwork SameSite cookie hooks";
+
+// The context one composition runs under. The inner replacement is handed a storage and a URL and no
+// request, so the outer one leaves this where it can read it.
+struct wk_cookie_context {
+    bool known;
+    bool isSameSite;
+    bool isTopLevelNavigation;
+    bool isSafeMethod;
+};
+static __thread struct wk_cookie_context wk_cookieContext;
+
+static bool wk_booleanValue(CFTypeRef value)
+{
+    if (!value)
+        return false;
+    if (CFGetTypeID(value) == CFBooleanGetTypeID())
+        return CFBooleanGetValue((CFBooleanRef)value);
+    if (CFGetTypeID(value) == CFNumberGetTypeID()) {
+        int number = 0;
+        return CFNumberGetValue((CFNumberRef)value, kCFNumberIntType, &number) && number;
+    }
+    return false;
+}
+
+static struct wk_cookie_context wk_contextOfRequest(WKCFURLRequestRef request)
+{
+    struct wk_cookie_context context = { false, false, false, false };
+    if (!request)
+        return context;
+
+    CFTypeRef site = WK_SYSTEM(_CFURLRequestCopyProtocolPropertyForKey)(request, CFSTR("_kCFHTTPCookiePolicyPropertySiteForCookies"));
+    if (site) {
+        if (CFGetTypeID(site) == CFURLGetTypeID()) {
+            context.known = true;
+            // Derived again here rather than read off the stamp: CFNetwork carries these properties
+            // across an internal redirect verbatim while the URL changes host, so the stamp answers for
+            // the hop that made it.
+            context.isSameSite = wk_sameSiteURLsAreSameSite((CFURLRef)site, WK_SYSTEM(CFURLRequestGetURL)(request));
+        }
+        CFRelease(site);
+    }
+    if (!context.known)
+        return context;
+
+    CFTypeRef topLevel = WK_SYSTEM(_CFURLRequestCopyProtocolPropertyForKey)(request, CFSTR("_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation"));
+    context.isTopLevelNavigation = wk_booleanValue(topLevel);
+    if (topLevel)
+        CFRelease(topLevel);
+
+    CFStringRef method = WK_SYSTEM(CFURLRequestCopyHTTPRequestMethod)(request);
+    context.isSafeMethod = wk_sameSiteMethodIsSafe(method);
+    if (method)
+        CFRelease(method);
+    return context;
+}
+
+// One replacement serves every cookie-storage class, so a storage's vptr is what it finds the
+// implementation it stands in for by.
+struct wk_storage_hook {
+    const void *vtable;
+    void *copyCookiesForURL;
+    void *setCookiesWithResponseHeaderFields;
+};
+static struct wk_storage_hook wk_storageHooks[3];
+static long wk_storageHookCount;
+
+static const struct wk_storage_hook *wk_hookForStorage(const void *storage)
+{
+    const void *vtable = *(const void *const *)storage;
+    for (long i = 0; i < wk_storageHookCount; ++i) {
+        if (wk_storageHooks[i].vtable == vtable)
+            return &wk_storageHooks[i];
+    }
+    wk_patch_fail(kSameSiteHooks, "a cookie storage reached a replacement installed on another class");
+}
+
+typedef CFArrayRef (*wk_copy_cookies_for_url_fn)(const void *storage, CFURLRef url, unsigned char secure);
+typedef void (*wk_set_cookies_fn)(const void *storage, CFURLRef url, CFDictionaryRef headerFields,
+                                  CFURLRef mainDocumentURL, int acceptPolicy);
+typedef CFDictionaryRef (*wk_copy_cookies_for_request_fn)(const void *session, WKCFURLRequestRef request);
+
+static wk_copy_cookies_for_request_fn wk_originalCopyCookiesForRequest;
+
+static CFDictionaryRef wk_copyCookiesForRequest(const void *session, WKCFURLRequestRef request)
+{
+    struct wk_cookie_context enclosing = wk_cookieContext;
+    wk_cookieContext = wk_contextOfRequest(request);
+    CFDictionaryRef fields = wk_originalCopyCookiesForRequest(session, request);
+    // Put back rather than cleared, on the one way out there is: a context left behind on this thread
+    // would let a Strict cookie ride the next read made on it.
+    wk_cookieContext = enclosing;
+    return fields;
+}
+
+static CFArrayRef wk_copyCookiesForURL(const void *storage, CFURLRef url, unsigned char secure)
+{
+    wk_copy_cookies_for_url_fn original = (wk_copy_cookies_for_url_fn)wk_hookForStorage(storage)->copyCookiesForURL;
+    CFArrayRef cookies = original(storage, url, secure);
+    // Every other caller of this -- CFNetwork's own accept-policy path among them -- gets exactly what
+    // it would have got.
+    if (!cookies || !wk_cookieContext.known)
+        return cookies;
+
+    CFIndex count = CFArrayGetCount(cookies);
+    CFMutableArrayRef allowed = NULL;
+    for (CFIndex i = 0; i < count; ++i) {
+        const void *cookie = CFArrayGetValueAtIndex(cookies, i);
+        CFStringRef comment = WK_SYSTEM(CFHTTPCookieCopyComment)((WKHTTPCookieRef)cookie);
+        bool rides = wk_sameSiteAllows(wk_sameSitePolicyOfComment(comment), wk_cookieContext.isSameSite,
+                                       wk_cookieContext.isTopLevelNavigation, wk_cookieContext.isSafeMethod);
+        if (comment)
+            CFRelease(comment);
+        if (rides) {
+            if (allowed)
+                CFArrayAppendValue(allowed, cookie);
             continue;
-        size_t length = strlen(path), suffixLength = strlen(kCFNetworkSuffix);
-        if (length < suffixLength || strcmp(path + length - suffixLength, kCFNetworkSuffix))
-            continue;
+        }
+        if (!allowed) {
+            allowed = CFArrayCreateMutable(NULL, count, &kCFTypeArrayCallBacks);
+            if (!allowed)
+                return cookies;
+            for (CFIndex kept = 0; kept < i; ++kept)
+                CFArrayAppendValue(allowed, CFArrayGetValueAtIndex(cookies, kept));
+        }
+    }
+    if (!allowed)
+        return cookies;
+    CFRelease(cookies);
+    return allowed;
+}
 
-        // Each check below describes the CFNetwork this is written against. A process that reaches
-        // one and fails it would go on announcing a body type the sender never chose, on every
-        // undeclared POST, with nothing said -- so each is fatal, and names itself on the way out.
-        struct constantCFString **slot = (struct constantCFString **)symbolAddress(i, kSymbolName);
-        if (!slot)
-            fail("CFNetwork's symbol table has no kCFHTTPProtocolDefaultFormMimeType");
+// The field name a response carries Set-Cookie under, in whatever case it arrived in.
+static CFStringRef wk_setCookieFieldName(CFDictionaryRef fields)
+{
+    CFIndex count = CFDictionaryGetCount(fields);
+    if (count <= 0)
+        return NULL;
+    const void **keys = (const void **)malloc(sizeof(void *) * (size_t)count);
+    if (!keys)
+        return NULL;
+    CFDictionaryGetKeysAndValues(fields, keys, NULL);
+    CFStringRef name = NULL;
+    for (CFIndex i = 0; i < count && !name; ++i) {
+        if (CFGetTypeID(keys[i]) == CFStringGetTypeID()
+            && CFStringCompare((CFStringRef)keys[i], CFSTR("Set-Cookie"), kCFCompareCaseInsensitive) == kCFCompareEqualTo)
+            name = (CFStringRef)keys[i];
+    }
+    free(keys);
+    return name;
+}
 
-        // The polyfill archive is linked into WebCore, WebKit, WebKit2 and JavaScriptCore, which
-        // share this process, so this initializer runs once per framework. A slot already cleared is
-        // this work already done by the first of them, not a CFNetwork that fails the description.
-        struct constantCFString *value = *slot;
-        if (!value)
-            return;
-        if (!value->bytes)
-            fail("the constant holds no inline bytes, so it is not the CFString this describes");
-        if (value->length != strlen(kFormMediaType) || strcmp(value->bytes, kFormMediaType))
-            fail("the constant does not hold the form media type this describes");
+static void wk_setCookiesWithResponseHeaderFields(const void *storage, CFURLRef url, CFDictionaryRef headerFields,
+                                                  CFURLRef mainDocumentURL, int acceptPolicy)
+{
+    wk_set_cookies_fn original = (wk_set_cookies_fn)wk_hookForStorage(storage)->setCookiesWithResponseHeaderFields;
+    if (!original)
+        wk_patch_fail(kSameSiteHooks, "a cookie storage class this only reads through was stored to");
 
-        long pageSize = sysconf(_SC_PAGESIZE);
-        if (pageSize <= 0)
-            fail("sysconf(_SC_PAGESIZE) gave no page size to align the write to");
-
-        // The constant lives in __DATA, which this CFNetwork ships read-write (initprot 0x3; there
-        // is no __DATA_CONST here). mprotect only spans the write, which can straddle two pages,
-        // and leaves the protection the segment came with -- the same page carries the rest of
-        // CFNetwork's CFString constants.
-        uintptr_t page = (uintptr_t)slot & ~(uintptr_t)(pageSize - 1);
-        size_t span = ((uintptr_t)slot + sizeof(*slot) > page + (uintptr_t)pageSize)
-            ? (size_t)pageSize * 2 : (size_t)pageSize;
-        if (mprotect((void *)page, span, PROT_READ | PROT_WRITE))
-            fail("the page holding the constant could not be made writable");
-        *slot = NULL;
+    CFStringRef name = headerFields ? wk_setCookieFieldName(headerFields) : NULL;
+    CFTypeRef header = name ? CFDictionaryGetValue(headerFields, name) : NULL;
+    if (!header || CFGetTypeID(header) != CFStringGetTypeID()) {
+        original(storage, url, headerFields, mainDocumentURL, acceptPolicy);
         return;
     }
 
-    // Reaching here is the network process running without the CFNetwork every request in it goes
-    // through, which the checks above exist to rule out.
-    fail("the network process has no CFNetwork loaded");
+    CFStringRef rewritten = NULL;
+    wk_samesite_header_disposition disposition = wk_sameSiteRewriteSetCookieHeader((CFStringRef)header, url, &rewritten);
+    if (disposition == WK_SAMESITE_HEADER_UNCHANGED) {
+        original(storage, url, headerFields, mainDocumentURL, acceptPolicy);
+        return;
+    }
+    // A cookie that was given a restriction is stored with it or not at all: storing this field as it
+    // stands would store those cookies unrestricted, which reads as permissive.
+    if (disposition == WK_SAMESITE_HEADER_REFUSED)
+        return;
+
+    CFMutableDictionaryRef replaced = CFDictionaryCreateMutableCopy(NULL, 0, headerFields);
+    if (!replaced)
+        wk_patch_fail(kSameSiteHooks, "the response header fields carrying the attribute could not be copied");
+    CFDictionarySetValue(replaced, name, rewritten);
+    original(storage, url, replaced, mainDocumentURL, acceptPolicy);
+    CFRelease(replaced);
+    CFRelease(rewritten);
+}
+
+// The vptr an instance carries: the vtable symbol addresses the offset-to-top and typeinfo words ahead
+// of the function pointers.
+static const void *wk_vptrOfVTable(const wk_image *image, const char *vtableSymbol)
+{
+    void *vtable = wk_symbol_in_image(image, vtableSymbol);
+    if (!vtable)
+        wk_patch_fail(kSameSiteHooks, "CFNetwork's symbol table does not name a cookie storage vtable this patches");
+    return (const void *)((const uint8_t *)vtable + 2 * sizeof(void *));
+}
+
+__attribute__((constructor)) static void wk_installSameSiteCookieHooks(void)
+{
+    // A cookie storage class the request's cookies are read from. Only the two the response-storing path
+    // reaches carry a storing symbol; the third is the in-memory storage that path never writes to.
+    struct wk_storage_class {
+        const char *vtable;
+        const char *copyCookiesForURL;
+        const char *setCookiesWithResponseHeaderFields;
+    };
+    static const struct wk_storage_class classes[] = {
+        { "__ZTV16CFXCookieStorage", "__ZNK16CFXCookieStorage17copyCookiesForURLEPK7__CFURLh",
+          "__ZNK16CFXCookieStorage34setCookiesWithResponseHeaderFieldsEPK7__CFURLPK14__CFDictionaryS2_i" },
+        { "__ZTV16NSXCookieStorage", "__ZNK16NSXCookieStorage17copyCookiesForURLEPK7__CFURLh",
+          "__ZNK16NSXCookieStorage34setCookiesWithResponseHeaderFieldsEPK7__CFURLPK14__CFDictionaryS2_i" },
+        { "__ZTV17MemXCookieStorage", "__ZNK17MemXCookieStorage17copyCookiesForURLEPK7__CFURLh", NULL },
+    };
+    const long classCount = (long)(sizeof(classes) / sizeof(classes[0]));
+
+    // A process with no CFNetwork mapped makes no HTTP request through it, so there is nothing here to
+    // decide. WebCore, WebKit and WebKit2 each link it, so a process that does load it has at least one
+    // framework whose copy of this runs with it present.
+    wk_image image;
+    if (!wk_find_image(kCFNetworkSuffix, &image))
+        return;
+
+    // A response is rewritten only where every request is WebKit's; a request is read for wherever
+    // WebKit made it.
+    bool storesHere = isWebKitNetworkProcess();
+
+    // Resolved and published before anything is patched, so the first call to reach a replacement finds
+    // the implementation it stands in for already recorded.
+    static const char kOuterVTable[] = "__ZTV24ClassicConnectionSession";
+    static const char kOuterFunction[] = "__ZNK24ClassicConnectionSession56copyCookiesForRequestUsingAllAppropriateStorageSemanticsEPK13_CFURLRequest";
+
+    wk_originalCopyCookiesForRequest = (wk_copy_cookies_for_request_fn)wk_symbol_in_image(&image, kOuterFunction);
+    if (!wk_originalCopyCookiesForRequest)
+        wk_patch_fail(kSameSiteHooks, "CFNetwork's symbol table does not name the cookie composer this stands in for");
+    for (long i = 0; i < classCount; ++i) {
+        wk_storageHooks[i].vtable = wk_vptrOfVTable(&image, classes[i].vtable);
+        wk_storageHooks[i].copyCookiesForURL = wk_symbol_in_image(&image, classes[i].copyCookiesForURL);
+        wk_storageHooks[i].setCookiesWithResponseHeaderFields = classes[i].setCookiesWithResponseHeaderFields
+            ? wk_symbol_in_image(&image, classes[i].setCookiesWithResponseHeaderFields) : NULL;
+        if (!wk_storageHooks[i].copyCookiesForURL
+            || (classes[i].setCookiesWithResponseHeaderFields && !wk_storageHooks[i].setCookiesWithResponseHeaderFields))
+            wk_patch_fail(kSameSiteHooks, "CFNetwork's symbol table does not name a cookie storage method this stands in for");
+    }
+    wk_storageHookCount = classCount;
+
+    long claimed = 0, alreadyDone = 0;
+    bool thisFrameworkWrote = false;
+    wk_vtable_patch patch;
+    patch.what = kSameSiteHooks;
+    patch.imagePathSuffix = kCFNetworkSuffix;
+    patch.isInScope = NULL;
+
+    patch.vtableSymbol = kOuterVTable;
+    patch.originalSymbol = kOuterFunction;
+    patch.replacement = (const void *)wk_copyCookiesForRequest;
+    wk_patch_vtable_slot(&patch, &thisFrameworkWrote);
+    if (thisFrameworkWrote)
+        ++claimed;
+    else
+        ++alreadyDone;
+
+    for (long i = 0; i < classCount; ++i) {
+        patch.vtableSymbol = classes[i].vtable;
+        patch.originalSymbol = classes[i].copyCookiesForURL;
+        patch.replacement = (const void *)wk_copyCookiesForURL;
+        wk_patch_vtable_slot(&patch, &thisFrameworkWrote);
+        if (thisFrameworkWrote)
+            ++claimed;
+        else
+            ++alreadyDone;
+
+        if (!classes[i].setCookiesWithResponseHeaderFields || !storesHere)
+            continue;
+        patch.originalSymbol = classes[i].setCookiesWithResponseHeaderFields;
+        patch.replacement = (const void *)wk_setCookiesWithResponseHeaderFields;
+        wk_patch_vtable_slot(&patch, &thisFrameworkWrote);
+        if (thisFrameworkWrote)
+            ++claimed;
+        else
+            ++alreadyDone;
+    }
+
+    // These replacements pass a request context between them through storage private to the framework
+    // they were installed from, so one framework has to have claimed all of them. dyld runs initializers
+    // serially, so the first to reach this does; a split set is a broken assumption, not a race to
+    // accommodate.
+    if (claimed && alreadyDone)
+        wk_patch_fail(kSameSiteHooks, "one framework did not claim the whole set, so the replacements would "
+                                      "not share the request context they pass between them");
 }
