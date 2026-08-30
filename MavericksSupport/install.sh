@@ -106,80 +106,34 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# #38: all in-layer Dashboard widgets share ONE DashboardClient, and the Dock picks its architecture
-# before any WebKit code runs: a widget whose AllowInternetPlugins flag is set is recorded as 32bit in
-# com.apple.dashboard.plist, and any 32bit widget makes the Dock spawn an i386 DashboardClient, which
-# loads the grafted stock i386 slice instead of our x86_64 engine. The flag only ever enabled NPAPI
-# plug-ins, which no widget embeds and the modern engine lacks. So: clear it in every installed
-# widget (governs future adds) and normalize the recorded 32bit values in each user's dashboard plist
-# (governs the existing layout).
-normalize_dashboard() {
-    echo "### Forcing 64-bit DashboardClient (clear widget AllowInternetPlugins + recorded 32bit flags)"
-    for wdgt in /Library/Widgets/*.wdgt /Users/*/Library/Widgets/*.wdgt; do
-        [ -d "$wdgt" ] || continue
-        wplist="$wdgt/Contents/Info.plist"
-        [ -f "$wplist" ] || wplist="$wdgt/Info.plist"
-        [ -f "$wplist" ] || continue
-        cur=$(/usr/libexec/PlistBuddy -c 'Print :AllowInternetPlugins' "$wplist" 2>/dev/null) || cur=""
-        if [ "$cur" = "true" ]; then
-            if /usr/libexec/PlistBuddy -c 'Set :AllowInternetPlugins false' "$wplist"; then
-                echo "  $(basename "$wdgt") AllowInternetPlugins -> false"
-            else
-                echo "  warning: could not clear AllowInternetPlugins on $wdgt"
-            fi
-        fi
-    done
-    for home in /Users/*; do
-        [ -f "$home/Library/Preferences/com.apple.dashboard.plist" ] || continue
-        huser=$(stat -f %Su "$home") || continue
-        # The temp file must be owned by (and writable as) the owning user: `defaults export`
-        # run via sudo -u onto a root-owned 0600 file in /tmp exits 0 but writes NOTHING, and
-        # the import leg cannot read it either — the normalization would silently no-op.
-        tmpdash=$(sudo -u "$huser" mktemp "$home/Library/Preferences/dashboard-plist.XXXXXX" 2>/dev/null) || tmpdash=""
-        if [ -z "$tmpdash" ]; then
-            echo "  warning: could not create a temp prefs file for $huser; 32bit flags not normalized"
-            continue
-        fi
-        # Round-trip through `defaults` (as the owning user) so cfprefsd's cache stays coherent.
-        # Do not trust the export's exit status: verify the file actually contains a plist.
-        if sudo -u "$huser" defaults export com.apple.dashboard "$tmpdash" 2>/dev/null \
-            && [ -s "$tmpdash" ] \
-            && /usr/libexec/PlistBuddy -c 'Print' "$tmpdash" >/dev/null 2>&1; then
-            i=0
-            changed=0
-            while /usr/libexec/PlistBuddy -c "Print :layer-gadgets:$i" "$tmpdash" >/dev/null 2>&1; do
-                g32=$(/usr/libexec/PlistBuddy -c "Print :layer-gadgets:$i:32bit" "$tmpdash" 2>/dev/null) || g32=""
-                if [ "$g32" = "true" ]; then
-                    if /usr/libexec/PlistBuddy -c "Set :layer-gadgets:$i:32bit 0" "$tmpdash" 2>/dev/null; then
-                        changed=1
-                    else
-                        echo "  warning: could not clear 32bit on gadget $i for $huser"
-                    fi
-                fi
-                i=$((i + 1))
-            done
-            if [ "$changed" = "1" ]; then
-                if sudo -u "$huser" defaults import com.apple.dashboard "$tmpdash"; then
-                    echo "  $huser: cleared recorded 32bit flag(s) in com.apple.dashboard"
-                    DASHBOARD_PREFS_CHANGED=1
-                else
-                    echo "  warning: could not import normalized com.apple.dashboard for $huser"
-                fi
-            fi
-        else
-            echo "  warning: could not export $huser's com.apple.dashboard; 32bit flags not normalized"
-        fi
-        rm -f "$tmpdash"
-    done
-    # A live Dock holds the old layout (and possibly an i386 DashboardClient); restart it so the
-    # next Dashboard activation spawns from the normalized plist. The Dock relaunches itself.
-    if [ "${DASHBOARD_PREFS_CHANGED:-0}" = "1" ]; then
-        killall DashboardClient 2>/dev/null || true
-        killall Dock 2>/dev/null || true
-        echo "  restarted Dock to pick up the 64-bit Dashboard layout"
+# #38: the Dock picks the DashboardClient architecture before any WebKit code runs, from each
+# widget's AllowInternetPlugins flag, and a widget carrying it runs i386 -- which loads the grafted
+# stock i386 slice rather than our x86_64 engine. On the Web Clip widget the flag only ever enabled
+# NPAPI plug-ins, which the clip does not embed and the modern engine lacks, so clearing it is what
+# puts Web Clips on this port's engine. This is the one widget the port owns; every other widget on
+# the system, Apple's and third-party alike, keeps whatever its author declared.
+force_64bit_web_clip_widget() {
+    echo "### Clearing AllowInternetPlugins on the Web Clip widget (64-bit DashboardClient)"
+    local wdgt="/Library/Widgets/Web Clip.wdgt"
+    local wplist="$wdgt/Info.plist"
+    [ -f "$wplist" ] || wplist="$wdgt/Contents/Info.plist"
+    if [ ! -f "$wplist" ]; then
+        echo "  no Web Clip widget installed"
+        return 0
+    fi
+    local cur
+    cur=$(/usr/libexec/PlistBuddy -c 'Print :AllowInternetPlugins' "$wplist" 2>/dev/null) || cur=""
+    if [ "$cur" != "true" ]; then
+        echo "  already 64-bit"
+        return 0
+    fi
+    if /usr/libexec/PlistBuddy -c 'Set :AllowInternetPlugins false' "$wplist"; then
+        echo "  AllowInternetPlugins -> false"
+    else
+        echo "  warning: could not clear AllowInternetPlugins on $wplist"
     fi
 }
-normalize_dashboard
+force_64bit_web_clip_widget
 
 # ---------------------------------------------------------------------------
 echo "### Verifying the installed product"
