@@ -43,7 +43,7 @@ namespace WebCore {
 // scheme both ports serve it from) is left untouched. Both ports consume this one string so the
 // bridge cannot drift between frameworks.
 //
-// Four parts:
+// Five parts:
 //  1. Unified titlebar+toolbar chrome (#52/#66/#69). Adds the measured Aqua gradient + a 22px
 //     #wk-titlebar strip as body's first child (stock 56px toolbar untouched below it), the window
 //     title fed from InspectorFrontendHost.inspectedURLChanged, and background mousedowns routed to
@@ -56,7 +56,17 @@ namespace WebCore {
 //  3. Protocol bridge. The classic frontend sends bare per-domain commands ({method:'DOM.getDocument'});
 //     the modern backend routes per-target via Target.sendMessageToTarget and answers with
 //     Target.dispatchMessageFromTarget. Wrap outgoing non-Target/Browser commands (queueing until
-//     Target.targetCreated supplies the targetId) and unwrap incoming ones. Two CSS payload shapes
+//     Target.targetCreated supplies the targetId) and unwrap incoming ones. Once the target exists the
+//     bridge asks for the document itself, answering the modern InspectorDOMAgent's rule that it
+//     dispatches a context-menu Inspect Element only once DOM.getDocument has been called: the classic
+//     frontend's sole route to DOM.getDocument is DOMTreeManager.pushNodeToFrontend(), which it runs on
+//     receiving that dispatch. The bridge's own reply is dropped, and the frontend's later
+//     DOMTreeManager.requestDocument() issues its own DOM.getDocument, so every node id the frontend
+//     holds is still issued after the id reset that call performs. It asks once per bridge instance,
+//     which matches the lifetime of the backend's own m_documentRequested: Target.targetCreated arrives
+//     for every target the frontend connects to and for every one created afterwards, provisional
+//     targets included, and each further DOM.getDocument would reset the node ids the frontend is
+//     holding mid-session. Two CSS payload shapes
 //     drifted since the classic frontend: CSS.SelectorList.selectors became CSSSelector objects
 //     ({text,specificity}) where the frontend expects strings, and the author stylesheet origin was
 //     renamed "regular" -> "author"; fixSel() flattens the selectors and maps the origin back.
@@ -71,6 +81,13 @@ namespace WebCore {
 //     Reach the frontend's classes through the bare `WebInspector` identifier, never
 //     `window.WebInspector`: Main.js declares `const WebInspector = {}`, and a top-level const in a
 //     classic script binds in the global LEXICAL environment, so it is not a property of `window`.
+//  5. The persisted last-selected DOM node vs. Inspect Element. DOMTreeContentView remembers the node
+//     that was selected when the inspector last closed and re-selects it by path as soon as the DOM
+//     tree's root arrives, which is after the context menu's inspect event has selected the clicked
+//     element. Today's frontend gates that restore on DOMManager.restoreSelectedNodeIsAllowed, cleared
+//     in inspectNodeObject() and set again when the main frame navigates (DOMTreeContentView.js
+//     _restoreSelectedNodeAfterUpdate); give the classic DOMTreeManager the same flag and have
+//     _rootDOMNodeAvailable install the root without the restore while it is clear.
 //
 // Every failure path surfaces via console.error (into the frontend page's own console) rather than
 // being swallowed, so a translation bug is diagnosable instead of a silently-dropped message.
@@ -90,9 +107,11 @@ if(typeof IFH.debuggableType!=='function'&&'debuggableInfo' in IFH){var di=IFH.d
 if(typeof IFH.setToolbarHeight!=='function')Object.defineProperty(IFH,'setToolbarHeight',{value:function(){},writable:true,configurable:true});
 if(typeof IFH.setAttachedWindowHeight!=='function')Object.defineProperty(IFH,'setAttachedWindowHeight',{value:function(){},writable:true,configurable:true});
 if(typeof IFH.setAttachedWindowWidth!=='function')Object.defineProperty(IFH,'setAttachedWindowWidth',{value:function(){},writable:true,configurable:true});
-(function(){var origSend=IFH.sendMessageToBackend.bind(IFH);var currentTargetId=null;var pendingQueue=[];var wrapperIdBase=1000000;var wrapperIds=Object.create(null);
+(function(){var origSend=IFH.sendMessageToBackend.bind(IFH);var currentTargetId=null;var pendingQueue=[];var wrapperIdBase=1000000;var wrapperIds=Object.create(null);var bridgeIds=Object.create(null);
 function wrap(ms){var wid=wrapperIdBase++;wrapperIds[wid]=true;return JSON.stringify({id:wid,method:'Target.sendMessageToTarget',params:{targetId:currentTargetId,message:ms}});}
 function flushQueue(){if(!currentTargetId||!pendingQueue.length)return;var q=pendingQueue;pendingQueue=[];for(var i=0;i<q.length;i++)origSend(wrap(q[i]));}
+var documentRequested=false;
+function requestDocument(){if(documentRequested)return;documentRequested=true;var iid=wrapperIdBase++;bridgeIds[iid]=true;origSend(wrap(JSON.stringify({id:iid,method:'DOM.getDocument'})));}
 function fixSel(o){if(!o||typeof o!=='object')return;var sl=o.selectorList;if(sl&&sl.selectors instanceof Array&&sl.selectors.length&&typeof sl.selectors[0]==='object'){sl.selectors=sl.selectors.map(function(s){return s&&typeof s==='object'?String(s.text||''):s;});}if(o.origin==='author'&&(o.selectorList||o.style||o.styleSheetId))o.origin='regular';for(var k in o){var v=o[k];if(v&&typeof v==='object')fixSel(v);}}
 IFH.sendMessageToBackend=function(messageStr){
 try{var msg=JSON.parse(messageStr);var dom=msg.method&&msg.method.split('.')[0];
@@ -100,7 +119,7 @@ if(dom==='Target'||dom==='Browser')return origSend(messageStr);
 if(!currentTargetId){pendingQueue.push(messageStr);return;}
 return origSend(wrap(messageStr));
 }catch(e){console.error('[wk-inspector-bridge] sendMessageToBackend failed',e);}return origSend(messageStr);};
-var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;var origDisp=v.dispatch.bind(v);v.dispatch=function(message){try{var obj=(typeof message==='string')?JSON.parse(message):message;if(obj.method==='Target.targetCreated'&&obj.params&&obj.params.targetInfo){currentTargetId=obj.params.targetInfo.targetId;flushQueue();return;}if(obj.id!==undefined&&wrapperIds[obj.id]){delete wrapperIds[obj.id];return;}if(obj.method==='Target.dispatchMessageFromTarget'&&obj.params&&obj.params.message){var im=obj.params.message;if(typeof im==='string'){try{im=JSON.parse(im);}catch(e2){console.error('[wk-inspector-bridge] CSS payload rewrite failed',e2);return origDisp(obj.params.message);}}fixSel(im);return origDisp(im);}}catch(e){console.error('[wk-inspector-bridge] InspectorBackend.dispatch failed',e);}return origDisp(message);};}}});
+var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;var origDisp=v.dispatch.bind(v);v.dispatch=function(message){try{var obj=(typeof message==='string')?JSON.parse(message):message;if(obj.method==='Target.targetCreated'&&obj.params&&obj.params.targetInfo){currentTargetId=obj.params.targetInfo.targetId;flushQueue();requestDocument();return;}if(obj.id!==undefined&&wrapperIds[obj.id]){delete wrapperIds[obj.id];return;}if(obj.method==='Target.dispatchMessageFromTarget'&&obj.params&&obj.params.message){var im=obj.params.message;if(typeof im==='string'){try{im=JSON.parse(im);}catch(e2){console.error('[wk-inspector-bridge] CSS payload rewrite failed',e2);return origDisp(obj.params.message);}}if(im&&im.id!==undefined&&bridgeIds[im.id]){delete bridgeIds[im.id];return;}fixSel(im);return origDisp(im);}}catch(e){console.error('[wk-inspector-bridge] InspectorBackend.dispatch failed',e);}return origDisp(message);};}}});
 })();
 try{var wkTitle='Web Inspector';
 document.addEventListener('DOMContentLoaded',function(){try{
@@ -144,6 +163,21 @@ if(text.length&&text.charAt(text.length-1)!==";")text+=";";
 function update(){this._codeMirror.replaceRange(text,range.from,range.to);this._createColorSwatches(true,range.from.line);}
 this._codeMirror.operation(update.bind(this));};
 }catch(e){console.error('[wk-inspector-bridge] styles editor patch failed',e);}});}catch(e){console.error('[wk-inspector-bridge] styles editor hook failed',e);}
+try{document.addEventListener('DOMContentLoaded',function(){try{
+var W=(typeof WebInspector!=='undefined')?WebInspector:null;if(!W)return;
+var DTM=W.DOMTreeManager&&W.DOMTreeManager.prototype;
+var DTV=W.DOMTreeContentView&&W.DOMTreeContentView.prototype;
+if(!DTM||!DTV||typeof DTM.inspectNodeObject!=='function'||typeof DTV._rootDOMNodeAvailable!=='function')return;
+var origInspectNodeObject=DTM.inspectNodeObject;
+DTM.inspectNodeObject=function(remoteObject){this._restoreSelectedNodeIsAllowed=false;return origInspectNodeObject.call(this,remoteObject);};
+var origRootDOMNodeAvailable=DTV._rootDOMNodeAvailable;
+DTV._rootDOMNodeAvailable=function(rootDOMNode){
+var manager=W.domTreeManager;
+if(rootDOMNode&&manager&&manager._restoreSelectedNodeIsAllowed===false){this._domTreeOutline.rootDOMNode=rootDOMNode;return;}
+return origRootDOMNodeAvailable.call(this,rootDOMNode);};
+W.Frame.addEventListener(W.Frame.Event.MainResourceDidChange,function(event){
+if(event.target.isMainFrame()&&W.domTreeManager)W.domTreeManager._restoreSelectedNodeIsAllowed=true;});
+}catch(e){console.error('[wk-inspector-bridge] selected-node restore patch failed',e);}});}catch(e){console.error('[wk-inspector-bridge] selected-node restore hook failed',e);}
 })();)WKIB";
 }
 
