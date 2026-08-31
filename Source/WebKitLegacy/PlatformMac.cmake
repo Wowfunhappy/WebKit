@@ -27,6 +27,11 @@ list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
 list(APPEND WebKitLegacy_UNIFIED_SOURCE_LIST_FILES
     SourcesCocoa.txt
 )
+# MAVERICKS_BACKPORT: seam 1 of 3 -- see MavericksSupport/cmake/WebKitLegacyPlatformMavericks.cmake,
+# which carries every change this port makes to WebKitLegacy's Mac CMake configuration.
+set(MAVERICKS_WEBKITLEGACY_PHASE LISTS)
+include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WebKitLegacyPlatformMavericks.cmake)
+
 WEBKIT_COMPUTE_SOURCES(WebKitLegacy)
 
 list(APPEND WebKitLegacy_SOURCES
@@ -588,6 +593,11 @@ set(CPP_FILES
     Storage/StorageThread.cpp
 )
 
+# MAVERICKS_BACKPORT: seam 2 of 3 -- same file, the phase that edits the source and forwarding-header
+# lists the two loops below read.
+set(MAVERICKS_WEBKITLEGACY_PHASE SOURCES)
+include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WebKitLegacyPlatformMavericks.cmake)
+
 foreach (_file ${WebKitLegacy_SOURCES})
     list(FIND C99_FILES ${_file} _c99_index)
     list(FIND CPP_FILES ${_file} _cpp_index)
@@ -625,3 +635,8 @@ list(APPEND WebKitLegacy_SOURCES
 set(WebKitLegacy_OUTPUT_NAME WebKitLegacy)
 
 set(CMAKE_SHARED_LINKER_FLAGS ${CMAKE_SHARED_LINKER_FLAGS} "-compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION} -framework SecurityInterface")
+
+# MAVERICKS_BACKPORT: seam 3 of 3 -- same file, the phase that operates on the target and on the
+# framework's Headers directory.
+set(MAVERICKS_WEBKITLEGACY_PHASE POST)
+include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WebKitLegacyPlatformMavericks.cmake)

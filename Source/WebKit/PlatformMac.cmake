@@ -1,4 +1,10 @@
-add_definitions("-ObjC++ -std=c++2b -D__STDC_WANT_LIB_EXT1__")
+# MAVERICKS_BACKPORT: upstream's line is `add_definitions("-ObjC++ -std=c++2b -D__STDC_WANT_LIB_EXT1__")`.
+# -ObjC++ is dropped: it forces every C and C++ translation unit in this directory to compile as
+# Objective-C++, which the vendored third-party C sources this port builds do not survive; the .mm files
+# compile as Objective-C++ from their extension without it. -std=c++2b is dropped as redundant with
+# CMAKE_CXX_STANDARD 23 (OptionsCommon.cmake:12), which also correctly leaves C sources alone.
+# __STDC_WANT_LIB_EXT1__ is preserved.
+add_definitions(-D__STDC_WANT_LIB_EXT1__)
 find_library(APPLICATIONSERVICES_LIBRARY ApplicationServices)
 find_library(CARBON_LIBRARY Carbon)
 find_library(CORESERVICES_LIBRARY CoreServices)
@@ -746,15 +752,28 @@ set(ObjCForwardingHeaders
     DOMXPathResult.h
 )
 
-set(CMAKE_SHARED_LINKER_FLAGS ${CMAKE_SHARED_LINKER_FLAGS} "-compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION}")
-target_link_options(WebKit PRIVATE -lsandbox -framework AuthKit)
+# MAVERICKS_BACKPORT: string form, not list form. Upstream's `set(VAR ${VAR} "...")` makes
+# CMAKE_SHARED_LINKER_FLAGS a semicolon-separated LIST, which reaches the linker as one mangled
+# argument; the flags must be a single space-separated string.
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION}")
+# MAVERICKS_BACKPORT: no -framework AuthKit -- AuthKit.framework does not exist on 10.9 (absent from
+# both /System/Library/Frameworks and PrivateFrameworks), so linking it fails outright. WebKit's own
+# link additions (-weak_framework CryptoTokenKit, -weak_library WebInspectorUI) are in the overlay.
+target_link_options(WebKit PRIVATE -lsandbox)
+# MAVERICKS_BACKPORT: libbsm supplies audit_token_to_pid for the daemon's host-app
+# identification (PushClientConnection.mm); it ships on 10.9 (/usr/lib/libbsm.0.dylib).
+if (ENABLE_WEB_PUSH_NOTIFICATIONS)
+    target_link_options(WebKit PRIVATE -lbsm)
+endif ()
 
 set(WebKit_OUTPUT_NAME WebKit)
 
 # XPC Services
 
 function(WEBKIT_DEFINE_XPC_SERVICES)
-    set(RUNLOOP_TYPE _WebKit)
+    # MAVERICKS_BACKPORT: 10.9's XPC service bootstrap uses an NSRunLoop-typed main run loop; the
+    # _WebKit run-loop type postdates this OS.
+    set(RUNLOOP_TYPE NSRunLoop)
     set(WebKit_XPC_SERVICE_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WebKit.framework/Versions/A/XPCServices)
     WEBKIT_CREATE_SYMLINK(WebProcess ${WebKit_XPC_SERVICE_DIR} ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WebKit.framework/XPCServices)
 
@@ -794,36 +813,90 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
     endif ()
 
     set(WebKit_RESOURCES_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WebKit.framework/Versions/A/Resources)
+    # MAVERICKS_BACKPORT: the profiles come from MavericksSupport/sandbox/ rather than the .sb.in
+    # files beside the process sources. 10.9's sandbox compiler has a smaller operation vocabulary
+    # than the profiles modern WebKit ships, which it rejects outright ("unbound variable: nvram*"),
+    # so this port applies the last upstream profiles written for this OS instead. The rules and
+    # output names are otherwise upstream's; MavericksSupport/sandbox/README.md has the provenance.
+    #
+    # MAVERICKS_BACKPORT: -mmacosx-version-min=10.9 on every rule below. These profiles select rules
+    # on __MAC_OS_X_VERSION_MIN_REQUIRED, and this command runs a bare `clang` off PATH rather than
+    # the toolchain compiler -- so without the flag the deployment target comes from whichever clang
+    # is found. A 10.10+ answer silently emits `xattr-regex` in place of `xattr`, which 10.9's
+    # sandbox cannot compile, and initializeSandbox() CRASH()es on a profile it cannot apply.
+    # MAVERICKS_BACKPORT: each recovered profile is `cat`ed together with its .additions.sb before
+    # preprocessing. The recovered halves stay byte-identical to upstream at aab061ff1301 (checked by
+    # MavericksSupport/sandbox/scripts/check-sandbox-profiles.sh), so what this port adds is readable
+    # in one place rather than interleaved into upstream policy. Sandbox rules are evaluated in
+    # order with later ones winning, so appending is the same as writing them at the profile's end.
     add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.sb COMMAND
-        grep -o "^[^;]*" ${WEBKIT_DIR}/WebProcess/com.apple.WebProcess.sb.in | clang -E -P -w -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.sb
+        cat ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebProcess.sb.in ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebProcess.additions.sb | grep -o "^[^;]*" | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.sb
+        # MAVERICKS_BACKPORT: DEPENDS so edits to the .sb.in source retrigger this rule.
+        DEPENDS ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebProcess.sb.in ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebProcess.additions.sb
         VERBATIM)
     list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.sb)
 
+    # MAVERICKS_BACKPORT: concatenate this port's additions onto the upstream profile, and
+    # preprocess for 10.9 so the ENABLE()/HAVE() gates resolve to this deployment target.
     add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebKit.NetworkProcess.sb COMMAND
-        grep -o "^[^;]*" ${WEBKIT_DIR}/NetworkProcess/mac/com.apple.WebKit.NetworkProcess.sb.in | clang -E -P -w -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.NetworkProcess.sb
+        cat ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.sb.in ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.additions.sb | grep -o "^[^;]*" | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.NetworkProcess.sb
+        DEPENDS ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.sb.in ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.additions.sb
         VERBATIM)
     list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebKit.NetworkProcess.sb)
 
     if (ENABLE_GPU_PROCESS)
-        add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb COMMAND
-            grep -o "^[^;]*" ${WEBKIT_DIR}/GPUProcess/mac/com.apple.WebKit.GPUProcess.sb.in | clang -E -P -w -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb
+        # MAVERICKS_BACKPORT: build MavericksSupport's profile. Upstream's own GPUProcess/mac
+        # profile does not compile here -- 10.9's sandbox compiler stops at `unbound variable:
+        # nvram*` -- and initializeSandbox() CRASH()es on a profile it cannot apply. See
+        # MavericksSupport/sandbox/README.md.
+        add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb
+            # MAVERICKS_BACKPORT: source the profile from MavericksSupport (see the note above).
+            COMMAND grep -o "^[^;]*" ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.GPUProcess.sb.in | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb
+            DEPENDS ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.GPUProcess.sb.in
             VERBATIM)
         list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb)
     endif ()
     if (ENABLE_WEB_PUSH_NOTIFICATIONS)
-        add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.mac.sb COMMAND
-            grep -o "^[^;]*" ${WEBKIT_DIR}/webpushd/mac/com.apple.WebKit.webpushd.mac.sb.in | clang -E -P -w -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.mac.sb
+        # MAVERICKS_BACKPORT: emit the RELOCATABLE profile name. ENABLE_RELOCATABLE_WEBPUSHD is set
+        # for this port, so applySandbox() in WebPushDaemonMain.mm looks for
+        # com.apple.WebKit.webpushd.relocatable.mac.sb; the plain .mac.sb name upstream's CMake
+        # emits is the one that build never asks for.
+        add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.relocatable.mac.sb COMMAND
+            grep -o "^[^;]*" ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.webpushd.relocatable.mac.sb.in | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.relocatable.mac.sb
+            DEPENDS ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.webpushd.relocatable.mac.sb.in
             VERBATIM)
-        list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.mac.sb)
+        # MAVERICKS_BACKPORT: ship the relocatable profile emitted above.
+        list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.relocatable.mac.sb)
     endif ()
     add_custom_target(WebKitSandboxProfiles ALL DEPENDS ${WebKit_SB_FILES})
     add_dependencies(WebKit WebKitSandboxProfiles)
 
+    # MAVERICKS_BACKPORT: the images for the inspector window's native dock buttons, which the frontend
+    # this port ships needs to re-dock (see WebInspectorUIProxy::platformCreateFrontendWindow). Upstream
+    # shipped them from its Xcode project; this is that copy step for the CMake build.
+    foreach (_dock_image DockBottomLegacy DockRightLegacy)
+        add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/${_dock_image}.pdf
+            COMMAND ${CMAKE_COMMAND} -E copy ${WEBKIT_DIR}/Resources/${_dock_image}.pdf ${WebKit_RESOURCES_DIR}/${_dock_image}.pdf
+            DEPENDS ${WEBKIT_DIR}/Resources/${_dock_image}.pdf
+            VERBATIM)
+        list(APPEND WebKit_DOCK_IMAGE_FILES ${WebKit_RESOURCES_DIR}/${_dock_image}.pdf)
+    endforeach ()
+    add_custom_target(WebKitInspectorDockImages ALL DEPENDS ${WebKit_DOCK_IMAGE_FILES})
+    add_dependencies(WebKit WebKitInspectorDockImages)
+
+    # MAVERICKS_BACKPORT: WebContentProcess.xib has no 10.9-runnable nib content, so this creates an
+    # empty placeholder .nib (make_directory + touch) where upstream runs `ibtool --compile … .xib`.
+    # The custom target and its dependency edge on WebKit keep the bundle layout matching upstream's.
     add_custom_command(OUTPUT ${WebKit_XPC_SERVICE_DIR}/com.apple.WebKit.WebContent.xpc/Contents/Resources/WebContentProcess.nib COMMAND
-        ibtool --compile ${WebKit_XPC_SERVICE_DIR}/com.apple.WebKit.WebContent.xpc/Contents/Resources/WebContentProcess.nib ${WEBKIT_DIR}/Resources/WebContentProcess.xib
+        # MAVERICKS_BACKPORT: empty placeholder .nib in place of upstream's `ibtool --compile … .xib`.
+        ${CMAKE_COMMAND} -E make_directory ${WebKit_XPC_SERVICE_DIR}/com.apple.WebKit.WebContent.xpc/Contents/Resources
+        COMMAND ${CMAKE_COMMAND} -E touch ${WebKit_XPC_SERVICE_DIR}/com.apple.WebKit.WebContent.xpc/Contents/Resources/WebContentProcess.nib
         VERBATIM)
     add_custom_target(WebContentProcessNib ALL DEPENDS ${WebKit_XPC_SERVICE_DIR}/com.apple.WebKit.WebContent.xpc/Contents/Resources/WebContentProcess.nib)
     add_dependencies(WebKit WebContentProcessNib)
 endfunction()
 
 set(WebKit_GENERATED_SERIALIZERS_SUFFIX mm)
+
+# MAVERICKS_BACKPORT: single seam -- see MavericksSupport/cmake/WebKitPlatformMavericks.cmake.
+include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WebKitPlatformMavericks.cmake)

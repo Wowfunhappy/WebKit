@@ -60,6 +60,10 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WIRELESS_PLAYBACK_TARGET PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_AVIF PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_JPEGXL PRIVATE OFF)
 
+# MAVERICKS_BACKPORT: the port's feature values -- see MavericksSupport/cmake/OptionsMacMavericks.cmake.
+set(MAVERICKS_OPTIONS_PHASE OPTIONS)
+include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/OptionsMacMavericks.cmake)
+
 WEBKIT_OPTION_END()
 
 SET_AND_EXPOSE_TO_BUILD(USE_LIBWEBRTC TRUE)
@@ -78,3 +82,7 @@ set(USE_ANGLE_EGL ON)
 find_package(ICU 70.1 REQUIRED COMPONENTS data i18n uc)
 find_package(LibXml2 2.8.0 REQUIRED)
 find_package(LibXslt 1.1.13 REQUIRED)
+
+# MAVERICKS_BACKPORT: the rest of the port's Mac configuration -- same file, second phase.
+set(MAVERICKS_OPTIONS_PHASE POST)
+include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/OptionsMacMavericks.cmake)

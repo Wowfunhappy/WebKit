@@ -1,0 +1,168 @@
+; The webpushd sandbox profile for this port.
+;
+; Unlike the WebContent and Networking profiles next to it, this one has no Mavericks-era
+; upstream ancestor to recover -- webpushd postdates 10.9 entirely, so upstream never wrote a
+; version of it in this OS's sandbox vocabulary. It is therefore upstream's
+; com.apple.WebKit.webpushd.relocatable.mac.sb.in re-expressed in the vocabulary 10.9's
+; sandbox compiler accepts: `(import "system.sb")` in place of the open-coded system-path
+; preamble modern profiles carry, no file-map-executable / lsopen / *-prefix filters (all
+; postdate 10.9), and `(system-network)` for the socket rules. What it grants is the same set
+; of capabilities upstream grants, narrowed to what this port's daemon actually does: hold the
+; WebSocket to the Mozilla push service, keep the push database, and hand pushes to Safari.
+;
+; This is the RELOCATABLE profile, which is the one that gets applied:
+; MavericksSupport/cmake/OptionsMacMavericks.cmake sets ENABLE_RELOCATABLE_WEBPUSHD, so
+; applySandbox() in WebPushDaemonMain.mm looks for
+; com.apple.WebKit.webpushd.relocatable.mac.sb and the database is PushDatabase.relocatable.db.
+;
+; Copyright (C) 2024 Apple Inc. All rights reserved.
+;
+; Redistribution and use in source and binary forms, with or without
+; modification, are permitted provided that the following conditions
+; are met:
+; 1. Redistributions of source code must retain the above copyright
+;    notice, this list of conditions and the following disclaimer.
+; 2. Redistributions in binary form must reproduce the above copyright
+;    notice, this list of conditions and the following disclaimer in the
+;    documentation and/or other materials provided with the distribution.
+;
+; THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+; AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+; THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+; PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+; BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+; CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+; SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+; INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+; CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+; ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+; THE POSSIBILITY OF SUCH DAMAGE.
+
+(version 1)
+(deny default (with partial-symbolication))
+(allow system-audit file-read-metadata)
+
+(import "system.sb")
+
+;; Utility functions for home directory relative path filters
+(define (home-regex home-relative-regex)
+  (regex (string-append "^" (regex-quote (param "HOME_DIR")) home-relative-regex)))
+
+(define (home-subpath home-relative-subpath)
+  (subpath (string-append (param "HOME_DIR") home-relative-subpath)))
+
+(define (home-literal home-relative-literal)
+  (literal (string-append (param "HOME_DIR") home-relative-literal)))
+
+;; Read-only preferences and data
+(allow file-read*
+    (subpath "/Library/Frameworks")
+    (subpath "/Library/Managed Preferences")
+    (regex #"^/private/etc/(hosts|group|passwd)$")
+
+    (literal "/Library/Preferences/.GlobalPreferences.plist")
+    (home-literal "/Library/Preferences/.GlobalPreferences.plist")
+    (home-regex #"/Library/Preferences/ByHost/\.GlobalPreferences\.")
+    (home-literal "/Library/Preferences/com.apple.LaunchServices.plist")
+    (home-literal "/Library/Preferences/com.apple.WebFoundation.plist")
+    (home-literal "/.CFUserTextEncoding")
+
+    ;; On-disk WebKit2 framework location, to account for debug installations
+    ;; outside of /System/Library/Frameworks
+    (subpath (param "WEBKIT2_FRAMEWORK_DIR")))
+
+;; Daemon prefs.
+(allow user-preference-read user-preference-write
+    (preference-domain "com.apple.webkit.webpushd.relocatable"))
+
+(allow file-read* file-write* (subpath (param "DARWIN_USER_CACHE_DIR")))
+(allow file-read* file-write* (subpath (param "DARWIN_USER_TEMP_DIR")))
+
+;; Various services required by CFNetwork and other frameworks
+(allow mach-lookup
+    (global-name "com.apple.SystemConfiguration.configd")
+    (global-name "com.apple.cookied")
+    (global-name "com.apple.cfnetwork.AuthBrokerAgent")
+    (global-name "com.apple.system.logger")
+    (global-name "com.apple.system.notification_center")
+    (global-name-regex #"^com.apple.distributed_notifications")
+    (global-name "com.apple.CoreServices.coreservicesd"))
+
+;; NOTE: no Launch Services grant, and none is wanted. A push never opens an application on this
+;; port -- webpushd announces a pending message to clients that are already running and otherwise
+;; leaves it queued -- so the daemon has no reason to reach launchservicesd or the com.apple.ls.boxd
+;; launch broker, and withholding them means the sandbox cannot be talked into starting an
+;; application either. See WebPushDaemon::notifyClientPushMessageIsAvailable.
+
+;; NOTE: no /Applications grant. webpushd identifies each client by the code-signing identifier the
+;; kernel reports for its audit token, via csops(2), which touches no files and reads no bundles.
+;; See Shared/Cocoa/CodeSigning.mm.
+
+;; Security framework: the push connection is a TLS WebSocket, so the daemon has to evaluate the
+;; push service's certificate chain.
+;;
+;; This is deliberately NOT the Security block the WebContent and Networking profiles carry. Those
+;; are a browser's: read-WRITE on the user's keychains (upstream annotates that one
+;; "FIXME: should be removed when <rdar://problem/10479685> is fixed"), on /private/var/db/mds/system,
+;; and a list of security preference domains. A push daemon evaluating one server's certificate needs
+;; none of that, and upstream's own current webpushd profile grants no keychain access whatsoever.
+;; What is here is read-only and was cut back to what an actual denial demanded: the trust evaluation
+;; reads the CSSM module directory and the system trust settings, and talks to the two Security
+;; daemons. The root certificates themselves live under /System, which system.sb already covers.
+(allow mach-lookup
+    (global-name "com.apple.ocspd")
+    (global-name "com.apple.SecurityServer"))
+;; The five security preference domains are the same set the WebContent and Networking profiles grant,
+;; because the trust evaluation that reads them is the same one. A domain whose file does not exist is
+;; not read at all, so a machine that happens to be missing one gives no sign that the rule is load-
+;; bearing; com.apple.security.revocation.plist appears on its own (Keychain Access writes it), and a
+;; denied read of it is a hard failure inside 10.9's in-process evaluation -- the handshake never
+;; completes and the daemon retries forever. Granting the whole set is what keeps that from depending
+;; on which files a given machine happens to have.
+;;
+;; /private/var/db/mds has to be the subtree: granting only mds/messages/se_SecurityMessages and
+;; mds/system/mdsObject.db, the two paths denials name, still fails the handshake. Read-only either way.
+;; /Library/Keychains is deliberately absent -- the handshake completes with zero denials without it,
+;; and a push daemon evaluating one server's chain does not read the user's keychains.
+(allow file-read*
+    (subpath "/private/var/db/mds")
+    (literal "/Library/Preferences/com.apple.security.plist")
+    (literal "/Library/Preferences/com.apple.security.common.plist")
+    (literal "/Library/Preferences/com.apple.security.revocation.plist")
+    (home-literal "/Library/Preferences/com.apple.security.plist")
+    (home-literal "/Library/Preferences/com.apple.security.revocation.plist"))
+(allow ipc-posix-shm-read* ipc-posix-shm-write-data
+    (ipc-posix-name "com.apple.AppleDatabaseChanged"))
+
+(allow file-read-data
+    (literal "/dev/autofs_nowait"))
+
+;; Networking: the WebSocket to the push service, and DNS to find it.
+(system-network)
+(allow network-outbound
+    (literal "/private/var/run/mDNSResponder")
+    (remote tcp)
+    (remote udp))
+
+;; We might need to create ~/Library/WebKit and ~/Library/WebKit/WebPush on a clean install.
+(allow file-write-create
+    (require-all (vnode-type DIRECTORY) (home-literal "/Library/WebKit"))
+    (require-all (vnode-type DIRECTORY) (home-literal "/Library/WebKit/WebPush")))
+
+;; Push database, and the Mozilla push service's own registration state next to it.
+(allow file*
+    (home-literal "/Library/WebKit/WebPush/PushDatabase.relocatable.db")
+    (home-literal "/Library/WebKit/WebPush/PushDatabase.relocatable.db-shm")
+    (home-literal "/Library/WebKit/WebPush/PushDatabase.relocatable.db-wal")
+    (home-literal "/Library/WebKit/WebPush/PushDatabase.relocatable.db-lock")
+    (home-literal "/Library/WebKit/WebPush/PushDatabase.relocatable.db-journal")
+    (home-literal "/Library/WebKit/WebPush/MozillaPushService.plist"))
+
+;; Let SQLite open the parent directory of the database for fsync purposes.
+(allow file-read* (home-subpath "/Library/WebKit/WebPush"))
+
+(if (defined? 'vnode-type)
+    (deny file-write-create (vnode-type SYMLINK)))
+
+;; Reserve a namespace for additional protected extended attributes.
+(deny file-read-xattr file-write-xattr (xattr #"^com\.apple\.security\.private\."))

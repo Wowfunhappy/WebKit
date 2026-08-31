@@ -229,3 +229,6 @@ list(APPEND PAL_PRIVATE_INCLUDE_DIRECTORIES
     "${PAL_DIR}/pal/spi/cocoa"
     "${PAL_DIR}/pal/spi/mac"
 )
+
+# MAVERICKS_BACKPORT: single seam -- see MavericksSupport/cmake/PALPlatformMavericks.cmake.
+include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/PALPlatformMavericks.cmake)

@@ -1,5 +1,10 @@
 
 set (CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
+# MAVERICKS_BACKPORT: single seam. libwebrtc's CMake here is the GTK/WPE one; Cocoa builds this
+# library from libwebrtc.xcodeproj. Every change this port makes to it is a macro defined in the
+# file below, so the rest of this file stays byte-upstream.
+include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/LibWebRTCPlatformMavericks.cmake)
 set(libwebrtc_DERIVED_SOURCES_DIR "${CMAKE_BINARY_DIR}/libwebrtc/DerivedSources")
 file(MAKE_DIRECTORY ${libwebrtc_DERIVED_SOURCES_DIR})
 
@@ -2184,6 +2189,7 @@ if (APPLE)
         Source/third_party/libwebm/dumpvtt.cc
         Source/third_party/libwebm/webm_info.cc
     )
+    MAVERICKS_LIBWEBRTC_WEBM_SOURCES() # MAVERICKS_BACKPORT: single seam -- see MavericksSupport/cmake/LibWebRTCPlatformMavericks.cmake.
     add_library(webm STATIC ${webm_SOURCES})
     set(webm_INCLUDE_DIRECTORIES
         Source/third_party/libwebm
@@ -2257,7 +2263,10 @@ else ()
     endif ()
 endif ()
 
-add_library(webrtc STATIC ${webrtc_SOURCES})
+# MAVERICKS_BACKPORT: single seam -- the source-list surgery, libaom and the Cocoa dylib link
+# live in MavericksSupport/cmake/LibWebRTCPlatformMavericks.cmake.
+# add_library(webrtc STATIC ${webrtc_SOURCES})
+MAVERICKS_LIBWEBRTC_ADD_TARGET()
 
 target_compile_options(webrtc PRIVATE
     "$<$<COMPILE_LANGUAGE:CXX>:-std=c++2b>"
@@ -2267,6 +2276,7 @@ target_compile_options(webrtc PRIVATE
 
 set_target_properties(webrtc PROPERTIES CXX_VISIBILITY_PRESET hidden)
 set_target_properties(webrtc PROPERTIES C_VISIBILITY_PRESET hidden)
+MAVERICKS_LIBWEBRTC_FINALIZE_TARGET() # MAVERICKS_BACKPORT: single seam -- see MavericksSupport/cmake/LibWebRTCPlatformMavericks.cmake.
 
 target_compile_definitions(webrtc PRIVATE
   DYNAMIC_ANNOTATIONS_ENABLED=1
@@ -2377,6 +2387,7 @@ else ()
     target_link_libraries(webrtc ${LIBOPUS_LIBRARY})
 endif ()
 
+MAVERICKS_LIBWEBRTC_INCLUDE_DIRECTORIES() # MAVERICKS_BACKPORT: single seam -- see MavericksSupport/cmake/LibWebRTCPlatformMavericks.cmake.
 target_include_directories(webrtc ${webrtc_INCLUDE_DIRECTORIES})
 if (LIBPULSE_FOUND)
     target_include_directories(webrtc PRIVATE ${LibPulse_INCLUDE_DIRS})
@@ -2620,6 +2631,7 @@ if (APPLE)
       )
     endif ()
 
+    MAVERICKS_LIBWEBRTC_OPUS_SOURCES() # MAVERICKS_BACKPORT: single seam -- see MavericksSupport/cmake/LibWebRTCPlatformMavericks.cmake.
     add_library(opus STATIC ${opus_SOURCES})
 
     target_include_directories(opus PRIVATE
@@ -3221,6 +3233,7 @@ else ()
 endif ()
 
 if (WTF_CPU_X86_64)
+    MAVERICKS_LIBWEBRTC_VPX_SOURCES() # MAVERICKS_BACKPORT: single seam -- see MavericksSupport/cmake/LibWebRTCPlatformMavericks.cmake.
     add_library(vpx OBJECT ${vpx_SOURCES} ${vpx_ASSEMBLY_SOURCES})
     target_compile_options(vpx PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-mavx2>)
     target_compile_options(vpx PRIVATE $<$<COMPILE_LANGUAGE:C>:-mavx2>)

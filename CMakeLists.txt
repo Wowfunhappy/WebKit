@@ -7,7 +7,7 @@
 # and loading the cross-compilation settings from CMAKE_TOOLCHAIN_FILE.
 
 cmake_minimum_required(VERSION 3.20)
-project(WebKit LANGUAGES C CXX)
+project(WebKit VERSION 615.1.1 LANGUAGES C CXX OBJC OBJCXX)
 
 # -----------------------------------------------------------------------------
 # Common configuration
