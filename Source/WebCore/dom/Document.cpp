@@ -4275,6 +4275,21 @@ void Document::implicitClose()
             svgExtensions->dispatchLoadEventToOutermostSVGElements();
     }
 
+    // MAVERICKS_BACKPORT: a WebKit-ObjC plug-in publishes its scripting object when its widget is
+    // created, and widget creation is an embedded-object update that runs from a zero-delay timer
+    // after layout, while the load event is dispatched from here -- so a load handler that reaches
+    // for the plug-in does not find it. On a surface the host has declared backward-compatible
+    // (10.9's DashboardClient sends WebDashboardBehaviorUseBackwardCompatibilityMode, which is what
+    // sets this setting), bring the pending widgets into being first, the way PluginDocument does
+    // when a plug-in must exist before the document finishes.
+#if ENABLE(DASHBOARD_SUPPORT)
+    if (settings().usesDashboardBackwardCompatibilityMode()) {
+        updateLayout();
+        if (RefPtr view = this->view())
+            view->flushAnyPendingPostLayoutTasks();
+    }
+#endif // MAVERICKS_BACKPORT: closes the ENABLE(DASHBOARD_SUPPORT) guard above.
+
     dispatchWindowLoadEvent();
     dispatchPageshowEvent(PageshowEventPersistence::NotPersisted);
     if (m_whenWindowLoadEventOrDestroyed)
@@ -5851,6 +5866,18 @@ void Document::addPendingScrollEventTarget(ContainerNode& originalTarget, Scroll
         scheduleRenderingUpdate(RenderingUpdateStep::Scroll);
 
     targets.append({ target.get(), eventType });
+
+    // MAVERICKS_BACKPORT: Safari's reader page needs scroll events dispatched with the legacy
+    // engine's timing (a zero-delay task queued at scroll time) or ReaderJS aborts its own
+    // smooth-scroll animation — see Quirks::shouldDispatchPendingScrollEventsEagerly. The task
+    // runs runScrollSteps, which consumes the pending-target list, so the rendering-update
+    // dispatch does not repeat these events.
+    if (targets.size() == 1 && quirks().shouldDispatchPendingScrollEventsEagerly()) {
+        eventLoop().queueTask(TaskSource::UserInteraction, [weakThis = WeakPtr { *this }] {
+            if (RefPtr document = weakThis.get())
+                document->runScrollSteps();
+        });
+    }
 }
 
 void Document::setNeedsVisualViewportScrollEvent()
@@ -6467,8 +6494,19 @@ void Document::invalidateEventListenerRegions()
         protect(documentElement())->invalidateStyleInternal();
 }
 
-void Document::invalidateRenderingDependentRegions()
+void Document::invalidateRenderingDependentRegions(AnnotationsAction annotationsAction) // MAVERICKS_BACKPORT: the argument drives the Dashboard branch below.
 {
+#if ENABLE(DASHBOARD_SUPPORT)
+    // MAVERICKS_BACKPORT: a caller on a post-layout or post-scroll path asks for Update, which recollects the
+    // Dashboard regions and reports any change; the rest only mark them dirty.
+    if (annotationsAction == AnnotationsAction::Update)
+        updateAnnotatedRegions();
+    else
+        setAnnotatedRegionsDirty();
+#else
+    UNUSED_PARAM(annotationsAction);
+#endif
+
 #if PLATFORM(IOS_FAMILY) && ENABLE(TOUCH_EVENTS)
     setTouchEventRegionsNeedUpdate();
 #endif
@@ -6482,6 +6520,54 @@ void Document::invalidateRenderingDependentRegions()
     }
 #endif
 }
+
+// MAVERICKS_BACKPORT: the scrollbar and z-order region bottlenecks, both Dashboard-only.
+void Document::invalidateScrollbarDependentRegions()
+{
+#if ENABLE(DASHBOARD_SUPPORT)
+    if (hasAnnotatedRegions())
+        setAnnotatedRegionsDirty();
+#endif
+}
+
+void Document::updateZOrderDependentRegions()
+{
+#if ENABLE(DASHBOARD_SUPPORT)
+    if (annotatedRegionsDirty())
+        updateAnnotatedRegions();
+#endif
+}
+
+// MAVERICKS_BACKPORT: Dashboard annotated-region bookkeeping, built because DASHBOARD_SUPPORT is enabled on 10.9 for Dashboard widgets.
+#if ENABLE(DASHBOARD_SUPPORT)
+
+void Document::setAnnotatedRegions(const Vector<AnnotatedRegionValue>& regions)
+{
+    m_annotatedRegions = regions;
+    setAnnotatedRegionsDirty(false);
+}
+
+void Document::updateAnnotatedRegions()
+{
+    if (!hasAnnotatedRegions())
+        return;
+
+    CheckedPtr renderView = this->renderView();
+    if (!renderView)
+        return;
+
+    Vector<AnnotatedRegionValue> newRegions;
+    renderView->collectAnnotatedRegions(newRegions);
+    if (newRegions == annotatedRegions())
+        return;
+
+    setAnnotatedRegions(newRegions);
+
+    if (RefPtr page = this->page())
+        page->chrome().client().annotatedRegionsChanged();
+}
+
+#endif // ENABLE(DASHBOARD_SUPPORT)
 
 bool Document::setFocusedElement(Element* element, BroadcastFocusedElement broadcast)
 {
@@ -7172,6 +7258,11 @@ void Document::addListenerTypeIfNeeded(const AtomString& eventType)
         break;
     case EventType::focusout:
         addListenerType(ListenerType::FocusOut);
+        break;
+    // MAVERICKS_BACKPORT: restored-lost-upstream behavior (#62). Cancelable beforeload
+    // event drives Safari 7 extension content-blocking (uBlock network blocking).
+    case EventType::beforeload:
+        addListenerType(ListenerType::BeforeLoad);
         break;
     default:
         if (typeInfo.isInCategory(EventCategory::CSSAnimation))

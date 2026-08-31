@@ -81,6 +81,15 @@ public:
     // whose dependencies are poorly defined. This call triggers such updates.
     void setNeedsLayoutAfterViewConfigurationChange();
 
+    // MAVERICKS_BACKPORT: mark-only variant for Legacy WebKit's -[WebHTMLView setNeedsLayout:].
+    // It honors the disable-setNeedsLayout deferral window like the call above but does NOT
+    // schedule a layout timer; the layout runs in the next display pass (-viewWillDraw), matching
+    // the FrameView::setNeedsLayout() semantics of the WebKit that shipped with Safari 7. On 10.9,
+    // AppKit's Auto Layout machinery (NSISEngine) sends -setNeedsLayout: to constraint-involved
+    // views — including mid-layout via scroller updates — and the scheduling variant amplifies
+    // those calls into a permanent layout/display spin in constraint-based windows (Mail compose).
+    void setNeedsLayoutWithoutScheduling();
+
     void scheduleLayout();
     void scheduleSubtreeLayout(RenderElement& layoutRoot);
     void unscheduleLayout();

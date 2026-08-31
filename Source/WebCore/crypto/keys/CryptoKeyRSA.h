@@ -28,7 +28,9 @@
 #include "CryptoKey.h"
 #include <wtf/Function.h>
 
-#if OS(DARWIN) && !PLATFORM(GTK)
+// MAVERICKS_BACKPORT: build glue for the gcrypt WebCrypto backend (USE_GCRYPT=TRUE).
+// Skip the cocoa CCRSACryptor PlatformRSAKey path when USE(GCRYPT) is set.
+#if OS(DARWIN) && !PLATFORM(GTK) && !USE(GCRYPT)
 #include "CommonCryptoUtilities.h"
 
 typedef CCRSACryptorRef PlatformRSAKey;

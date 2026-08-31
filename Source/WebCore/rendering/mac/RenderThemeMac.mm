@@ -54,7 +54,13 @@
 #import "LocalFrameView.h"
 #import "LocalizedStrings.h"
 #import "Logging.h"
+// MAVERICKS_BACKPORT: extra includes for 10.9 control-theming helpers (Page, RenderProgress, UserAgentParts, BlockObjCExceptions).
+#import "Page.h"
 #import "PaintInfo.h"
+// MAVERICKS_BACKPORT: extra includes for 10.9 control-theming helpers (RenderProgress, UserAgentParts, BlockObjCExceptions).
+#import "RenderProgress.h"
+#import "UserAgentParts.h"
+#import <wtf/BlockObjCExceptions.h>
 #import "PathOperation.h"
 #import "PathUtilities.h"
 #import "RenderAttachment.h"
@@ -968,9 +974,9 @@ static Style::PreferredSizePair radioSize(const Style::PreferredSizePair& zoomed
 static const std::span<const IntSize, 4> NODELETE buttonSizes()
 {
     static constexpr std::array sizes = {
-        IntSize { 0, 20 },
-        IntSize { 0, 16 },
-        IntSize { 0, 13 },
+        IntSize { 0, 21 }, // MAVERICKS_BACKPORT: the Aqua push-button bezel heights this OS draws (regular/small/mini); the large tier is unreachable here.
+        IntSize { 0, 18 },
+        IntSize { 0, 15 },
         IntSize { 0, 28 },
     };
     return sizes;
@@ -1321,6 +1327,61 @@ static std::span<const IntSize, 4> NODELETE menuListButtonSizes()
 {
     static constexpr std::array sizes { IntSize(0, 21), IntSize(0, 18), IntSize(0, 15), IntSize(0, 28) };
     return sizes;
+}
+
+// MAVERICKS_BACKPORT (#40): the Aqua push-button style adjustment. A button drawn with the native
+// bezel is sized by the bezel, not by the author's font: the CSS font picks a control size, and the
+// control size then supplies the font, the vertical size and the padding, with the border reset
+// because the bezel draws it. Upstream stopped doing this for buttons (menu lists and search fields
+// still do it, just below) and lets the author's font-size through, which is correct modern CSS but
+// not what a Mavericks-era page was laid out against: Safari's own page-load-errors.css gives its
+// "Reload Webpage" button font-size:16px inside a fixed 132px box and relies on the coercion to
+// 13px to make the label fit. Measured against the stock 10.9 WebKit on this host, that page's
+// button is 21px tall with 8px side padding, no border and a 13px system font; without this it is
+// 23px tall with a 2px border and a clipped 16px label.
+//
+// Scoped to the native appearance only, so it reaches exactly the buttons AppKit draws: once an
+// author styles a button enough for isControlStyled() to drop the appearance, its own font, border
+// and padding stand.
+void RenderThemeMac::adjustButtonStyle(RenderStyle& style, const Element* element) const
+{
+#if ENABLE(FORM_CONTROL_REFRESH)
+    if (element && element->document().settings().formControlRefreshEnabled()) {
+        RenderThemeCocoa::adjustButtonStyle(style, element);
+        return;
+    }
+#endif
+
+    if (style.usedAppearance() != StyleAppearance::PushButton) {
+        RenderThemeCocoa::adjustButtonStyle(style, element);
+        return;
+    }
+
+    NSControlSize controlSize = controlSizeForFont(style);
+
+    // The bezel draws the border.
+    style.resetBorder();
+
+    // Height is locked to auto.
+    style.setHeight(CSS::Keyword::Auto { });
+
+    // White-space is locked to pre
+    style.setWhiteSpaceCollapse(WhiteSpaceCollapse::Preserve);
+    style.setTextWrapMode(TextWrapMode::NoWrap);
+
+    // Set the button's vertical size.
+    setSizeFromFont(style, buttonSizes());
+
+    // AppKit wants 11px for mini buttons, which is too large for real-world web content: a button's
+    // width is constrained by definition, and mini is chosen for small cross-platform controls.
+    auto sidePadding = [&] { return Style::PaddingEdge::Fixed { 8 * style.usedZoom() }; };
+    auto noPadding = [] { return Style::PaddingEdge::Fixed { 0 }; };
+    style.setPaddingBox({ noPadding(), sidePadding(), noPadding(), sidePadding() });
+
+    // Our font is locked to the appropriate system font size for the control.  To clarify, we first use the CSS-specified font to figure out
+    // a reasonable control size, but once that control size is determined, we throw that font away and use the appropriate
+    // system font for the control size instead.
+    setFontFromControlSize(style, controlSize);
 }
 
 void RenderThemeMac::adjustMenuListStyle(RenderStyle& style, const Element* element) const
@@ -1898,6 +1959,12 @@ static std::pair<RefPtr<Image>, float> createAttachmentPlaceholderImage(float de
 static void paintAttachmentIconPlaceholder(const RenderAttachment& attachment, GraphicsContext& context, AttachmentLayout& layout)
 {
     auto [placeholderImage, imageScale] = createAttachmentPlaceholderImage(protect(attachment.document())->deviceScaleFactor(), layout);
+
+    // MAVERICKS_BACKPORT: the "arrow.down.circle" SF Symbol does not exist on 10.9, so
+    // createAttachmentPlaceholderImage yields a null image; skip the placeholder glyph rather than
+    // dereferencing it (the attachment still renders, just without the download-progress icon).
+    if (!placeholderImage)
+        return;
 
     // Center the placeholder image where the icon would usually be.
     FloatRect placeholderRect(0, 0, placeholderImage->width() / imageScale, placeholderImage->height() / imageScale);

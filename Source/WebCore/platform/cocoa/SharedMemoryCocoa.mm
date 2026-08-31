@@ -135,6 +135,16 @@ static inline vm_prot_t NODELETE machProtection(SharedMemory::Protection protect
     return VM_PROT_NONE;
 }
 
+// MAVERICKS_BACKPORT: a memory entry made with MAP_MEM_USE_DATA_ADDR begins at the page containing
+// the span, and the receiving process recovers the span's own address by passing
+// VM_FLAGS_RETURN_DATA_ADDR to mach_vm_map. The 10.9 kernel refuses that map flag with
+// KERN_INVALID_ARGUMENT, so a span that does not begin on a page boundary is shared by copying it
+// into a page-aligned region instead -- see the two callers below.
+static inline bool NODELETE beginsOnPageBoundary(std::span<const uint8_t> data)
+{
+    return !(reinterpret_cast<uintptr_t>(data.data()) & (vm_page_size - 1));
+}
+
 static MachSendRight makeMemoryEntry(size_t size, vm_offset_t offset, SharedMemory::Protection protection, mach_port_t parentEntry)
 {
     memory_object_size_t memoryObjectSize = size;
@@ -190,6 +200,10 @@ RefPtr<SharedMemory> SharedMemory::map(Handle&& handle, Protection protection, C
 std::optional<SharedMemoryHandle> SharedMemoryHandle::createVMShare(std::span<const uint8_t> data, SharedMemoryProtection protection)
 {
     // Creating a handle to an existing memory range implies that the ownership is never transferred.
+    // MAVERICKS_BACKPORT: an unaligned span cannot be addressed through a memory entry on 10.9.
+    if (!beginsOnPageBoundary(data))
+        return createCopy(data, protection);
+
     memory_object_size_t memoryObjectSize = data.size();
     mach_port_t port = MACH_PORT_NULL;
     const memory_object_offset_t offset = reinterpret_cast<uintptr_t>(data.data());
@@ -209,6 +223,10 @@ std::optional<SharedMemoryHandle> SharedMemoryHandle::createVMShare(std::span<co
 
 std::optional<SharedMemoryHandle> SharedMemoryHandle::createVMCopy(std::span<const uint8_t> data, SharedMemoryProtection protection)
 {
+    // MAVERICKS_BACKPORT: an unaligned span cannot be addressed through a memory entry on 10.9.
+    if (!beginsOnPageBoundary(data))
+        return createCopy(data, protection);
+
     memory_object_size_t memoryObjectSize = data.size();
     mach_port_t port = MACH_PORT_NULL;
     const memory_object_offset_t offset = reinterpret_cast<uintptr_t>(data.data());

@@ -924,6 +924,24 @@ void RenderBlock::paintCarets(PaintInfo& paintInfo, const LayoutPoint& paintOffs
 void RenderBlock::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
 {
     auto adjustedPaintOffset = paintOffset + location();
+
+    // MAVERICKS_BACKPORT: a push button and a menulist paint their bezel from the box-decoration phase
+    // at snapRectToDevicePixels(borderBoxRect) (RenderTheme::paint), and center a text label inside it
+    // whose baseline TextBoxPainter::textOriginFromPaintRect snaps to the device grid on its own. The
+    // label sits at a fractional offset from the border box (RenderButton centers it with margin:auto),
+    // so rounding the control's sub-pixel origin once for the bezel and again for the label makes the
+    // gap between them vary by up to one device pixel as the control moves, and the same button renders
+    // with its label a pixel high for a band of positions (a whole pixel at 1x, half a CSS pixel at 2x).
+    // Snapping the control's paint origin to the device grid in the foreground phase rounds the label
+    // relative to an origin already on the grid, so its offset from the bezel is the same wherever the
+    // control sits. Only these two controls, whose foreground is a centered text label, are snapped;
+    // controls that position a themed sub-box in the foreground (a slider's thumb, a spin button) are
+    // left alone so that box keeps its exact upstream position. The box-decoration phases
+    // (BlockBackground/ChildBlockBackground) always keep the upstream unsnapped origin, so every
+    // control's bezel stays byte-for-byte upstream at every sub-pixel position and both scale factors.
+    if (paintInfo.phase == PaintPhase::Foreground && (isRenderButton() || isRenderMenuList()))
+        adjustedPaintOffset = LayoutPoint(roundPointToDevicePixels(adjustedPaintOffset, document().deviceScaleFactor()));
+
     PaintPhase phase = paintInfo.phase;
 
     // FIXME: Could eliminate the isDocumentElementRenderer() check if we fix background painting so that the RenderView paints the root's background.

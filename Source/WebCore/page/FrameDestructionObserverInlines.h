@@ -30,9 +30,8 @@
 
 namespace WebCore {
 
-inline LocalFrame* FrameDestructionObserver::frame() const
-{
-    return m_frame;
-}
+// MAVERICKS_BACKPORT: frame() is defined OUT-OF-LINE in FrameDestructionObserver.cpp — it must NOT be
+// inline here. The header declares it non-inline, so an inline-only definition emits no out-of-line
+// symbol, crashing callers that include only the .h (dyld lazy-bind failure).
 
 }

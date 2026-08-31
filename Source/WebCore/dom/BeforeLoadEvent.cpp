@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Google, Inc. All rights reserved.
+ * Copyright (C) 2009 Apple Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -10,7 +10,7 @@
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
  *
- * THIS SOFTWARE IS PROVIDED BY GOOGLE INC. ``AS IS'' AND ANY
+ * THIS SOFTWARE IS PROVIDED BY APPLE, INC. ``AS IS'' AND ANY
  * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
  * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE INC. OR
@@ -21,34 +21,19 @@
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
  */
 
-#pragma once
+// MAVERICKS_BACKPORT: restored-lost-upstream file (deleted upstream in bug 234804);
+// drives the Safari-7 cancelable beforeload event used for extension content blocking (#62).
 
-#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
-#include <wtf/WeakPtr.h>
+#include "config.h"
+#include "BeforeLoadEvent.h"
+
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-class LocalFrame;
-
-class FrameDestructionObserver : public AbstractRefCountedAndCanMakeWeakPtr<FrameDestructionObserver> {
-public:
-    WEBCORE_EXPORT explicit FrameDestructionObserver(LocalFrame*);
-
-    WEBCORE_EXPORT virtual void frameDestroyed();
-    WEBCORE_EXPORT virtual void willDetachPage();
-
-    bool hasFrame() const { return !!m_frame; }
-
-    // MAVERICKS_BACKPORT: declared out-of-line (not inline) so the 10.9 toolchain emits a linkable symbol and avoids -Wundefined-inline.
-    LocalFrame* frame() const; // Defined in FrameDestructionObserverInlines.h. (inline removed for backport -Wundefined-inline)
-
-protected:
-    WEBCORE_EXPORT virtual ~FrameDestructionObserver();
-    WEBCORE_EXPORT void observeFrame(LocalFrame*);
-
-    WeakPtr<LocalFrame> m_frame;
-};
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BeforeLoadEvent);
 
 } // namespace WebCore

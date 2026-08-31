@@ -33,6 +33,10 @@
 
 #include "ColorSerialization.h"
 #include "ContainerNodeInlines.h"
+// MAVERICKS_BACKPORT: computed -apple-dashboard-region value (Dashboard support restored).
+#if ENABLE(DASHBOARD_SUPPORT)
+#include "CSSDashboardRegionValue.h"
+#endif
 #include "CSSFontValue.h"
 #include "CSSGridAutoRepeatValue.h"
 #include "CSSGridIntegerRepeatValue.h"
@@ -85,6 +89,9 @@ public:
     static Ref<CSSValue> extractWritingMode(ExtractorState&);
     static Ref<CSSValue> extractFloat(ExtractorState&);
     static Ref<CSSValue> extractContent(ExtractorState&);
+#if ENABLE(DASHBOARD_SUPPORT)
+    static Ref<CSSValue> extractWebkitDashboardRegion(ExtractorState&); // MAVERICKS_BACKPORT
+#endif
     static Ref<CSSValue> extractLetterSpacing(ExtractorState&);
     static Ref<CSSValue> extractWordSpacing(ExtractorState&);
     static Ref<CSSValue> extractLineHeight(ExtractorState&);
@@ -183,6 +190,9 @@ public:
     static void extractWritingModeSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
     static void extractFloatSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
     static void extractContentSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
+#if ENABLE(DASHBOARD_SUPPORT)
+    static void extractWebkitDashboardRegionSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&); // MAVERICKS_BACKPORT
+#endif
     static void extractLetterSpacingSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
     static void extractWordSpacingSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
     static void extractLineHeightSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
@@ -1876,6 +1886,30 @@ inline void ExtractorCustom::extractContentSerialization(ExtractorState& state, 
 {
     extractSerialization<CSSPropertyContent>(state, builder, context);
 }
+
+#if ENABLE(DASHBOARD_SUPPORT)
+// MAVERICKS_BACKPORT: computed value for the legacy -apple-dashboard-region property, restored with the
+// rest of Dashboard support (removed upstream in 2d364c6). The four offsets are the pixel values
+// StyleDashboardRegion resolved at style-build time.
+inline Ref<CSSValue> ExtractorCustom::extractWebkitDashboardRegion(ExtractorState& state)
+{
+    auto& regions = state.style.dashboardRegions().list;
+    if (regions.isEmpty())
+        return CSSPrimitiveValue::create(CSSValueNone);
+
+    auto px = [](float value) { return CSSPrimitiveValue::create(value, CSSUnitType::CSS_PX); };
+    Vector<CSSDashboardRegionValue::Region> values;
+    values.reserveInitialCapacity(regions.size());
+    for (auto& region : regions)
+        values.append({ region.label, region.type, px(region.top).ptr(), px(region.right).ptr(), px(region.bottom).ptr(), px(region.left).ptr() });
+    return CSSDashboardRegionValue::create(WTF::move(values));
+}
+
+inline void ExtractorCustom::extractWebkitDashboardRegionSerialization(ExtractorState& state, StringBuilder& builder, const CSS::SerializationContext& context)
+{
+    builder.append(extractWebkitDashboardRegion(state)->cssText(context));
+}
+#endif
 
 inline Ref<CSSValue> ExtractorCustom::extractLetterSpacing(ExtractorState& state)
 {

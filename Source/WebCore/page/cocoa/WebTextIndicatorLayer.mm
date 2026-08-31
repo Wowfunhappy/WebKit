@@ -47,6 +47,9 @@ constexpr CGFloat borderWidth = 0;
 constexpr CGFloat cornerRadius = 3;
 constexpr CGFloat dropShadowOffsetX = 0;
 constexpr CGFloat dropShadowOffsetY = 1;
+constexpr CGFloat lightBorderThickness = 1; // MAVERICKS_BACKPORT: 537 lightBorderThickness
+constexpr CGFloat findIndicatorShadowBlurRadius = 3; // 537 shadowBlurRadius
+constexpr CGFloat findIndicatorShadowAlpha = 204 / 255.; // 537 shadowAlpha
 
 constexpr NSString * const textLayerKey = @"TextLayer";
 constexpr NSString * const dropShadowLayerKey = @"DropShadowLayer";
@@ -116,10 +119,16 @@ static bool NODELETE indicatorWantsFadeIn(const WebCore::TextIndicator& indicato
 
     RetainPtr<CGColorRef> highlightColor;
     auto rimShadowColor = adoptCF(CGColorCreateGenericGray(0, 0.35));
-    auto dropShadowColor = adoptCF(CGColorCreateGenericGray(0, 0.2));
+    // MAVERICKS_BACKPORT: 537's shadow — opaque-ish black rather than upstream's 0.2 gray.
+    // auto dropShadowColor = adoptCF(CGColorCreateGenericGray(0, 0.2));
+    auto dropShadowColor = adoptCF(CGColorCreateGenericGray(0, findIndicatorShadowAlpha));
     auto borderColor = adoptCF(CGColorCreateSRGB(0.96, 0.9, 0, 1));
 #if PLATFORM(MAC)
-    highlightColor = [NSColor findHighlightColor].CGColor;
+    // MAVERICKS_BACKPORT: 537's highlight gradient (242,239,0) -> (237,204,0). The flat
+    // findHighlightColor below is the modern (10.13+) fill.
+    auto highlightGradientTopColor = adoptCF(CGColorCreateSRGB(242 / 255., 239 / 255., 0, 1));
+    auto highlightGradientBottomColor = adoptCF(CGColorCreateSRGB(237 / 255., 204 / 255., 0, 1));
+    // highlightColor = [NSColor findHighlightColor].CGColor;
 #else
     highlightColor = adoptCF(CGColorCreateSRGB(.99, .89, 0.22, 1.0));
 #endif
@@ -155,7 +164,10 @@ static bool NODELETE indicatorWantsFadeIn(const WebCore::TextIndicator& indicato
         RetainPtr<CALayer> dropShadowLayer = adoptNS([[CALayer alloc] init]);
         [dropShadowLayer setDelegate:[WebActionDisablingCALayerDelegate shared]];
         [dropShadowLayer setShadowColor:dropShadowColor.get()];
-        [dropShadowLayer setShadowRadius:WebCore::dropShadowBlurRadius];
+        // MAVERICKS_BACKPORT: 537's blur radius (3) rather than upstream's WebCore::dropShadowBlurRadius (2).
+        // 537 drew the shadow with CGContextSetShadow, whose blur radius spans about twice a
+        // CALayer shadowRadius, so halve it to land on the same spread.
+        [dropShadowLayer setShadowRadius:findIndicatorShadowBlurRadius / 2];
         [dropShadowLayer setShadowOffset:CGSizeMake(dropShadowOffsetX, dropShadowOffsetY)];
         [dropShadowLayer setShadowPath:translatedPath.platformPath()];
         [dropShadowLayer setShadowOpacity:1];
@@ -163,17 +175,50 @@ static bool NODELETE indicatorWantsFadeIn(const WebCore::TextIndicator& indicato
         [bounceLayer addSublayer:dropShadowLayer.get()];
         [bounceLayer setValue:dropShadowLayer.get() forKey:dropShadowLayerKey];
 
-        RetainPtr<CALayer> rimShadowLayer = adoptNS([[CALayer alloc] init]);
-        [rimShadowLayer setDelegate:[WebActionDisablingCALayerDelegate shared]];
-        [rimShadowLayer setFrame:yellowHighlightRect];
-        [rimShadowLayer setShadowColor:rimShadowColor.get()];
-        [rimShadowLayer setShadowRadius:WebCore::rimShadowBlurRadius];
-        [rimShadowLayer setShadowPath:translatedPath.platformPath()];
-        [rimShadowLayer setShadowOffset:CGSizeZero];
-        [rimShadowLayer setShadowOpacity:1];
-        [rimShadowLayer setFrame:yellowHighlightRect];
-        [bounceLayer addSublayer:rimShadowLayer.get()];
-        [bounceLayer setValue:rimShadowLayer.get() forKey:rimShadowLayerKey];
+        // MAVERICKS_BACKPORT: 537 cast a single shadow, so there is no rim shadow to draw. The
+        // upstream rim-shadow layer is kept commented out; the crossfade animation looks it back up
+        // by key and simply finds nothing.
+        // RetainPtr<CALayer> rimShadowLayer = adoptNS([[CALayer alloc] init]);
+        // [rimShadowLayer setDelegate:[WebActionDisablingCALayerDelegate shared]];
+        // [rimShadowLayer setFrame:yellowHighlightRect];
+        // [rimShadowLayer setShadowColor:rimShadowColor.get()];
+        // [rimShadowLayer setShadowRadius:WebCore::rimShadowBlurRadius];
+        // [rimShadowLayer setShadowPath:translatedPath.platformPath()];
+        // [rimShadowLayer setShadowOffset:CGSizeZero];
+        // [rimShadowLayer setShadowOpacity:1];
+        // [rimShadowLayer setFrame:yellowHighlightRect];
+        // [bounceLayer addSublayer:rimShadowLayer.get()];
+        // [bounceLayer setValue:rimShadowLayer.get() forKey:rimShadowLayerKey];
+
+        // MAVERICKS_BACKPORT: 537 filled the outer rounded rect with the light border colour and
+        // then filled the 1px-inset inner rect with a vertical gradient. Reproduce that as a
+        // gradient layer masked to the shrink-wrapped path, plus a stroke of the same path on top:
+        // the stroke is masked too, so only its inner half — one point — survives, which is the
+        // light border. The text snapshot is layered over both.
+        RetainPtr<CAGradientLayer> highlightLayer = adoptNS([[CAGradientLayer alloc] init]);
+        [highlightLayer setDelegate:[WebActionDisablingCALayerDelegate shared]];
+        [highlightLayer setFrame:yellowHighlightRect];
+        [highlightLayer setColors:@[ (__bridge id)highlightGradientTopColor.get(), (__bridge id)highlightGradientBottomColor.get() ]];
+        [highlightLayer setStartPoint:CGPointMake(0.5, 0)];
+        [highlightLayer setEndPoint:CGPointMake(0.5, 1)];
+        RetainPtr<CAShapeLayer> highlightMaskLayer = adoptNS([[CAShapeLayer alloc] init]);
+        [highlightMaskLayer setDelegate:[WebActionDisablingCALayerDelegate shared]];
+        [highlightMaskLayer setPath:translatedPath.platformPath()];
+        [highlightLayer setMask:highlightMaskLayer.get()];
+        [bounceLayer addSublayer:highlightLayer.get()];
+
+        RetainPtr<CAShapeLayer> lightBorderLayer = adoptNS([[CAShapeLayer alloc] init]);
+        [lightBorderLayer setDelegate:[WebActionDisablingCALayerDelegate shared]];
+        [lightBorderLayer setFrame:yellowHighlightRect];
+        [lightBorderLayer setPath:translatedPath.platformPath()];
+        [lightBorderLayer setFillColor:nil];
+        [lightBorderLayer setStrokeColor:borderColor.get()];
+        [lightBorderLayer setLineWidth:lightBorderThickness * 2];
+        RetainPtr<CAShapeLayer> lightBorderMaskLayer = adoptNS([[CAShapeLayer alloc] init]);
+        [lightBorderMaskLayer setDelegate:[WebActionDisablingCALayerDelegate shared]];
+        [lightBorderMaskLayer setPath:translatedPath.platformPath()];
+        [lightBorderLayer setMask:lightBorderMaskLayer.get()];
+        [bounceLayer addSublayer:lightBorderLayer.get()];
 #endif // PLATFORM(MAC)
 
         RetainPtr<CALayer> textLayer = adoptNS([[CALayer alloc] init]);

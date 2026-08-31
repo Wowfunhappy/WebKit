@@ -26,6 +26,11 @@
 
 #pragma once
 
+#if ENABLE(DASHBOARD_SUPPORT)
+// MAVERICKS_BACKPORT: the generated computed-style getters/setters reference Style::DashboardRegions,
+// but the codegen does not forward-declare it; make the full type visible to every consumer.
+#include <WebCore/StyleDashboardRegions.h>
+#endif
 #include <WebCore/StyleComputedStyleProperties.h>
 
 namespace WebCore {

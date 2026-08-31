@@ -27,6 +27,9 @@
 #import "MainThreadSharedTimer.h"
 
 #include <wtf/AutodrainedPool.h>
+// MAVERICKS_BACKPORT: isMainThread() and the extra-run-loop-mode vector below (see addRunLoopMode).
+#include <wtf/MainThread.h>
+#include <wtf/Vector.h>
 #include <wtf/cf/NotificationCenterCF.h>
 
 #if PLATFORM(MAC)
@@ -47,6 +50,15 @@ static RetainPtr<CFRunLoopTimerRef>& NODELETE sharedTimer()
 static void timerFired(CFRunLoopTimerRef, void*);
 
 static const CFTimeInterval kCFTimeIntervalDistantFuture = std::numeric_limits<CFTimeInterval>::max();
+
+// MAVERICKS_BACKPORT: app-registered run-loop modes the shared timer must also fire in (in
+// addition to kCFRunLoopCommonModes), so WebCore timers advance while an app pumps a private
+// mode. Only ever touched on the main thread. See MainThreadSharedTimer::addRunLoopMode().
+static Vector<RetainPtr<CFStringRef>>& extraTimerRunLoopModes()
+{
+    static NeverDestroyed<Vector<RetainPtr<CFStringRef>>> modes;
+    return modes;
+}
 
 bool& MainThreadSharedTimer::shouldSetupPowerObserver()
 {
@@ -104,6 +116,22 @@ void MainThreadSharedTimer::invalidate()
     sharedTimer() = nullptr;
 }
 
+// MAVERICKS_BACKPORT: register an extra run-loop mode so the shared timer also fires while an app pumps a private mode; called from WK1's scheduleInRunLoop:forMode:.
+void MainThreadSharedTimer::addRunLoopMode(CFStringRef mode)
+{
+    ASSERT(isMainThread());
+    for (auto& existing : extraTimerRunLoopModes()) {
+        if (CFEqual(existing.get(), mode))
+            return;
+    }
+    extraTimerRunLoopModes().append(mode);
+
+    // If the timer already exists, start firing it in this mode now; otherwise setFireInterval()
+    // will pick the mode up from extraTimerRunLoopModes() when it creates the timer.
+    if (sharedTimer())
+        CFRunLoopAddTimer(CFRunLoopGetMain(), sharedTimer().get(), mode);
+}
+
 void MainThreadSharedTimer::setFireInterval(Seconds interval)
 {
     ASSERT(m_firedFunction);
@@ -114,7 +142,15 @@ void MainThreadSharedTimer::setFireInterval(Seconds interval)
 #if PLATFORM(IOS_FAMILY)
         CFRunLoopAddTimer(WebThreadRunLoop(), sharedTimer().get(), kCFRunLoopCommonModes);
 #else
-        CFRunLoopAddTimer(CFRunLoopGetCurrent(), sharedTimer().get(), kCFRunLoopCommonModes);
+        // MAVERICKS_BACKPORT: addRunLoopMode() below adds this same timer to CFRunLoopGetMain() when
+        // a WK1 host registers a private mode, and a CFRunLoopTimer belongs to one run loop, so both
+        // sites have to name the same one. Naming the main run loop here says which.
+        // CFRunLoopAddTimer(CFRunLoopGetCurrent(), sharedTimer().get(), kCFRunLoopCommonModes);
+        CFRunLoopAddTimer(CFRunLoopGetMain(), sharedTimer().get(), kCFRunLoopCommonModes);
+
+        // MAVERICKS_BACKPORT: also install in any app-registered private modes (see addRunLoopMode).
+        for (auto& mode : extraTimerRunLoopModes())
+            CFRunLoopAddTimer(CFRunLoopGetMain(), sharedTimer().get(), mode.get());
 #endif
 
         setupPowerObserver();

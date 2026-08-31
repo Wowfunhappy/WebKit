@@ -1456,6 +1456,11 @@ bool RenderElement::repaintAfterLayoutIfNeeded(SingleThreadWeakPtr<const RenderL
         if (requiresFullRepaint == RequiresFullRepaint::Yes)
             return true;
 
+        // MAVERICKS_BACKPORT: presumably a background or a border exists if -webkit-border-fit:lines
+        // was specified (10.9 Messages.app speech bubbles), so repaint the whole box on resize.
+        if (style().borderFit() == BorderFit::Lines)
+            return true;
+
         if (oldClippedOverflowRect.isEmpty() || newClippedOverflowRect.isEmpty())
             return true;
 

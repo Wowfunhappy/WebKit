@@ -553,6 +553,9 @@ public:
     void dispatchScopedEvent(Event&);
 
     void dispatchSubtreeModifiedEvent();
+    // MAVERICKS_BACKPORT: restored-lost-upstream declaration (bug 234804) — cancelable
+    // beforeload for Safari 7 extension content blocking (#62); returns false if canceled.
+    WEBCORE_EXPORT bool dispatchBeforeLoadEvent(const String& sourceURL);
     void dispatchDOMActivateEvent(Event& underlyingClickEvent);
 
     void dispatchWebKitSubmitEvent(Event& underlyingSubmitEvent);

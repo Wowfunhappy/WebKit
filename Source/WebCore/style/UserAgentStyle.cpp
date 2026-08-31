@@ -98,6 +98,12 @@ StyleSheetContents* UserAgentStyle::imageControlsStyleSheet;
 #if ENABLE(ATTACHMENT_ELEMENT)
 StyleSheetContents* UserAgentStyle::attachmentStyleSheet;
 #endif
+// MAVERICKS_BACKPORT (#68, #137): storage for the document-scope media sheets added by
+// ensureDefaultStyleSheetsForElement below.
+#if ENABLE(VIDEO) && PLATFORM(MAC)
+StyleSheetContents* UserAgentStyle::mediaControlsStyleSheet;
+StyleSheetContents* UserAgentStyle::mediaTextTracksStyleSheet;
+#endif
 
 static const MQ::MediaQueryEvaluator& screenEval()
 {
@@ -218,6 +224,30 @@ void UserAgentStyle::ensureDefaultStyleSheetsForElement(const Element& element)
                 addToDefaultStyle(*horizontalFormControlsStyleSheet);
             }
         }
+
+#if ENABLE(VIDEO) && PLATFORM(MAC) && (__MAC_OS_X_VERSION_MIN_REQUIRED < 101000)
+        // MAVERICKS_BACKPORT (#68): Safari 7 / Mavericks styled its classic Aqua media controls with a
+        // document-scope UA stylesheet whose shadow-crossing `video::-internal-media-controls-*` selectors
+        // reach into the media element's UA shadow tree. Modern WebKit dropped this hook when control
+        // styling moved into shadow-root-injected sheets; re-add it so the era-correct controls that
+        // RenderThemeCocoa serves on the 10.9 deployment target actually get styled. Gated on the
+        // deployment target (not the SDK) to match RenderThemeCocoa::mediaControlsStyleSheets().
+        if (!mediaControlsStyleSheet && (element.hasTagName(HTMLNames::videoTag) || element.hasTagName(HTMLNames::audioTag))) {
+            mediaControlsStyleSheet = parseUASheet(StringImpl::createWithoutCopying(mediaControlsAppleUserAgentStyleSheet));
+            addToDefaultStyle(*mediaControlsStyleSheet);
+        }
+
+        // MAVERICKS_BACKPORT (#137): text-tracks.css styles the text-track container and the WebVTT cue
+        // display tree. It carries the container's `container-type: size`, the query container that the cue
+        // box's cqh/cqw geometry (VTTCueBox::applyCSSProperties) and its cqmin font size
+        // (CaptionUserPreferencesMediaAF::captionsFontSizeCSS) resolve against.
+        // MavericksSupport/cmake/WebCorePlatformMavericks.cmake compiles it into
+        // mediaTextTracksUserAgentStyleSheet.
+        if (!mediaTextTracksStyleSheet && (element.hasTagName(HTMLNames::videoTag) || element.hasTagName(HTMLNames::audioTag))) {
+            mediaTextTracksStyleSheet = parseUASheet(StringImpl::createWithoutCopying(mediaTextTracksUserAgentStyleSheet));
+            addToDefaultStyle(*mediaTextTracksStyleSheet);
+        }
+#endif
 
     } else if (is<SVGElement>(element)) {
         if (!svgStyleSheet) {

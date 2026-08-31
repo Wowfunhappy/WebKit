@@ -60,6 +60,12 @@ public:
 #if ENABLE(ATTACHMENT_ELEMENT)
     static StyleSheetContents* attachmentStyleSheet;
 #endif
+#if ENABLE(VIDEO) && PLATFORM(MAC)
+    // MAVERICKS_BACKPORT (#68): document-scope UA sheet for the classic Safari 7 / Mavericks media controls.
+    static StyleSheetContents* mediaControlsStyleSheet;
+    // MAVERICKS_BACKPORT (#137): document-scope UA sheet for the text-track container and WebVTT cues.
+    static StyleSheetContents* mediaTextTracksStyleSheet;
+#endif
 
     static void initDefaultStyleSheet();
     static void ensureDefaultStyleSheetsForElement(const Element&);

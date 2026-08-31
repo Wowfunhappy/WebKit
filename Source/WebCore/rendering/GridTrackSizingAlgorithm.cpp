@@ -1301,6 +1301,16 @@ LayoutUnit GridTrackSizingAlgorithmStrategy::minLogicalSizeForGridItem(RenderBox
     bool isRowAxis = direction() == gridItemInlineDirection;
     if (isRowAxis)
         return isComputingInlineSizeContainment() ? 0_lu : gridItem.computeLogicalWidthUsing(gridItemMinSize, availableSize.value_or(0), *renderGrid()) + GridLayoutFunctions::marginLogicalSizeForGridItem(*renderGrid(), gridItemInlineDirection, gridItem);
+    // MAVERICKS_BACKPORT: computeLogicalHeightUsing() below resolves the item's percentage min-size in
+    // its block axis against the grid area, which is indefinite while the track holding it is being
+    // sized. Mark that area indefinite for every strategy, so the size the previous layout left on the
+    // item cannot answer the percentage. DefiniteSizeStrategy::minLogicalSizeForGridItem() does the same
+    // before it delegates here. The row axis returns above, so what this clears is the grid area in the
+    // direction being sized: its height for an item in the grid's writing mode, its width for an
+    // orthogonal one.
+    auto flowAwareDirection = GridLayoutFunctions::flowAwareDirectionForGridItem(*renderGrid(), gridItem, direction());
+    if (shouldClearOverridingContainingBlockContentSizeForGridItem(gridItem, flowAwareDirection))
+        setOverridingContainingBlockContentSizeForGridItem(*renderGrid(), gridItem, direction(), std::nullopt);
     bool overrideSizeHasChanged = updateOverridingContainingBlockContentSizeForGridItem(gridItem, gridItemInlineDirection, availableSize);
     layoutGridItemForMinSizeComputation(gridItem, overrideSizeHasChanged);
     auto gridItemBlockDirection = GridLayoutFunctions::flowAwareDirectionForGridItem(*renderGrid(), gridItem, Style::GridTrackSizingDirection::Rows);
