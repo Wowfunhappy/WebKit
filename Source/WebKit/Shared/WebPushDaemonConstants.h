@@ -43,6 +43,16 @@ constexpr auto protocolVersionKey = "protocol version"_s;
 constexpr uint64_t protocolVersionValue = 5;
 constexpr auto protocolEncodedMessageKey = "encoded message"_s;
 
+#if USE(MOZILLA_PUSH_SERVICE)
+// MAVERICKS_BACKPORT: an unsolicited daemon->client event announcing that pending push
+// messages await pickup. Safari 7 predates the x-webkit-app-launch wake URL and the
+// _handleNextPushMessageWithCompletionHandler SPI, so the daemon signals the network
+// process's standing connection instead, and the UI process drains via
+// GetPendingPushMessages.
+constexpr auto protocolEventTypeKey = "event type"_s;
+constexpr auto protocolEventTypePushMessagesAvailable = "push messages available"_s;
+#endif
+
 // FIXME: ConnectionToMachService traits requires we have a message type, so keep this placeholder here
 // until we can remove that requirement.
 enum class MessageType : uint8_t {

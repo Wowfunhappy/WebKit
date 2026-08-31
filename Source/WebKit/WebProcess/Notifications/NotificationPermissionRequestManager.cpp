@@ -77,6 +77,14 @@ NotificationPermissionRequestManager::~NotificationPermissionRequestManager()
 #if ENABLE(NOTIFICATIONS)
 void NotificationPermissionRequestManager::startRequest(const SecurityOriginData& securityOrigin, PermissionHandler&& permissionHandler)
 {
+    // MAVERICKS_BACKPORT: answer from the map the client seeded through WKNotificationProvider's
+    // notificationPermissions and updates through WKNotificationManagerProviderDidUpdateNotificationPolicy.
+    // Safari 7 publishes its file:// and extension-origin decisions only there, so those origins
+    // are decided here rather than sent back to a client that keeps no record of them.
+    auto permission = permissionLevel(securityOrigin);
+    if (permission != Permission::Default)
+        return permissionHandler(permission);
+
     auto addResult = m_requestsPerOrigin.add(securityOrigin, PermissionHandlers { });
     addResult.iterator->value.append(WTF::move(permissionHandler));
     if (!addResult.isNewEntry)
@@ -108,7 +116,10 @@ auto NotificationPermissionRequestManager::permissionLevel(const SecurityOriginD
     if (!m_page->corePage()->settings().notificationsEnabled())
         return Permission::Denied;
 
-    return protect(WebProcess::singleton().notificationManager())->policyForOrigin(securityOrigin.toString());
+    // MAVERICKS_BACKPORT: names the page, so a granted origin still reports
+    // PageWasNotifiedOfNotificationPermission and keeps its background-run activity when startRequest
+    // answers without asking the client.
+    return protect(WebProcess::singleton().notificationManager())->policyForOrigin(securityOrigin.toString(), m_page.get());
 #else
     UNUSED_PARAM(securityOrigin);
     return Permission::Denied;
