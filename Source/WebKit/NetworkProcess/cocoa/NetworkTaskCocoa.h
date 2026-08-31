@@ -34,6 +34,8 @@
 #import <wtf/RetainPtr.h>
 
 OBJC_CLASS NSArray;
+// MAVERICKS_BACKPORT: blockCookies takes a request, see NetworkTaskCocoa::blockCookies.
+OBJC_CLASS NSMutableURLRequest;
 OBJC_CLASS NSString;
 OBJC_CLASS NSURLSessionTask;
 
@@ -64,8 +66,16 @@ protected:
     bool shouldApplyCookiePolicyForThirdPartyCloaking() const;
     enum class IsRedirect : bool { No, Yes };
     void setCookieTransform(const WebCore::ResourceRequest&, IsRedirect);
-    void blockCookies();
-    void unblockCookies();
+    // MAVERICKS_BACKPORT: these take the request that is about to be sent, because 10.9 can only
+    // withhold cookies per REQUEST and not per task, see the definitions. Two request forms because the
+    // two call sites hold different ones: the task's initial NSURLRequest, and the ResourceRequest a
+    // redirect continues with.
+    void blockCookies(NSMutableURLRequest *);
+    void blockCookies(WebCore::ResourceRequest&);
+    void unblockCookies(WebCore::ResourceRequest&);
+    // MAVERICKS_BACKPORT: for a task whose request was already withheld cookies before the task existed
+    // (WebSocket tasks, which are handed to their WebSocketTask fully formed).
+    void markCookiesBlockedAtCreation();
     static void updateTaskWithFirstPartyForSameSiteCookies(NSURLSessionTask*, const WebCore::ResourceRequest&);
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES)
     void updateTaskWithStoragePartitionIdentifier(const WebCore::ResourceRequest&);

@@ -72,9 +72,17 @@ struct SessionWrapper : public CanMakeWeakPtr<SessionWrapper>, public CanMakeChe
 
     RetainPtr<NSURLSession> session;
     RetainPtr<WKNetworkSessionDelegate> delegate;
-    HashMap<NetworkDataTaskCocoa::TaskIdentifier, ThreadSafeWeakPtr<NetworkDataTaskCocoa>> dataTaskMap;
-    HashMap<NetworkDataTaskCocoa::TaskIdentifier, DownloadID> downloadMap;
-    HashMap<NetworkDataTaskCocoa::TaskIdentifier, ThreadSafeWeakPtr<WebSocketTask>> webSocketDataTaskMap;
+    // MAVERICKS_BACKPORT: 10.9's NSURLSessionTask.taskIdentifier is 0-based (the first task in a session is
+    // identifier 0), but WTF::HashMap's default integer traits reserve 0 as the empty-slot sentinel and
+    // UINT64_MAX as the deleted sentinel — so an identifier-0 task cannot be stored. Upstream relies on
+    // modern taskIdentifier starting at 1. Use zero-key-permitting traits (empty=UINT64_MAX, deleted=
+    // UINT64_MAX-1, both unreachable by a real session's task count) so identifier 0 is a valid key. This
+    // localizes the 10.9 divergence to the map type and lets every access site match upstream verbatim —
+    // and it fixes downloadMap/webSocketDataTaskMap, which were never covered by the prior +1-shift approach
+    // and would silently lose a download or WebSocket that landed identifier 0.
+    HashMap<NetworkDataTaskCocoa::TaskIdentifier, ThreadSafeWeakPtr<NetworkDataTaskCocoa>, DefaultHash<NetworkDataTaskCocoa::TaskIdentifier>, WTF::UnsignedWithZeroKeyHashTraits<NetworkDataTaskCocoa::TaskIdentifier>> dataTaskMap;
+    HashMap<NetworkDataTaskCocoa::TaskIdentifier, DownloadID, DefaultHash<NetworkDataTaskCocoa::TaskIdentifier>, WTF::UnsignedWithZeroKeyHashTraits<NetworkDataTaskCocoa::TaskIdentifier>> downloadMap;
+    HashMap<NetworkDataTaskCocoa::TaskIdentifier, ThreadSafeWeakPtr<WebSocketTask>, DefaultHash<NetworkDataTaskCocoa::TaskIdentifier>, WTF::UnsignedWithZeroKeyHashTraits<NetworkDataTaskCocoa::TaskIdentifier>> webSocketDataTaskMap;
 };
 
 struct IsolatedSession {
@@ -82,9 +90,13 @@ struct IsolatedSession {
 public:
     IsolatedSession()
         : sessionWithCredentialStorage(makeUniqueRef<SessionWrapper>())
+        // MAVERICKS_BACKPORT: see sessionWithoutCredentialStorage below.
+        , sessionWithoutCredentialStorage(makeUniqueRef<SessionWrapper>())
     { }
 
     UniqueRef<SessionWrapper> sessionWithCredentialStorage;
+    // MAVERICKS_BACKPORT: the DoNotUse counterpart, see SessionSet::sessionWithoutCredentialStorage.
+    UniqueRef<SessionWrapper> sessionWithoutCredentialStorage;
     WallTime lastUsed;
 };
 
@@ -96,6 +108,9 @@ public:
     }
 
     SessionWrapper& initializeEphemeralStatelessSessionIfNeeded(NavigatingToAppBoundDomain, NetworkSessionCocoa&);
+    // MAVERICKS_BACKPORT: a StoredCredentialsPolicy::DoNotUse task needs a session of its own, see
+    // sessionWrapperForTask.
+    SessionWrapper& initializeSessionWithoutCredentialStorageIfNeeded(NetworkSessionCocoa&);
 
     CheckedRef<SessionWrapper> isolatedSession(WebCore::StoredCredentialsPolicy, const WebCore::RegistrableDomain&, NavigatingToAppBoundDomain, NetworkSessionCocoa&);
     HashMap<WebCore::RegistrableDomain, std::unique_ptr<IsolatedSession>> isolatedSessions;
@@ -104,12 +119,17 @@ public:
 
     UniqueRef<SessionWrapper> sessionWithCredentialStorage;
     UniqueRef<SessionWrapper> ephemeralStatelessSession;
+    // MAVERICKS_BACKPORT: same configuration as sessionWithCredentialStorage but with no
+    // URLCredentialStorage, created on first use.
+    UniqueRef<SessionWrapper> sessionWithoutCredentialStorage;
 
 private:
 
     SessionSet()
         : sessionWithCredentialStorage(makeUniqueRef<SessionWrapper>())
         , ephemeralStatelessSession(makeUniqueRef<SessionWrapper>())
+        // MAVERICKS_BACKPORT: see sessionWithoutCredentialStorage above.
+        , sessionWithoutCredentialStorage(makeUniqueRef<SessionWrapper>())
     { }
 };
 
@@ -134,6 +154,12 @@ public:
     void setClientAuditToken(const WebCore::AuthenticationChallenge&);
 
     void continueDidReceiveChallenge(SessionWrapper&, const WebCore::AuthenticationChallenge&, NegotiatedLegacyTLS, NetworkDataTaskCocoa::TaskIdentifier, RefPtr<NetworkDataTaskCocoa>, CompletionHandler<void(WebKit::AuthenticationChallengeDisposition, const WebCore::Credential&)>&&);
+
+    // MAVERICKS_BACKPORT: part of restoring WKContextAllowSpecificHTTPSCertificateForHost, which
+    // upstream dropped and Safari 7's invalid-certificate sheet needs. True when this challenge
+    // presents exactly the certificate the user accepted for its host (the certificates live on the
+    // network process); any other chain still goes to the client.
+    bool isAllowedHTTPSCertificateForHost(NSURLAuthenticationChallenge *);
 
     SessionWrapper& sessionWrapperForDownloadResume() { return m_defaultSessionSet->sessionWithCredentialStorage; }
 

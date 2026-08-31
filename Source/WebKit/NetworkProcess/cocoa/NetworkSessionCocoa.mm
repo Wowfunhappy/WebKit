@@ -46,6 +46,7 @@
 #import "WebSocketTask.h"
 #import <Foundation/NSURLSession.h>
 #import <WebCore/AdvancedPrivacyProtections.h>
+#import <WebCore/CertificateInfo.h> // MAVERICKS_BACKPORT: per-host certificate exceptions (WKContextAllowSpecificHTTPSCertificateForHost)
 #import <WebCore/Credential.h>
 #import <WebCore/FormDataStreamMac.h>
 #import <WebCore/FrameLoaderTypes.h>
@@ -520,6 +521,24 @@ static inline void processServerTrustEvaluation(NetworkSessionCocoa& session, Se
     return nullptr;
 }
 
+// MAVERICKS_BACKPORT: see the declaration in NetworkSessionCocoa.h. The certificates themselves are
+// kept by the network process (NetworkProcess::allowedHTTPSCertificateForHost), which serves every
+// data store; the match is here because it is about this challenge. Modelled on the one place upstream
+// still answers a server-trust challenge from a stored certificate — PCM's trustsServerForLocalTests
+// in PrivateClickMeasurementNetworkLoaderCocoa.mm — including its use of WebCore::certificatesMatch,
+// so only the exact chain the user accepted is accepted.
+bool NetworkSessionCocoa::isAllowedHTTPSCertificateForHost(NSURLAuthenticationChallenge *challenge)
+{
+    RetainPtr<NSURLProtectionSpace> protectionSpace = challenge.protectionSpace;
+    RetainPtr<SecTrustRef> serverTrust = protectionSpace.get().serverTrust;
+    if (!serverTrust)
+        return false;
+    auto* allowed = networkProcess().allowedHTTPSCertificateForHost(String(protectionSpace.get().host));
+    if (!allowed)
+        return false;
+    return WebCore::certificatesMatch(allowed->trust().get(), serverTrust.get());
+}
+
 void NetworkSessionCocoa::setClientAuditToken(const WebCore::AuthenticationChallenge& challenge)
 {
     if (auto auditData = networkProcess().sourceApplicationAuditData())
@@ -580,6 +599,12 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     NegotiatedLegacyTLS negotiatedLegacyTLS = NegotiatedLegacyTLS::No;
 
     if ([challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust]) {
+        // MAVERICKS_BACKPORT: a certificate the user accepted for this host through Safari 7's
+        // invalid-certificate sheet (WKContextAllowSpecificHTTPSCertificateForHost) is answered here, so
+        // the reload that follows the sheet succeeds instead of being asked about again.
+        if (sessionCocoa->isAllowedHTTPSCertificateForHost(challenge))
+            return completionHandler(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust]);
+
         sessionCocoa->setClientAuditToken(challenge);
 
         negotiatedLegacyTLS = checkForLegacyTLS(task._incompleteTaskMetrics.transactionMetrics.lastObject);
@@ -587,7 +612,17 @@ ALLOW_DEPRECATED_DECLARATIONS_END
             return completionHandler(NSURLSessionAuthChallengeCancelAuthenticationChallenge, nil);
 
         // Handle server trust evaluation at platform-level if requested, for performance reasons and to use ATS defaults.
-        if (sessionCocoa->fastServerTrustEvaluationEnabled() && negotiatedLegacyTLS == NegotiatedLegacyTLS::No) {
+        // MAVERICKS_BACKPORT: taken whenever modern TLS was negotiated, not only when the client asked for it.
+        // fastServerTrustEvaluationEnabled comes from _WKWebsiteDataStoreConfiguration, which is 10.15.4+, so no
+        // client on this platform can turn it on -- and leaving it off means answering PerformDefaultHandling
+        // below, which is what makes 10.9's CFNetwork evaluate the trust on its socket-stream thread. That thread
+        // is shared by every connection this process owns, so a cold www.macrumors.com load spent 11.8s across 127
+        // evaluations on the same thread that ran all 674 SSLHandshake calls, stalling every other connection.
+        // Taking this branch depends on two selectors 10.9 does not have, both polyfilled: _strictTrustEvaluate:
+        // runs the evaluation off the connection thread, and -[NSOperationQueue underlyingQueue] answers the main
+        // queue with the main dispatch queue -- which is what puts the decision handler below, and the IPC it can
+        // start, back on this process's main run loop rather than on a concurrent queue.
+        if (negotiatedLegacyTLS == NegotiatedLegacyTLS::No) {
             auto networkDataTask = [self existingTask:task];
             if (networkDataTask) {
                 RetainPtr<NSURLProtectionSpace> protectionSpace = challenge.protectionSpace;
@@ -599,7 +634,25 @@ ALLOW_DEPRECATED_DECLARATIONS_END
                     return completionHandler(NSURLSessionAuthChallengeCancelAuthenticationChallenge, nil);
                 auto task = WTF::move(networkDataTask);
                 CheckedPtr session = sessionCocoa.get();
-                if (trustResult == noErr || !session) {
+                if (trustResult == noErr) {
+                    // MAVERICKS_BACKPORT: answer with the trust we just evaluated instead of PerformDefaultHandling.
+                    // Upstream can defer to the platform here because modern CFNetwork answers from trustd's result
+                    // cache; 10.9 has no such cache and re-evaluates in full (measured: 245ms, unchanged on repeat,
+                    // for the same SecTrustRef), so deferring would pay for the same evaluation twice -- and pay for
+                    // it on the socket-stream thread this branch exists to keep free. Handing back a credential
+                    // makes CFNetwork skip its own evaluation entirely (measured: 1 evaluation per connection under
+                    // PerformDefaultHandling, 0 under UseCredential). It is the same question and the same answer:
+                    // the challenge's trust already carries the SSL policy bound to this host, and CFNetwork's own
+                    // evaluation of it sets no policies, anchors, exceptions or verify date, passing all-zero
+                    // CSSM_APPLE_TP_ACTION_DATA. Only a trust that evaluated as Proceed or Unspecified reaches here;
+                    // anything else goes to the client below.
+                    completionHandler(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust]);
+                    return;
+                }
+                // A trust that did NOT evaluate cleanly is never answered with a credential: with no session left
+                // to ask the client through, upstream's PerformDefaultHandling is the safe answer, and on 10.9 it
+                // means CFNetwork evaluates the trust itself and refuses it.
+                if (!session) {
                     completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
                     return;
                 }
@@ -952,6 +1005,19 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
         return;
 
     auto downloadID = *networkDataTask->pendingDownloadID();
+    // MAVERICKS_BACKPORT: re-apply the destination to the task that will actually write it.
+    // setPendingDownloadLocation set _pathToDownloadTaskFile on the DATA task, and 10.9 builds the
+    // download task's output file inside its own initializer
+    // (-[__NSCFLocalDownloadTask initWithTask:suspendedConnection:] -> -setupForNewDownload), so the
+    // property has to be set again on the new object. This line lives here, and not in the polyfill,
+    // because no polyfill shape can reach that moment: the conversion is a send made INSIDE CFNetwork,
+    // and the selref-scope mechanism rewrites __objc_selrefs in WebKit's own images only
+    // (MavericksSupport/polyfill/mechanism/wk_selref_scope.m), so it never sees a system framework's
+    // internal sends. Carrying the destination across the conversion in the polyfill instead would mean
+    // correlating the two task objects out of band and hanging the work off some accessor a client
+    // happens to call -- correct only for callers that call it. See the _pathToDownloadTaskFile polyfill
+    // in MavericksSupport/polyfill/polyfills/methods/Foundation.m.
+    downloadTask._pathToDownloadTaskFile = networkDataTask->pendingDownloadLocation().createNSString().get();
     CheckedRef downloadManager = sessionCocoa->networkProcess().downloadManager();
     Ref download = WebKit::Download::create(downloadManager, downloadID, downloadTask, *sessionCocoa, networkDataTask->suggestedFilename());
     networkDataTask->transferSandboxExtensionToDownload(download);
@@ -1355,6 +1421,22 @@ SessionWrapper& SessionSet::initializeEphemeralStatelessSessionIfNeeded(Navigati
     return ephemeralStatelessSession.get();
 }
 
+// MAVERICKS_BACKPORT: a session identical to sessionWithCredentialStorage except that it has no
+// URLCredentialStorage, so that StoredCredentialsPolicy::DoNotUse tasks can be given a session whose
+// credential storage is absent rather than a per-task override 10.9 cannot honour. Everything else --
+// cookies, cache, proxies, TLS floor -- is the same, because DoNotUse governs credentials only.
+SessionWrapper& SessionSet::initializeSessionWithoutCredentialStorageIfNeeded(NetworkSessionCocoa& session)
+{
+    if (sessionWithoutCredentialStorage->session)
+        return sessionWithoutCredentialStorage.get();
+
+    RetainPtr<NSURLSessionConfiguration> configuration = adoptNS([retainPtr(sessionWithCredentialStorage->session.get().configuration) copy]);
+    configuration.get().URLCredentialStorage = nil;
+    protect(sessionWithoutCredentialStorage)->initialize(configuration.get(), session, WebCore::StoredCredentialsPolicy::DoNotUse, NavigatingToAppBoundDomain::No);
+
+    return sessionWithoutCredentialStorage.get();
+}
+
 CheckedRef<SessionWrapper> NetworkSessionCocoa::sessionWrapperForTask(std::optional<WebPageProxyIdentifier> webPageProxyID, const WebCore::ResourceRequest& request, WebCore::StoredCredentialsPolicy storedCredentialsPolicy, std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain)
 {
     auto shouldBeConsideredAppBound = isNavigatingToAppBoundDomain ? *isNavigatingToAppBoundDomain : NavigatingToAppBoundDomain::Yes;
@@ -1376,8 +1458,9 @@ CheckedRef<SessionWrapper> NetworkSessionCocoa::sessionWrapperForTask(std::optio
 
     switch (storedCredentialsPolicy) {
     case WebCore::StoredCredentialsPolicy::Use:
-    case WebCore::StoredCredentialsPolicy::DoNotUse:
-        return sessionSetForPage(webPageProxyID).sessionWithCredentialStorage.get();
+        return sessionSetForPage(webPageProxyID).sessionWithCredentialStorage.get(); // MAVERICKS_BACKPORT: no longer shared with DoNotUse, see above.
+    case WebCore::StoredCredentialsPolicy::DoNotUse: // MAVERICKS_BACKPORT: its own session, see above.
+        return protect(sessionSetForPage(webPageProxyID))->initializeSessionWithoutCredentialStorageIfNeeded(*this);
     case WebCore::StoredCredentialsPolicy::EphemeralStateless:
         return initializeEphemeralStatelessSessionIfNeeded(webPageProxyID, NavigatingToAppBoundDomain::No);
     }
@@ -1443,9 +1526,17 @@ CheckedRef<SessionWrapper> SessionSet::isolatedSession(WebCore::StoredCredential
     CheckedRef sessionWrapper = [this, protectedThis = Ref { *this }, &entry, isNavigatingToAppBoundDomain, session = CheckedRef { session }] (auto storedCredentialsPolicy) -> SessionWrapper& {
         switch (storedCredentialsPolicy) {
         case WebCore::StoredCredentialsPolicy::Use:
-        case WebCore::StoredCredentialsPolicy::DoNotUse:
-            LOG(NetworkSession, "Using isolated NSURLSession.");
+            LOG(NetworkSession, "Using isolated NSURLSession."); // MAVERICKS_BACKPORT: no longer shared with DoNotUse, see above.
             return entry->sessionWithCredentialStorage;
+        case WebCore::StoredCredentialsPolicy::DoNotUse: { // MAVERICKS_BACKPORT: its own session, see above.
+            LOG(NetworkSession, "Using isolated NSURLSession without credential storage.");
+            if (!entry->sessionWithoutCredentialStorage->session) {
+                RetainPtr<NSURLSessionConfiguration> configuration = adoptNS([retainPtr(entry->sessionWithCredentialStorage->session.get().configuration) copy]);
+                configuration.get().URLCredentialStorage = nil;
+                protect(entry->sessionWithoutCredentialStorage)->initialize(configuration.get(), session, WebCore::StoredCredentialsPolicy::DoNotUse, isNavigatingToAppBoundDomain);
+            }
+            return entry->sessionWithoutCredentialStorage;
+        }
         case WebCore::StoredCredentialsPolicy::EphemeralStateless:
             return initializeEphemeralStatelessSessionIfNeeded(isNavigatingToAppBoundDomain, session);
         }
@@ -1495,10 +1586,16 @@ void NetworkSessionCocoa::invalidateAndCancelSessionSet(SessionSet& sessionSet)
     [sessionSet.ephemeralStatelessSession->session invalidateAndCancel];
     [sessionSet.sessionWithCredentialStorage->delegate sessionInvalidated];
     [sessionSet.ephemeralStatelessSession->delegate sessionInvalidated];
+    // MAVERICKS_BACKPORT: the DoNotUse session goes down with the rest of the set.
+    [sessionSet.sessionWithoutCredentialStorage->session invalidateAndCancel];
+    [sessionSet.sessionWithoutCredentialStorage->delegate sessionInvalidated];
 
     for (auto& session : sessionSet.isolatedSessions.values()) {
         [session->sessionWithCredentialStorage->session invalidateAndCancel];
         [session->sessionWithCredentialStorage->delegate sessionInvalidated];
+        // MAVERICKS_BACKPORT: as above, for the isolated DoNotUse session.
+        [session->sessionWithoutCredentialStorage->session invalidateAndCancel];
+        [session->sessionWithoutCredentialStorage->delegate sessionInvalidated];
     }
     sessionSet.isolatedSessions.clear();
 
@@ -1696,6 +1793,15 @@ RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdent
 
     enableAdvancedPrivacyProtections(ensureMutableRequest().get(), advancedPrivacyProtections);
 
+    // MAVERICKS_BACKPORT: the cookie-blocking decision upstream makes in WebSocketTask's constructor is
+    // made here instead, because on 10.9 cookies can only be withheld on the request a task is created
+    // FROM -- see NetworkTaskCocoa::blockCookies. The outcome travels with the task so its latch agrees.
+    bool cookiesBlockedAtCreation = storedCredentialsPolicy == WebCore::StoredCredentialsPolicy::EphemeralStateless;
+    if (CheckedPtr storageSession = networkStorageSession(); storageSession && !cookiesBlockedAtCreation)
+        cookiesBlockedAtCreation = storageSession->shouldBlockCookies(request, frameID, pageID, networkProcess().shouldRelaxThirdPartyCookieBlockingForPage(webPageProxyID), isRequestToKnownCrossSiteTracker(request));
+    if (cookiesBlockedAtCreation)
+        ensureMutableRequest().get().HTTPShouldHandleCookies = NO;
+
     Ref sessionSet = sessionSetForPage(webPageProxyID);
     RetainPtr task = [sessionSet->sessionWithCredentialStorage->session webSocketTaskWithRequest:nsRequest.get()];
     
@@ -1703,7 +1809,8 @@ RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdent
     // Use NSIntegerMax instead of 2^63 - 1 for 32-bit systems.
     task.get().maximumMessageSize = NSIntegerMax;
 
-    return WebSocketTask::create(channel, webPageProxyID, frameID, pageID, sessionSet, request, clientOrigin, WTF::move(task), storedCredentialsPolicy);
+    // MAVERICKS_BACKPORT: cookiesBlockedAtCreation, decided above.
+    return WebSocketTask::create(channel, webPageProxyID, frameID, pageID, sessionSet, request, clientOrigin, WTF::move(task), storedCredentialsPolicy, cookiesBlockedAtCreation);
 }
 
 void NetworkSessionCocoa::addWebSocketTask(WebPageProxyIdentifier webPageProxyID, WebSocketTask& task)
@@ -2034,12 +2141,17 @@ void NetworkSessionCocoa::forEachSessionWrapper(NOESCAPE const Function<void(Ses
     auto sessionSetFunction = [&](SessionSet& sessionSet) {
         function(protect(sessionSet.sessionWithCredentialStorage).get());
         function(protect(sessionSet.ephemeralStatelessSession).get());
+        // MAVERICKS_BACKPORT: the DoNotUse session is one of this set's sessions like any other.
+        function(protect(sessionSet.sessionWithoutCredentialStorage).get());
         if (sessionSet.appBoundSession)
             function(protect(sessionSet.appBoundSession->sessionWithCredentialStorage));
 
         for (auto& isolatedSession : sessionSet.isolatedSessions.values()) {
-            if (isolatedSession)
+            if (isolatedSession) { // MAVERICKS_BACKPORT: braced for the second session below.
                 function(protect(isolatedSession->sessionWithCredentialStorage));
+                // MAVERICKS_BACKPORT: the isolated DoNotUse session is one of this set's sessions too.
+                function(protect(isolatedSession->sessionWithoutCredentialStorage));
+            }
         }
     };
     

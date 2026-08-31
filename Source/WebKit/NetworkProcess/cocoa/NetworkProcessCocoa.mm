@@ -207,6 +207,31 @@ void NetworkProcess::clearHSTSCache(PAL::SessionID sessionID, WallTime modifiedS
         [protect(networkSession->hstsStorage()).get() resetHSTSHostsSinceDate:date.get()];
 }
 
+// MAVERICKS_BACKPORT: the Cocoa half upstream dropped when it stopped implementing per-host
+// certificate exceptions; the other ports still route the same message. Safari 7's
+// invalid-certificate sheet drives this — see WKContextAllowSpecificHTTPSCertificateForHost.
+//
+// The session the message names is ignored, as it is in NetworkProcessCurl.cpp, because the exception
+// belongs to the process: this one network process serves every data store, and the window whose sheet
+// the user accepted need not be the one that reloads — a private window has its own store, recreated
+// on each off-to-on transition. Keeping it here is also what the 2013 mechanism did.
+void NetworkProcess::allowSpecificHTTPSCertificateForHost(PAL::SessionID, const WebCore::CertificateInfo& certificateInfo, const String& host)
+{
+    if (host.isEmpty() || !certificateInfo.trust())
+        return;
+    m_allowedHTTPSCertificateHosts.set(host, certificateInfo);
+}
+
+const WebCore::CertificateInfo* NetworkProcess::allowedHTTPSCertificateForHost(const String& host) const
+{
+    if (m_allowedHTTPSCertificateHosts.isEmpty())
+        return nullptr;
+    auto allowed = m_allowedHTTPSCertificateHosts.find(host);
+    if (allowed == m_allowedHTTPSCertificateHosts.end())
+        return nullptr;
+    return &allowed->value;
+}
+
 void NetworkProcess::clearDiskCache(WallTime modifiedSince, CompletionHandler<void()>&& completionHandler)
 {
     if (!m_clearCacheDispatchGroup)
