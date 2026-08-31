@@ -21,7 +21,7 @@
 
 #include "WebKitWebAudioSourceGStreamer.h"
 
-#if ENABLE(WEB_AUDIO) && USE(GSTREAMER)
+#if ENABLE(WEB_AUDIO) && USE(GSTREAMER) && !PLATFORM(COCOA) // MAVERICKS_BACKPORT: paired with AudioDestinationGStreamer (excluded on Cocoa)
 
 #include "AudioBus.h"
 #include "AudioDestinationGStreamer.h"

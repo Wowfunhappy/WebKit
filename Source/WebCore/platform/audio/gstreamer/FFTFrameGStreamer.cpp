@@ -20,7 +20,10 @@
 
 #include "config.h"
 
-#if USE(GSTREAMER) && ENABLE(WEB_AUDIO)
+// MAVERICKS_BACKPORT: on the Cocoa+GStreamer hybrid, Web Audio uses the native vDSP FFT
+// (platform/audio/mac/FFTFrameMac.cpp); compiling this GStreamer FFT as well would give a second
+// definition of class WebCore::FFTFrame (ld "duplicate symbol"). Restrict it to non-Cocoa GStreamer ports.
+#if USE(GSTREAMER) && ENABLE(WEB_AUDIO) && !PLATFORM(COCOA)
 
 #include "FFTFrame.h"
 

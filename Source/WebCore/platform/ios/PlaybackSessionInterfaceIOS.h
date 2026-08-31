@@ -26,7 +26,12 @@
 #pragma once
 
 #include <wtf/Platform.h>
-#if PLATFORM(COCOA) && HAVE(AVKIT)
+// MAVERICKS_BACKPORT: this AVKit playback-session interface derives from / uses PlaybackSessionModel(Client),
+// which PlaybackSessionModel.h gates on PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
+// — off on this Mac/VPM-off port. Narrow the header guard to match, so the (excluded) .mm's header and any
+// transitive includer resolve to empty here instead of an incomplete-base-class error. Every real consumer
+// uses these types only under ENABLE(VIDEO_PRESENTATION_MODE).
+#if (PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))) && HAVE(AVKIT)
 
 #include <WebCore/EventListener.h>
 #include <WebCore/HTMLMediaElementEnums.h>

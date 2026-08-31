@@ -52,6 +52,10 @@
 #include "TextSinkGStreamer.h"
 #include "TimeRanges.h"
 #include "VideoFrameMetadataGStreamer.h"
+// MAVERICKS_BACKPORT: accelerated <video> compositing layer for the Cocoa+CoreGraphics build.
+#if PLATFORM(COCOA) && !USE(COORDINATED_GRAPHICS)
+#include "VideoLayerGStreamerCocoa.h"
+#endif
 #include "VideoSinkGStreamer.h"
 #include "VideoTrackPrivateGStreamer.h"
 #include "WebKitAudioSinkGStreamer.h"
@@ -204,6 +208,11 @@ MediaPlayerPrivateGStreamer::MediaPlayerPrivateGStreamer(MediaPlayer& player)
 
 #if USE(COORDINATED_GRAPHICS)
     m_contentsBufferProxy = CoordinatedPlatformLayerBufferProxy::create();
+#elif PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: the accelerated-compositing video layer (see platformLayer()). Created
+    // eagerly (MediaPlayer construction happens on the main thread) so compositing can pick it up
+    // as soon as the element becomes composited.
+    m_videoLayer = createGStreamerVideoLayer();
 #endif
 
     ensureGStreamerInitialized();
@@ -613,7 +622,13 @@ bool MediaPlayerPrivateGStreamer::doSeek(const SeekTarget& target, float rate, b
     // Stream mode. Seek will automatically deplete buffer level, so we always want to pause the pipeline and wait until the
     // buffer is replenished. But we don't want this behaviour on immediate seeks that only change the playback rate.
     // We restrict this behaviour to protocols that use NetworkProcess.
-    if (!player->isLooping() && !m_downloadBuffer && !m_isChangingRate && m_url.protocolIsInHTTPFamily() && currentTime() != startTime) {
+    // MAVERICKS_BACKPORT: the preamble applies to any FLUSHING seek, not just a non-looping one. Upstream
+    // excludes looping because it assumes a looping seek is the non-flushing SEGMENT seek built above, which
+    // keeps the buffer; a looping element whose source cannot segment-seek issues a flushing seek that
+    // depletes queue2 exactly like any other. Skipping the preamble there loses the false --> true buffering
+    // edge inside the pause's own async state change, and with it the true --> false edge that resumes
+    // playback, so the element parks at its restart position with paused() still reporting false.
+    if (flag == GST_SEEK_FLAG_FLUSH && !m_downloadBuffer && !m_isChangingRate && m_url.protocolIsInHTTPFamily() && currentTime() != startTime) {
         GST_DEBUG_OBJECT(pipeline(), "[Buffering] Pausing pipeline, resetting buffering level to 0 and forcing m_isBuffering true before seeking on stream mode");
 
         auto& quirksManager = GStreamerQuirksManager::singleton();
@@ -2273,7 +2288,11 @@ void MediaPlayerPrivateGStreamer::handleMessage(GstMessage* message)
         break;
     case GST_MESSAGE_DURATION_CHANGED:
         // Duration in MSE is managed by MediaSource, SourceBuffer and AppendPipeline.
-        if (messageSourceIsPlaybin && !isMediaSource())
+        // MAVERICKS_BACKPORT: GstBin forwards a child's duration-changed message with the child as
+        // GST_MESSAGE_SRC, so the pipeline itself never sources one; accept the message from any
+        // element and let durationChanged() re-query the pipeline for the new duration.
+        // if (messageSourceIsPlaybin && !isMediaSource())
+        if (!isMediaSource())
             durationChanged();
         break;
     case GST_MESSAGE_REQUEST_STATE:
@@ -2637,6 +2656,21 @@ void MediaPlayerPrivateGStreamer::configureParsebin(GstElement* parsebin)
             if (name == "webkitthunderparser"_s && player->m_url.protocolIsBlob())
                 return skipAutoPlug;
 
+#if ENABLE(ENCRYPTED_MEDIA)
+            // MAVERICKS_BACKPORT: this port builds two CENC decryptors and a Widevine video
+            // decoder, and ClearKey's sink caps carry a bare application/x-cenc structure that
+            // intersects any protection system, as do the WebM structures every one of them
+            // publishes, so caps alone cannot say which belongs on a stream. The CDM the page
+            // created does.
+            if (RefPtr cdmInstance = player->m_cdmInstance) {
+                bool isClearKeyDecryptor = name == "webkitclearkey"_s;
+                bool isWidevineElement = name == "webkitwidevine"_s || name == "webkitwidevinevideodec"_s;
+                if ((isClearKeyDecryptor || isWidevineElement)
+                    && isWidevineElement != GStreamerEMEUtilities::isWidevineKeySystem(cdmInstance->keySystem()))
+                    return skipAutoPlug;
+            }
+#endif
+
             auto* structure = gst_caps_get_structure(caps, 0);
             if (!structure)
                 return tryAutoPlug;
@@ -2801,6 +2835,15 @@ void MediaPlayerPrivateGStreamer::configureDownloadBuffer(GstElement* element)
     auto mediaDiskCachePath = GMallocString::unsafeAdoptFromUTF8(g_strdup(std::getenv("WPE_SHELL_MEDIA_DISK_CACHE_PATH")));
     if (mediaDiskCachePath.isEmpty())
         mediaDiskCachePath = GMallocString::unsafeAdoptFromUTF8(g_build_filename(G_DIR_SEPARATOR_S, "var", "tmp", nullptr));
+#elif PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: upstream buffers progressive media to /var/tmp, which is a shared,
+    // world-writable directory no sandboxed Cocoa process may write -- so every download-buffer
+    // file was denied and on-disk buffering silently did not happen. g_get_tmp_dir() reads TMPDIR,
+    // which populateSandboxInitializationParameters() has already pointed at this process' own
+    // private temporary directory (the one the profile grants), so this is both the writable
+    // location and the correctly-scoped one: media buffered by one process is not visible to
+    // another. Unsandboxed WebKitLegacy hosts get their ordinary per-user TMPDIR.
+    auto mediaDiskCachePath = GMallocString::unsafeAdoptFromUTF8(g_strdup(g_get_tmp_dir()));
 #else
     auto mediaDiskCachePath = GMallocString::unsafeAdoptFromUTF8(g_build_filename(G_DIR_SEPARATOR_S, "var", "tmp", nullptr));
 #endif
@@ -2956,7 +2999,16 @@ void MediaPlayerPrivateGStreamer::updateStates()
                 m_areVolumeAndMuteInitialized = true;
             }
 
+            // MAVERICKS_BACKPORT: the m_wasBuffering/m_isBuffering pair only holds a completion edge
+            // between two consecutive buffering messages, and a queue that refills while the
+            // buffering pause is still ASYNC posts its whole 1%-to-100% climb inside that window —
+            // by the time the pause completes and this branch runs, the pair reads false/false, and
+            // a full queue that nothing drains posts no further message. m_playbackRatePausedState
+            // records that the pause was for buffering, so resume on that reason plus the current
+            // buffering level, which stays correct under any message ordering.
+            // if ((m_wasBuffering && !m_isBuffering && !m_isPaused && m_playbackRatePausedState != PlaybackRatePausedState::ManuallyPaused && m_playbackRate)
             if ((m_wasBuffering && !m_isBuffering && !m_isPaused && m_playbackRatePausedState != PlaybackRatePausedState::ManuallyPaused && m_playbackRate)
+                || (m_playbackRatePausedState == PlaybackRatePausedState::BufferingPaused && !m_isBuffering && !m_isPaused && m_playbackRate) // MAVERICKS_BACKPORT: the level-triggered resume described above.
                 || m_playbackRatePausedState == PlaybackRatePausedState::ShouldMoveToPlaying) {
                 m_playbackRatePausedState = PlaybackRatePausedState::Playing;
                 GST_INFO_OBJECT(pipeline(), "[Buffering] Restarting playback (because of buffering or resuming from zero playback rate)");
@@ -3014,7 +3066,12 @@ void MediaPlayerPrivateGStreamer::updateStates()
 
         // Delay the m_isBuffering change by returning it to its previous value. Without this, the false --> true change
         // would go unnoticed by the code that should trigger a pause.
-        if (m_wasBuffering != m_isBuffering && !m_isPaused && m_playbackRate) {
+        // MAVERICKS_BACKPORT: only the false --> true edge is delayed. Delaying true --> false discards the sole
+        // signal that resumes a stream paused for buffering: the resume in the GST_STATE_CHANGE_SUCCESS branch above
+        // fires on that edge, and once the queue is full the element stops posting buffering messages, so the edge
+        // never comes back. A loop restart refills fast enough to complete buffering while the pause it triggered is
+        // still ASYNC, which wedges the pipeline in PAUSED with paused() reporting false to HTMLMediaElement.
+        if (!m_wasBuffering && m_isBuffering && !m_isPaused && m_playbackRate) {
             GST_TRACE_OBJECT(pipeline(), "[Buffering] Delaying m_isBuffering %s --> %s to force the proper change from not buffering to buffering when the async state change completes.", boolForPrinting(m_wasBuffering), boolForPrinting(m_isBuffering));
             m_isBuffering = m_wasBuffering;
             m_bufferingPercentage = m_previousBufferingPercentage;
@@ -3215,7 +3272,13 @@ void MediaPlayerPrivateGStreamer::recalculateDurationIfNeeded() const
         if (RefPtr player = m_player.get())
             player->durationChanged();
     };
-    if (!currentDuration.isFinite() || (currentDuration.isValid() && currentDuration < now)) {
+    // MAVERICKS_BACKPORT: finalizing an infinite or unknown duration to the current position is an
+    // end-of-playback operation — the spec passage above describes a stream that ends — so this
+    // branch gates on m_isEndReached like the branch below. While the pipeline has yet to preroll,
+    // duration() reports positive infinity for a VOD stream too, and maxTimeSeekable() reaches this
+    // point whenever a page polls seekable during startup.
+    // if (!currentDuration.isFinite() || (currentDuration.isValid() && currentDuration < now)) {
+    if (m_isEndReached && (!currentDuration.isFinite() || (currentDuration.isValid() && currentDuration < now))) {
         cacheNewDuration(now);
         return;
     }
@@ -3468,6 +3531,24 @@ void MediaPlayerPrivateGStreamer::createGSTPlayBin(const URL& url)
 #endif
     registerActivePipeline(m_pipeline);
 
+    // MAVERICKS_BACKPORT: give playbin's buffering queues limits spanning a whole HLS segment. An HLS
+    // fMP4 segment carries each track as one run inside a single mdat, so a demuxer reaching the
+    // second track has already emitted a whole segment of the first, and the queues between them must
+    // hold a full segment for the trailing track to keep flowing; at the five-second, two-megabyte
+    // defaults the leading queue caps on whichever limit binds first, the demuxer's one streaming
+    // thread blocks on it, and the trailing track starves at the sink. The Apple HLS authoring
+    // specification targets six-second segments; fifteen seconds holds a ten-second segment under
+    // the same 150% margin GstMultiQueue applies to a measured interleave, and forty megabytes covers
+    // that window at the specification's highest video tier, 20 Mb/s HDR HEVC, so the time limit
+    // stays the binding one. These are limits, not allocations: a queue holds at most the stream's
+    // own rate across the time window. The properties belong on the playbin: it propagates its
+    // buffering parameters onto uridecodebin at every group activation, overwriting anything set on
+    // uridecodebin or its decodebin directly.
+    if (m_isLegacyPlaybin) {
+        g_object_set(m_pipeline.get(), "buffer-duration", static_cast<gint64>(15 * GST_SECOND),
+            "buffer-size", static_cast<int>(40 * MB), nullptr);
+    }
+
     if (isMediaStream) {
         auto clock = adoptGRef(gst_system_clock_obtain());
         gst_pipeline_use_clock(GST_PIPELINE(m_pipeline.get()), clock.get());
@@ -3495,7 +3576,21 @@ void MediaPlayerPrivateGStreamer::createGSTPlayBin(const URL& url)
         player->handleNeedContextMessage(message);
     }), this);
 
-    g_signal_connect_swapped(bus.get(), "message::segment-done", G_CALLBACK(+[](MediaPlayerPrivateGStreamer* player, GstMessage*) {
+    g_signal_connect_swapped(bus.get(), "message::segment-done", G_CALLBACK(+[](MediaPlayerPrivateGStreamer* player, GstMessage* message) {
+        // MAVERICKS_BACKPORT: only a TIME segment-done reports that playback reached the end of the segment
+        // this player asked for — every seek here is issued in GST_FORMAT_TIME. An element that answers
+        // GST_SEEK_FLAG_SEGMENT in its own format posts its own completion: a byte-range source posts a BYTES
+        // segment-done when it finishes pushing the range, which says the download completed, not that
+        // anything played. Taking that for end-of-media restarts a looping element as soon as its bytes
+        // arrive, so a response faster than real time replays the opening frames forever.
+        GstFormat segmentDoneFormat;
+        gst_message_parse_segment_done(message, &segmentDoneFormat, nullptr);
+        if (segmentDoneFormat != GST_FORMAT_TIME) {
+            GST_DEBUG_OBJECT(player->pipeline(), "Ignoring %s segment-done message, only TIME reports the end of playback",
+                gst_format_get_name(segmentDoneFormat));
+            return;
+        }
+
         callOnMainThread([weakThis = ThreadSafeWeakPtr { *player }, player] {
             RefPtr self = weakThis.get();
             if (!self)
@@ -3719,7 +3814,22 @@ void MediaPlayerPrivateGStreamer::pausedTimerFired()
 void MediaPlayerPrivateGStreamer::acceleratedRenderingStateChanged()
 {
     RefPtr player = m_player.get();
+    // MAVERICKS_BACKPORT: the accelerated-video path is per-configuration — see each branch below.
+#if USE(COORDINATED_GRAPHICS)
     m_canRenderingBeAccelerated = player && player->acceleratedCompositingEnabled();
+#elif PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: this Cocoa/CoreGraphics port renders accelerated frames by updating the
+    // compositing layer's contents from the streaming thread (see platformLayer() and
+    // VideoLayerGStreamerCocoa.h). Every orientation is accelerated (a rotated source orientation is
+    // baked into the frame pixels), so this tracks only whether the element is composited.
+    m_canRenderingBeAccelerated = player && player->acceleratedCompositingEnabled();
+#else
+    // MAVERICKS_BACKPORT: no accelerated video path on other configurations; decoded frames reach
+    // the screen through the software repaint() -> MediaPlayer::paint() -> drawVideoFrame() path,
+    // which triggerRepaint() only drives when rendering is NOT considered accelerated.
+    UNUSED_VARIABLE(player);
+    m_canRenderingBeAccelerated = false;
+#endif
 }
 
 bool MediaPlayerPrivateGStreamer::performTaskAtTime(Function<void(const MediaTime&)>&& task, const MediaTime& time)
@@ -3783,6 +3893,36 @@ void MediaPlayerPrivateGStreamer::pushTextureToCompositor(bool isDuplicateSample
     auto frame = VideoFrameGStreamer::createWrappedSample(m_sample, options);
 
     m_contentsBufferProxy->setDisplayBuffer(CoordinatedPlatformLayerBufferVideo::create(WTF::move(frame), m_videoDecoderPlatform, !m_isUsingFallbackVideoSink, m_textureMapperFlags));
+}
+#elif PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: Cocoa accelerated video path (see VideoLayerGStreamerCocoa.h).
+PlatformLayer* MediaPlayerPrivateGStreamer::platformLayer() const
+{
+    return m_videoLayer.get();
+}
+
+void MediaPlayerPrivateGStreamer::pushSampleToVideoLayer(bool isDuplicateSample)
+{
+    // Keep a reference to the sample instead of converting under m_sampleMutex, mirroring paint()'s
+    // deadlock-avoidance pattern.
+    GRefPtr<GstSample> sample;
+    {
+        Locker sampleLocker { m_sampleMutex };
+        if (!GST_IS_SAMPLE(m_sample.get()))
+            return;
+
+        // Duplicate samples (preroll re-reports) don't count as new presented frames for rvfc
+        // metadata, matching pushTextureToCompositor().
+        if (!isDuplicateSample)
+            ++m_sampleCount;
+
+        sample = m_sample;
+    }
+
+    // Read the source orientation at present time, mirroring the software paint() path
+    // (context.drawVideoFrame(..., m_videoSourceOrientation, ...)). A non-identity orientation is
+    // baked into the pixels so the layer needs no geometry transform.
+    setGStreamerVideoLayerContents(m_videoLayer.get(), sample, m_videoSourceOrientation);
 }
 #endif // USE(COORDINATED_GRAPHICS)
 
@@ -3954,6 +4094,19 @@ bool MediaPlayerPrivateGStreamer::isSeamlessSeekingEnabled() const
         return false;
     }
 
+    // MAVERICKS_BACKPORT: a segment seek needs an element that can report when playback reached the end of
+    // the TIME segment. That is the demuxer, and it can only do so when it drives the reading itself, by
+    // pulling. WebKitWebSrc is a GstPushSrc, so it never offers pull mode and the demuxer instead answers
+    // the seek by translating it into a byte-range seek on the source — where nothing produces a TIME
+    // segment-done at all, and looping would have no end-of-media signal to run on. Fall back to the
+    // flushing-seek loop, as this function already does for Ogg. Asked before source-setup has run, assume
+    // the pushed case: play() schedules the initial segment seek from there, and guessing "seekable" then
+    // is what commits the pipeline to the path that has no completion signal.
+    if (!m_source || WEBKIT_IS_WEB_SRC(m_source.get())) {
+        GST_DEBUG_OBJECT(m_pipeline.get(), "Seamless seeking needs a pull-mode source, which WebKitWebSrc is not");
+        return false;
+    }
+
     return player->isLooping() && m_isSegmentSeekAllowed;
 }
 
@@ -4042,6 +4195,9 @@ void MediaPlayerPrivateGStreamer::triggerRepaint(GRefPtr<GstSample>&& sample)
 
 #if USE(COORDINATED_GRAPHICS)
     pushTextureToCompositor(isDuplicateSample);
+#elif PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: push the decoded frame to the compositing layer from the streaming thread.
+    pushSampleToVideoLayer(isDuplicateSample);
 #endif
 }
 

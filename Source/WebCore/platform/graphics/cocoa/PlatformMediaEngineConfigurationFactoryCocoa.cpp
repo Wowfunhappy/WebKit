@@ -53,7 +53,10 @@ static CMVideoCodecType videoCodecTypeFromRFC4281Type(StringView type)
         return kCMVideoCodecType_H264;
     if (type.startsWith("hvc1"_s) || type.startsWith("hev1"_s))
         return kCMVideoCodecType_HEVC;
-#if ENABLE(VP9)
+    // MAVERICKS_BACKPORT: 10.9 VideoToolbox cannot decode VP9 (and the VP9 utilities are stubbed), so
+    // don't advertise VP9 support. kCMVideoCodecType_VP9 is a compile-time fourcc, so the SDK guard
+    // would always compile it in; gate on the deployment target (MIN_REQUIRED=1090) instead of MAX_ALLOWED.
+#if ENABLE(VP9) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300
     if (type.startsWith("vp09"_s))
         return kCMVideoCodecType_VP9;
 #endif
@@ -107,7 +110,9 @@ static std::optional<PlatformMediaCapabilitiesInfo> computeMediaCapabilitiesInfo
             if (!parsedInfo)
                 return std::nullopt;
             info = *parsedInfo;
-#if ENABLE(VP9)
+        // MAVERICKS_BACKPORT: VP9 is undecodable on 10.9 (stubbed utilities); gate on the deployment
+        // target (MIN_REQUIRED), NOT MAX_ALLOWED (always-true on the 26.1 SDK). Matches the codec-type map above.
+#if ENABLE(VP9) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300
         } else if (videoCodecType == kCMVideoCodecType_VP9) {
             if (!configuration.canExposeVP9)
                 return std::nullopt;

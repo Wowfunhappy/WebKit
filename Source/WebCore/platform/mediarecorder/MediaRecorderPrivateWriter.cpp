@@ -64,7 +64,11 @@ std::unique_ptr<MediaRecorderPrivateWriter> MediaRecorderPrivateWriter::create(M
 {
     switch (type) {
     case MediaRecorderContainerType::Mp4:
+#if HAVE(AVASSETWRITER_DELEGATE) // MAVERICKS_BACKPORT: the MP4 writer needs the macOS 11+ segment-emitting AVAssetWriter.
         return MediaRecorderPrivateWriterAVFObjC::create(listener);
+#else
+        return nullptr;
+#endif
 #if ENABLE(MEDIA_RECORDER_WEBM)
     case MediaRecorderContainerType::WebM:
         return MediaRecorderPrivateWriterWebM::create(listener);
