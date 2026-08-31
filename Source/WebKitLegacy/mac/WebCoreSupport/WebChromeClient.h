@@ -244,6 +244,17 @@ private:
 
     void registerBlobPathForTesting(const String&, CompletionHandler<void()>&&) final;
 
+#if ENABLE(MEDIA_STREAM)
+    // MAVERICKS_BACKPORT: WebKit2 forwards this to UserMediaPermissionRequestManagerProxy::captureStateChanged
+    // over IPC; WebKit1's client lives in this process, so hand it the state directly.
+    void isPlayingMediaDidChange(WebCore::MediaProducerMediaStateFlags) final;
+#endif
+
+#if ENABLE(DASHBOARD_SUPPORT)
+    void annotatedRegionsChanged() final; // MAVERICKS_BACKPORT
+    bool isDashboardWidgetClient() const final; // MAVERICKS_BACKPORT
+#endif
+
 #if ENABLE(CONTENT_CHANGE_OBSERVER)
     void didFinishContentChangeObserving(WebCore::LocalFrame&, WebCore::ContentChange) final;
 #endif

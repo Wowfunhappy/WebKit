@@ -181,4 +181,26 @@ static bool canUseFastRenderer(std::span<const UniChar> buffer)
     return [cacheDirectory stringByAppendingPathComponent:bundleIdentifier];
 }
 
+// MAVERICKS_BACKPORT: provides the _webkit_fixedCarbonPOSIXPath SPI the base lacks, restored for the 10.9 build.
+// Safari 7-era compatibility: this NSString SPI was removed from modern WebKit, but Safari still
+// calls it (e.g. when resolving an extension's on-disk bundle path). Without it the call raises
+// NSInvalidArgumentException ("unrecognized selector"). A Carbon-style POSIX path can carry a
+// redundant "/Volumes/<bootVolumeName>" prefix for files on the boot volume; if dropping that
+// prefix yields an existing path, return it. Otherwise the path is already correct as-is.
+- (NSString *)_webkit_fixedCarbonPOSIXPath
+{
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    if ([fileManager fileExistsAtPath:self])
+        return self;
+
+    NSArray *pathComponents = [self pathComponents];
+    if ([pathComponents count] >= 3 && [[pathComponents objectAtIndex:1] isEqualToString:@"Volumes"]) {
+        NSArray *tail = [pathComponents subarrayWithRange:NSMakeRange(3, [pathComponents count] - 3)];
+        NSString *candidate = [@"/" stringByAppendingString:[tail componentsJoinedByString:@"/"]];
+        if ([fileManager fileExistsAtPath:candidate])
+            return candidate;
+    }
+    return self;
+}
+
 @end

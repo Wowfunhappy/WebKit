@@ -1655,7 +1655,10 @@ static NSView *pluginView(WebFrame *frame, WebPluginPackage *pluginPackage,
 
     [pluginPackage load];
     Class viewFactory = [pluginPackage viewFactory];
-    
+
+    // MAVERICKS_BACKPORT: declare the plug-in view up front; it is created (instead of the
+    // upstream `return nil` stub) below so WebKit-ObjC plug-ins like WebClip.plugin instantiate.
+    NSView *view = nil;
     NSDictionary *arguments = nil;
 
 IGNORE_WARNINGS_BEGIN("undeclared-selector")
@@ -1681,9 +1684,18 @@ IGNORE_WARNINGS_END
         };
         LOG(Plugins, "arguments:\n%@", arguments);
     }
-    (void)arguments;
+    // MAVERICKS_BACKPORT: the upstream `(void)arguments;` discard is dropped here because
+    // arguments is now actually consumed by the plug-in view creation below.
 
-    return nil;
+    // MAVERICKS_BACKPORT: this was stubbed to `return nil` (so WebKit-ObjC plug-ins never
+    // instantiated). Restore the real view creation: WebPluginController creates the plug-in
+    // view from the package + arguments and (via -addPlugin:) runs -webPlugInInitialize, which
+    // is where e.g. WebClip.plugin's WebClipper publishes its scripting object to JS as the
+    // `webClip` global. Without it the plug-in bundle loaded but no instance existed, so
+    // WebClip.js failed with "Can't find variable: webClip".
+    view = [pluginController plugInViewWithArguments:arguments fromPluginPackage:pluginPackage];
+
+    return view;
 }
 
 class PluginWidget : public WebCore::PluginViewBase {
@@ -1700,9 +1712,12 @@ private:
     }
 };
 
-static bool shouldBlockPlugin(WebBasePluginPackage *)
+// MAVERICKS_BACKPORT: takes the plug-in package, which upstream's signature ignores.
+static bool shouldBlockPlugin(WebBasePluginPackage *pluginPackage)
 {
-    return true;
+    // MAVERICKS_BACKPORT: the WebKit-ObjC "application" plug-ins the user agent supplies run —
+    // WebClip.plugin, which renders Safari Web Clips. Every other package, NPAPI included, is blocked.
+    return ![pluginPackage isKindOfClass:[WebPluginPackage class]];
 }
 
 RefPtr<WebCore::Widget> WebFrameLoaderClient::createPlugin(WebCore::HTMLPlugInElement& element, const URL& url,

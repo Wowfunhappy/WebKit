@@ -57,6 +57,8 @@
 #endif
 #import "WebView.h"
 #import "WebViewInternal.h"
+// MAVERICKS_BACKPORT: for the capture-state hand-off in isPlayingMediaDidChange().
+#import "WebUserMediaClient.h"
 #import <Foundation/Foundation.h>
 #import <JavaScriptCore/ConsoleTypes.h>
 #import <WebCore/Chrome.h>
@@ -1087,6 +1089,16 @@ void WebChromeClient::showPlaybackTargetPicker(PlaybackTargetClientContextIdenti
     [m_webView _showPlaybackTargetPicker:contextId location:location hasVideo:hasVideo];
 }
 
+#if ENABLE(MEDIA_STREAM)
+// MAVERICKS_BACKPORT: the capture-state signal the WebKit1 user-media client reprompts on; see
+// WebUserMediaClient::captureStateChanged().
+void WebChromeClient::isPlayingMediaDidChange(MediaProducerMediaStateFlags state)
+{
+    if (RefPtr client = WebUserMediaClient::from([m_webView page].get()))
+        client->captureStateChanged(state);
+}
+#endif
+
 void WebChromeClient::playbackTargetPickerClientStateDidChange(PlaybackTargetClientContextIdentifier contextId, MediaProducerMediaStateFlags state)
 {
     [m_webView _playbackTargetPickerClientStateDidChange:contextId state:state];
@@ -1188,5 +1200,22 @@ void WebChromeClient::didFinishContentChangeObserving(WebCore::LocalFrame& frame
 #else
     notImplemented();
 #endif
+}
+#endif
+
+#if ENABLE(DASHBOARD_SUPPORT)
+// MAVERICKS_BACKPORT: forward the document's -apple-dashboard-region control regions to DashboardClient.
+void WebChromeClient::annotatedRegionsChanged()
+{
+    BEGIN_BLOCK_OBJC_EXCEPTIONS
+    CallUIDelegate(webView(), @selector(webView:dashboardRegionsChanged:), [webView() _dashboardRegions]);
+    END_BLOCK_OBJC_EXCEPTIONS
+}
+
+// MAVERICKS_BACKPORT: a WebView whose UI delegate answers -webView:dashboardRegionsChanged: is a Dashboard
+// widget host.
+bool WebChromeClient::isDashboardWidgetClient() const
+{
+    return [[webView() UIDelegate] respondsToSelector:@selector(webView:dashboardRegionsChanged:)];
 }
 #endif
