@@ -166,6 +166,11 @@ public:
 
 #if USE(GLIB_EVENT_LOOP)
         WTF_EXPORT_PRIVATE void setPriority(int);
+#else
+        // MAVERICKS_BACKPORT: timer priority is a GLib-event-loop scheduling hint with no equivalent on
+        // the CF run loop this port uses; accept and ignore it so GStreamer (which calls setPriority)
+        // builds unchanged.
+        void setPriority(int) { }
 #endif
 
         ASCIILiteral description() const { return m_description; }

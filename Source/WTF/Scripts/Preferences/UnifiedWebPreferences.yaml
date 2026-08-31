@@ -1765,7 +1765,9 @@ CaptureVideoInGPUProcessEnabled:
   exposed: [ WebKit ]
   defaultValue:
     WebKit:
-      "ENABLE(GPU_PROCESS_BY_DEFAULT)": true
+      # MAVERICKS_BACKPORT: video capture runs in the web process here, which holds the camera grant;
+      # see ENABLE_GPU_PROCESS_RASTERIZATION_ONLY in MavericksSupport/cmake/OptionsMacMavericks.cmake.
+      "ENABLE(GPU_PROCESS_BY_DEFAULT) && !ENABLE(GPU_PROCESS_RASTERIZATION_ONLY)": true
       default: false
 
 CaretBrowsingEnabled:
@@ -2684,7 +2686,10 @@ EncryptedMediaAPIEnabled:
   condition: ENABLE(ENCRYPTED_MEDIA)
   defaultValue:
     WebKitLegacy:
-      default: false
+      # MAVERICKS_BACKPORT: status is "embedder", and WebKitLegacy's embedders here predate the
+      # property that would turn it on, so this column carries the decision. EME runs in-process
+      # on the GStreamer CDMs this port builds for both ports.
+      default: true
     WebKit:
       "PLATFORM(GTK) || PLATFORM(WPE)": false
       default: true
@@ -5155,7 +5160,10 @@ MediaDevicesEnabled:
   condition: ENABLE(MEDIA_STREAM)
   defaultValue:
     WebKitLegacy:
-      default: false
+      # MAVERICKS_BACKPORT: on for WebKit1, which has a getUserMedia client again (WebUserMediaClient).
+      # This port's WebKit1 embedders predate the property that would turn it on, so the column carries
+      # the decision.
+      default: true
     WebKit:
       "PLATFORM(GTK) || PLATFORM(WPE)": true
       default: false
@@ -5381,7 +5389,15 @@ MediaSourceUseRemoteAudioVideoRenderer:
     WebKitLegacy:
       default: false
     WebKit:
-      default: true
+      # MAVERICKS_BACKPORT: this default carries the same `!USE(GSTREAMER)` term as
+      # UseGPUProcessForMediaEnabled.
+      # This pref routes MSE through the GPU-process AudioVideoRenderer, an AVFObjC path:
+      # WebPage::updatePreferences feeds it to enableRemoteRenderer(AVFoundationMSE), and
+      # MediaPlayer::load then pins m_activeEngineIdentifier to AVFoundationMSE, while this port
+      # registers only the GStreamer engines. MSE runs in the web process here, as on upstream's other
+      # GStreamer ports.
+      "!USE(GSTREAMER)": true
+      default: false
     WebCore:
       default: true
   sharedPreferenceForWebProcess: true
@@ -6481,6 +6497,11 @@ PushAPIEnabled:
     WebKitLegacy:
       default: false
     WebKit:
+      # MAVERICKS_BACKPORT: status is "embedder", and this port's embedder (stock
+      # Safari 7) predates the SPI that would turn it on. The WK2 default carries the
+      # decision instead: Web Push is served end-to-end via webpushd's Mozilla autopush
+      # transport (see Source/WebKit/webpushd/MozillaPushServiceConnection.h).
+      "USE(MOZILLA_PUSH_SERVICE)": true
       default: false
   disableInLockdownMode: true
   sharedPreferenceForWebProcess: true
@@ -6922,7 +6943,9 @@ ScreenCaptureEnabled:
   humanReadableDescription: "Enable ScreenCapture"
   defaultValue:
     WebKitLegacy:
-      default: false
+      # MAVERICKS_BACKPORT: on for WebKit1, matching the WebKit column here, now that WebKit1 has a
+      # getUserMedia client again (WebUserMediaClient) and prompts for screen capture through it.
+      default: true
     WebKit:
       default: WebKit::defaultShouldEnableScreenCapture()
     WebCore:
@@ -8047,15 +8070,19 @@ SwitchControlEnabled:
   category: html
   humanReadableName: "HTML switch control"
   humanReadableDescription: "Enable HTML switch control"
+  # MAVERICKS_BACKPORT: off, so `<input type=checkbox switch>` stays a checkbox and
+  # `'switch' in HTMLInputElement.prototype` reports false. The maintainer's decision for this port:
+  # a 10.9 desktop draws checkboxes, and a page that feature-detects the switch gets the checkbox
+  # rendering it would choose for itself rather than a control drawn to look like a later system's.
   defaultValue:
     WebKitLegacy:
-      "PLATFORM(COCOA)": true
+      # "PLATFORM(COCOA)": true   # MAVERICKS_BACKPORT: see the decision above.
       default: false
     WebKit:
-      "PLATFORM(COCOA)": true
+      # "PLATFORM(COCOA)": true   # MAVERICKS_BACKPORT: see the decision above.
       default: false
     WebCore:
-      "PLATFORM(COCOA)": true
+      # "PLATFORM(COCOA)": true   # MAVERICKS_BACKPORT: see the decision above.
       default: false
 
 # FIXME: There is no custom binding implemented for WebKitLegacy.
@@ -9750,7 +9777,8 @@ WebRTCH265CodecEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      "PLATFORM(COCOA)": true
+      # MAVERICKS_BACKPORT: only where VideoToolbox has an HEVC codec (see HAVE(VIDEOTOOLBOX_HEVC)).
+      "PLATFORM(COCOA) && HAVE(VIDEOTOOLBOX_HEVC)": true
       default: false
     WebCore:
       "PLATFORM(COCOA)": true
@@ -9812,7 +9840,9 @@ WebRTCPlatformCodecsInGPUProcessEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      "ENABLE(GPU_PROCESS_BY_DEFAULT)": true
+      # MAVERICKS_BACKPORT: the WebRTC platform codecs run in the web process here; see
+      # ENABLE_GPU_PROCESS_RASTERIZATION_ONLY in MavericksSupport/cmake/OptionsMacMavericks.cmake.
+      "ENABLE(GPU_PROCESS_BY_DEFAULT) && !ENABLE(GPU_PROCESS_RASTERIZATION_ONLY)": true
       default: false
     WebCore:
       default: false
