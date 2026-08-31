@@ -39,7 +39,9 @@
 #import <Foundation/Foundation.h>
 #import <WebCore/LogInitialization.h>
 #import <WebCore/SQLiteFileSystem.h>
-#import <WebKit/Logging.h>
+// MAVERICKS_BACKPORT: upstream's redundant <WebKit/Logging.h> import is dropped here — this file
+// compiles into the framework itself in the CMake build, where the framework-style header does not
+// resolve, and the quoted "Logging.h" import above already provides it.
 #import <getopt.h>
 #import <pal/spi/cf/CFUtilitiesSPI.h>
 #import <pal/spi/cocoa/CoreServicesSPI.h>
