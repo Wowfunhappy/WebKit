@@ -14,13 +14,20 @@
 #include "common/system_utils.h"
 
 #include <Foundation/Foundation.h>
+// MAVERICKS_BACKPORT: only import Metal when building the Metal backend; 10.9 uses the CGL backend.
+#if ANGLE_ENABLE_METAL
 #include <Metal/Metal.h>
+#endif
 
 namespace angle
 {
 
 bool IsMetalRendererAvailable()
 {
+#if !ANGLE_ENABLE_METAL
+    // MAVERICKS_BACKPORT: built with ANGLE's OpenGL (CGL) backend; Metal is unavailable.
+    return false;
+#else
 #if defined(ANGLE_PLATFORM_MACOS) || defined(ANGLE_PLATFORM_MACCATALYST)
     static bool queriedMachineModel    = false;
     static bool machineModelSufficient = true;
@@ -120,6 +127,8 @@ bool IsMetalRendererAvailable()
         }
     }();
     return gpuFamilySufficient;
+// MAVERICKS_BACKPORT: end of the Metal-availability probe, compiled out on 10.9 (CGL backend).
+#endif // !ANGLE_ENABLE_METAL
 }
 
 #if defined(ANGLE_PLATFORM_MACOS) || defined(ANGLE_PLATFORM_MACCATALYST)
