@@ -169,7 +169,10 @@ NetworkSession::NetworkSession(NetworkProcess& networkProcess, const NetworkSess
     })
     , m_storageManager(createNetworkStorageManager(networkProcess, parameters))
 #if ENABLE(WEB_PUSH_NOTIFICATIONS)
-    , m_notificationManager(NetworkNotificationManager::create(parameters.sessionID.isEphemeral() ? String { } : parameters.webPushMachServiceName, configurationWithHostAuditToken(networkProcess, parameters.webPushDaemonConnectionConfiguration), networkProcess))
+    // MAVERICKS_BACKPORT: the session ID is passed in because this port's manager names the session
+    // when it relays "push messages became available" to the UI process (see its constructor and the
+    // announce below) -- Safari 7 has no x-webkit-app-launch pump to identify the session for it.
+    , m_notificationManager(NetworkNotificationManager::create(parameters.sessionID, parameters.sessionID.isEphemeral() ? String { } : parameters.webPushMachServiceName, configurationWithHostAuditToken(networkProcess, parameters.webPushDaemonConnectionConfiguration), networkProcess))
 #endif
 #if ENABLE(DECLARATIVE_WEB_PUSH)
     , m_isDeclarativeWebPushEnabled(parameters.isDeclarativeWebPushEnabled)
@@ -221,6 +224,21 @@ NetworkSession::NetworkSession(NetworkProcess& networkProcess, const NetworkSess
         parameters.serviceWorkerRegistrationDirectory,
         parameters.serviceWorkerProcessTerminationDelayEnabled
     };
+
+#if USE(MOZILLA_PUSH_SERVICE)
+    // MAVERICKS_BACKPORT: webpushd stores pushes that arrive while no client is running
+    // (including any the Mozilla service replayed from its offline queue). Announce at
+    // session bring-up so the UI process drains them; this also gives the daemon a
+    // standing connection to signal later pushes on. Modern hosts instead pump via
+    // -[WKWebsiteDataStore _handleNextPushMessageWithCompletionHandler:] after being
+    // launched with x-webkit-app-launch, which Safari 7 cannot do.
+    if (!m_sessionID.isEphemeral() && !parameters.webPushMachServiceName.isEmpty()) {
+        RunLoop::mainSingleton().dispatch([networkProcess = Ref { networkProcess }, sessionID = m_sessionID] {
+            if (RefPtr parentConnection = networkProcess->parentProcessConnection())
+                parentConnection->send(Messages::NetworkProcessProxy::WebPushMessagesBecameAvailable(sessionID), 0);
+        });
+    }
+#endif
 
 #if ENABLE(CONTENT_EXTENSIONS)
     SandboxExtension::consumePermanently(parameters.resourceMonitorThrottlerDirectoryExtensionHandle);
