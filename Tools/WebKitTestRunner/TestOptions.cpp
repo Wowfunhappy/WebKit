@@ -104,6 +104,7 @@ const TestFeatures& TestOptions::defaults()
             { "ExposeSpeakersEnabled", true },
             { "FullScreenEnabled", true },
             { "GenericCueAPIEnabled", false },
+            { "HTTPSByDefaultEnabled", false },
             { "HiddenPageCSSAnimationSuspensionEnabled", false },
             { "HiddenPageDOMTimerThrottlingEnabled", false },
 #if ENABLE(CONTENT_EXTENSIONS)
