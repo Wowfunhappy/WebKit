@@ -11,8 +11,6 @@ list(APPEND WTF_LIBRARIES
 
 list(APPEND WTF_SOURCES
     BlockObjCExceptions.mm
-    # MAVERICKS_BACKPORT: build ObjCRuntimeExtras.mm here (not in upstream's Mac WTF source list).
-ObjCRuntimeExtras.mm
     ProcessPrivilege.cpp
     TranslatedProcess.cpp
 
@@ -35,17 +33,10 @@ ObjCRuntimeExtras.mm
     cocoa/MemoryPressureHandlerCocoa.mm
     cocoa/NSURLExtras.mm
     cocoa/ResourceUsageCocoa.cpp
-    # MAVERICKS_BACKPORT: .mm (not upstream's .cpp) — this file is built as Objective-C++ here.
-    cocoa/RuntimeApplicationChecksCocoa.mm
+    cocoa/RuntimeApplicationChecksCocoa.cpp
     cocoa/SchedulePairCocoa.mm
-    # MAVERICKS_BACKPORT: absent from upstream WTF cmake list; defines WTF::dispatch_data_apply_span
-    # (a wrapper over the 10.9-available dispatch_data_apply) used by WebKit NetworkCache/NetworkRTC.
-    cocoa/SpanCocoa.mm
     cocoa/SystemTracingCocoa.cpp
     cocoa/URLCocoa.mm
-    # MAVERICKS_BACKPORT: absent from upstream WTF cmake list; defines WTF::UUID::createNSUUID/fromNSUUID
-    # used by WebKit (WebPushMessage, model element, etc.).
-    cocoa/UUIDCocoa.mm
     cocoa/WorkQueueCocoa.cpp
 
     darwin/LibraryPathDiagnostics.mm
@@ -137,33 +128,3 @@ list(APPEND WTF_SOURCES
     ${WTF_DERIVED_SOURCES_DIR}/mach_excServer.c
     ${WTF_DERIVED_SOURCES_DIR}/mach_excUser.c
 )
-
-# MAVERICKS_BACKPORT: WTF GLib HELPER layer needed by the upstream GStreamer media player. Only the
-# smart-pointer / type helpers (GRefPtr/GMallocString/GSpanExtras + header-only GUniquePtr/WTFGType/…),
-# NOT the GLib platform replacements (RunLoopGLib/FileSystemGlib/URLGLib), which would collide with the
-# Cocoa run loop and file system. glib headers come from MavericksSupport/deps/build.
-if (USE_GLIB)
-    list(APPEND WTF_SOURCES
-        glib/GMallocString.cpp
-        glib/GRefPtr.cpp
-        glib/GSpanExtras.cpp
-    )
-    list(APPEND WTF_PUBLIC_HEADERS
-        glib/GMallocString.h
-        glib/GMutexLocker.h
-        glib/GRefPtr.h
-        glib/GSpanExtras.h
-        glib/GThreadSafeWeakPtr.h
-        glib/GTypedefs.h
-        glib/GUniquePtr.h
-        glib/GWeakPtr.h
-        glib/RunLoopSourcePriority.h
-        glib/WTFGType.h
-    )
-    list(APPEND WTF_SYSTEM_INCLUDE_DIRECTORIES
-        "${MAVERICKS_DEPS}/include/glib-2.0"
-        "${MAVERICKS_DEPS}/lib/glib-2.0/include"
-        "${MAVERICKS_DEPS}/include/gio-unix-2.0"
-    )
-    list(APPEND WTF_LIBRARIES GLib::GLib GLib::Object GLib::Gio)
-endif ()

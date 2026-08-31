@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: the CDMProxy for Widevine. The content keys live inside the CDM
+// The CDMProxy for Widevine. The content keys live inside the CDM
 // and are never handed out, so samples are decrypted by the CDM itself; the key store
 // this inherits carries key IDs and statuses, which is what the decryptor waits on.
 

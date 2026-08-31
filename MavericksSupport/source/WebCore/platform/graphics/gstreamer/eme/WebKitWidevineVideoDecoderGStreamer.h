@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: the Widevine video decoder element. Google's CDM answers kNoKey for a
+// The Widevine video decoder element. Google's CDM answers kNoKey for a
 // sample its Decrypt() recognises as a video bitstream; encoded video goes through its own
 // decoder instead, which is the path Chromium drives it on.
 

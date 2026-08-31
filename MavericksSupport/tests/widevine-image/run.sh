@@ -1,6 +1,6 @@
 #!/bin/bash
 # Exercises the Mach-O work WebCore does on Google's Widevine module
-# (Source/WebCore/platform/graphics/gstreamer/eme/WidevineCdmImage.cpp) against real files on this host.
+# (MavericksSupport/source/WebCore/platform/graphics/gstreamer/eme/WidevineCdmImage.cpp) against real files on this host.
 #
 #   bash MavericksSupport/tests/widevine-image/run.sh [<a-real-libwidevinecdm.dylib>] [<a-real.crx3>]
 #
@@ -45,8 +45,8 @@ for i, argument in enumerate(arguments):
 compile = " ".join(shlex.quote(f) for f in flags)
 print("set -e")
 print("cd " + shlex.quote(repo + "/WebKitBuild/Release"))
-print(compile + " -c " + shlex.quote(repo + "/Source/WebCore/platform/graphics/gstreamer/eme/WidevineCdmImage.cpp") + " -o " + shlex.quote(work + "/image.o"))
-print(compile + " -x objective-c++ -fno-objc-arc -c " + shlex.quote(repo + "/Source/WebCore/platform/graphics/gstreamer/eme/WidevineCdmArchive.mm") + " -o " + shlex.quote(work + "/archive.o"))
+print(compile + " -c " + shlex.quote(repo + "/MavericksSupport/source/WebCore/platform/graphics/gstreamer/eme/WidevineCdmImage.cpp") + " -o " + shlex.quote(work + "/image.o"))
+print(compile + " -x objective-c++ -fno-objc-arc -c " + shlex.quote(repo + "/MavericksSupport/source/WebCore/platform/graphics/gstreamer/eme/WidevineCdmArchive.mm") + " -o " + shlex.quote(work + "/archive.o"))
 print(compile + " -c " + shlex.quote(repo + "/MavericksSupport/tests/widevine-image/main.cpp") + " -o " + shlex.quote(work + "/main.o"))
 print(shlex.quote(flags[0]) + " -o " + shlex.quote(work + "/wvimage") + " " + shlex.quote(work + "/image.o") + " " + shlex.quote(work + "/archive.o") + " " + shlex.quote(work + "/main.o")
       + " -F " + shlex.quote(repo + "/WebKitBuild/Release/lib") + " -framework JavaScriptCore -framework Foundation -framework CoreFoundation -framework Security -lz")

@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: see WidevineCdmImage.h.
+// See WidevineCdmImage.h.
 //
 // Three passes stand between the module Google publishes and one 10.9's dyld will load. Each works
 // only on load commands, segment names and the fixup streams, and each measures the image and this
@@ -63,7 +63,6 @@ uint64_t readULEB(std::span<const uint8_t> stream, size_t& position)
 }
 
 inline std::span<const uint8_t> spanOf(const Vector<uint8_t>& image) { return image.span(); }
-inline std::span<const uint8_t> spanOf(std::span<const uint8_t> image) { return image; }
 
 template<typename T, typename Bytes> const T* structureAt(const Bytes& image, size_t offset, size_t count = 1)
 {

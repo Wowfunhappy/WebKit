@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: see WidevineCdmArchive.h.
+// See WidevineCdmArchive.h.
 
 #import "config.h"
 #import "WidevineCdmArchive.h"

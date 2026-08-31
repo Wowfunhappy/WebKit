@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: the com.widevine.alpha key system, backed by the Chromium-API CDM
+// The com.widevine.alpha key system, backed by the Chromium-API CDM
 // wrapped by WidevineCdmModule. Shaped like the Thunder backend, which is upstream's other
 // external-CDM key system: the CDM owns the sessions and the content keys.
 
@@ -108,7 +108,7 @@ private:
     // Whether the CDM has somewhere to keep its own record (see initializeWithConfiguration).
     bool m_hasStorage { false };
     HashMap<String, WeakPtr<CDMInstanceSessionWidevine>> m_sessions;
-    // MAVERICKS_BACKPORT: creates whose session the CDM has not named yet, by the promise id each
+    // Creates whose session the CDM has not named yet, by the promise id each
     // was issued under. Several can be waiting at once: the CDM settles a create from a host answer
     // a run loop turn later, so a page that opens two sessions in one task has both outstanding.
     HashMap<uint32_t, WeakPtr<CDMInstanceSessionWidevine>> m_createsInFlight;
@@ -135,7 +135,7 @@ public:
     void didChangeKeyStatuses(Vector<WidevineKeyStatus>&&);
     void didChangeExpiration(double);
     void didClose();
-    // MAVERICKS_BACKPORT: settles a request left waiting for a message with a failure.
+    // Settles a request left waiting for a message with a failure.
     void failPendingLicenseRequests();
     // The CDM named this session after the call that created it returned.
     void didCreateSession(const String& sessionID);
@@ -151,7 +151,7 @@ private:
     String m_sessionID;
     KeyStore m_keyStore;
     WeakPtr<CDMInstanceSessionClient> m_client;
-    // MAVERICKS_BACKPORT: the cdm::Host_11 contract is asynchronous -- the CDM may emit the message a
+    // The cdm::Host_11 contract is asynchronous -- the CDM may emit the message a
     // call was made for from a host answer that completes after the call returns. A request left
     // without a message waits here and is answered by didReceiveMessage.
     Vector<LicenseCallback> m_pendingLicenseCallbacks;

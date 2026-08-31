@@ -73,6 +73,30 @@ endmacro()
 # Mac/CG port. GStreamer.cmake consumes the GSTREAMER_*/GLib targets set by OptionsMacGStreamer.cmake.
 if (USE_GSTREAMER)
     include(platform/GStreamer.cmake)
+
+    # com.widevine.alpha, served by Google's own Chromium-API CDM. Upstream WebKit has no Widevine key
+    # system at all, so the whole subsystem is this port's -- the CDM and its proxy, the decryptor and
+    # video-decoder GStreamer elements, the module host, and the runtime installation of Google's
+    # module (WebKitLegacy installs it in its own process; WebKit's UIProcess installs it and hands the
+    # web process a sandbox extension for it). It lives in the support tree at the Source/ path it
+    # plugs into, and compiles as its own translation units.
+    set(MAVERICKS_WIDEVINE_DIR "${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/eme")
+    list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES "${MAVERICKS_WIDEVINE_DIR}")
+    list(APPEND WebCore_SOURCES
+        ${MAVERICKS_WIDEVINE_DIR}/CDMProxyWidevine.cpp
+        ${MAVERICKS_WIDEVINE_DIR}/CDMWidevine.cpp
+        ${MAVERICKS_WIDEVINE_DIR}/WebKitWidevineDecryptorGStreamer.cpp
+        ${MAVERICKS_WIDEVINE_DIR}/WebKitWidevineVideoDecoderGStreamer.cpp
+        ${MAVERICKS_WIDEVINE_DIR}/WidevineCdmArchive.mm
+        ${MAVERICKS_WIDEVINE_DIR}/WidevineCdmImage.cpp
+        ${MAVERICKS_WIDEVINE_DIR}/WidevineCdmInstaller.mm
+        ${MAVERICKS_WIDEVINE_DIR}/WidevineCdmModule.cpp
+    )
+    # Both ports reach the installer and the module's recorded location as <WebCore/...>.
+    list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
+        ${MAVERICKS_WIDEVINE_DIR}/WidevineCdmInstaller.h
+        ${MAVERICKS_WIDEVINE_DIR}/WidevineCdmLocation.h
+    )
 endif ()
 
 # no SceneKit.framework link. WebCore binds no SceneKit symbols on this
@@ -249,6 +273,11 @@ set(MAVERICKS_WITHHELD_COCOA_SOURCES
     "platform/ios/PlaybackSessionInterfaceAVKitLegacy.mm @nonARC @no-unify"
     "platform/ios/PlaybackSessionInterfaceIOS.mm @nonARC @no-unify"
     "platform/ios/WebAVPlayerController.mm @nonARC"
+    # Stale entries: upstream's list names these two paths but ships no file at either
+    # (the AVKit playback-session and video-presentation interfaces are Xcode-project-only), so
+    # nothing has to exist to satisfy them.
+    "platform/ios/PlaybackSessionInterfaceAVKit.mm @nonARC @no-unify"
+    "platform/ios/VideoPresentationInterfaceAVKit.mm @nonARC @no-unify"
 )
 
 # Withheld from SourcesGStreamer.txt: the GStreamer flavor of the libwebrtc glue (its
@@ -315,6 +344,8 @@ set(MAVERICKS_ADDED_COCOA_SOURCES
     "platform/image-decoders/webp/WEBPImageDecoder.cpp"
     "platform/mac/WebCoreView.mm @nonARC"
     "platform/graphics/cocoa/ANGLEUtilitiesCocoa.mm @nonARC @no-unify"
+    # the DualShock 4's standard mapping, which upstream gets from GameController.framework.
+    "platform/gamepad/mac/Dualshock4HIDGamepad.cpp"
 )
 
 # Added to SourcesGStreamer.txt: the CoreGraphics/Cocoa halves of the GStreamer player that upstream's
@@ -324,6 +355,9 @@ set(MAVERICKS_ADDED_GSTREAMER_SOURCES
     "platform/glib/ApplicationGLib.cpp"
     "platform/glib/SharedBufferGlib.cpp"
     "platform/graphics/gstreamer/ImageGStreamerCG.cpp"
+    # the restored ClearKey CDMProxy and decryptor element (removed upstream in 4694d7d).
+    "platform/graphics/gstreamer/eme/CDMProxyClearKey.cpp"
+    "platform/graphics/gstreamer/eme/WebKitClearKeyDecryptorGStreamer.cpp"
 )
 
 set(MAVERICKS_WITHHELD_WEBCORE_SOURCES "")
@@ -346,6 +380,17 @@ MAVERICKS_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES 
 # in a unified bundle stay in Source/, where their list position decides which files share a bundle.
 list(APPEND WebCore_SOURCES
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/cocoa/MavericksBackportWebCoreGlue.mm
+    # Decodes the gzip bodies 10.9 CFNetwork withholds; see the file for the rule it reproduces.
+    # WebCoreResourceHandleAsOperationQueueDelegate.h reaches its header by bare name and WebKit's
+    # network process as <WebCore/CFNetworkSuppressedGzipDecoder.h>, so the directory goes on the
+    # include path and the header into the private framework headers.
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CFNetworkSuppressedGzipDecoder.cpp
+)
+list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
+    "${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa"
+)
+list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CFNetworkSuppressedGzipDecoder.h
 )
 if (USE_GSTREAMER)
     list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES "${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer")
@@ -395,6 +440,12 @@ list(APPEND WebCore_IDL_FILES
 # entries (e.g. platform/gamepad/cocoa/GameControllerSoftLink.mm) do. Non-ARC like their SourcesCocoa.txt
 # siblings, which is this build's default (WebKitMacros.cmake only adds -fobjc-arc for -ARC.mm sources).
 list(APPEND WebCore_SOURCES
+    # SharedVideoFrameInfo carries video frames over IPC for the GPU process; upstream's Xcode target
+    # compiles the directory, so its CMake list never names this file.
+    platform/cocoa/SharedVideoFrameInfo.mm
+    # PixelBufferConformerCV's pixel-format constructor lives in the .mm beside the .cpp, and the GPU
+    # process's video path calls it.
+    platform/graphics/cv/PixelBufferConformerCV.mm
     # Plain X.690 DER length arithmetic over a Vector<uint8_t> -- despite the directory it pulls in no
     # CommonCrypto, and WebAuthn's Modules/webauthn/fido/U2fResponseConverter.cpp calls
     # bytesUsedToEncodedLength() whichever WebCrypto backend is built. SourcesCocoa.txt comments the whole
@@ -425,6 +476,23 @@ list(APPEND WebCore_LIBRARIES
 )
 
 list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
+    # the classic (legacy) inspector frontend bridge.
+    inspector/InspectorFrontendClassicBridge.h
+    # the restored Dashboard-region support.
+    rendering/style/StyleDashboardRegion.h
+    style/values/non-standard/StyleDashboardRegions.h
+    # GPUConnectionToWebProcess.cpp includes this alongside MediaSessionManagerCocoa.h for all of
+    # PLATFORM(COCOA); the header guards its own body with PLATFORM(IOS_FAMILY), so on Mac it
+    # contributes nothing but still has to resolve.
+    platform/audio/ios/MediaSessionManagerIOS.h
+    # The GPU process includes these two for all of PLATFORM(COCOA) while each guards its own body more
+    # narrowly, so they contribute nothing to this build but still have to resolve.
+    # AVAudioSessionCaptureDeviceManager.h is ENABLE(MEDIA_STREAM) && PLATFORM(IOS_FAMILY)
+    # (RemoteAudioSessionProxy.cpp, RemoteAudioMediaStreamTrackRendererInternalUnitManager.cpp);
+    # MediaPlayerPrivateMediaStreamAVFObjC.h is ENABLE(MEDIA_STREAM) && USE(AVFOUNDATION), and this
+    # port's media engine is GStreamer (RemoteMediaPlayerManager.cpp).
+    platform/mediastream/ios/AVAudioSessionCaptureDeviceManager.h
+    platform/graphics/avfoundation/objc/MediaPlayerPrivateMediaStreamAVFObjC.h
     # export PlatformDynamicRangeLimitCocoa.h — the CADynamicRange limit helper
     # WebViewImpl.mm imports as <WebCore/PlatformDynamicRangeLimitCocoa.h>. Upstream's Xcode build finds
     # it by basename; the CMake port stages private headers by explicit list, so it must be named here.
@@ -666,6 +734,7 @@ list(APPEND WebCore_USER_AGENT_STYLE_SHEETS
 # here so no file has to exist to satisfy them. Nothing includes any of these headers.
 # --------------------------------------------------------------------------
 list(REMOVE_ITEM WebCore_PRIVATE_FRAMEWORK_HEADERS
+    platform/ios/PlaybackSessionInterfaceAVKit.h
     platform/cocoa/PlatformView.h
     # NOTE: upstream really does list this .mm under the framework-headers variable, not SOURCES.
     platform/cocoa/PublicSuffixCocoa.mm
@@ -676,6 +745,9 @@ list(REMOVE_ITEM WebCore_PRIVATE_FRAMEWORK_HEADERS
 
 list(REMOVE_ITEM WebCore_SOURCES
     platform/cocoa/RuntimeApplicationChecksCocoa.mm
+    platform/graphics/cocoa/FontCascadeCocoa.cpp
+    platform/graphics/mac/FloatPointMac.mm
+    platform/graphics/mac/FloatSizeMac.mm
     platform/graphics/mac/ImageMac.mm
     platform/graphics/mac/IntPointMac.mm
     platform/graphics/mac/IntSizeMac.mm

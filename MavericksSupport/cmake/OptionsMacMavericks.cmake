@@ -26,6 +26,15 @@ if (NOT EXISTS "${MAVERICKS_DEPS}/lib/libgcrypt.a")
         "Run MavericksSupport/bootstrap.sh (or MavericksSupport/deps/build_deps.sh) first.")
 endif ()
 
+# ICU. The system libicucore is ICU 51 and lacks the modern Intl symbols JSC needs (ucfpos_*,
+# udtitvfmt_*, ureldatefmt_*, ulistfmt_*, ...), so this port links the ICU 74.2 static libraries
+# deps/build_deps.sh builds -- matching the 74.2 headers WebKitFindPackage.cmake stages. Answering the
+# three cache entries here is what makes its `find_library(ICU_*_LIBRARY icucore)` calls no-ops:
+# find_library leaves an already-answered result alone.
+set(ICU_I18N_LIBRARY "${MAVERICKS_DEPS}/lib/libicui18n.a" CACHE FILEPATH "" FORCE)
+set(ICU_UC_LIBRARY   "${MAVERICKS_DEPS}/lib/libicuuc.a"   CACHE FILEPATH "" FORCE)
+set(ICU_DATA_LIBRARY "${MAVERICKS_DEPS}/lib/libicudata.a" CACHE FILEPATH "" FORCE)
+
 # upstream injects WEBKIT_BUNDLE_VERSION from Version.xcconfig via the Xcode
 # build; the CMake port never defines it, so the UI-process/child version handshake in
 # ProcessLauncherCocoa.mm and XPCServiceMain.mm has no macro to reference. Define it here from the
@@ -109,7 +118,9 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_ACCESSIBILITY_ISOLATED_TREE PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_CONTENT_FILTERING PRIVATE OFF)
 
 # ON — 10.9 Dashboard widgets need -apple-dashboard-region control regions
-# (subsystem removed upstream in 2d364c6; restored for the backport).
+# (subsystem removed upstream in 2d364c6; restored for the backport). The flag is declared here, inside
+# the WEBKIT_OPTION_BEGIN/END window WEBKIT_OPTION_DEFINE requires, and takes its Mac value below.
+WEBKIT_OPTION_DEFINE(ENABLE_DASHBOARD_SUPPORT "Toggle legacy Dashboard widget support" PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_DASHBOARD_SUPPORT PRIVATE ON)
 
 # ON, upstream's Mac value. What 10.9 lacks is AVContentKeySession (10.12+, gated
@@ -296,7 +307,7 @@ SET_AND_EXPOSE_TO_BUILD(USE_GLIB TRUE)
 SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER_GL FALSE)
 SET_AND_EXPOSE_TO_BUILD(USE_TEXTURE_MAPPER FALSE)
 SET_AND_EXPOSE_TO_BUILD(USE_COORDINATED_GRAPHICS FALSE)
-include(OptionsMacGStreamer)
+include("${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/OptionsMacGStreamer.cmake")
 
 # link the libxml2 2.13 from deps/build (@rpath install name, shipped
 # alongside GStreamer) instead of the SDK tbd. The SDK tbd binds /usr/lib/libxml2.2.dylib,
@@ -333,6 +344,15 @@ link_libraries(${MAVERICKS_TC}/lib/libc++abi.1.dylib)
 # toolchain directory as explicit lets it order the two, ahead of deps/build/lib.
 list(REMOVE_ITEM CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES "${MAVERICKS_TC}/lib")
 list(REMOVE_ITEM CMAKE_OBJCXX_IMPLICIT_LINK_DIRECTORIES "${MAVERICKS_TC}/lib")
+
+# WebKit intends RTTI disabled everywhere (Xcode's GCC_ENABLE_CPP_RTTI=NO covers ObjC++ too), but
+# WebKitCompilerFlags.cmake applies -fno-rtti to CXX alone, leaving OBJCXX (.mm) with RTTI on. That
+# mismatch makes .mm files emit and reference C++ typeinfos for classes whose .cpp definitions
+# (compiled -fno-rtti) emit none -- strong-undefined "typeinfo for ..." symbols that abort every
+# WebKit process at dyld load. No .mm in the tree uses dynamic_cast or typeid.
+if (CMAKE_OBJCXX_COMPILER_LOADED)
+    set(CMAKE_OBJCXX_FLAGS "${CMAKE_OBJCXX_FLAGS} -fno-rtti")
+endif ()
 # libpolyfill.a supplies the symbols this port provides in place of the 10.9 runtime's: the
 # POSIX/libc base, the framework-SPI gap-fills, and the handful of deliberate replacements for 10.9
 # functions that misbehave. Linked into every binary.

@@ -1,15 +1,7 @@
 set_property(DIRECTORY . PROPERTY FOLDER "ANGLE")
 
 if (APPLE)
-    # MAVERICKS_BACKPORT: set is_apple so GLESv2.cmake adds the Apple common CGL-backend sources (see below).
-    set(is_apple TRUE)
     set(is_mac TRUE)
-    # MAVERICKS_BACKPORT: use the CGL OpenGL backend (Metal is unavailable). Must be set before
-    # include(GL.cmake) so the renderer/gl/cgl/* sources are added to gl_backend_sources.
-    # is_apple gates the Apple common sources in GLESv2.cmake (FunctionsCGL.cpp soft-links,
-    # apple_platform_utils.mm, system_utils_mac.cpp) — required by the CGL backend.
-    set(angle_enable_cgl TRUE)
-    set(angle_enable_gl TRUE)
 elseif (WIN32)
     set(is_win TRUE)
     set(angle_enable_d3d9 TRUE)
@@ -20,6 +12,10 @@ elseif (ANDROID)
 elseif (UNIX)
     set(is_linux TRUE)
 endif ()
+
+# MAVERICKS_BACKPORT: the port's backend selection, which the renderer .cmake files below read.
+set(MAVERICKS_ANGLE_PHASE BACKEND)
+include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/ANGLEPlatformMavericks.cmake)
 
 include(Compiler.cmake)
 include(GLESv2.cmake)
@@ -97,15 +93,6 @@ set(ANGLE_SOURCES
     src/libANGLE/capture/FrameCapture_mock.cpp
     src/libANGLE/capture/serialize_mock.cpp
 )
-
-# MAVERICKS_BACKPORT: the GLSL (desktop-GL) output path on Apple runs Apple-specific AST tree ops
-# (UnfoldShortCircuitAST, AddAndTrueToLoopCondition, RewriteRowMajorMatrices). Compiler.cmake
-# defines this group but the base ANGLE_SOURCES never included it, so TranslatorGLSL referenced
-# sh::UnfoldShortCircuitAST as an undefined symbol -> dyld lazy-bind crash in WebContent on the
-# first glCompileShader. Needed since we use the CGL/desktop-GL backend (GLSL output) on macOS.
-if (APPLE)
-    list(APPEND ANGLE_SOURCES ${angle_translator_glsl_apple_sources})
-endif ()
 
 if (WIN32)
     # FIXME: DX11 support will not compile if this preprocessor definition is set

@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: Google builds the Widevine CDM against a newer macOS than this one, so the
+// Google builds the Widevine CDM against a newer macOS than this one, so the
 // module WidevineCdmInstaller downloads is retargeted at what 10.9 actually provides before it is
 // installed. See WidevineCdmImage.cpp for what each pass does.
 

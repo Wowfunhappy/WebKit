@@ -148,7 +148,7 @@ macro(_WEBKIT_TARGET_SETUP _target _logical_name)
         target_compile_options(${_target} PRIVATE ${${_logical_name}_COMPILE_OPTIONS})
     endif ()
 
-    _MAVERICKS_LINK_POLYFILL_CLASSES(${_target}) # MAVERICKS_BACKPORT: link the port's shared Objective-C class definitions.
+    _MAVERICKS_APPLY_TARGET_POLICY(${_target}) # MAVERICKS_BACKPORT: apply the port's per-target link policy.
     if (${_logical_name}_LIBRARIES)
         target_link_libraries(${_target} PUBLIC ${${_logical_name}_LIBRARIES})
     endif ()

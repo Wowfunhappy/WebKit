@@ -71,7 +71,7 @@ SDK="${MAVERICKS_SDK:-$(dirname "$REPO")/MacOSX26.1.sdk}"
 # numbers the runtime does not have.
 GST_VER=1.28.5
 GLIB_VER=2.80.5
-GSTCMAKE="$REPO/Source/cmake/OptionsMacGStreamer.cmake"
+GSTCMAKE="$REPO/MavericksSupport/cmake/OptionsMacGStreamer.cmake"
 for pair in "GSTREAMER_VERSION:$GST_VER" "GLIB_VERSION:$GLIB_VER"; do
   var=${pair%%:*}; want=${pair#*:}
   got=$(sed -n "s/^set($var \"\\(.*\\)\")\$/\\1/p" "$GSTCMAKE")
@@ -1225,7 +1225,7 @@ done
 echo "==== Widevine CDM interface ===="
 # Headers only. The module itself is Google's own Widevine CDM, which is not redistributable and
 # which WebKit downloads and installs at runtime
-# (Source/WebCore/platform/graphics/gstreamer/eme/WidevineCdmInstaller.h);
+# (MavericksSupport/source/WebCore/platform/graphics/gstreamer/eme/WidevineCdmInstaller.h);
 # what is needed at build time is the Chromium interface it implements and WebCore's CDMWidevine.cpp
 # hosts, taken from the repository Chromium keeps it in and pinned to one revision. Googlesource
 # serves a file base64-encoded.

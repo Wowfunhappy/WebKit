@@ -27,11 +27,6 @@ if (ENABLE_VIDEO OR ENABLE_WEB_AUDIO)
         platform/graphics/gstreamer/GRefPtrGStreamer.h
         platform/graphics/gstreamer/GStreamerCommon.h
         platform/graphics/gstreamer/GUniquePtrGStreamer.h
-        # MAVERICKS_BACKPORT: the runtime installation of Google's Widevine CDM. WebKitLegacy
-        # drives the installer in its own process; WebKit's UIProcess drives it and names the
-        # module to the web process, which records it through WidevineCdmLocation.h.
-        platform/graphics/gstreamer/eme/WidevineCdmInstaller.h
-        platform/graphics/gstreamer/eme/WidevineCdmLocation.h
 
         platform/mediastream/gstreamer/GStreamerWebRTCProvider.h
         platform/mediastream/libwebrtc/gstreamer/GStreamerVideoDecoderFactory.h

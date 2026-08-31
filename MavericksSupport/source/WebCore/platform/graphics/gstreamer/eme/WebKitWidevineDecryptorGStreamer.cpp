@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: see WebKitWidevineDecryptorGStreamer.h.
+// See WebKitWidevineDecryptorGStreamer.h.
 
 #include "config.h"
 #include "WebKitWidevineDecryptorGStreamer.h"

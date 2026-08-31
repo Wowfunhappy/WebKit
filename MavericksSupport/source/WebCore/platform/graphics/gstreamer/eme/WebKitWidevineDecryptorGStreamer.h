@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: the Widevine decryptor element, the sibling of webkitclearkey.
+// The Widevine decryptor element, the sibling of webkitclearkey.
 
 #pragma once
 

@@ -1,4 +1,4 @@
-// MavericksPageClient — PageClient backing WKView on the MAVERICKS_BACKPORT.
+// MavericksPageClient — PageClient backing WKView on this port.
 //
 // Safari 7 drives WebKit2 through WKView (an NSView), not WKWebView, so WKView creates its
 // WebPageProxy with this PageClient in place of the upstream WKWebView + WebViewImpl +
@@ -33,16 +33,16 @@
 #import "EditorState.h"
 #import "WKEditCommand.h"
 
-// MAVERICKS_BACKPORT: WKView's promised-file drag entry point, implemented in WKViewMavericks.mm.
+// WKView's promised-file drag entry point, implemented in WKViewMavericks.mm.
 // An internal bridge between this page client and its view, not Safari-7-facing SPI, so it is
 // declared here. setPromisedDataForImage below is the only caller.
 @interface NSView (WKViewPromisedImageData)
 - (void)_wkSetPromisedImageData:(NSData *)imageData uti:(NSString *)uti filename:(NSString *)filename url:(NSString *)url archiveBuffer:(NSData *)archiveData pasteboardName:(NSString *)pasteboardName;
 @end
 #import <WebCore/CGWindowUtilities.h>
-#import <WebCore/ColorCocoa.h> // MAVERICKS_BACKPORT: colorFromCocoaColor, for accentColor() below.
+#import <WebCore/ColorCocoa.h> // colorFromCocoaColor, for accentColor() below.
 #import <WebCore/DictionaryPopupInfo.h>
-// MAVERICKS_BACKPORT: WebCore::ScrollbarStyle, consumed by recommendedScrollbarStyleDidChange.
+// WebCore::ScrollbarStyle, consumed by recommendedScrollbarStyleDidChange.
 #import <WebCore/ScrollTypes.h>
 #import <WebCore/TextUndoInsertionMarkupMac.h>
 #import <WebCore/Cursor.h>
@@ -54,30 +54,30 @@
 #if ENABLE(FULLSCREEN_API)
 #import "WebFullScreenManagerProxy.h"
 #if USE(AUTOCORRECTION_PANEL)
-// MAVERICKS_BACKPORT: the autocorrection bubble, held as a member below.
+// The autocorrection bubble, held as a member below.
 #import "CorrectionPanel.h"
 #endif
-// MAVERICKS_BACKPORT: the WKView full-screen path drives this upstream controller (see the
+// The WKView full-screen path drives this upstream controller (see the
 // MavericksFullScreenManagerProxyClient comment), the same one the WKWebView path uses.
 #import "WKFullScreenWindowController.h"
-// MAVERICKS_BACKPORT: declares -[WKView createFullScreenWindow], sent below to the NSView-typed view.
+// Declares -[WKView createFullScreenWindow], sent below to the NSView-typed view.
 #import "WKViewPrivate.h"
-// MAVERICKS_BACKPORT: the swipe/magnification controller the WKView owns, forwarded to below.
+// The swipe/magnification controller the WKView owns, forwarded to below.
 #import "ViewGestureController.h"
-// MAVERICKS_BACKPORT: the content-relative child windows dismissed on navigation and swipe-back.
+// The content-relative child windows dismissed on navigation and swipe-back.
 #import <WebCore/TextIndicator.h>
 #import <pal/mac/DataDetectorsSoftLink.h>
 #import <pal/spi/cocoa/NSAccessibilitySPI.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
-// MAVERICKS_BACKPORT: -[WKView _wkExistingGestureController] (WKViewMavericks.mm) reports the
+// -[WKView _wkExistingGestureController] (WKViewMavericks.mm) reports the
 // controller without creating one, as WebViewImpl::gestureController() does.
 @interface NSView (WKViewMavericksGestureController)
 - (WebKit::ViewGestureController *)_wkExistingGestureController;
 - (void)_wkClearPromisedDragImage;
 @end
 #endif
-// MAVERICKS_BACKPORT: the pieces navigator.clipboard's permission menu needs (see requestDOMPasteAccess).
+// The pieces navigator.clipboard's permission menu needs (see requestDOMPasteAccess).
 #import <WebCore/LocalizedStrings.h>
 #import <WebCore/PasteboardCustomData.h>
 #import <WebCore/SharedBuffer.h>
@@ -91,18 +91,18 @@
 #import <WebCore/ValidationBubble.h>
 #import <WebCore/WebCoreCALayerExtras.h>
 #import <WebCore/WebMediaSessionManager.h>
-#import <pal/spi/mac/NSApplicationSPI.h> // MAVERICKS_BACKPORT: -[NSApplication _effectiveAccentColor], for accentColor() below.
+#import <pal/spi/mac/NSApplicationSPI.h> // -[NSApplication _effectiveAccentColor], for accentColor() below.
 #import <QuartzCore/QuartzCore.h>
 #import <AppKit/AppKit.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/SortedArrayMap.h>
-// MAVERICKS_BACKPORT: BEGIN/END_BLOCK_OBJC_EXCEPTIONS around the constraint re-activation the
+// BEGIN/END_BLOCK_OBJC_EXCEPTIONS around the constraint re-activation the
 // full-screen client performs, and objc_getClass for the autoresizing-constraint test it filters
 // with (both mirroring WKFullScreenWindowController).
 #import <objc/runtime.h>
 #import <wtf/BlockObjCExceptions.h>
 
-// MAVERICKS_BACKPORT: layer-HOSTING subview for the WebContent render layer (the Safari-537
+// A layer-HOSTING subview for the WebContent render layer (the Safari-537
 // WKView "_layerHostingView"/WKFlippedView design; see the m_layerHostingView member comment).
 // Flipped to match WKView's coordinate system. Event-transparent: hit-testing returns nil so
 // mouse events land on the WKView itself.
@@ -116,7 +116,7 @@
 
 
 #if ENABLE(DRAG_SUPPORT)
-// MAVERICKS_BACKPORT: WKView (in WKView.mm) implements this to start the OS drag
+// WKView (in WKView.mm) implements this to start the OS drag
 // session once startDrag has built the drag image. Declared here so the page
 // client can invoke it on its NSView.
 @interface NSView (WKViewDragSource)
@@ -124,26 +124,26 @@
 @end
 #endif
 
-// MAVERICKS_BACKPORT: WKView's auto-layout intrinsic-content-size setter, invoked from
+// WKView's auto-layout intrinsic-content-size setter, invoked from
 // intrinsicContentSizeDidChange so Mail's message view sizes to its content.
 @interface NSView (WKViewAutoLayout)
 - (void)_setIntrinsicContentSize:(NSSize)intrinsicContentSize;
 @end
 
-// MAVERICKS_BACKPORT: WKView's unhandled-key-down re-dispatch (the WebViewImpl::doneWithKeyEvent
+// WKView's unhandled-key-down re-dispatch (the WebViewImpl::doneWithKeyEvent
 // m_keyDownEventBeingResent re-send), invoked from doneWithKeyEvent so menu key equivalents fire
 // after the page declines a key-down it got first crack at via -[WKView performKeyEquivalent:].
 @interface NSView (WKViewKeyResend)
 - (void)_mavericksResendUnhandledKeyDownEvent:(NSEvent *)event;
 @end
 
-// MAVERICKS_BACKPORT: WKView's title-attribute tooltip setter (classic -addToolTipRect:/
+// WKView's title-attribute tooltip setter (classic -addToolTipRect:/
 // -view:stringForToolTip: mechanism), invoked from toolTipChanged so hover tooltips appear.
 @interface NSView (WKViewToolTip)
 - (void)_wkSetToolTip:(NSString *)string;
 @end
 
-// MAVERICKS_BACKPORT: WKView's half of the WK2 remote-accessibility bridge, invoked from
+// WKView's half of the WK2 remote-accessibility bridge, invoked from
 // accessibilityWebProcessTokenReceived — it turns the WebContent process's token into the
 // NSAccessibilityRemoteUIElement the view vends as its accessibility child.
 @interface NSView (WKViewRemoteAccessibility)
@@ -152,7 +152,7 @@
 - (void)_mavericksRegisterUIProcessAccessibilityTokens;
 @end
 
-// MAVERICKS_BACKPORT: 10.9 AppKit SPI consulted by viewLayerHostingMode() — whether the window's
+// 10.9 AppKit SPI consulted by viewLayerHostingMode() — whether the window's
 // layer tree is composited by the WindowServer (every normal window) or in-process (iBooks'
 // reader window returns NO).
 @interface NSWindow (WKHostsLayersInWindowServer)
@@ -161,7 +161,7 @@
 
 namespace WebKit {
 
-// MAVERICKS_BACKPORT: capture the on-screen window content, cropped to a view, for the ViewSnapshot
+// Capture the on-screen window content, cropped to a view, for the ViewSnapshot
 // capture below (back/forward swipe snapshots and Safari's Top Sites thumbnails). The same capture
 // WebViewImpl::takeViewSnapshot performs, via CGWindowListCreateImage + AppKit coordinates instead of
 // the private CGS hardware-capture path.
@@ -199,7 +199,7 @@ static RetainPtr<CGImageRef> cropWindowCaptureToView(NSView *view)
 }
 
 #if ENABLE(FULLSCREEN_API)
-// MAVERICKS_BACKPORT: element/video full screen for the WKView client, held as a member of the page
+// Element/video full screen for the WKView client, held as a member of the page
 // client. It forwards to this tree's WKFullScreenWindowController — the same controller the WKWebView
 // path uses — method for method, as PageClientImpl does.
 //
@@ -276,7 +276,7 @@ private:
         RefPtr page = m_page.get();
         if (!page || !m_view)
             return nil;
-        // MAVERICKS_BACKPORT: -createFullScreenWindow is WKView's SPI and m_view is typed NSView, so
+        // -createFullScreenWindow is WKView's SPI and m_view is typed NSView, so
         // name the real receiver here. The view is always the WKView that createMavericksPageClient()
         // was handed, which checked_objc_cast asserts.
         RetainPtr<NSWindow> window = [checked_objc_cast<WKView>(m_view) createFullScreenWindow];
@@ -310,11 +310,11 @@ public:
 #endif
     }
 
-    // MAVERICKS_BACKPORT: the popovers and panels anchored to page content, dismissed together when
+    // The popovers and panels anchored to page content, dismissed together when
     // the content under them goes away (WebViewImpl::dismissContentRelativeChildWindowsFromViewOnly).
     void dismissContentRelativeChildWindows();
 
-    // MAVERICKS_BACKPORT: the paste menu's delegate calls these back (see requestDOMPasteAccess).
+    // The paste menu's delegate calls these back (see requestDOMPasteAccess).
     void handleDOMPasteRequestForCategoryWithResult(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteAccessResponse);
     void hideDOMPasteMenuWithResult(WebCore::DOMPasteAccessResponse);
 
@@ -322,7 +322,7 @@ public:
     {
         m_page = page;
 #if ENABLE(FULLSCREEN_API)
-        // MAVERICKS_BACKPORT: the full-screen client needs the page to ask the web process to
+        // The full-screen client needs the page to ask the web process to
         // leave full screen when the user leaves the space behind WebKit's back.
         m_fullScreenClient.m_page = page;
 #endif
@@ -342,7 +342,7 @@ private:
     bool isViewWindowActive() final;
     bool isViewFocused() final;
     bool isActiveViewVisible() final;
-    // MAVERICKS_BACKPORT: PageClientImplCocoa::platformWindow() returns [webView() window], but this
+    // PageClientImplCocoa::platformWindow() returns [webView() window], but this
     // client has no WKWebView (constructed with nil), so surface the WKView's window — used by
     // MediaPermissionUtilities::alertForPermission to host the getUserMedia consent sheet.
     CocoaWindow *platformWindow() const final;
@@ -354,14 +354,14 @@ private:
     bool isViewVisibleOrOccluded() final;
     bool isVisuallyIdle() final;
     void didFirstLayerFlush(const LayerTreeContext&) final;
-    void installRenderLayer(CALayer *); // MAVERICKS_BACKPORT: see the m_layerHostingView member comment.
+    void installRenderLayer(CALayer *); // See the m_layerHostingView member comment.
 #if ENABLE(TILED_CA_DRAWING_AREA)
-    // MAVERICKS_BACKPORT: WebKit-537 parity — report which hosted-context flavor the view's
+    // WebKit-537 parity — report which hosted-context flavor the view's
     // current window can display (see the implementation comment).
     LayerHostingMode viewLayerHostingMode() final;
 #endif
     void processDidExit() final;
-    // MAVERICKS_BACKPORT: give the WebContent pid's remote-UI registration back when the page closes,
+    // Give the WebContent pid's remote-UI registration back when the page closes,
     // as WebViewImpl does from the same hook — otherwise a closed page whose view outlives it leaks it.
     void pageClosed() final;
     void didRelaunchProcess() final;
@@ -716,7 +716,7 @@ private:
     void navigationGestureDidEnd() final;
     void willRecordNavigationSnapshot(WebBackForwardListItem&) final;
     void didRemoveNavigationGestureSnapshot() final;
-    // MAVERICKS_BACKPORT: PageClient's default body is empty; the swipe snapshot needs this event.
+    // PageClient's default body is empty; the swipe snapshot needs this event.
     void didStartProvisionalLoadForMainFrame() final;
     void didFirstVisuallyNonEmptyLayoutForMainFrame() final;
     void didFinishNavigation(API::Navigation*) final;
@@ -789,10 +789,10 @@ private:
     NSView *m_view { nullptr };
     WebPageProxy *m_page { nullptr };
 #if USE(AUTOCORRECTION_PANEL)
-    // MAVERICKS_BACKPORT: the autocorrection bubble, as PageClientImplMac holds it.
+    // The autocorrection bubble, as PageClientImplMac holds it.
     CorrectionPanel m_correctionPanel;
 #endif
-    // MAVERICKS_BACKPORT: the navigator.clipboard paste-permission menu and the reply it owes the
+    // The navigator.clipboard paste-permission menu and the reply it owes the
     // web process, as WebViewImpl holds them.
     RetainPtr<NSMenu> m_domPasteMenu;
     RetainPtr<NSObject<NSMenuDelegate>> m_domPasteMenuDelegate;
@@ -802,7 +802,7 @@ private:
     // embedder's choice through to isActiveViewVisible.
     bool m_windowOcclusionDetectionEnabled { true };
     RetainPtr<CALayer> m_rootLayer;
-    // MAVERICKS_BACKPORT: dedicated layer-HOSTING subview carrying the WebContent render layer
+    // Dedicated layer-HOSTING subview carrying the WebContent render layer
     // (the Safari-537 WKView _layerHostingView design). The subview owns its layer via -setLayer:,
     // so the hosted content is independent of the WKView's own AppKit-owned backing layer.
     RetainPtr<NSView> m_layerHostingView;
@@ -837,7 +837,7 @@ bool MavericksPageClient::isViewFocused()
     return window && [window firstResponder] == m_view;
 }
 
-// MAVERICKS_BACKPORT: see the declaration comment; the WKView's window hosts permission sheets.
+// See the declaration comment; the WKView's window hosts permission sheets.
 CocoaWindow *MavericksPageClient::platformWindow() const
 {
     return [m_view window];
@@ -845,7 +845,7 @@ CocoaWindow *MavericksPageClient::platformWindow() const
 
 bool MavericksPageClient::isActiveViewVisible()
 {
-    // MAVERICKS_BACKPORT: upstream PageClientImpl::isViewVisible's truth table — window presence,
+    // Upstream PageClientImpl::isViewVisible's truth table — window presence,
     // the view's own hidden-ancestor chain, window visibility, then window occlusion. The view's
     // own isHidden matters here: Safari hides the BrowserWKView itself (not an ancestor) behind the
     // Reader view, and -viewDidHide/-viewDidUnhide forwarding recomputes activity state on every
@@ -871,7 +871,7 @@ bool MavericksPageClient::isMainViewVisible()
 
 bool MavericksPageClient::isViewVisibleOrOccluded()
 {
-    // MAVERICKS_BACKPORT: upstream truth table (PageClientImpl::isViewVisibleOrOccluded) — window
+    // Upstream truth table (PageClientImpl::isViewVisibleOrOccluded) — window
     // visibility alone; an occluded window, an inactive-Space window, and a hidden view inside a
     // visible window all count as visible-or-occluded.
     return m_view && [[m_view window] isVisible];
@@ -892,7 +892,7 @@ bool MavericksPageClient::canTakeForegroundAssertions()
     return true;
 }
 
-// MAVERICKS_BACKPORT: the colour space the page composites in, chosen exactly as WebViewImpl does
+// The colour space the page composites in, chosen exactly as WebViewImpl does
 // for WKWebView — the view's window, else the main screen, else sRGB.
 WebCore::DestinationColorSpace MavericksPageClient::colorSpace()
 {
@@ -909,7 +909,7 @@ WebCore::DestinationColorSpace MavericksPageClient::colorSpace()
     return WebCore::DestinationColorSpace { [m_colorSpace CGColorSpace] };
 }
 
-// MAVERICKS_BACKPORT: sent by WKView when AppKit reports new backing properties, which is where a
+// Sent by WKView when AppKit reports new backing properties, which is where a
 // window that moved to a display with a different profile shows up. Same shape as
 // WebViewImpl::viewDidChangeBackingProperties.
 void MavericksPageClient::viewDidChangeBackingProperties()
@@ -984,7 +984,7 @@ void MavericksPageClient::derefView()
     [m_view release];
 }
 
-// MAVERICKS_BACKPORT: install `renderLayer` as the sole sublayer of a dedicated layer-HOSTING
+// Install `renderLayer` as the sole sublayer of a dedicated layer-HOSTING
 // subview of the WKView (the Safari-537 _layerHostingView design; stock 537
 // _setAcceleratedCompositingModeRootLayer: is this same shape). The subview owns its layer via
 // -setLayer:, keeping the hosted content independent of the WKView's AppKit-owned backing
@@ -1040,7 +1040,7 @@ void MavericksPageClient::didFirstLayerFlush(const LayerTreeContext& context)
 }
 
 #if ENABLE(TILED_CA_DRAWING_AREA)
-// MAVERICKS_BACKPORT: WebKit-537 parity. On 10.9 a CALayerHost only displays a hosted context
+// WebKit-537 parity. On 10.9 a CALayerHost only displays a hosted context
 // whose flavor matches how its window composites layers: windows hosting their layer tree in the
 // WindowServer (every normal window, and the default for windowless views) display
 // CGS-connection contexts; windows compositing in-process ([NSWindow _hostsLayersInWindowServer]
@@ -1076,7 +1076,7 @@ WebCore::FloatPoint MavericksPageClient::viewScrollPosition()
 { return { }; }
 void MavericksPageClient::processDidExit()
 {
-    // MAVERICKS_BACKPORT: the remote accessibility element names the process that just exited, so
+    // The remote accessibility element names the process that just exited, so
     // drop it and unregister the pid, as WebViewImpl does from the same hook.
     [m_view _mavericksUpdateRemoteAccessibilityRegistration:NO];
 }
@@ -1086,7 +1086,7 @@ void MavericksPageClient::pageClosed()
 }
 void MavericksPageClient::didRelaunchProcess()
 {
-    // MAVERICKS_BACKPORT: a relaunched WebContent process has a fresh accessibility root and knows
+    // A relaunched WebContent process has a fresh accessibility root and knows
     // nothing about this view, so re-send the UI-process tokens (upstream's didRelaunchProcess does
     // exactly this).
     [m_view _mavericksRegisterUIProcessAccessibilityTokens];
@@ -1095,7 +1095,7 @@ void MavericksPageClient::preferencesDidChange()
 { }
 void MavericksPageClient::toolTipChanged(const String&, const String& newToolTip)
 {
-    // MAVERICKS_BACKPORT: wire the title-attribute tooltip to WKView's classic -addToolTipRect:/
+    // Wire the title-attribute tooltip to WKView's classic -addToolTipRect:/
     // -view:stringForToolTip: mechanism (see -[WKView _wkSetToolTip:]); the reimplemented WKView does
     // not use WebViewImpl's NSToolTipManager path.
     if (m_view)
@@ -1105,7 +1105,7 @@ void MavericksPageClient::toolTipChanged(const String&, const String& newToolTip
 void MavericksPageClient::decidePolicyForGeolocationPermissionRequest(WebFrameProxy&, const FrameInfoData&, Function<void(bool)>&)
 { }
 #endif
-// MAVERICKS_BACKPORT: WebViewImpl::updateSupportsArbitraryLayoutModes and ::pageDidScroll are the
+// WebViewImpl::updateSupportsArbitraryLayoutModes and ::pageDidScroll are the
 // WKWebView layout-mode SPI and the hasScrolledContentsUnderTitlebar KVO, neither of which a WKView has.
 void MavericksPageClient::didCommitLoadForMainFrame(const String&, bool)
 {
@@ -1155,7 +1155,7 @@ void MavericksPageClient::didChangeContentSize(const WebCore::IntSize&)
 void MavericksPageClient::startDrag(WebCore::SelectionData&&, OptionSet<WebCore::DragOperation>, RefPtr<WebCore::ShareableBitmap>&& dragImage, WebCore::IntPoint&& dragImageHotspot)
 { }
 #endif
-// MAVERICKS_BACKPORT: hand the OS drag session off to the WKView. Mirrors
+// Hand the OS drag session off to the WKView. Mirrors
 // WebViewImpl::startDrag, except a promised-attachment drag is cancelled rather
 // than attempted: the modern path carries that promise via NSFilePromiseProvider
 // (10.12+), and WKView's classic promised-file pasteboard has no carrier for it.
@@ -1185,7 +1185,7 @@ void MavericksPageClient::startDrag(const WebCore::DragItem& item, WebCore::Shar
 #endif
 void MavericksPageClient::setCursor(const WebCore::Cursor& cursor)
 {
-    // MAVERICKS_BACKPORT: WebCore asks the page client to change the cursor (hand over links, I-beam over
+    // WebCore asks the page client to change the cursor (hand over links, I-beam over
     // text, etc.). Mirrors PageClientImpl, minus the WebViewImpl-only image-analysis overlay check.
     if (!isViewWindowActive())
         return;
@@ -1215,7 +1215,7 @@ void MavericksPageClient::setCursorHiddenUntilMouseMoves(bool hiddenUntilMouseMo
 {
     [NSCursor setHiddenUntilMouseMoves:hiddenUntilMouseMoves];
 }
-// MAVERICKS_BACKPORT: the WKView undo surface. The WebProcess sends RegisterEditCommandForUndo and
+// The WKView undo surface. The WebProcess sends RegisterEditCommandForUndo and
 // WebPageProxy routes it here; register the command with the view's NSUndoManager so the standard
 // undo:/redo: actions drive WebEditCommandProxy::unapply()/reapply(). Mirrors
 // WebViewImpl/PageClientImplMac.
@@ -1249,7 +1249,7 @@ void MavericksPageClient::wheelEventWasNotHandledByWebCore(const NativeWebWheelE
         gestureController->wheelEventWasNotHandledByWebCore(event);
 }
 #if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: hand the WebContent process's remote-accessibility token to WKView, which
+// Hand the WebContent process's remote-accessibility token to WKView, which
 // owns the NSAccessibilityRemoteUIElement that stands for the page in the UI process's AX tree
 // (see the accessibility section of WKViewMavericks.mm). PageClientImpl routes this to
 // WebViewImpl::setAccessibilityWebProcessToken the same way; WKView just is not backed by one.
@@ -1262,7 +1262,7 @@ void MavericksPageClient::accessibilityWebProcessTokenReceived(std::span<const u
 }
 #endif
 #if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: map an AppKit responder scroll selector to its WebCore Editor command.
+// Map an AppKit responder scroll selector to its WebCore Editor command.
 // These are the always-enabled (non-editable) scrolling commands that the WebContent-side
 // keypress path (WebPage::executeKeypressCommandsInternal) deliberately does NOT handle and
 // instead forwards to the UIProcess responder fallback. Upstream WKWebView implements these
@@ -1286,7 +1286,7 @@ static String scrollCommandNameForSavedSelector(const String& selector)
 
 bool MavericksPageClient::executeSavedCommandBySelector(const String& selector)
 {
-    // MAVERICKS_BACKPORT: the IPC fallback (WebPageProxy::executeSavedCommandBySelector ->
+    // The IPC fallback (WebPageProxy::executeSavedCommandBySelector ->
     // _web_superDoCommandBySelector:) lands on WKWebView's NSResponder action methods upstream, and
     // Safari's WKView has none — so resolve the scroll selector to its Editor command and execute it
     // on the page here, as those action methods would. Selectors outside the map are unhandled
@@ -1300,13 +1300,13 @@ bool MavericksPageClient::executeSavedCommandBySelector(const String& selector)
     return true;
 }
 #endif
-// MAVERICKS_BACKPORT: HIToolbox secure-event-input, forward-declared to keep <Carbon/Carbon.h> and
+// HIToolbox secure-event-input, forward-declared to keep <Carbon/Carbon.h> and
 // its namespace pollution out of this file.
 extern "C" OSStatus EnableSecureEventInput(void);
 extern "C" OSStatus DisableSecureEventInput(void);
 
 #if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: enable secure event input while a web password field is focused — the
+// Enable secure event input while a web password field is focused — the
 // keylogger protection AppKit gives native password fields. Mirrors
 // WebViewImpl::updateSecureInputState; editorState().isInPasswordField is populated by
 // WebPage.cpp from input->isPasswordField().
@@ -1367,7 +1367,7 @@ CALayer *MavericksPageClient::footerBannerLayer() const
 { return { }; }
 #endif
 #if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
-// MAVERICKS_BACKPORT: WebViewImpl::selectionDidChange's other work is its own private state
+// WebViewImpl::selectionDidChange's other work is its own private state
 // (m_softSpaceRange) and HAVE(TOUCH_BAR); the font-manager update reads only the page.
 void MavericksPageClient::selectionDidChange()
 {
@@ -1418,7 +1418,7 @@ RefPtr<ViewSnapshot> MavericksPageClient::takeViewSnapshot(std::optional<WebCore
 #if USE(APPKIT)
 void MavericksPageClient::setPromisedDataForImage(const String& pasteboardName, Ref<WebCore::FragmentedSharedBuffer>&& imageBuffer, const String& filename, const String& extension, const String& title, const String& url, const String& visibleURL, RefPtr<WebCore::FragmentedSharedBuffer>&& archiveBuffer, const String& originIdentifier)
 {
-    // MAVERICKS_BACKPORT: hand the promise to WKView, which owns the drag pasteboard and serves
+    // Hand the promise to WKView, which owns the drag pasteboard and serves
     // -pasteboard:provideDataForType: / -namesOfPromisedFilesDroppedAtDestination: (see the
     // promised-file section of WKViewMavericks.mm) — this hop is what puts the promise type on the
     // drag pasteboard, and with it dragging an image out of a page to the Finder produces the file.
@@ -1468,7 +1468,7 @@ void MavericksPageClient::didNotHandleTapAsClick(const WebCore::IntPoint&)
 #endif
 void MavericksPageClient::doneWithKeyEvent(const NativeWebKeyboardEvent& event, bool wasEventHandled)
 {
-    // MAVERICKS_BACKPORT: mirror WebViewImpl::doneWithKeyEvent — hide the cursor while typing,
+    // Mirror WebViewImpl::doneWithKeyEvent — hide the cursor while typing,
     // and re-dispatch unhandled key-downs to AppKit so Safari's menu key equivalents still fire
     // after the page declined them in -[WKView performKeyEquivalent:].
     NSEvent *nativeEvent = event.nativeEvent();
@@ -1512,19 +1512,19 @@ Ref<WebContextMenuProxy> MavericksPageClient::createContextMenuProxy(WebPageProx
 #endif
 RefPtr<WebColorPicker> MavericksPageClient::createColorPicker(WebPageProxy& page, const WebCore::Color& initialColor, const WebCore::IntRect& rect, ColorControlSupportsAlpha supportsAlpha, Vector<WebCore::Color>&& suggestions, std::optional<WebCore::FrameIdentifier>)
 {
-    // MAVERICKS_BACKPORT: mirror PageClientImplMac — vend a real NSColorPanel-backed
+    // Mirror PageClientImplMac — vend a real NSColorPanel-backed
     // WebColorPickerMac so clicking an <input type=color> opens the native color picker.
     return WebColorPickerMac::create(protect(page.colorPickerClient()).ptr(), initialColor, rect, supportsAlpha, WTF::move(suggestions), m_view);
 }
 RefPtr<WebDataListSuggestionsDropdown> MavericksPageClient::createDataListSuggestionsDropdown(WebPageProxy& page)
 {
-    // MAVERICKS_BACKPORT: mirror PageClientImplMac — vend the real AppKit dropdown so a datalist
+    // Mirror PageClientImplMac — vend the real AppKit dropdown so a datalist
     // input shows its suggestions.
     return WebDataListSuggestionsDropdownMac::create(page, m_view);
 }
 RefPtr<WebDateTimePicker> MavericksPageClient::createDateTimePicker(WebPageProxy& page)
 {
-    // MAVERICKS_BACKPORT: mirror PageClientImplMac — vend the real calendar picker for
+    // Mirror PageClientImplMac — vend the real calendar picker for
     // <input type=date>.
     return WebDateTimePickerMac::create(page, m_view);
 }
@@ -1538,7 +1538,7 @@ Ref<WebCore::ValidationBubble> MavericksPageClient::createValidationBubble(Strin
 #if PLATFORM(COCOA)
 CALayer *MavericksPageClient::textIndicatorInstallationLayer()
 {
-    // MAVERICKS_BACKPORT: the parent layer for every text indicator, most visibly the find
+    // The parent layer for every text indicator, most visibly the find
     // overlay's yellow highlight on the current match (#85). WebPageProxy::setTextIndicator adds
     // the WebTextIndicatorLayer as a sublayer of this layer, so it must belong to a live layer
     // tree: WKView hosts the WebContent render layer in a dedicated layer-hosting subview (see
@@ -1552,7 +1552,7 @@ CALayer *MavericksPageClient::textIndicatorInstallationLayer()
 #if PLATFORM(COCOA)
 void MavericksPageClient::didPerformDictionaryLookup(const WebCore::DictionaryPopupInfo& info)
 {
-    // MAVERICKS_BACKPORT: the modern "Look Up" popover uses the Reveal framework, which does not
+    // The modern "Look Up" popover uses the Reveal framework, which does not
     // exist on 10.9 (ENABLE(REVEAL)=0, so WebCore's DictionaryLookup::showPopup is a no-op).
     // WebViewImpl is also absent on the standalone WKView. Present the classic definition panel
     // instead via -[NSView showDefinitionForAttributedString:atPoint:] (AppKit, 10.6+) — the same
@@ -1617,7 +1617,7 @@ void MavericksPageClient::recordAutocorrectionResponse(WebCore::AutocorrectionRe
     if (!m_page)
         return;
 
-    // MAVERICKS_BACKPORT: upstream's toCorrectionResponse is file-static in PageClientImplMac.mm,
+    // Upstream's toCorrectionResponse is file-static in PageClientImplMac.mm,
     // which shares a unified source with this file, so the mapping is spelled out here.
     auto correctionResponse = [&] {
         switch (response) {
@@ -1638,7 +1638,7 @@ void MavericksPageClient::recordAutocorrectionResponse(WebCore::AutocorrectionRe
 }
 #endif
 #if PLATFORM(MAC)
-// MAVERICKS_BACKPORT: recreate the WKView's mouse-tracking area with options matching the new
+// Recreate the WKView's mouse-tracking area with options matching the new
 // scrollbar style (legacy scrollbars rely on tracking the mouse all the time, overlay scrollbars
 // only need tracking while the window is key), mirroring PageClientImpl::
 // recommendedScrollbarStyleDidChange. The tracking area — installed by the WKView designated
@@ -1683,7 +1683,7 @@ void MavericksPageClient::showPlatformContextMenu(NSMenu *menu, WebCore::IntPoin
 { [menu popUpMenuPositioningItem:nil atLocation:location inView:m_view]; }
 #endif
 #if PLATFORM(MAC)
-// MAVERICKS_BACKPORT: WebViewImpl passes the mouse-down it recorded; this client is only reached
+// WebViewImpl passes the mouse-down it recorded; this client is only reached
 // synchronously from that event's dispatch (InspectorFrontendHost.startWindowDrag off a mousedown
 // listener, -webkit-app-region:drag), so the application's current event is that same event.
 void MavericksPageClient::startWindowDrag()
@@ -1694,7 +1694,7 @@ void MavericksPageClient::setShouldSuppressFirstResponderChanges(bool)
 { }
 #endif
 #if PLATFORM(MAC)
-// MAVERICKS_BACKPORT: the view the Web Inspector docks alongside, as WebViewImpl reports it. WKView's
+// The view the Web Inspector docks alongside, as WebViewImpl reports it. WKView's
 // _setInspectorAttachmentView: SPI postdates Safari 7, so the WKView is always the attachment view.
 RetainPtr<NSView> MavericksPageClient::inspectorAttachmentView()
 { return m_view; }
@@ -1706,7 +1706,7 @@ _WKRemoteObjectRegistry *MavericksPageClient::remoteObjectRegistry()
 #if PLATFORM(MAC)
 void MavericksPageClient::intrinsicContentSizeDidChange(const WebCore::IntSize& intrinsicContentSize)
 {
-    // MAVERICKS_BACKPORT: forward the web process's laid-out content size to the WKView's
+    // Forward the web process's laid-out content size to the WKView's
     // auto-layout SPI so self-sizing embedders (Mail's message viewer) size to fit.
     [m_view _setIntrinsicContentSize:NSMakeSize(intrinsicContentSize.width(), intrinsicContentSize.height())];
 }
@@ -1714,7 +1714,7 @@ void MavericksPageClient::intrinsicContentSizeDidChange(const WebCore::IntSize& 
 #if PLATFORM(MAC)
 void MavericksPageClient::registerInsertionUndoGrouping()
 {
-    // MAVERICKS_BACKPORT: coalesce typed-character insertions into proper undo groups,
+    // Coalesce typed-character insertions into proper undo groups,
     // so Cmd+Z removes a typing run, matching AppKit text fields.
     WebCore::registerInsertionUndoGroupingWithUndoManager([m_view undoManager]);
 }
@@ -1897,7 +1897,7 @@ WebFullScreenManagerProxyClient& MavericksPageClient::fullScreenManagerProxyClie
 #endif
 void MavericksPageClient::didFinishLoadingDataForCustomContentProvider(const String& suggestedFilename, std::span<const uint8_t>)
 { }
-// MAVERICKS_BACKPORT: what WebViewImpl::dismissContentRelativeChildWindowsFromViewOnly does that a
+// What WebViewImpl::dismissContentRelativeChildWindowsFromViewOnly does that a
 // WKView reaches: the immediate-action controller and the writing-tools popover are WebViewImpl's own,
 // and DictionaryLookup::hidePopup() is notImplemented() on this branch. Upstream routes this through
 // -[WKView _web_dismissContentRelativeChildWindows] so a client can override it; Safari 7 predates
@@ -1999,7 +1999,7 @@ void MavericksPageClient::didReceiveInteractiveModelElement(std::optional<WebCor
 #endif
 } // namespace WebKit
 
-// MAVERICKS_BACKPORT: ported from WebViewImpl's WKDOMPasteMenuDelegate; it holds this client rather
+// Ported from WebViewImpl's WKDOMPasteMenuDelegate; it holds this client rather
 // than a WebViewImpl, which is all the menu ever needed.
 @interface WKMavericksDOMPasteMenuDelegate : NSObject<NSMenuDelegate>
 - (instancetype)initWithPageClient:(WebKit::MavericksPageClient&)pageClient pasteAccessCategory:(WebCore::DOMPasteAccessCategory)category;
@@ -2198,7 +2198,7 @@ bool mavericksPageClientWindowOcclusionDetectionEnabled(PageClient& client)
 }
 
 #if ENABLE(FULLSCREEN_API)
-// MAVERICKS_BACKPORT: serves -[WKView fullScreenPlaceholderView], the Safari 7 SPI that asks for
+// Serves -[WKView fullScreenPlaceholderView], the Safari 7 SPI that asks for
 // the view standing in for the web view while it is hosted by the full-screen window. Upstream's
 // WKView answers with its full-screen controller's placeholder; this is the same view.
 NSView *mavericksPageClientFullScreenPlaceholderView(PageClient& client)

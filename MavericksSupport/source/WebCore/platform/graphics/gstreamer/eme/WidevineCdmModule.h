@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: host for a Chromium-API Content Decryption Module, which is how Widevine
+// Host for a Chromium-API Content Decryption Module, which is how Widevine
 // ships. Google's module implements cdm::ContentDecryptionModule_11 and performs its own AES, so
 // this file supplies the cdm::Host_11 it calls back into and serializes access to it. Where the
 // module is, and how it got there, is WidevineCdmLocation.h and WidevineCdmInstaller.h beside
@@ -70,7 +70,7 @@ public:
     virtual void cdmSessionKeyStatusesChanged(const String& sessionID, Vector<WidevineKeyStatus>&&) = 0;
     virtual void cdmSessionExpirationChanged(const String& sessionID, double expirationTime) = 0;
     virtual void cdmSessionClosed(const String& sessionID) = 0;
-    // MAVERICKS_BACKPORT: the CDM settled the promise for a call that had already returned. The id
+    // The CDM settled the promise for a call that had already returned. The id
     // is the one that call was issued under, which is what names the request being answered.
     virtual void cdmSessionFailed(uint32_t promiseID, const String& sessionID) = 0;
     virtual void cdmSessionCreated(uint32_t promiseID, const String& sessionID) = 0;
@@ -81,7 +81,7 @@ public:
 // control back.
 struct WidevineCdmCallResult {
     bool succeeded { false };
-    // MAVERICKS_BACKPORT: whether the CDM settled this call's promise before the call returned. A
+    // Whether the CDM settled this call's promise before the call returned. A
     // CDM that is still waiting on a host answer settles it afterwards, which is not a failure.
     bool settled { false };
     // The id this call was issued under, for matching a settlement that arrives after it returns.

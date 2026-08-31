@@ -22,23 +22,23 @@ list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
     "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source"
     "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source/third_party/abseil-cpp"
     "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source/webrtc"
-    # MAVERICKS_BACKPORT: WebView +initialize calls PAL::GCrypt::initialize() (WebCrypto
-    # is libgcrypt-backed on this port), so WebKitLegacy needs gcrypt.h reachable.
-    "${MAVERICKS_DEPS}/include"
 )
 
 list(APPEND WebKitLegacy_UNIFIED_SOURCE_LIST_FILES
     SourcesCocoa.txt
 )
+# MAVERICKS_BACKPORT: seam 1 of 3 -- see MavericksSupport/cmake/WebKitLegacyPlatformMavericks.cmake,
+# which carries every change this port makes to WebKitLegacy's Mac CMake configuration.
+set(MAVERICKS_WEBKITLEGACY_PHASE LISTS)
+include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WebKitLegacyPlatformMavericks.cmake)
+
 WEBKIT_COMPUTE_SOURCES(WebKitLegacy)
 
 list(APPEND WebKitLegacy_SOURCES
     cf/WebCoreSupport/WebInspectorClientCF.cpp
 
     mac/DefaultDelegates/WebDefaultEditingDelegate.m
-    # MAVERICKS_BACKPORT: WebDefaultPolicyDelegate is built as ObjC++ (.mm) here, not the
-    # upstream plain-ObjC (.m) source.
-    mac/DefaultDelegates/WebDefaultPolicyDelegate.mm
+    mac/DefaultDelegates/WebDefaultPolicyDelegate.m
     mac/DefaultDelegates/WebDefaultUIDelegate.mm
 
     mac/History/BackForwardList.mm
@@ -53,9 +53,6 @@ list(APPEND WebKitLegacy_SOURCES
     mac/Misc/WebDownload.mm
     mac/Misc/WebElementDictionary.mm
     mac/Misc/WebIconDatabase.mm
-    # MAVERICKS_BACKPORT: build the legacy WebKeyGenerator (<keygen> support), which the
-    # modern upstream WebKitLegacy build omits.
-    mac/Misc/WebKeyGenerator.mm
     mac/Misc/WebKitErrors.m
     mac/Misc/WebKitLogInitialization.mm
     mac/Misc/WebKitLogging.m
@@ -94,17 +91,11 @@ list(APPEND WebKitLegacy_SOURCES
     mac/Storage/WebStorageTrackerClient.mm
 
     mac/WebCoreSupport/CorrectionPanel.mm
-    # MAVERICKS_BACKPORT: build the legacy LegacyHistoryItemClient source, which the modern
-    # upstream WebKitLegacy build omits.
-    mac/WebCoreSupport/LegacyHistoryItemClient.mm
     mac/WebCoreSupport/PopupMenuMac.mm
     mac/WebCoreSupport/SearchPopupMenuMac.mm
     mac/WebCoreSupport/WebAlternativeTextClient.mm
     mac/WebCoreSupport/WebChromeClient.mm
     mac/WebCoreSupport/WebContextMenuClient.mm
-    # MAVERICKS_BACKPORT: build the legacy WebCryptoClient (libgcrypt-backed WebCrypto on
-    # this port), which the modern upstream WebKitLegacy build omits.
-    WebCoreSupport/WebCryptoClient.mm
     mac/WebCoreSupport/WebDragClient.mm
     mac/WebCoreSupport/WebEditorClient.mm
     mac/WebCoreSupport/WebFrameNetworkingContext.mm
@@ -121,8 +112,6 @@ list(APPEND WebKitLegacy_SOURCES
     mac/WebCoreSupport/WebProgressTrackerClient.mm
     mac/WebCoreSupport/WebSecurityOrigin.mm
     mac/WebCoreSupport/WebSelectionServiceController.mm
-    # MAVERICKS_BACKPORT: build the restored WebKit1 getUserMedia client (see WebUserMediaClient.h).
-    mac/WebCoreSupport/WebUserMediaClient.mm
     mac/WebCoreSupport/WebValidationMessageClient.mm
     mac/WebCoreSupport/WebVisitedLinkStore.mm
 
@@ -492,8 +481,6 @@ set(WebKitLegacy_LEGACY_FORWARDING_HEADERS_FILES
     mac/WebCoreSupport/WebNotificationClient.h
     mac/WebCoreSupport/WebKitFullScreenListener.h
     mac/WebCoreSupport/WebOpenPanelResultListener.h
-    # MAVERICKS_BACKPORT: the restored WebKit1 getUserMedia client's header.
-    mac/WebCoreSupport/WebUserMediaClient.h
 
     mac/WebView/WebArchive.h
     mac/WebView/WebHTMLViewPrivate.h
@@ -606,19 +593,18 @@ set(CPP_FILES
     Storage/StorageThread.cpp
 )
 
+# MAVERICKS_BACKPORT: seam 2 of 3 -- same file, the phase that edits the source and forwarding-header
+# lists the two loops below read.
+set(MAVERICKS_WEBKITLEGACY_PHASE SOURCES)
+include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WebKitLegacyPlatformMavericks.cmake)
+
 foreach (_file ${WebKitLegacy_SOURCES})
     list(FIND C99_FILES ${_file} _c99_index)
     list(FIND CPP_FILES ${_file} _cpp_index)
-    # MAVERICKS_BACKPORT: detect plain ObjC (.m) sources by extension and build them as
-    # -std=gnu17 instead of defaulting them to the -ObjC++ C++2b branch.
-    get_filename_component(_ext ${_file} EXT)
     if (NOT ${_c99_index} EQUAL -1)
         set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS -std=c99)
     elseif (NOT ${_cpp_index} EQUAL -1)
         set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS -std=c++2b)
-    # MAVERICKS_BACKPORT: plain ObjC (.m) sources compile as -std=gnu17, not -ObjC++.
-    elseif (_ext STREQUAL ".m")
-        set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS -std=gnu17)
     else ()
         set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS "-ObjC++ -std=c++2b")
     endif ()
@@ -632,27 +618,10 @@ foreach (_file ${WebKitLegacy_LEGACY_FORWARDING_HEADERS_FILES})
     endif ()
 endforeach ()
 
-# MAVERICKS_BACKPORT: WebKit_WEB_PREFERENCES and WebKit_WEB_PREFERENCES_TEMPLATES belong to
-# Source/WebKit's directory scope and are empty here, so the generated files below name their own
-# inputs: the yaml the generator reads and the four templates it renders.
-set(WebKitLegacy_WEB_PREFERENCES
-    ${WTF_SCRIPTS_DIR}/Preferences/UnifiedWebPreferences.yaml
-)
-set_source_files_properties(${WebKitLegacy_WEB_PREFERENCES} PROPERTIES GENERATED TRUE)
-
-set(WebKitLegacy_WEB_PREFERENCES_TEMPLATES
-    ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebViewPreferencesChangedGenerated.mm.erb
-    ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebPreferencesDefinitions.h.erb
-    ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebPreferencesExperimentalFeatures.mm.erb
-    ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebPreferencesInternalFeatures.mm.erb
-)
-
 add_custom_command(
     OUTPUT ${WebKitLegacy_DERIVED_SOURCES_DIR}/WebViewPreferencesChangedGenerated.mm ${WebKitLegacy_DERIVED_SOURCES_DIR}/WebPreferencesInternalFeatures.mm ${WebKitLegacy_DERIVED_SOURCES_DIR}/WebPreferencesExperimentalFeatures.mm ${WebKitLegacy_DERIVED_SOURCES_DIR}/WebPreferencesDefinitions.h
-    DEPENDS ${WebKitLegacy_WEB_PREFERENCES_TEMPLATES} ${WebKitLegacy_WEB_PREFERENCES} WTF_CopyPreferences
-    # MAVERICKS_BACKPORT: pass each preferences template as an explicit --template path
-    # rather than the upstream $<JOIN> generator-expression form.
-    COMMAND ${Ruby_EXECUTABLE} ${WTF_SCRIPTS_DIR}/GeneratePreferences.rb --frontend WebKitLegacy --outputDir "${WebKitLegacy_DERIVED_SOURCES_DIR}" --template ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebViewPreferencesChangedGenerated.mm.erb --template ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebPreferencesDefinitions.h.erb --template ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebPreferencesExperimentalFeatures.mm.erb --template ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebPreferencesInternalFeatures.mm.erb ${WTF_SCRIPTS_DIR}/Preferences/UnifiedWebPreferences.yaml
+    DEPENDS ${WebKit_WEB_PREFERENCES_TEMPLATES} ${WebKit_WEB_PREFERENCES} WTF_CopyPreferences
+    COMMAND ${Ruby_EXECUTABLE} ${WTF_SCRIPTS_DIR}/GeneratePreferences.rb --frontend WebKitLegacy --outputDir "${WebKitLegacy_DERIVED_SOURCES_DIR}" --template "$<JOIN:${WebKit_WEB_PREFERENCES_TEMPLATES},;--template;>" ${WebKit_WEB_PREFERENCES}
     COMMAND_EXPAND_LISTS
     VERBATIM
 )
@@ -665,45 +634,9 @@ list(APPEND WebKitLegacy_SOURCES
 
 set(WebKitLegacy_OUTPUT_NAME WebKitLegacy)
 
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION} -framework SecurityInterface")
+set(CMAKE_SHARED_LINKER_FLAGS ${CMAKE_SHARED_LINKER_FLAGS} "-compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION} -framework SecurityInterface")
 
-# MAVERICKS_BACKPORT: macOS's bundled WebKit-ObjC plug-ins — notably Safari Web Clips'
-# WebClip.plugin — were linked against a 10.9 WebKit.framework that was an umbrella
-# re-exporting WebCore, so they import e.g. _OBJC_CLASS_$_WebUndefined two-level-bound
-# "from WebKit". WebUndefined (the JS `undefined` in the WebKit-ObjC bridge) lives in
-# WebCore here and was the only such symbol our WebKit.framework didn't already vend, so
-# the plug-in failed to load ("Symbol not found: _OBJC_CLASS_$_WebUndefined"). Re-export
-# WebCore through WebKit.framework (as 10.9 did) so those plug-ins resolve their imports.
-# (ld64.lld doesn't implement -reexported_symbols_list, but does implement whole-library
-# -reexport_library.)
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-reexport_library,${CMAKE_BINARY_DIR}/lib/WebCore.framework/Versions/A/WebCore")
-
-# MAVERICKS_BACKPORT: legacy Dashboard widget Plugin bundles (Sol.wdgt's TimeZoneHelper.bundle, the
-# Dictionary widget) and Safari Web Clips also two-level-bind the old ObjC "fixup" dispatch symbols
-# (__objc_empty_cache etc.) "from WebKit". Stock 10.9 re-exported libobjc from WebCore (not WebKit), and
-# WebKit.framework reached it via the WebCore re-export above; we match that exactly by re-exporting
-# libobjc in Source/WebCore/PlatformMac.cmake, so the symbols resolve here transitively. No flag is needed
-# on WebKitLegacy itself.
-
-# MAVERICKS_BACKPORT: upstream's WK_WEBINSPECTORUI_LDFLAGS (WebKitLegacy.xcconfig: -weak_framework
-# WebInspectorUI) — the load command dyld needs so [NSBundle bundleWithIdentifier:
-# @"com.apple.WebInspectorUI"] finds the frontend bundle in WK1 host processes
-# (WebInspectorFrontendClient/WebInspectorWindowController resolve Main.html and
-# localizedStrings.js through it). The xcconfig flag never made it into this CMake build.
-# Linked by exact dylib path because the stock 10.9 framework is not in the modern SDK's
-# search paths.
-target_link_options(WebKitLegacy PRIVATE -weak_library /System/Library/PrivateFrameworks/WebInspectorUI.framework/Versions/A/WebInspectorUI)
-
-# MAVERICKS_BACKPORT: the image for the inspector window's native dock button, which the frontend this
-# port ships needs to re-dock (see -[WebInspectorWindowController window]). Upstream shipped it from its
-# Xcode project; this is that copy step for the CMake build.
-set(WebKitLegacy_RESOURCES_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WebKitLegacy.framework/Versions/A/Resources)
-foreach (_dock_image DockLegacy)
-    add_custom_command(OUTPUT ${WebKitLegacy_RESOURCES_DIR}/${_dock_image}.pdf
-        COMMAND ${CMAKE_COMMAND} -E copy ${WEBKITLEGACY_DIR}/mac/Resources/${_dock_image}.pdf ${WebKitLegacy_RESOURCES_DIR}/${_dock_image}.pdf
-        DEPENDS ${WEBKITLEGACY_DIR}/mac/Resources/${_dock_image}.pdf
-        VERBATIM)
-    list(APPEND WebKitLegacy_DOCK_IMAGE_FILES ${WebKitLegacy_RESOURCES_DIR}/${_dock_image}.pdf)
-endforeach ()
-add_custom_target(WebKitLegacyInspectorDockImages ALL DEPENDS ${WebKitLegacy_DOCK_IMAGE_FILES})
-add_dependencies(WebKitLegacy WebKitLegacyInspectorDockImages)
+# MAVERICKS_BACKPORT: seam 3 of 3 -- same file, the phase that operates on the target and on the
+# framework's Headers directory.
+set(MAVERICKS_WEBKITLEGACY_PHASE POST)
+include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WebKitLegacyPlatformMavericks.cmake)

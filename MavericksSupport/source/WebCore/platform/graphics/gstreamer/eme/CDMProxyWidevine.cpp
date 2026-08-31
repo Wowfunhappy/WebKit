@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: see CDMProxyWidevine.h.
+// See CDMProxyWidevine.h.
 
 #include "config.h"
 #include "CDMProxyWidevine.h"

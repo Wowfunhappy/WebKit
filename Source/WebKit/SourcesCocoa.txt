@@ -181,10 +181,6 @@ Shared/Cocoa/APIDataCocoa.mm @nonARC
 Shared/Cocoa/APIObject.mm @nonARC
 Shared/Cocoa/ARKitSoftLink.mm @nonARC
 Shared/Cocoa/AccessibilityPreferences.mm @nonARC
-// MAVERICKS_BACKPORT: the [CustomEncoder] coder for WTF::MachSendRightAnnotated, which the GPU
-// process's generated serialization calls. Upstream's Xcode target picks the file up by directory
-// membership, so its CMake source list never names it.
-Shared/Cocoa/AnnotatedMachSendRight.mm @nonARC
 Shared/Cocoa/AuxiliaryProcessCocoa.mm @nonARC
 Shared/Cocoa/CodeSigning.mm @nonARC
 Shared/Cocoa/CompletionHandlerCallChecker.mm @nonARC

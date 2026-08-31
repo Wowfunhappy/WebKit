@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: the archive Google publishes the Widevine CDM in, read and checked. A CRX3
+// The archive Google publishes the Widevine CDM in, read and checked. A CRX3
 // is a protobuf header carrying signatures over an ordinary zip; the module is taken out of it
 // only if the header proves the archive is what Google published under the extension id it is
 // served from. WidevineCdmInstaller downloads it; MavericksSupport/tests/widevine-image drives

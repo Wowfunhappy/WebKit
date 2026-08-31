@@ -52,7 +52,9 @@ click, a key press, or a hardware/manual step.
 | `upload-file-drop.html` | File drop -> `FileReader` + `FormData`/raw-file XHR POST | banner (or DRT text dump) | DRT (`eventSender`), `upload-test.png` next to the page, an upload endpoint on `127.0.0.1:8765/upload` |
 | `variable-font-test.html` | Variable-font axis instances (Amstelvar wght/wdth) realize the requested point, judged by advance width | title + banner | `LayoutTests/fast/text/variations/...` (relative) |
 | `web-inspector-styles/issue87b..g.html` | Web Inspector Styles sidebar: comments in rules, one-line multi-property rules, nested rules, declarations after nested rules, non-rule braces | manual (open Inspector > Styles), visual | — |
+| `webgl-shader-test.html` | ANGLE's CGL/desktop-GL backend: a shader using a loop, a short-circuiting condition and a `mat4` (the constructs the Apple GLSL tree operations rewrite) compiles, links and rasterizes a triangle | banner + visual | — |
 | `webrtc-loopback-test.html` | Two in-page `RTCPeerConnection`s complete a data-channel ping/pong over libwebrtc (DTLS+SCTP+ICE), no media | banner | — |
 | `webrtc-nodc-test.html` | Loopback with an audio transceiver and no data channel: offer/answer + ICE reach `connected` | banner | — |
 | `webshare-quarantine-test.html` | `navigator.share({files})` -> `WKShareSheet writeFileToShareableURL:` quarantine attribute | manual, banner | — |
 | `widevine-image/` | Mach-O fixup conversion and CRX3 extraction for Google's Widevine module (`WidevineCdmImage.cpp`, `WidevineCdmArchive.mm`); see `run.sh` | shell output | a built tree; optionally a real `libwidevinecdm.dylib` / `.crx3` |
+| `widevine-keysystem-test.html` | `com.widevine.alpha` and `org.w3.clearkey` reach `requestMediaKeySystemAccess`, `createMediaKeys()` and `createSession()`; the Widevine arm instantiates Google's installed CDM | banner | the Widevine CDM installed (the page installs it on first run) |

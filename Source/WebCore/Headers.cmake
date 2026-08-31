@@ -1688,8 +1688,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     inspector/InspectorBackendClient.h
     inspector/InspectorDebuggableType.h
     inspector/InspectorFrontendAPIDispatcher.h
-    # MAVERICKS_BACKPORT: private framework header for the classic (legacy) inspector frontend bridge added on this backport.
-    inspector/InspectorFrontendClassicBridge.h
     inspector/InspectorFrontendClient.h
     inspector/InspectorFrontendClientLocal.h
     inspector/InspectorFrontendHost.h
@@ -3039,8 +3037,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     rendering/style/RenderStyle+GettersInlines.h
     rendering/style/RenderStyleConstants.h
     rendering/style/StyleContentAlignmentData.h
-    # MAVERICKS_BACKPORT: StyleDashboardRegion is a private framework header for the restored Dashboard-region support.
-    rendering/style/StyleDashboardRegion.h
     rendering/style/StyleSelfAlignmentData.h
 
     rendering/svg/RenderSVGInlineText.h
@@ -3308,8 +3304,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     style/values/multicol/StyleColumnCount.h
     style/values/multicol/StyleColumnWidth.h
 
-    # MAVERICKS_BACKPORT: StyleDashboardRegions is a private framework header for the restored Dashboard-region support.
-    style/values/non-standard/StyleDashboardRegions.h
     style/values/non-standard/StyleWebKitBorderSpacing.h
     style/values/non-standard/StyleWebKitBoxReflect.h
     style/values/non-standard/StyleWebKitLineBoxContain.h

@@ -1,6 +1,6 @@
 // Runs WebCore's Widevine work over one file, so each pass can be exercised against real bytes on
 // this host: `image` prepares a Mach-O the way an installed module is prepared
-// (Source/WebCore/platform/graphics/gstreamer/eme/WidevineCdmImage.cpp), and `archive` takes the
+// (MavericksSupport/source/WebCore/platform/graphics/gstreamer/eme/WidevineCdmImage.cpp), and `archive` takes the
 // module out of a CRX3 the way a downloaded one is opened (WidevineCdmArchive.mm). run.sh builds
 // this and drives it.
 

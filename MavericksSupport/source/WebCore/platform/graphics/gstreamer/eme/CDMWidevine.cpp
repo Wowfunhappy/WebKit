@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: see CDMWidevine.h.
+// See CDMWidevine.h.
 
 #include "config.h"
 #include "CDMWidevine.h"
@@ -126,7 +126,7 @@ CDMRequirement CDMPrivateWidevine::persistentStateRequirement(const CDMKeySystem
     return CDMRequirement::Optional;
 }
 
-// MAVERICKS_BACKPORT: every record this CDM keeps is opened through a FileIO rooted in the origin's
+// Every record this CDM keeps is opened through a FileIO rooted in the origin's
 // own media-keys directory, and the storage id it is handed is derived from that origin's hash salt,
 // so the identity it provisions for itself is per-origin and goes with that origin's site data.
 bool CDMPrivateWidevine::distinctiveIdentifiersAreUniquePerOriginAndClearable(const CDMKeySystemConfiguration&) const
@@ -315,7 +315,7 @@ void CDMInstanceSessionWidevine::failPendingLicenseRequests()
 
 void CDMInstanceSessionWidevine::didReceiveMessage(cdm::MessageType messageType, Vector<uint8_t>&& message)
 {
-    // MAVERICKS_BACKPORT: a request still waiting for its message is answered with this one; the
+    // A request still waiting for its message is answered with this one; the
     // promise carries the message, so it does not also go to the session.
     if (!m_pendingLicenseCallbacks.isEmpty()) {
         auto callbacks = std::exchange(m_pendingLicenseCallbacks, { });
@@ -396,7 +396,7 @@ void CDMInstanceSessionWidevine::requestLicense(LicenseType licenseType, KeyGrou
     m_sessionID = result.sessionID;
     parent->registerSession(m_sessionID, *this);
 
-    // MAVERICKS_BACKPORT: the session exists, but the CDM emits its request from whichever host
+    // The session exists, but the CDM emits its request from whichever host
     // answer completes it -- the storage id it asked for part way through, say. The request waits
     // for the message rather than being called a failure.
     if (result.messages.isEmpty()) {

@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: where this process's Widevine CDM is. The module is Google's own, installed
+// Where this process's Widevine CDM is. The module is Google's own, installed
 // at runtime in the user's library by WidevineCdmInstaller, and named here by whichever port
 // drives it: WebKitLegacy in its own process, and WebKit's UIProcess to each web process it grants
 // a Widevine key system to. Kept apart from WidevineCdmModule.h so the naming reaches both ports

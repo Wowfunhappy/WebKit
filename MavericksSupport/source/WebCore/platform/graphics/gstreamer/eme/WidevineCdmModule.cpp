@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: see WidevineCdmModule.h.
+// See WidevineCdmModule.h.
 
 #include "config.h"
 #include "WidevineCdmModule.h"

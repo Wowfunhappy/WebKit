@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: decodes response bodies that CFNetwork hands back still gzip-compressed.
+// Decodes response bodies that CFNetwork hands back still gzip-compressed.
 // ContentEncodingSniffingPolicy::Disable asks CFNetwork to decode Content-Encoding regardless of what
 // the response looks like, by way of kCFURLRequestContentDecoderSkipURLCheck; 10.9 CFNetwork has no
 // such key, so both the ResourceHandle and the NetworkDataTask paths inflate those bodies themselves.

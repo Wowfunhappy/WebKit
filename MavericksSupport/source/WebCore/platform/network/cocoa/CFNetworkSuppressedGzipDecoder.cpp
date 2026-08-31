@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: see CFNetworkSuppressedGzipDecoder.h.
+// See CFNetworkSuppressedGzipDecoder.h.
 
 #include "config.h"
 #include "CFNetworkSuppressedGzipDecoder.h"

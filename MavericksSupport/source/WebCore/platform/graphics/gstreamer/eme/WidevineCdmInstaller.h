@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: com.widevine.alpha is served by Google's own Widevine CDM, which is not
+// The com.widevine.alpha key system is served by Google's own Widevine CDM, which is not
 // redistributable and so is fetched at runtime from the update service Firefox's Gecko Media
 // Plugins use. The module is retargeted at this host (WidevineCdmImage) and installed in the
 // user's library, from where the process that plays the media loads it -- WebKitLegacy in its own

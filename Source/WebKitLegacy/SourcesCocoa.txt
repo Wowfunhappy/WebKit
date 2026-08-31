@@ -174,8 +174,6 @@ mac/WebInspector/WebInspector.mm @nonARC
 
 mac/WebView/WebClipView.mm @nonARC
 mac/WebView/WebDataSource.mm @nonARC
-// MAVERICKS_BACKPORT: build WebDashboardRegion.mm for the restored legacy CSS Dashboard region support.
-mac/WebView/WebDashboardRegion.mm @nonARC
 mac/WebView/WebFrame.mm @nonARC
 mac/WebView/WebFrameView.mm @nonARC
 mac/WebView/WebFullScreenController.mm @nonARC

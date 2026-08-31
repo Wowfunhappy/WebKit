@@ -31,6 +31,19 @@ macro(_MAVERICKS_LINK_POLYFILL_CLASSES _target)
     endif ()
 endmacro()
 
+# What every target this build creates gets from the port. The three XPC process executables are the
+# only SHIPPED binaries WEBKIT_EXECUTABLE produces, so they are named here rather than force-loading
+# the polyfill from that macro -- which also builds the build-time tools, where dragging the whole
+# archive in would only add link-line requirements for polyfills they never call.
+macro(_MAVERICKS_APPLY_TARGET_POLICY _target)
+    _MAVERICKS_LINK_POLYFILL_CLASSES(${_target})
+    foreach (_mavShipped WebProcess NetworkProcess GPUProcess)
+        if ("${_target}" STREQUAL "${_mavShipped}")
+            _WEBKIT_FORCE_LOAD_POLYFILL(${_target})
+        endif ()
+    endforeach ()
+endmacro()
+
 # CMake's default Info.plist leaves CFBundleIdentifier empty; stamp the canonical identifier that
 # CFBundleGetBundleWithIdentifier resolves for WebCore::copyLocalizedString.
 macro(_MAVERICKS_SET_FRAMEWORK_IDENTIFIER _target)
@@ -62,8 +75,20 @@ endmacro()
 # executables link almost nothing on their own, so name them here. The list is exactly what
 # libpolyfill.a leaves undefined: CoreGraphics and CoreText for the graphics gap-fills, Security for
 # the trust-evaluation ones, CoreFoundation for CF types and the ObjC runtime it reexports.
+# libwtf_compat.a is JavaScriptCore's alone: it defines the WTF C++ API of Safari 7's era (currentTime,
+# monotonicallyIncreasingTime, the threadID-based thread calls, callOnMainThread, ...), which Safari binds
+# out of JavaScriptCore. The method polyfills (libpolyfill_methods.a) go to WebCore instead, so a
+# dyld-restricted setuid program that loads only JSC -- the macOS Installer's privileged `runner`, which
+# loads JavaScriptCore via Install.framework/DistributionKit to run Distribution scripts -- starts without
+# tripping AppKit's "running setugid(), which is not allowed" abort.
 macro(_WEBKIT_FORCE_LOAD_POLYFILL _target)
     if (MAVERICKS_SUPPORT)
+        if ("${_target}" STREQUAL "JavaScriptCore")
+            target_link_options(${_target} PRIVATE
+                "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libwtf_compat.a")
+            set_property(TARGET ${_target} APPEND PROPERTY LINK_DEPENDS
+                "${MAVERICKS_SUPPORT}/polyfill/build/libwtf_compat.a")
+        endif ()
         target_link_options(${_target} PRIVATE
             "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill.a")
         # Make it a real link input, so regenerating the archive (build-polyfill.sh) relinks.

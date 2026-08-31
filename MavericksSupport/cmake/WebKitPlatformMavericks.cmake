@@ -27,6 +27,7 @@ macro(_MAVERICKS_FINALIZE_WEBKIT_TARGET _target)
         set_property(TARGET ${_target} APPEND PROPERTY LINK_DEPENDS
             "${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_webkit.a")
     endif ()
+    _MAVERICKS_DEFINE_WEBPUSHD()
 endmacro()
 
 # The webpushd daemon executable, which upstream builds only from WebKit.xcodeproj. As there, the tool
@@ -107,6 +108,7 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
 list(APPEND WebKit_SOURCES
     ${MAVERICKS_SUPPORT}/source/WebKit/UIProcess/API/mac/WKViewMavericks.mm
     ${MAVERICKS_SUPPORT}/source/WebKit/UIProcess/API/mac/WKViewToolTip.mm
+    ${MAVERICKS_SUPPORT}/source/WebKit/UIProcess/mac/MavericksPageClient.mm
 )
 
 # upstream's PlatformMac.cmake lists WKProcessGroupPrivate.h among the framework
@@ -548,9 +550,8 @@ set(MAVERICKS_WITHHELD_WEBKIT_COCOA_SOURCES
 # Added to SourcesCocoa.txt. Most are files upstream builds only from its Xcode project, whose symbols
 # the CMake link needs: the CoreIPC coders, WKKeyedCoder, AdditionalFonts, _WKWarningView,
 # _WKCaptionStyleMenuControllerMac, RemoteScrollingTreeCocoa, PositionInformationForWebPage and
-# DataDetectionResult. The rest are this port's own: MavericksPageClient.mm is the PageClient behind
-# the legacy WKView, WKBrowsingContextGroup.mm and WKProcessGroup.mm are the ObjC classes Apple's
-# QuickLook HTML preview bundle instantiates,
+# DataDetectionResult. The rest are this port's own: WKBrowsingContextGroup.mm and WKProcessGroup.mm
+# are the ObjC classes Apple's QuickLook HTML preview bundle instantiates,
 # WKTypeRefWrapper.mm is what Mail's WKConnection body coding reaches for, _WKTextExtractionItems.mm
 # stands in for _WKTextExtraction.swift, and the WebAuthentication sources come back with WEB_AUTHN.
 #
@@ -560,6 +561,10 @@ set(MAVERICKS_WITHHELD_WEBKIT_COCOA_SOURCES
 set(MAVERICKS_ADDED_WEBKIT_COCOA_SOURCES
     "Shared/API/Cocoa/WKTypeRefWrapper.mm @nonARC @no-unify"
     "Shared/AdditionalFonts.mm"
+    # the [CustomEncoder] coder for WTF::MachSendRightAnnotated, which the GPU process's generated
+    # serialization calls. Upstream's Xcode target picks the file up by directory membership, so its
+    # CMake source list never names it.
+    "Shared/Cocoa/AnnotatedMachSendRight.mm @nonARC"
     "Shared/Cocoa/ArgumentCodersCocoa.mm @nonARC"
     "Shared/Cocoa/BackgroundFetchStateCocoa.mm"
     "Shared/Cocoa/CoreIPCAVOutputContext.mm"
@@ -601,7 +606,6 @@ set(MAVERICKS_ADDED_WEBKIT_COCOA_SOURCES
     "UIProcess/API/Cocoa/WKWebView.mm @nonARC @no-unify"
     "UIProcess/API/Cocoa/_WKTextExtractionItems.mm @nonARC"
     "UIProcess/Cocoa/AuxiliaryProcessProxyCocoa.mm @nonARC"
-    "UIProcess/mac/MavericksPageClient.mm @nonARC"
     "UIProcess/Cocoa/CSPExtensionUtilities.mm"
     "UIProcess/Cocoa/_WKWarningView.mm @nonARC"
     "UIProcess/Downloads/DownloadProxyCocoa.mm"

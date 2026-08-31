@@ -1,4 +1,4 @@
-# MAVERICKS_BACKPORT: wire GStreamer 1.28.5 / glib 2.80.5 from MavericksSupport/deps/build
+# Wire GStreamer 1.28.5 / glib 2.80.5 from MavericksSupport/deps/build
 # (built from source for x86_64 macOS 10.9 by MavericksSupport/deps/build_deps.sh and proved
 # 10.9-clean by that script's symbol-resolution gate; no compat or reexport shim dylibs) into
 # the build,
@@ -26,7 +26,7 @@ set(_GST_INCLUDE_DIRS
     "${GST_ROOT}/include"
 )
 
-# MAVERICKS_BACKPORT: WebCore's SharedBuffer.h (a core, widely-included public header) pulls in
+# WebCore's SharedBuffer.h (a core, widely-included public header) pulls in
 # GStreamerCommon.h (#90 GstBuffer conversion), so EVERY framework that consumes WebCore headers
 # (WebKit, WebKitLegacy, test harnesses) transitively includes <gst/gst.h>. On the GTK/WPE ports the
 # GStreamer include dirs are global; add them globally here too so all frameworks compile, not just WebCore.
