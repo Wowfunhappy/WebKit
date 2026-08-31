@@ -43,6 +43,7 @@
 #import <pal/spi/cocoa/NSURLConnectionSPI.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/MainThread.h>
+#import <wtf/cocoa/SpanCocoa.h> // MAVERICKS_BACKPORT: for the gzip decoder's input span.
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
 using namespace WebCore;
@@ -266,6 +267,14 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         ResourceResponse resourceResponse(r.get());
         handle->checkTAO(resourceResponse);
 
+        // MAVERICKS_BACKPORT: ContentEncodingSniffingPolicy::Disable asks CFNetwork for a decoded body
+        // whatever the response looks like, through a request property 10.9 CFNetwork does not
+        // implement (see applySniffingPoliciesIfNeeded in ResourceHandleMac.mm), so inflate the bodies
+        // it withholds here instead.
+        if (handle->contentEncodingSniffingPolicy() == ContentEncodingSniffingPolicy::Disable
+            && CFNetworkSuppressedGzipDecoder::responseBodyIsStillGzipped(resourceResponse))
+            protectedSelf->m_gzipDecoder = makeUnique<CFNetworkSuppressedGzipDecoder>();
+
         auto metrics = copyTimingData(connection.get(), *handle);
         resourceResponse.setSource(ResourceResponse::Source::Network);
         resourceResponse.setDeprecatedNetworkLoadMetrics(Box<NetworkLoadMetrics> { metrics });
@@ -302,6 +311,16 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         // FIXME: https://bugs.webkit.org/show_bug.cgi?id=19793
         // -1 means we do not provide any data about transfer size to inspector so it would use
         // Content-Length headers or content size to show transfer size.
+
+        // MAVERICKS_BACKPORT: decode the gzip body CFNetwork withheld (see connection:didReceiveResponse:);
+        // connectionDidFinishLoading: fails the load if the decode did not complete.
+        if (protectedSelf->m_gzipDecoder) {
+            auto decoded = protectedSelf->m_gzipDecoder->decode(span(data.get()));
+            if (decoded && !decoded->isEmpty())
+                protectedSelf->m_handle->client()->didReceiveData(protectedSelf->m_handle.get(), SharedBuffer::create(WTF::move(*decoded)), -1);
+            return;
+        }
+
         protectedSelf->m_handle->client()->didReceiveData(protectedSelf->m_handle.get(), SharedBuffer::create(data.get()), -1);
     };
 
@@ -335,6 +354,18 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     auto work = [protectedSelf = retainPtr(self), connection = retainPtr(connection), timingData = retainPtr([connection _timingData])] mutable {
         if (!protectedSelf->m_handle || !protectedSelf->m_handle->client())
             return;
+
+        // MAVERICKS_BACKPORT: a gzip decode error, or a body that ended partway through a member,
+        // fails the load rather than surfacing truncated.
+        if (protectedSelf->m_gzipDecoder && (protectedSelf->m_gzipDecoder->failed() || protectedSelf->m_gzipDecoder->isTruncated())) {
+            auto error = adoptNS([[NSError alloc] initWithDomain:NSURLErrorDomain code:NSURLErrorCannotDecodeContentData userInfo:nil]);
+            protectedSelf->m_handle->client()->didFail(protectedSelf->m_handle.get(), ResourceError(error.get()));
+            if (protectedSelf->m_messageQueue) {
+                protectedSelf->m_messageQueue->kill();
+                protectedSelf->m_messageQueue = nullptr;
+            }
+            return;
+        }
 
         if (auto metrics = protectedSelf->m_handle->networkLoadMetrics()) {
             if (double responseEndTime = [[timingData objectForKey:@"_kCFNTimingDataResponseEnd"] doubleValue])
@@ -389,6 +420,16 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     UNUSED_PARAM(connection);
 
     LOG(Network, "Handle %p delegate connection:%p willCacheResponse:%p", m_handle.get(), connection, cachedResponse);
+
+    // MAVERICKS_BACKPORT: 10.9's shared NSURLCache keys entries on the URL alone and treats a 206 as
+    // the whole representation of that URL, so once one byte-range response is stored it is handed
+    // back for every later request to the same URL — other ranges AND plain GETs. A cache that cannot
+    // match partial content must not answer from a stored 206 at all, so the partial response is not
+    // offered to the cache here. Only WebKitLegacy reaches this delegate; the WK2 network process
+    // keeps its own cache.
+    if ([cachedResponse.response isKindOfClass:[NSHTTPURLResponse class]]
+        && [(NSHTTPURLResponse *)cachedResponse.response statusCode] == 206)
+        return nil;
 
     auto protectedSelf = retainPtr(self);
     auto work = [protectedSelf, cachedResponse = retainPtr(cachedResponse)] mutable {
