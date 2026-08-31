@@ -1,0 +1,32 @@
+# 10.9's CoreServices FSEvents.h stops at kFSEventStreamEventFlagOwnEvent (0x00080000).
+# kFSEventStreamEventFlagItemIsHardlink (0x00100000) and kFSEventStreamEventFlagItemIsLastHardlink
+# (0x00200000) were added in 10.10, so compiling git's builtin FSMonitor listener against the
+# 10.9 headers fails with "use of undeclared identifier" on both.
+#
+# Both names appear only in log_flags_set(), which renders an event's flag word into a trace
+# string; neither participates in the event mask git subscribes to or in any decision it makes.
+#
+# The patch supplies the two values the same way git already supplies the 10.13-only
+# kFSEventStreamEventFlagItemCloned immediately below the added block -- guarded on the
+# AvailabilityMacros symbol for the release that introduced them, so a build against a newer
+# SDK takes the real declarations. 10.9 never sets either bit, so the trace output is unaffected.
+--- a/compat/fsmonitor/fsm-listen-darwin.c
++++ b/compat/fsmonitor/fsm-listen-darwin.c
+@@ -5,6 +5,17 @@
+ #include <CoreFoundation/CoreFoundation.h>
+ #include <CoreServices/CoreServices.h>
+ 
++#ifndef AVAILABLE_MAC_OS_X_VERSION_10_10_AND_LATER
++/*
++ * These two enum values were added in 10.10 to the same FSEvents.h. As with
++ * the 10.13 value below, define them when compiling against an older SDK so
++ * the logging and masking need no ifdef. Older versions of macOS never emit
++ * these FS events.
++ */
++#define kFSEventStreamEventFlagItemIsHardlink     0x00100000
++#define kFSEventStreamEventFlagItemIsLastHardlink 0x00200000
++#endif
++
+ #ifndef AVAILABLE_MAC_OS_X_VERSION_10_13_AND_LATER
+ /*
+  * This enum value was added in 10.13 to:

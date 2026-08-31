@@ -1,0 +1,42 @@
+# nasm's Mach-O writer stamps S_ATTR_LOC_RELOC / S_ATTR_EXT_RELOC on every
+# object-file section that has relocation entries. Those two attributes belong to final linked
+# images, where they mark a section that has load-time relocations (the LC_DYSYMTAB
+# locreloff/extreloff tables) for dyld to apply; Apple's assemblers leave them clear on object
+# files even when the section has relocation entries (a clang-built .o with relocations in
+# __text carries neither bit), and nothing reads them from an object.
+#
+# ld64.lld gives an output section the attributes of the first input section that contributes to
+# it. A dylib whose __text starts with a nasm-assembled object therefore advertises load-time
+# text relocations it does not have (its nextrel and nlocrel are both 0) -- libgstdeinterlace,
+# whose link begins with yadif.asm's object, ships __text flags 0x80000700 instead of
+# 0x80000400. OS X 10.9's dyld believes the attributes and takes its text-relocation path, which
+# leaves the whole __TEXT segment mapped without the execute bit (r--/rwx); the first execution
+# from the segment -- dlopen running the module initializers -- dies with EXC_BAD_ACCESS /
+# KERN_PROTECTION_FAILURE ("Bus error: 10"). Clearing the two bits on an otherwise identical
+# copy of the dylib makes it load and run, isolating the attributes as the trigger.
+#
+# The patch drops the stamping, matching Apple assembler output. Linked images still get correct
+# attributes: the linker owns the output section flags, and a dylib that genuinely needs
+# load-time text relocations gets them from its relocation tables, not from input .o section
+# attributes.
+#
+# Applied by build_nasm.sh with patch -p1.
+--- a/output/outmacho.c
++++ b/output/outmacho.c
+@@ -1330,11 +1330,13 @@ static uint32_t macho_write_segment (uint64_t offset)
+
+     /* emit section headers */
+     for (s = sects; s != NULL; s = s->next) {
++	/*
++	 * S_ATTR_LOC_RELOC / S_ATTR_EXT_RELOC describe a final linked image's
++	 * LC_DYSYMTAB relocation tables, and are dyld's to read and the linker's
++	 * to set. Apple assemblers leave them clear in object files.
++	 */
+ 	if (s->nreloc) {
+ 	    nasm_assert((s->flags & SECTION_TYPE) != S_ZEROFILL);
+-	    s->flags |= S_ATTR_LOC_RELOC;
+-	    if (s->extreloc)
+-		s->flags |= S_ATTR_EXT_RELOC;
+ 	} else if (!xstrncmp(s->segname, "__DATA") &&
+ 		   !xstrncmp(s->sectname, "__const") &&
+ 		   !s->by_name &&

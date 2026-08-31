@@ -1,0 +1,19 @@
+Drop BlobCore::clone(), which does not exist.
+
+blob.h's Blob<> template wraps a call to a base-class clone() that cctools-port's BlobCore does
+not declare. The name is qualified and BlobCore is not a dependent type, so the lookup happens
+when the template is defined rather than when it is instantiated, and every C++ translation unit
+that reaches this header fails. dyldinfo reaches it transitively and calls nothing in it.
+
+--- a/cctools/ld64/src/ld/code-sign-blobs/blob.h
++++ b/cctools/ld64/src/ld/code-sign-blobs/blob.h
+@@ -181,9 +181,6 @@
+ 		return NULL;
+ 	}
+ 	
+-	BlobType *clone() const
+-	{ assert(validateBlob()); return specific(this->BlobCore::clone());	}
+-
+ 	static BlobType *readBlob(int fd)
+ 	{ return specific(BlobCore::readBlob(fd, _magic, sizeof(BlobType), 0), true); }
+ 
