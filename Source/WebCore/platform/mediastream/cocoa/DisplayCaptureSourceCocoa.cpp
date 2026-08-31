@@ -51,6 +51,10 @@
 
 #if HAVE(SCREEN_CAPTURE_KIT)
 #include "ScreenCaptureKitCaptureSource.h"
+#else
+// MAVERICKS_BACKPORT: the CGDisplayStream screen capturer serving the non-ScreenCaptureKit branch below.
+#include "ScreenDisplayCapturerMac.h"
+#include <wtf/text/StringToIntegerConversion.h>
 #endif
 
 #include "CoreVideoSoftLink.h"
@@ -68,12 +72,25 @@ CaptureSourceOrError DisplayCaptureSourceCocoa::create(const CaptureDevice& devi
 #if HAVE(SCREEN_CAPTURE_KIT)
         [[fallthrough]];
 #else
-        UNUSED_PARAM(hashSalts);
-        UNUSED_PARAM(constraints);
-        UNUSED_PARAM(pageIdentifier);
-        ASSERT_NOT_REACHED();
-        return { };
-#endif
+// MAVERICKS_BACKPORT: without ScreenCaptureKit, screen devices are served by the CGDisplayStream
+// capturer (ScreenDisplayCapturerMac).
+//      UNUSED_PARAM(hashSalts);
+//      UNUSED_PARAM(constraints);
+//      UNUSED_PARAM(pageIdentifier);
+//      ASSERT_NOT_REACHED();
+//      return { };
+        {
+            auto displayID = parseInteger<uint32_t>(device.persistentId());
+            if (!displayID)
+                return CaptureSourceOrError({ "Invalid display device ID"_s, MediaAccessDenialReason::PermissionDenied });
+            auto actualDisplayID = ScreenDisplayCapturerMac::updateDisplayID(*displayID);
+            if (!actualDisplayID)
+                return CaptureSourceOrError({ "Invalid display ID"_s, MediaAccessDenialReason::PermissionDenied });
+            return create([displayID = actualDisplayID.value()] (auto& source) {
+                return makeUniqueRefWithoutRefCountedCheck<ScreenDisplayCapturerMac>(source, displayID);
+            }, device, WTF::move(hashSalts), constraints, pageIdentifier);
+        }
+#endif // MAVERICKS_BACKPORT: closes the non-ScreenCaptureKit screen branch above.
     case CaptureDevice::DeviceType::Window:
 #if HAVE(SCREEN_CAPTURE_KIT)
         if (ScreenCaptureKitCaptureSource::isAvailable()) {

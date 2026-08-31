@@ -26,7 +26,7 @@
 #include "config.h"
 #include "LibWebRTCSocketClient.h"
 
-#if !PLATFORM(COCOA)
+#if !HAVE(NETWORK_FRAMEWORK) // MAVERICKS_BACKPORT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
 
 #if USE(LIBWEBRTC)
 
@@ -145,4 +145,4 @@ void LibWebRTCSocketClient::signalClose(webrtc::AsyncPacketSocket* socket, int e
 
 #endif // USE(LIBWEBRTC)
 
-#endif // !PLATFORM(COCOA)
+#endif // !HAVE(NETWORK_FRAMEWORK) -- MAVERICKS_BACKPORT: see HAVE(NETWORK_FRAMEWORK).

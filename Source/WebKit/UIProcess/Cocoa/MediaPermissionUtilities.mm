@@ -189,12 +189,26 @@ void alertForPermission(WebPageProxy& page, MediaPermissionReason reason, const 
     }
 #endif
 
-    auto webView = page.cocoaView();
+#if PLATFORM(MAC)
+    // MAVERICKS_BACKPORT: the Safari this port targets hosts the page in a WKView, not a WKWebView, so
+    // cocoaView() is nil and upstream's check denies every camera/microphone request before it can be
+    // put to the user. Only the hosting window is actually needed here, and the page knows it whichever
+    // view is in use.
+    RetainPtr<NSWindow> hostWindow = page.platformWindow();
+    if (!hostWindow) {
+        completionHandler(false);
+        return;
+    }
+#else
+    auto webView = page.cocoaView(); // MAVERICKS_BACKPORT: only the non-MAC branch below uses the view.
     if (!webView) {
         completionHandler(false);
         return;
     }
-    
+    // MAVERICKS_BACKPORT: closes the PLATFORM(MAC) hostWindow conditional above.
+#endif
+
+
     RetainPtr alertTitle = alertMessageText(reason, origin);
     if (!alertTitle) {
         completionHandler(false);
@@ -212,7 +226,8 @@ void alertForPermission(WebPageProxy& page, MediaPermissionReason reason, const 
     button.get().keyEquivalent = @"";
     button = [alert addButtonWithTitle:doNotAllowButtonString.get()];
     button.get().keyEquivalent = @"\E";
-    [alert beginSheetModalForWindow:retainPtr([webView window]).get() completionHandler:[completionBlock](NSModalResponse returnCode) {
+    // MAVERICKS_BACKPORT: the sheet is hosted on the page's window; see above.
+    [alert beginSheetModalForWindow:hostWindow.get() completionHandler:[completionBlock](NSModalResponse returnCode) {
         auto shouldAllow = returnCode == NSAlertFirstButtonReturn;
         completionBlock(shouldAllow);
     }];
