@@ -153,9 +153,18 @@ fi
 
 # One ccache for every build of this checkout, and direct mode: WebKit regenerates DerivedSources
 # headers with fresh timestamps every build, so trusting include content over mtime is what lets
-# direct hits engage.
+# direct hits engage. Nothing in a cache key is tied to where the tree sits: CCACHE_BASEDIR names
+# the checkout's parent, so every path under it -- the tree itself and the SDK beside it -- is
+# hashed relative to the build directory, and the compiler's identity is the content of clang plus
+# its two driver configs, hashed once here rather than per translation unit. A cache directory is
+# therefore reusable for the same tree at any path and on any machine.
 export CCACHE_DIR="$ROOT/WebKitBuild/ccache"
+export CCACHE_BASEDIR="$(dirname "$ROOT")"
+export CCACHE_NOHASHDIR=1
 export CCACHE_SLOPPINESS="include_file_mtime,include_file_ctime,time_macros,pch_defines"
+export CCACHE_COMPILERCHECK="string:$(shasum -a 256 \
+    "$TC/clang/bin/clang-22" "$TC/clang/bin/clang.cfg" "$TC/clang/bin/clang++.cfg" \
+    | awk '{print $1}' | shasum -a 256 | awk '{print $1}')"
 
 # --- Configure (fresh build dir) ---------------------------------------------------------------
 CACHE_FILE="$BUILD/CMakeCache.txt"
