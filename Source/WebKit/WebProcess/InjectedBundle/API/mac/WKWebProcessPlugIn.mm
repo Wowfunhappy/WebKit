@@ -29,17 +29,28 @@
 #import "APIArray.h"
 #import "WKBundle.h"
 #import "WKBundleAPICast.h"
+// MAVERICKS_BACKPORT (#137): legacy WKConnection used for the bundle<->app message channel below.
+#import "WKConnectionInternal.h"
 #import "WKRetainPtr.h"
 #import "WKStringCF.h"
 #import "WKWebProcessPlugInBrowserContextControllerInternal.h"
+// MAVERICKS_BACKPORT (#137): WebPage for webPageProxyIdentifier() used in WKConnection controller registration below.
+#import "WebPage.h"
 #import <WebCore/WebCoreObjCExtras.h>
 #import <wtf/AlignedStorage.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/StdLibExtras.h>
 
+// MAVERICKS_BACKPORT (#137): private accessor for the legacy WKConnection (defined below).
+@interface WKWebProcessPlugInController ()
+- (WKConnection *)connection;
+@end
+
 @implementation WKWebProcessPlugInController {
     AlignedStorage<WebKit::InjectedBundle> _bundle;
     RetainPtr<id <WKWebProcessPlugIn>> _principalClassInstance;
+    // MAVERICKS_BACKPORT (#137): lazily-created legacy WKConnection backing the bundle<->app message channel.
+    RetainPtr<WKConnection> _connection;
 }
 
 - (void)dealloc
@@ -57,8 +68,14 @@ static void didCreatePage(WKBundleRef bundle, WKBundlePageRef page, const void* 
     auto plugInController = (__bridge WKWebProcessPlugInController *)clientInfo;
     RetainPtr principalClassInstance = plugInController->_principalClassInstance.get();
 
+    RefPtr webPage = WebKit::toImpl(page);
+    RetainPtr<WKWebProcessPlugInBrowserContextController> controller = protect(wrapper(*webPage));
+    // MAVERICKS_BACKPORT (#137): register so this controller round-trips through WKConnection bodies.
+    WKConnectionRegisterController(webPage->webPageProxyIdentifier().toUInt64(), controller.get());
+
     if ([principalClassInstance respondsToSelector:@selector(webProcessPlugIn:didCreateBrowserContextController:)])
-        [principalClassInstance webProcessPlugIn:plugInController didCreateBrowserContextController:protect(wrapper(*protect(WebKit::toImpl(page)))).get()];
+        // MAVERICKS_BACKPORT (#137): hand the WKConnection-registered controller (above) to the plug-in.
+        [principalClassInstance webProcessPlugIn:plugInController didCreateBrowserContextController:controller.get()];
 }
 
 static void willDestroyPage(WKBundleRef bundle, WKBundlePageRef page, const void* clientInfo)
@@ -70,6 +87,16 @@ static void willDestroyPage(WKBundleRef bundle, WKBundlePageRef page, const void
         [principalClassInstance webProcessPlugIn:plugInController willDestroyBrowserContextController:protect(wrapper(*protect(WebKit::toImpl(page)))).get()];
 }
 
+// MAVERICKS_BACKPORT (#137): deliver UIProcess->bundle messages (Mail.app -> MailUIWebBundle, e.g.
+// MUIMessageKeyMessageContents) to the legacy WKConnection's delegate.
+static void didReceiveMessage(WKBundleRef, WKStringRef messageName, WKTypeRef messageBody, const void* clientInfo)
+{
+    auto plugInController = (__bridge WKWebProcessPlugInController *)clientInfo;
+    WKConnection *connection = [plugInController connection];
+    RetainPtr<CFStringRef> cfName = adoptCF(WKStringCopyCFString(kCFAllocatorDefault, messageName));
+    [connection _dispatchDidReceiveMessageWithName:(__bridge NSString *)cfName.get() serializedBody:messageBody];
+}
+
 static void setUpBundleClient(WKWebProcessPlugInController *plugInController, WebKit::InjectedBundle& bundle)
 {
     WKBundleClientV1 bundleClient;
@@ -79,6 +106,8 @@ static void setUpBundleClient(WKWebProcessPlugInController *plugInController, We
     bundleClient.base.clientInfo = (__bridge void*)plugInController;
     bundleClient.didCreatePage = didCreatePage;
     bundleClient.willDestroyPage = willDestroyPage;
+    // MAVERICKS_BACKPORT (#137): route UIProcess->bundle messages to the legacy WKConnection delegate.
+    bundleClient.didReceiveMessage = didReceiveMessage;
 
     WKBundleSetClient(toAPI(&bundle), &bundleClient.base);
 }
@@ -94,6 +123,24 @@ static void setUpBundleClient(WKWebProcessPlugInController *plugInController, We
 - (id)parameters
 {
     return protect(*_bundle)->bundleParameters();
+}
+
+// MAVERICKS_BACKPORT (#137): the legacy WKConnection bundle->app message channel. Mail's MailUIWebBundle
+// gets this, sets itself as the connection delegate, and posts MUIMessageKeyWebProcessDid{Layout,Paint}
+// Content to Mail.app (which sizes/reveals the message body); Mail.app posts MUIMessageKeyMessageContents
+// /MessageObject back. We back it with the still-present WKBundlePostMessage IPC (UIProcess side is wired
+// in WKProcessGroup); bodies are NSKeyedArchiver-coded into a WKData.
+- (WKConnection *)connection
+{
+    if (!_connection) {
+        WKBundleRef bundleRef = toAPI(&*_bundle);
+        _connection = adoptNS([[WKConnection alloc] initWithSender:^(NSString *messageName, WKTypeRef serializedBody) {
+            WKStringRef wkName = WKStringCreateWithCFString((__bridge CFStringRef)messageName);
+            WKBundlePostMessage(bundleRef, wkName, serializedBody);
+            WKRelease(wkName);
+        }]);
+    }
+    return _connection.get();
 }
 
 static Ref<API::Array> createWKArray(NSArray *array)

@@ -30,6 +30,10 @@
 #include <WebCore/MediaKeySystemClient.h>
 #include <wtf/RefCounted.h>
 #include <wtf/TZoneMalloc.h>
+// MAVERICKS_BACKPORT: m_page below is a WeakPtr, and nothing else this header includes defines the
+// template -- MediaKeySystemClient.h reaches only CanMakeWeakPtr/WeakPtrFactory, and wtf/Forward.h
+// merely declares WeakPtr. Upstream's unified bundle happens to include it via a neighbouring file.
+#include <wtf/WeakPtr.h>
 
 namespace WebKit {
 

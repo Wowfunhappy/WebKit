@@ -93,8 +93,12 @@ WKBundleNodeHandleRef WKBundleNodeHandleCopyDocument(WKBundleNodeHandleRef nodeH
 
 WKRect WKBundleNodeHandleGetRenderRect(WKBundleNodeHandleRef nodeHandleRef, bool* isReplaced)
 {
-    ASSERT_NOT_REACHED();
-    return { };
+    // MAVERICKS_BACKPORT: implemented (github #98). Safari 7 calls this; upstream gutted it because
+    // nothing in a modern client does. absoluteBoundingRect() is the same InjectedBundleNodeHandle
+    // operation the function was built on, and it reports isReplaced through the out parameter.
+    // ASSERT_NOT_REACHED();
+    // return { };
+    return WebKit::toAPI(protect(WebKit::toImpl(nodeHandleRef))->absoluteBoundingRect(isReplaced));
 }
 
 WKImageRef WKBundleNodeHandleCopySnapshotWithOptions(WKBundleNodeHandleRef nodeHandleRef, WKSnapshotOptions options)
@@ -193,10 +197,19 @@ bool WKBundleNodeHandleGetHTMLTextAreaElementLastChangeWasUserEdit(WKBundleNodeH
     return protect(WebKit::toImpl(htmlTextAreaElementHandleRef))->htmlTextAreaElementLastChangeWasUserEdit();
 }
 
-WKBundleNodeHandleRef WKBundleNodeHandleCopyHTMLTableCellElementCellAbove(WKBundleNodeHandleRef)
+// MAVERICKS_BACKPORT: the parameter is named again because the body below uses it (github #98).
+// WKBundleNodeHandleRef WKBundleNodeHandleCopyHTMLTableCellElementCellAbove(WKBundleNodeHandleRef)
+WKBundleNodeHandleRef WKBundleNodeHandleCopyHTMLTableCellElementCellAbove(WKBundleNodeHandleRef htmlTableCellElementHandleRef)
 {
-    ASSERT_NOT_REACHED();
-    return nullptr;
+    // MAVERICKS_BACKPORT: implemented (github #98). Safari 7's AutoFill walks upwards through table
+    // cells to find the label for a field in a table-laid-out form
+    // (-[BundleAutoFillNode htmlTableCellElementCellAbove]). The underlying
+    // InjectedBundleNodeHandle::htmlTableCellElementCellAbove() is still here; only the C entry point
+    // was gutted.
+    // ASSERT_NOT_REACHED();
+    // return nullptr;
+    RefPtr<WebKit::InjectedBundleNodeHandle> cellAbove = protect(WebKit::toImpl(htmlTableCellElementHandleRef))->htmlTableCellElementCellAbove();
+    return toAPILeakingRef(WTF::move(cellAbove));
 }
 
 WKBundleFrameRef WKBundleNodeHandleCopyDocumentFrame(WKBundleNodeHandleRef documentHandleRef)
@@ -219,8 +232,13 @@ WKBundleFrameRef WKBundleNodeHandleCopyHTMLIFrameElementContentFrame(WKBundleNod
 
 bool WKBundleNodeHandleGetHTMLInputElementAutofilled(WKBundleNodeHandleRef htmlInputElementHandleRef)
 {
-    ASSERT_NOT_REACHED();
-    return false;
+    // MAVERICKS_BACKPORT: implemented (github #98). Safari 7 asks whether a field it is about to fill
+    // is already an AutoFill result (-[BundleAutoFillNode isHTMLInputElementAutofilled]); with a
+    // hardcoded false it cannot tell its own fills from what the user typed. The setter next to this
+    // one was never gutted, so the two disagreed.
+    // ASSERT_NOT_REACHED();
+    // return false;
+    return protect(WebKit::toImpl(htmlInputElementHandleRef))->isHTMLInputElementAutoFilled();
 }
 
 void WKBundleNodeHandleSetHTMLInputElementAutofilled(WKBundleNodeHandleRef handle, bool enabled)

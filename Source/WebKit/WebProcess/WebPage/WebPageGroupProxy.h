@@ -38,21 +38,39 @@ namespace WebKit {
 
 class WebUserContentController;
 
-class WebPageGroupProxy : public RefCounted<WebPageGroupProxy> {
+// MAVERICKS_BACKPORT: API::ObjectImpl base restored (was RefCounted) so the page
+// group can travel through the legacy C API again (WKBundlePageGetPageGroup /
+// WKBundleAddUserScript — Safari 7 extension content-script injection).
+class WebPageGroupProxy : public API::ObjectImpl<API::Object::Type::BundlePageGroup> {
 public:
     static Ref<WebPageGroupProxy> create(WebPageGroupData&&);
     virtual ~WebPageGroupProxy();
 
     const String& identifier() const LIFETIME_BOUND { return m_data.identifier; }
     PageGroupIdentifier pageGroupID() const { return m_data.pageGroupID; }
+    // MAVERICKS_BACKPORT: expose the underlying WebPageGroupData so the page group can be (re)wrapped
+    // as an API::PageGroupHandle for legacy C API round-trips (Safari 7).
+    const WebPageGroupData& data() const LIFETIME_BOUND { return m_data; }
     // Namespace IDs for local storage namespaces are currently equivalent to web page group IDs.
     WebCore::PageGroup* NODELETE corePageGroup() const;
+
+    // MAVERICKS_BACKPORT: the controller the group's pages share, restored from upstream e05340a^.
+    // The legacy WKBundleAddUserScript / WKBundleAddUserStyleSheet C API adds Safari 7 extension
+    // content scripts and style sheets here.
+    WebUserContentController& userContentController();
 
 private:
     WebPageGroupProxy(WebPageGroupData&&);
 
     WebPageGroupData m_data;
     WeakPtr<WebCore::PageGroup> m_pageGroup;
+    const Ref<WebUserContentController> m_userContentController; // MAVERICKS_BACKPORT: see userContentController() above.
 };
 
 } // namespace WebKit
+
+// MAVERICKS_BACKPORT: type traits so downcast<WebPageGroupProxy>(API::Object&) works now that the
+// proxy is an API::ObjectImpl again (legacy C API page-group plumbing, Safari 7).
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebPageGroupProxy)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::BundlePageGroup; }
+SPECIALIZE_TYPE_TRAITS_END()

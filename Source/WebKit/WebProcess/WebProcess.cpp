@@ -27,6 +27,7 @@
 #include "WebProcess.h"
 
 #include "APIFrameHandle.h"
+#include "APIPageGroupHandle.h" // MAVERICKS_BACKPORT: page-group handles travel through the legacy C API (Safari 7)
 #include "APIPageHandle.h"
 #include "AudioMediaStreamTrackRendererInternalUnitManager.h"
 #include "AuxiliaryProcessMessages.h"
@@ -671,6 +672,11 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
     for (auto& scheme : parameters.urlSchemesRegisteredAsCanDisplayOnlyIfCanRequest)
         registerURLSchemeAsCanDisplayOnlyIfCanRequest(scheme);
 
+    // MAVERICKS_BACKPORT: track app-registered custom-protocol schemes (e.g. safari-reader://) so
+    // canHandleRequest accepts them — they're served by the NetworkProcess's LegacyCustomProtocolManager.
+    for (auto& scheme : parameters.urlSchemesRegisteredForCustomProtocols)
+        registerURLSchemeForCustomProtocol(scheme);
+
 #if ENABLE(WK_WEB_EXTENSIONS)
     for (auto& scheme : parameters.urlSchemesRegisteredAsWebExtensions)
         WebExtensionMatchPattern::registerCustomURLScheme(scheme);
@@ -949,6 +955,26 @@ void WebProcess::registerURLSchemeAsCachePartitioned(const String& urlScheme) co
 void WebProcess::registerURLSchemeAsCanDisplayOnlyIfCanRequest(const String& urlScheme) const
 {
     LegacySchemeRegistry::registerAsCanDisplayOnlyIfCanRequest(urlScheme);
+}
+
+// MAVERICKS_BACKPORT: app-registered custom-protocol schemes (e.g. safari-reader://) are served by the
+// NetworkProcess via LegacyCustomProtocolManager, but the WebProcess's WebPage::canHandleRequest only
+// consults NSURLConnection — which doesn't know about them — so WebCore's PolicyChecker would ignore
+// the navigation as "cannot show URL" before it ever reached the network. Track the schemes here so
+// canHandleRequest returns true for them.
+void WebProcess::registerURLSchemeForCustomProtocol(const String& urlScheme)
+{
+    m_urlSchemesRegisteredForCustomProtocols.add(urlScheme);
+}
+
+void WebProcess::unregisterURLSchemeForCustomProtocol(const String& urlScheme)
+{
+    m_urlSchemesRegisteredForCustomProtocols.remove(urlScheme);
+}
+
+bool WebProcess::isURLSchemeRegisteredForCustomProtocol(const String& urlScheme) const
+{
+    return !urlScheme.isEmpty() && m_urlSchemesRegisteredForCustomProtocols.contains(urlScheme);
 }
 
 #if ENABLE(WK_WEB_EXTENSIONS)
@@ -2081,6 +2107,11 @@ RefPtr<API::Object> WebProcess::transformHandlesToObjects(API::Object* object)
             case API::Object::Type::PageHandle:
                 return downcast<const API::PageHandle>(object).isAutoconverting();
 
+            // MAVERICKS_BACKPORT: resolve page-group handles (Safari 7 bundle
+            // initialization user data) to this process's WebPageGroupProxy.
+            case API::Object::Type::PageGroupHandle:
+                return true;
+
             default:
                 return false;
             }
@@ -2095,6 +2126,10 @@ RefPtr<API::Object> WebProcess::transformHandlesToObjects(API::Object* object)
             }
             case API::Object::Type::PageHandle:
                 return WebProcess::singleton().webPage(downcast<const API::PageHandle>(object).webPageID());
+
+            // MAVERICKS_BACKPORT: resolve page-group handles to this process's WebPageGroupProxy (Safari 7).
+            case API::Object::Type::PageGroupHandle:
+                return &WebProcess::singleton().webPageGroup(WebPageGroupData { downcast<const API::PageGroupHandle>(object).pageGroupData() });
 
             default:
                 return &object;
@@ -2113,6 +2148,8 @@ RefPtr<API::Object> WebProcess::transformObjectsToHandles(API::Object* object)
             switch (object.type()) {
             case API::Object::Type::BundleFrame:
             case API::Object::Type::BundlePage:
+            // MAVERICKS_BACKPORT: page groups travel as handles (Safari 7).
+            case API::Object::Type::BundlePageGroup:
                 return true;
 
             default:
@@ -2128,6 +2165,10 @@ RefPtr<API::Object> WebProcess::transformObjectsToHandles(API::Object* object)
 
             case API::Object::Type::BundlePage:
                 return API::PageHandle::createAutoconverting(downcast<const WebPage>(object).webPageProxyIdentifier(), downcast<const WebPage>(object).identifier());
+
+            // MAVERICKS_BACKPORT: page groups travel as handles (Safari 7).
+            case API::Object::Type::BundlePageGroup:
+                return API::PageGroupHandle::create(WebPageGroupData { downcast<const WebPageGroupProxy>(object).data() });
 
             default:
                 return &object;

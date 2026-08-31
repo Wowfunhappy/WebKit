@@ -56,6 +56,11 @@ public:
 #endif
 
     virtual void didClickAutoFillButton(WebKit::WebPage&, WebKit::InjectedBundleNodeHandle&, RefPtr<API::Object>&) { }
+
+    // MAVERICKS_BACKPORT: Safari 7's injected bundle computes the hovered-element info (link URL, etc.)
+    // here and returns it as userData, which the UI process delivers to WKPageUIClient.mouseDidMoveOverElement
+    // to populate the status bar. Restored so hovering a link shows its URL (#58).
+    virtual void mouseDidMoveOverElement(WebKit::WebPage&, const WebCore::HitTestResult&, OptionSet<WebKit::WebEventModifier>, RefPtr<API::Object>& userData) { UNUSED_PARAM(userData); }
 };
 
 } // namespace InjectedBundle

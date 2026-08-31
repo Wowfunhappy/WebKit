@@ -60,6 +60,9 @@
 #include "WebLoaderStrategy.h"
 #include "WebNavigationDataStore.h"
 #include "WebPage.h"
+// MAVERICKS_BACKPORT: restored injected-bundle policy client / navigation action (upstream 9eeab8d, 8ee28eb).
+#include "InjectedBundleNavigationAction.h"
+#include "InjectedBundlePagePolicyClient.h"
 #include "WebPageGroupProxy.h"
 #include "WebPageProxyMessages.h"
 #include "WebProcess.h"
@@ -522,6 +525,11 @@ void WebLocalFrameLoaderClient::didSameDocumentNavigationForFrameViaJS(SameDocum
         { }, /* request */
         { }, /* invalidURLString */
         std::nullopt, /* requester */
+        // MAVERICKS_BACKPORT: a same-document JS navigation does not run the injected-bundle policy
+        // client, so there is no bundle userData to carry (the page's own userData travels as the
+        // separate UserData argument below). Listed rather than left off so the field we appended to
+        // NavigationActionData is accounted for at every site.
+        { }, /* bundlePolicyUserData */
     };
 
     // Notify the UIProcess.
@@ -961,6 +969,21 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRe
         return;
     }
 
+    // MAVERICKS_BACKPORT: ask the injected bundle's policy client, restored alongside
+    // InjectedBundlePagePolicyClient (upstream 9eeab8d). Safari 7's client
+    // (BrowserBundlePagePolicyClient::decidePolicyForResponse) stores a WKBoolean holding
+    // WKBundlePageCanShowMIMEType() as the userData its UI-process handler reads, and returns
+    // WKBundlePagePolicyActionUse (canShortCircuitPolicyDecisionForResponse) for the responses it
+    // wants committed without a UIProcess round trip -- plain non-attachment http text/html.
+    RefPtr<API::Object> bundleUserData;
+    {
+        WKBundlePagePolicyAction policy = webPage->injectedBundlePolicyClient().decidePolicyForResponse(webPage.get(), m_frame.ptr(), response, request, bundleUserData);
+        if (policy == WKBundlePagePolicyActionUse) {
+            function(PolicyAction::Use);
+            return;
+        }
+    }
+
     bool canShowResponse = webPage->canShowResponse(response);
 
     RefPtr policyDocumentLoader = m_localFrame->loader().provisionalDocumentLoader();
@@ -972,17 +995,32 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRe
     bool isShowingInitialAboutBlank = m_localFrame->loader().stateMachine().isDisplayingInitialEmptyDocument();
     auto activeDocumentCOOPValue = m_localFrame->document() ? protect(m_localFrame->document())->crossOriginOpenerPolicy().value : CrossOriginOpenerPolicyValue::SameOrigin;
 
-    webPage->sendWithAsyncReply(Messages::WebPageProxy::DecidePolicyForResponse(frame->info(), navigationID, response, request, canShowResponse, downloadAttribute, isShowingInitialAboutBlank, activeDocumentCOOPValue), [frame, listenerID] (PolicyDecision&& policyDecision) {
+    // MAVERICKS_BACKPORT: ships the injected-bundle policy client's userData with the response policy request.
+    webPage->sendWithAsyncReply(Messages::WebPageProxy::DecidePolicyForResponse(frame->info(), navigationID, response, request, canShowResponse, downloadAttribute, isShowingInitialAboutBlank, activeDocumentCOOPValue, UserData(WebProcess::singleton().transformObjectsToHandles(bundleUserData.get()))), [frame, listenerID] (PolicyDecision&& policyDecision) {
         frame->didReceivePolicyDecision(listenerID, WTF::move(policyDecision));
     });
 }
 
-void WebLocalFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const NavigationAction& navigationAction, const ResourceRequest& request, FormState*, const String& frameName, std::optional<WebCore::HitTestResult>&& hitTestResult, FramePolicyFunction&& function)
+// MAVERICKS_BACKPORT: asks the restored injected-bundle policy client first (537 semantics), and
+// ships its userData with the new-window policy request.
+void WebLocalFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const NavigationAction& navigationAction, const ResourceRequest& request, FormState* formState, const String& frameName, std::optional<WebCore::HitTestResult>&& hitTestResult, FramePolicyFunction&& function)
 {
     RefPtr webPage = m_frame->page();
     if (!webPage) {
         function(PolicyAction::Ignore);
         return;
+    }
+
+    // MAVERICKS_BACKPORT: ask the injected bundle's policy client (restored, upstream 9eeab8d) as the
+    // navigation-action path does; Safari 7's UI-process new-window handler reads the userData it returns.
+    RefPtr<API::Object> bundleUserData;
+    {
+        Ref<InjectedBundleNavigationAction> action = InjectedBundleNavigationAction::create(m_frame.ptr(), navigationAction, formState);
+        WKBundlePagePolicyAction policy = webPage->injectedBundlePolicyClient().decidePolicyForNewWindowAction(webPage.get(), m_frame.ptr(), action.ptr(), request, frameName, bundleUserData);
+        if (policy == WKBundlePagePolicyActionUse) {
+            function(PolicyAction::Use);
+            return;
+        }
     }
 
     uint64_t listenerID = m_frame->setUpPolicyListener(WTF::move(function), WebFrame::ForNavigationAction::No);
@@ -1032,7 +1070,15 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const Nav
         request,
         request.url().isValid() ? String() : request.url().string(), /* invalidURLString */
         std::nullopt, /* requester */
+        // MAVERICKS_BACKPORT: assigned just below from the injected bundle's userData; listed here
+        // so the field we appended to NavigationActionData is accounted for at every site.
+        { }, /* bundlePolicyUserData */
     };
+
+    // MAVERICKS_BACKPORT: ship the injected bundle's userData with the action (same channel the
+    // navigation-action path uses).
+    if (bundleUserData)
+        navigationActionData.bundlePolicyUserData = UserData(WebProcess::singleton().transformObjectsToHandles(bundleUserData.get()));
 
     webPage->sendWithAsyncReply(Messages::WebPageProxy::DecidePolicyForNewWindowAction(navigationActionData, frameName), [frame = m_frame, listenerID] (PolicyDecision&& policyDecision) {
         frame->didReceivePolicyDecision(listenerID, WTF::move(policyDecision));
@@ -1095,8 +1141,20 @@ void WebLocalFrameLoaderClient::cancelPolicyCheck()
     m_frame->invalidatePolicyListeners();
 }
 
-void WebLocalFrameLoaderClient::dispatchUnableToImplementPolicy(const ResourceError&)
+// MAVERICKS_BACKPORT: restored notification of the injected bundle's policy client (upstream
+// 9eeab8d removed the client and left this body empty).
+void WebLocalFrameLoaderClient::dispatchUnableToImplementPolicy(const ResourceError& error)
 {
+    // MAVERICKS_BACKPORT: real body (upstream: empty stub).
+    RefPtr webPage = m_frame->page();
+    if (!webPage)
+        return;
+
+    RefPtr<API::Object> bundleUserData;
+    webPage->injectedBundlePolicyClient().unableToImplementPolicy(webPage.get(), m_frame.ptr(), error, bundleUserData);
+
+    // Notify the UIProcess.
+    webPage->send(Messages::WebPageProxy::UnableToImplementPolicy(m_frame->frameID(), error, UserData(WebProcess::singleton().transformObjectsToHandles(bundleUserData.get()).get())));
 }
 
 void WebLocalFrameLoaderClient::dispatchWillSendSubmitEvent(Ref<FormState>&& formState)

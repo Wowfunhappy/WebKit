@@ -51,14 +51,16 @@ WKBundleNodeHandleRef WKBundleHitTestResultCopyURLElementHandle(WKBundleHitTestR
     return toAPILeakingRef(WTF::move(urlElementNodeHandle));
 }
 
-WKBundleFrameRef WKBundleHitTestResultGetFrame(WKBundleHitTestResultRef)
+// MAVERICKS_BACKPORT: restores the real GetFrame/GetTargetFrame bodies (the base ships return-null stubs); Safari's context-menu code needs a non-null frame, so we return the hit-test result's actual frame/target frame.
+WKBundleFrameRef WKBundleHitTestResultGetFrame(WKBundleHitTestResultRef hitTestResultRef)
 {
-    return nullptr;
+    return toAPI(protect(WebKit::toImpl(hitTestResultRef))->frame().get());
 }
 
-WKBundleFrameRef WKBundleHitTestResultGetTargetFrame(WKBundleHitTestResultRef)
+// MAVERICKS_BACKPORT: restores the real body (base ships a return-null stub); see GetFrame above.
+WKBundleFrameRef WKBundleHitTestResultGetTargetFrame(WKBundleHitTestResultRef hitTestResultRef)
 {
-    return nullptr;
+    return toAPI(protect(WebKit::toImpl(hitTestResultRef))->targetFrame().get());
 }
 
 WKURLRef WKBundleHitTestResultCopyAbsoluteImageURL(WKBundleHitTestResultRef hitTestResultRef)

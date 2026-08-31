@@ -81,10 +81,14 @@ Ref<WebUserContentController> WebUserContentController::getOrCreate(UserContentC
 {
     auto identifier = parameters.identifier;
     auto& userContentControllerPtr = userContentControllers().add(identifier, nullptr).iterator->value;
-        if (userContentControllerPtr)
-            return *userContentControllerPtr;
-
-    Ref userContentController = adoptRef(*new WebUserContentController(identifier));
+    // MAVERICKS_BACKPORT: a page group creates the controller for its identifier as soon as the
+    // injected bundle asks for it (WebPageGroupProxy::userContentController), which on Safari 7
+    // happens during WKBundleInitialize, before the group's first page exists. Seed it here
+    // whether or not it already exists: every entry below is keyed on its own identifier, so
+    // re-applying the same parameters for a later page in the group adds nothing.
+    //     if (userContentControllerPtr)
+    //         return *userContentControllerPtr;
+    Ref userContentController = userContentControllerPtr ? Ref { *userContentControllerPtr } : adoptRef(*new WebUserContentController(identifier));
     userContentControllerPtr = userContentController.get();
 
     userContentController->addUserScripts(WTF::move(parameters.userScripts), InjectUserScriptImmediately::No);
@@ -95,6 +99,19 @@ Ref<WebUserContentController> WebUserContentController::getOrCreate(UserContentC
 #if ENABLE(CONTENT_EXTENSIONS)
     userContentController->addContentRuleLists(WTF::move(parameters.contentRuleLists));
 #endif
+    return userContentController;
+}
+
+// MAVERICKS_BACKPORT: restored from upstream e05340a^ (see header).
+Ref<WebUserContentController> WebUserContentController::getOrCreate(UserContentControllerIdentifier identifier)
+{
+    auto& userContentControllerPtr = userContentControllers().add(identifier, nullptr).iterator->value;
+    if (userContentControllerPtr)
+        return *userContentControllerPtr;
+
+    Ref userContentController = adoptRef(*new WebUserContentController(identifier));
+    userContentControllerPtr = userContentController.get();
+
     return userContentController;
 }
 

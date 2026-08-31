@@ -48,6 +48,7 @@ public:
     explicit InjectedBundlePageUIClient(const WKBundlePageUIClientBase*);
 
     void didClickAutoFillButton(WebPage&, InjectedBundleNodeHandle&, RefPtr<API::Object>& userData) override;
+    void mouseDidMoveOverElement(WebPage&, const WebCore::HitTestResult&, OptionSet<WebEventModifier>, RefPtr<API::Object>& userData) override; // MAVERICKS_BACKPORT: re-added for #58 status bar.
 };
 
 } // namespace WebKit
