@@ -23,50 +23,42 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// MAVERICKS_BACKPORT: see Dualshock4HIDGamepad.h for why the HID path handles this device here.
+
 #include "config.h"
-#include "Dualshock3HIDGamepad.h"
-#include <wtf/TZoneMallocInlines.h>
+#include "Dualshock4HIDGamepad.h"
 
 #if ENABLE(GAMEPAD) && PLATFORM(MAC)
 
 #include "GamepadConstants.h"
 #include "GamepadConstantsMac.h"
 #include "Logging.h"
-#include <IOKit/hid/IOHIDUsageTables.h>
-#include <wtf/HexNumber.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_TZONE_ALLOCATED_IMPL(Dualshock3HIDGamepad);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Dualshock4HIDGamepad);
 
-Dualshock3HIDGamepad::Dualshock3HIDGamepad(HIDDevice&& device, unsigned index)
+Dualshock4HIDGamepad::Dualshock4HIDGamepad(HIDDevice&& device, unsigned index)
     : HIDGamepad(WTF::move(device), index)
 {
-    LOG(Gamepad, "Creating Dualshock3HIDGamepad %p", this);
+    LOG(Gamepad, "Creating Dualshock4HIDGamepad %p", this);
 
     m_mapping = standardGamepadMappingString();
 
-    // m_buttonValues = Vector(numberOfStandardGamepadButtonsWithHomeButton, SharedGamepadValue { 0.0 });
-    m_buttonValues.resize(numberOfStandardGamepadButtonsWithHomeButton); // MAVERICKS_BACKPORT: copies of a SharedGamepadValue share one refcounted slot; resize() gives each button its own.
+    m_buttonValues.resize(numberOfStandardGamepadButtonsWithHomeButton);
 
     constexpr size_t axisCount = 4;
-    // m_axisValues = Vector(axisCount, SharedGamepadValue { 0.0 });
-    m_axisValues.resize(axisCount); // MAVERICKS_BACKPORT: copies of a SharedGamepadValue share one refcounted slot; resize() gives each axis its own.
+    m_axisValues.resize(axisCount);
 
     auto inputElements = hidDevice().uniqueInputElementsInDeviceTreeOrder();
-
-    Vector<HIDElement> pointerElements;
 
     auto mapButton = [this] (HIDElement& element, GamepadButtonRole role) {
         m_elementMap.set(element.cookie(), makeUnique<HIDGamepadButton>(element, m_buttonValues[(size_t)role]));
     };
 
-    // Look specifically for the axes and digital buttons
     for (auto& element : inputElements) {
         switch (element.fullUsage()) {
-        case hidPointerFullUsage:
-            pointerElements.append(element);
-            break;
         case hidXAxisFullUsage:
             m_elementMap.set(element.cookie(), makeUnique<HIDGamepadAxis>(element, m_axisValues[0]));
             break;
@@ -79,44 +71,64 @@ Dualshock3HIDGamepad::Dualshock3HIDGamepad(HIDDevice&& device, unsigned index)
         case hidRzAxisFullUsage:
             m_elementMap.set(element.cookie(), makeUnique<HIDGamepadAxis>(element, m_axisValues[3]));
             break;
+
+        case hidHatswitchFullUsage: {
+            auto hatswitchValues = Vector {
+                m_buttonValues[(size_t)GamepadButtonRole::LeftClusterTop],
+                m_buttonValues[(size_t)GamepadButtonRole::LeftClusterRight],
+                m_buttonValues[(size_t)GamepadButtonRole::LeftClusterBottom],
+                m_buttonValues[(size_t)GamepadButtonRole::LeftClusterLeft]
+            };
+
+            m_elementMap.set(element.cookie(), makeUnique<HIDGamepadHatswitch>(element, WTF::move(hatswitchValues)));
+            break;
+        }
+
+        // The L2/R2 triggers carry their pressure on Rx/Ry; buttons 7 and 8 are the same two triggers, digital.
+        case hidRxAxisFullUsage:
+            mapButton(element, GamepadButtonRole::LeftShoulderBack);
+            break;
+        case hidRyAxisFullUsage:
+            mapButton(element, GamepadButtonRole::RightShoulderBack);
+            break;
+
         case hidButton1FullUsage:
-            mapButton(element, GamepadButtonRole::CenterClusterLeft);
+            mapButton(element, GamepadButtonRole::RightClusterLeft);
             break;
         case hidButton2FullUsage:
-            mapButton(element, GamepadButtonRole::LeftStick);
+            mapButton(element, GamepadButtonRole::RightClusterBottom);
             break;
         case hidButton3FullUsage:
-            mapButton(element, GamepadButtonRole::RightStick);
+            mapButton(element, GamepadButtonRole::RightClusterRight);
             break;
         case hidButton4FullUsage:
+            mapButton(element, GamepadButtonRole::RightClusterTop);
+            break;
+        case hidButton5FullUsage:
+            mapButton(element, GamepadButtonRole::LeftShoulderFront);
+            break;
+        case hidButton6FullUsage:
+            mapButton(element, GamepadButtonRole::RightShoulderFront);
+            break;
+        case hidButton9FullUsage:
+            mapButton(element, GamepadButtonRole::CenterClusterLeft);
+            break;
+        case hidButton10FullUsage:
             mapButton(element, GamepadButtonRole::CenterClusterRight);
             break;
-        case hidButton17FullUsage:
+        case hidButton11FullUsage:
+            mapButton(element, GamepadButtonRole::LeftStick);
+            break;
+        case hidButton12FullUsage:
+            mapButton(element, GamepadButtonRole::RightStick);
+            break;
+        case hidButton13FullUsage:
             mapButton(element, GamepadButtonRole::CenterClusterCenter);
             break;
         default:
             break;
         }
     }
-
-    const size_t expectedGenericPointerElements = 40;
-    if (pointerElements.size() != expectedGenericPointerElements) {
-        LOG(Gamepad, "Dualshock3 controller was expected to have %lu generic pointer elements, has %lu instead", expectedGenericPointerElements, pointerElements.size());
-        return;
-    }
-
-    mapButton(pointerElements[5], GamepadButtonRole::LeftClusterTop);
-    mapButton(pointerElements[6], GamepadButtonRole::LeftClusterRight);
-    mapButton(pointerElements[7], GamepadButtonRole::LeftClusterBottom);
-    mapButton(pointerElements[8], GamepadButtonRole::LeftClusterLeft);
-    mapButton(pointerElements[9], GamepadButtonRole::LeftShoulderBack);
-    mapButton(pointerElements[10], GamepadButtonRole::RightShoulderBack);
-    mapButton(pointerElements[11], GamepadButtonRole::LeftShoulderFront);
-    mapButton(pointerElements[12], GamepadButtonRole::RightShoulderFront);
-    mapButton(pointerElements[13], GamepadButtonRole::RightClusterTop);
-    mapButton(pointerElements[14], GamepadButtonRole::RightClusterRight);
-    mapButton(pointerElements[15], GamepadButtonRole::RightClusterBottom);
-    mapButton(pointerElements[16], GamepadButtonRole::RightClusterLeft);
 }
 
 } // namespace WebCore
