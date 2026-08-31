@@ -1,0 +1,47 @@
+<title>AVF-POLYFILL-TEST</title>
+<body style="font:14px monospace">
+<div id="out">running…</div>
+<script>
+const log = [];
+function say(s) { log.push(s); document.getElementById('out').textContent = log.join('\n'); }
+
+// 1. Web Speech synthesis -> AVSpeechSynthesizer/AVSpeechUtterance/AVSpeechSynthesisVoice stubs.
+try {
+    const voices = speechSynthesis.getVoices();
+    say('VOICES=' + voices.length + (voices.length ? ' first=' + voices[0].name + '/' + voices[0].lang : ''));
+} catch (e) { say('VOICES-THREW ' + e); }
+
+let spoke = false;
+try {
+    const u = new SpeechSynthesisUtterance('polyfill test one two three');
+    u.rate = 1.0;
+    u.pitch = 1.5;          // exercises the pitchMultiplier path that used to be dropped
+    u.volume = 0.1;
+    u.onstart = () => say('SPEECH-START');
+    u.onend = () => { spoke = true; say('SPEECH-DONE'); document.title = 'SPEECH-DONE'; };
+    u.onerror = e => say('SPEECH-ERROR ' + e.error);
+    speechSynthesis.speak(u);
+} catch (e) { say('SPEAK-THREW ' + e); }
+
+// 2. enumerateDevices -> AVCaptureDeviceDiscoverySession stub + AVCaptureDeviceManager KVO.
+if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+    navigator.mediaDevices.enumerateDevices()
+        .then(d => say('DEVICES=' + d.length + ' ' + d.map(x => x.kind).join(',')))
+        .catch(e => say('DEVICES-ERROR ' + e));
+} else
+    say('DEVICES-UNSUPPORTED');
+
+// 3. WebAudio, which routes through SharedRoutingArbitrator -> AVAudioRoutingArbiter stub.
+try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    gain.gain.value = 0.02;
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    setTimeout(() => { osc.stop(); say('AUDIO state=' + ctx.state); }, 500);
+} catch (e) { say('AUDIO-THREW ' + e); }
+
+setTimeout(() => { if (!spoke) say('SPEECH-TIMEOUT (no end event)'); }, 12000);
+</script>
+</body>

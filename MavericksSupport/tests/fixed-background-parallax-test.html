@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>fixed-attachment background under a notched wheel</title>
+<style>
+  html,body { margin:0; background:#222; }
+  /* A viewport-anchored 40px stripe pattern: any vertical displacement of the fixed background,
+     even for a single frame, flips the colour under a probe pixel. The rAF callback below burns 8ms
+     so a wheel notch has time to land inside a rendering update, and the fixed-attachment background
+     makes this element a slow-repaint object. Drive it with isolated wheel notches ~180ms apart. */
+  #para {
+    height: 30000px;
+    background-image: repeating-linear-gradient(to bottom, #000000 0px, #000000 40px, #ffffff 40px, #ffffff 80px);
+    background-attachment: fixed;
+  }
+  .mark { position:absolute; left:0; width:180px; height:98px; margin-top:1px;
+          background:#c00; color:#fff; font:20px/98px monospace; text-align:center; }
+  .fixedbox { position: fixed; left: 300px; top: 300px; width: 120px; height: 120px;
+              background: #00a; color:#fff; font: 16px/120px monospace; text-align:center; z-index: 50; }
+  .hud { position: fixed; top: 4px; left: 4px; z-index: 99; background: #000; color: #0f0;
+         font: 14px monospace; padding: 2px 6px; }
+  /* Same background inside a composited overflow scroller and under a sticky element: both are
+     scrolled by the main thread once the fixed background puts a synchronous scrolling reason on
+     their scrolling node. */
+  .overflowbox { position: absolute; left: 420px; top: 400px; width: 320px; height: 300px;
+                 overflow: auto; border: 4px solid #0a0; z-index: 60; background: #fff; }
+  .overflowbox .inner { height: 2000px; position: relative;
+    background-image: repeating-linear-gradient(to bottom, #000000 0px, #000000 40px, #ffffff 40px, #ffffff 80px);
+    background-attachment: fixed; }
+  .stickyhost { height: 29000px; }
+  .stickybar { position: sticky; top: 0; width: 240px; height: 30px; margin-left: 200px;
+               background: #a0f; color: #fff; font: 14px/30px monospace; text-align: center; z-index: 40; }
+</style></head>
+<body>
+<div class="hud" id="hud">y=0</div>
+<div class="fixedbox">FIXED</div>
+<div id="para"></div>
+<div class="overflowbox"><div class="inner" id="inner"></div></div>
+<script>
+var p = document.getElementById('para'), s = '';
+for (var i = 0; i < 300; i++) s += '<div class="mark" style="top:' + (i*100) + 'px">' + (i*100) + '</div>';
+s += '<div class="stickyhost"><div class="stickybar">STICKY</div></div>';
+var inner = document.getElementById('inner'), t = '';
+for (var j = 0; j < 20; j++) t += '<div class="mark" style="top:' + (j*100) + 'px;width:120px">in ' + (j*100) + '</div>';
+inner.innerHTML = t;
+p.innerHTML = s;
+addEventListener('scroll', function () { hud.textContent = 'y=' + Math.round(scrollY); }, {passive:true});
+addEventListener('wheel', function () {}, {passive:true});
+// A page that keeps rendering updates running every frame, the way a real site's animations do.
+var spin = document.createElement('div');
+spin.style.cssText = 'position:fixed;right:10px;top:10px;width:40px;height:40px;background:#0f0;z-index:99';
+document.body.appendChild(spin);
+var k = 0;
+(function f() { spin.style.opacity = 0.5 + 0.5 * Math.sin(k++ / 10); var t = Date.now(); while (Date.now() - t < 8) {} requestAnimationFrame(f); })();
+</script>
+</body></html>

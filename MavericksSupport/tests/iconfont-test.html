@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head><title>icon font test</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+<style>
+.material-icons { font-family: 'Material Icons'; font-size: 40px; }
+div { font-size: 22px; margin: 10px; }
+</style>
+</head>
+<body>
+<div>Ligature icons (should be 4 pictograms, not words): <span class="material-icons">home search settings face</span></div>
+<div>Codepoint icon (&#xE88A; = home): <span class="material-icons">&#xE88A;</span></div>
+<script>document.fonts.ready.then(function(){ document.title = 'icons ready'; });</script>
+</body>
+</html>

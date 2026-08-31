@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Fullscreen test</title>
+<style>
+  body { font-family: -apple-system, Helvetica, sans-serif; margin: 0; padding: 24px; background:#eee; }
+  #target { width: 320px; height: 200px; background: linear-gradient(135deg,#1e88e5,#8e24aa); color:#fff;
+            display:flex; align-items:center; justify-content:center; font-size:28px; border-radius:12px; }
+  #target:fullscreen { width:100%; height:100%; border-radius:0; font-size:64px; }
+  #target:-webkit-full-screen { width:100%; height:100%; border-radius:0; font-size:64px; }
+  button { font-size:20px; padding:12px 24px; margin:8px 8px 8px 0; }
+  #status { font-size:18px; margin-top:16px; font-weight:bold; color:#c00; }
+</style>
+</head>
+<body>
+  <h1>Fullscreen API test</h1>
+  <button id="go">Go Fullscreen</button>
+  <button id="exit">Exit (JS)</button>
+  <div id="status">status: not fullscreen</div>
+  <div id="target">FULLSCREEN ME</div>
+
+  <script>
+    var target = document.getElementById('target');
+    var status = document.getElementById('status');
+    function req(el){ (el.requestFullscreen||el.webkitRequestFullscreen||el.webkitRequestFullScreen).call(el); }
+    function exit(){ (document.exitFullscreen||document.webkitExitFullscreen).call(document); }
+    document.getElementById('go').addEventListener('click', function(){
+      try { req(target); status.textContent='status: requested...'; }
+      catch(e){ status.textContent='status: ERROR '+e; }
+    });
+    document.getElementById('exit').addEventListener('click', exit);
+    function onChange(){
+      var fs = document.fullscreenElement || document.webkitFullscreenElement;
+      status.textContent = 'status: ' + (fs ? 'FULLSCREEN ('+(window.innerWidth)+'x'+(window.innerHeight)+')' : 'not fullscreen');
+      target.textContent = fs ? 'IN FULLSCREEN — press Esc' : 'FULLSCREEN ME';
+    }
+    document.addEventListener('fullscreenchange', onChange);
+    document.addEventListener('webkitfullscreenchange', onChange);
+    document.addEventListener('fullscreenerror', function(){ status.textContent='status: FULLSCREEN ERROR'; });
+    document.addEventListener('webkitfullscreenerror', function(){ status.textContent='status: FULLSCREEN ERROR'; });
+  </script>
+</body>
+</html>

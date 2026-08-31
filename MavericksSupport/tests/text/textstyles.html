@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<!-- Expected on a correct build: all 17 -apple-system-* shorthands realize at the macOS table sizes
+     (title0-4 26/22/17/15/13, headline/body/tall-body/short-headline/short-body 13, subheadline/short-subheadline 11,
+     footnote/caption1/caption2/short-footnote/short-caption1 10) and #out prints "ALL SIZES MATCH THE macOS TABLE"
+     (a broken build answers the iOS table, e.g. body 17px). The bold system-ui span renders visibly bolder. -->
+<head><meta charset="utf-8"><title>-apple-system text styles</title>
+<style>
+body { font: 13px "Lucida Grande", sans-serif; margin: 16px; }
+td { padding: 2px 10px; vertical-align: baseline; }
+.t0 { font: -apple-system-title0; } .t1 { font: -apple-system-title1; }
+.t2 { font: -apple-system-title2; } .t3 { font: -apple-system-title3; }
+.t4 { font: -apple-system-title4; } .hd { font: -apple-system-headline; }
+.bd { font: -apple-system-body; }  .sh { font: -apple-system-subheadline; }
+.fn { font: -apple-system-footnote; } .c1 { font: -apple-system-caption1; }
+.c2 { font: -apple-system-caption2; } .tb { font: -apple-system-tall-body; }
+.shd { font: -apple-system-short-headline; } .sbd { font: -apple-system-short-body; }
+.ssh { font: -apple-system-short-subheadline; } .sfn { font: -apple-system-short-footnote; }
+.sc1 { font: -apple-system-short-caption1; }
+.ui { font-family: system-ui; font-size: 24px; }
+.uib { font-family: system-ui; font-size: 24px; font-weight: 700; }
+</style></head><body>
+<h3>CSS system-font shorthands</h3>
+<table id="tbl"></table>
+<h3>system-ui weight control (right must look bolder)</h3>
+<span class="ui">Regular Hamburgefons</span> &nbsp; <span class="uib">Bold Hamburgefons</span>
+<pre id="out"></pre>
+<script>
+var rows = [["title0","t0",26],["title1","t1",22],["title2","t2",17],["title3","t3",15],
+  ["title4","t4",13],["headline","hd",13],["body","bd",13],["subheadline","sh",11],
+  ["footnote","fn",10],["caption1","c1",10],["caption2","c2",10],["tall-body","tb",13],
+  ["short-headline","shd",13],["short-body","sbd",13],["short-subheadline","ssh",11],
+  ["short-footnote","sfn",10],["short-caption1","sc1",10]];
+var t = document.getElementById("tbl"), lines = [], fails = 0;
+rows.forEach(function(r) {
+  var tr = document.createElement("tr");
+  tr.innerHTML = '<td>-apple-system-' + r[0] + '</td><td class="' + r[1] + '">Hamburgefons</td><td class="sz"></td><td class="fam"></td><td class="wt"></td>';
+  t.appendChild(tr);
+  var cell = tr.querySelector("." + r[1]), cs = getComputedStyle(cell);
+  tr.querySelector(".sz").textContent = cs.fontSize;
+  tr.querySelector(".fam").textContent = cs.fontFamily;
+  tr.querySelector(".wt").textContent = cs.fontWeight;
+  var ok = parseFloat(cs.fontSize) === r[2];
+  if (!ok) fails++;
+  lines.push((ok ? "OK   " : "FAIL ") + "-apple-system-" + r[0] + " size=" + cs.fontSize +
+             " expected=" + r[2] + "px family=" + cs.fontFamily + " weight=" + cs.fontWeight);
+});
+lines.push(fails ? (fails + " FAILURES") : "ALL SIZES MATCH THE macOS TABLE");
+document.getElementById("out").textContent = lines.join("\n");
+</script></body></html>

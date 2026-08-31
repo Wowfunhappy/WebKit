@@ -1,0 +1,69 @@
+<meta charset="utf-8">
+<title>Issue #48 — Lion-style fullscreen</title>
+<style>
+  body { font: 15px -apple-system, "Helvetica Neue", sans-serif; margin: 20px; }
+  button { font-size: 15px; padding: 6px 10px; margin-right: 8px; }
+  #log { font-family: Menlo, monospace; font-size: 13px; white-space: pre; margin-top: 14px;
+         border: 1px solid #999; padding: 8px; min-height: 200px; }
+  .hit { background: #ffe08a; }
+</style>
+<h1>Issue #48 — Lion-style fullscreen</h1>
+<p>Screen <span id="screen"></span>. The FIRST line after each "in" is the acceptance measurement.</p>
+<button id="enter">Enter fullscreen (click me)</button>
+<button id="exit">document.exitFullscreen()</button>
+<button id="race">Enter then exit after 60ms (mid-transition)</button>
+<button id="nav">Enter, then navigate away after 1.5s (-close route)</button>
+<div id="log"></div>
+<script>
+var logEl = document.getElementById('log');
+document.getElementById('screen').textContent = screen.width + 'x' + screen.height;
+
+function line(text, hit) {
+  var d = document.createElement('div');
+  d.textContent = text;
+  if (hit) d.className = 'hit';
+  logEl.appendChild(d);
+}
+function size() { return innerWidth + 'x' + innerHeight; }
+
+document.addEventListener('fullscreenchange', onChange);
+document.addEventListener('webkitfullscreenchange', onChange);
+
+function onChange() {
+  var inFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  var state = inFS ? 'in ' : 'out';
+  var atEvent = size();
+  // The acceptance measurement: what the page is told AT the event, before anything can resize it.
+  line(state + ' @event      ' + atEvent, inFS && atEvent !== (screen.width + 'x' + screen.height));
+  requestAnimationFrame(function () {
+    line(state + ' @rAF        ' + size());
+    setTimeout(function () {
+      line(state + ' @+500ms     ' + size());
+      if (inFS)
+        line('   expected in-fullscreen: ' + screen.width + 'x' + screen.height);
+    }, 500);
+  });
+}
+
+document.getElementById('enter').addEventListener('click', function () {
+  line('--- requestFullscreen ---');
+  (document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen)
+    .call(document.documentElement);
+});
+document.getElementById('exit').addEventListener('click', function () {
+  (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+});
+document.getElementById('nav').addEventListener('click', function () {
+  (document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen)
+    .call(document.documentElement);
+  setTimeout(function () { location.href = 'https://example.com/'; }, 1500);
+});
+document.getElementById('race').addEventListener('click', function () {
+  line('--- RACE: enter, exit at 60ms ---');
+  (document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen)
+    .call(document.documentElement);
+  setTimeout(function () {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  }, 60);
+});
+</script>

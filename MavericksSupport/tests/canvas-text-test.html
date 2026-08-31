@@ -1,0 +1,255 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Canvas Text Test — running…</title>
+<style>
+  body { font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; margin: 16px; color: #111; }
+  h1 { font-size: 18px; padding: 8px 12px; border-radius: 6px; }
+  .pass { background: #1a7f37; color: #fff; }
+  .fail { background: #cf222e; color: #fff; }
+  table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+  td, th { border: 1px solid #ddd; padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { background: #f3f3f3; }
+  tr.t-pass td:nth-child(2) { color: #1a7f37; font-weight: 600; }
+  tr.t-fail td:nth-child(2) { color: #cf222e; font-weight: 600; }
+  tr.t-skip td:nth-child(2) { color: #888; }
+  pre#json { background: #f6f8fa; border: 1px solid #ddd; padding: 8px; white-space: pre-wrap; word-break: break-all; }
+  td:last-child { color: #555; }
+</style>
+
+<h1 id="banner">running…</h1>
+<div id="summary"></div>
+<table id="results">
+  <thead><tr><th>Test</th><th>Result</th><th>Detail</th></tr></thead>
+  <tbody></tbody>
+</table>
+<h3>Machine-readable result</h3>
+<pre id="json"></pre>
+
+<script>
+// ---------------------------------------------------------------------------
+// Canvas text-rendering conformance checks. All assertions are font-INDEPENDENT:
+// they test self-consistency (what measureText reports == what fillText paints)
+// and definitional invariants (alphabetic baseline of a cap letter lands on y),
+// so they pass on any correct engine regardless of which fonts CI has installed.
+// Edit the three constants below to widen coverage.
+// ---------------------------------------------------------------------------
+const FONTS = ['sans-serif', 'serif', 'monospace'];
+const SIZES = [16, 32, 64];
+const ALPHA = 16;   // alpha threshold for counting a pixel as "ink"
+const PAD   = 12;   // left/origin padding
+
+const results = [];
+function record(name, ok, detail, skip) {
+  results.push({ name, ok: !!ok, detail: String(detail), skip: !!skip });
+}
+function approx(a, b, tol) { return Math.abs(a - b) <= tol; }
+
+function mkCanvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  return c;
+}
+
+// Tight bounding box of painted ink, scanning the alpha channel.
+function ink(ctx, w, h) {
+  const d = ctx.getImageData(0, 0, w, h).data;
+  let top = Infinity, bottom = -Infinity, left = Infinity, right = -Infinity, found = false;
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      if (d[(row + x) * 4 + 3] > ALPHA) {
+        found = true;
+        if (y < top) top = y;
+        if (y > bottom) bottom = y;
+        if (x < left) left = x;
+        if (x > right) right = x;
+      }
+    }
+  }
+  return found ? { top, bottom, left, right, midX: (left + right) / 2 } : null;
+}
+
+function ctxFor(s) {
+  const W = 480, H = Math.max(120, s * 6), base = Math.round(s * 3);
+  const c = mkCanvas(W, H), ctx = c.getContext('2d');
+  ctx.fillStyle = '#000';
+  ctx.textAlign = 'left';
+  ctx.font = `${s}px FONT`; // overwritten per call
+  return { ctx, W, H, base };
+}
+
+// ---- A. Alphabetic baseline of a cap letter must land on the pen-y --------
+// This is THE check for "fillText vertical origin is wrong" (the cap-height /
+// ascent shift). 'H' has a flat bottom with ~zero overshoot, so its ink bottom
+// IS the baseline. Independent of the font.
+for (const f of FONTS) for (const s of SIZES) {
+  const { ctx, W, H, base } = ctxFor(s);
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = `${s}px ${f}`; ctx.textBaseline = 'alphabetic';
+  ctx.fillText('H', PAD, base);
+  const b = ink(ctx, W, H);
+  const tol = Math.max(2.5, s * 0.06);
+  const ok = b && approx(b.bottom, base, tol);
+  record(`A · alphabetic baseline · ${f} ${s}px`, ok,
+    b ? `inkBottom=${b.bottom}, expected≈${base} (Δ${b.bottom - base}px), tol=${tol.toFixed(1)}` : 'no ink painted');
+}
+
+// ---- B. Vertical measure/paint coherence ----------------------------------
+// What measureText REPORTS (actualBoundingBox ascent/descent, relative to the
+// baseline) must match where fillText actually PAINTS. The exact failure mode
+// where metrics are right but glyphs are drawn shifted shows up here as a big Δ.
+for (const f of FONTS) for (const s of SIZES) {
+  const { ctx, W, H, base } = ctxFor(s);
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = `${s}px ${f}`; ctx.textBaseline = 'alphabetic';
+  const str = 'Rgpy'; // ascender + descenders
+  ctx.fillText(str, PAD, base);
+  const m = ctx.measureText(str);
+  const b = ink(ctx, W, H);
+  const haveBox = Number.isFinite(m.actualBoundingBoxAscent) &&
+                  Number.isFinite(m.actualBoundingBoxDescent) &&
+                  (m.actualBoundingBoxAscent !== 0 || m.actualBoundingBoxDescent !== 0);
+  if (!haveBox) {
+    record(`B · vert measure/paint · ${f} ${s}px`, false, 'engine did not report actualBoundingBox*', true);
+    continue;
+  }
+  const tol = Math.max(2, s * 0.06);
+  const inkAsc = base - b.top, inkDesc = b.bottom - base;
+  const ok = approx(inkAsc, m.actualBoundingBoxAscent, tol) &&
+             approx(inkDesc, m.actualBoundingBoxDescent, tol);
+  record(`B · vert measure/paint · ${f} ${s}px`, ok,
+    `painted asc=${inkAsc} vs reported ${m.actualBoundingBoxAscent.toFixed(1)}; ` +
+    `painted desc=${inkDesc} vs reported ${m.actualBoundingBoxDescent.toFixed(1)}; tol=${tol.toFixed(1)}`);
+}
+
+// ---- C. Horizontal advance coherence --------------------------------------
+// Painted ink must fit within [origin, origin + measureText().width].
+for (const f of FONTS) for (const s of SIZES) {
+  const { ctx, W, H, base } = ctxFor(s);
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = `${s}px ${f}`; ctx.textBaseline = 'alphabetic';
+  const str = 'nimble';
+  ctx.fillText(str, PAD, base);
+  const w = ctx.measureText(str).width;
+  const b = ink(ctx, W, H);
+  const tol = Math.max(2.5, s * 0.06);
+  const fits = b && b.left >= PAD - tol && b.right <= PAD + w + tol;
+  const advanceSane = b && (b.right - PAD) >= w * 0.5; // ink covers most of the advance
+  record(`C · horiz advance · ${f} ${s}px`, fits && advanceSane,
+    b ? `inkLeft=${b.left} (≥${(PAD - tol).toFixed(1)}), inkRight=${b.right} (≤${(PAD + w + tol).toFixed(1)}), width=${w.toFixed(1)}` : 'no ink');
+}
+
+// ---- D. textAlign places the origin correctly -----------------------------
+// NOTE: textAlign positions the glyph's ADVANCE box (the pen), not its ink, so
+// the ink edges sit one side-bearing away from the anchor. Comparing ink edges
+// to X therefore fails in real fonts at large sizes. Instead we compare the
+// SHIFT of the ink between alignments: switching left→right moves the origin by
+// exactly one advance width, and left→center by half. Side bearings are
+// identical across the three draws, so they cancel — this is font-independent.
+for (const f of FONTS) for (const s of SIZES) {
+  const { ctx, W, H, base } = ctxFor(s);
+  const X = Math.round(W / 2);
+  const tol = Math.max(3, s * 0.06);
+  ctx.font = `${s}px ${f}`; ctx.textBaseline = 'alphabetic';
+  const w = ctx.measureText('H').width; // advance width (alignment-independent)
+
+  ctx.clearRect(0, 0, W, H); ctx.textAlign = 'left';   ctx.fillText('H', X, base);
+  const l = ink(ctx, W, H);
+  ctx.clearRect(0, 0, W, H); ctx.textAlign = 'center'; ctx.fillText('H', X, base);
+  const c = ink(ctx, W, H);
+  ctx.clearRect(0, 0, W, H); ctx.textAlign = 'right';  ctx.fillText('H', X, base);
+  const r = ink(ctx, W, H);
+
+  // left→right shifts ink left by one advance; left→center by half an advance.
+  const shiftRight = l && r ? l.left - r.left : NaN;
+  const shiftCenter = l && c ? l.left - c.left : NaN;
+  const ok = l && c && r &&
+    approx(shiftRight, w, tol) && approx(shiftCenter, w / 2, tol);
+  record(`D · textAlign advance · ${f} ${s}px`, ok,
+    (l && c && r)
+      ? `left→right shift=${shiftRight.toFixed(1)} (≈${w.toFixed(1)}), left→center shift=${shiftCenter.toFixed(1)} (≈${(w / 2).toFixed(1)}), tol=${tol.toFixed(1)}`
+      : 'no ink');
+}
+
+// ---- E. Baseline-mode ordering --------------------------------------------
+// top mode draws lowest (largest inkBottom) → alphabetic ≈ y → bottom mode highest.
+for (const f of FONTS) for (const s of SIZES) {
+  const { ctx, W, H, base } = ctxFor(s);
+  ctx.font = `${s}px ${f}`;
+  const bm = {};
+  for (const mode of ['top', 'middle', 'alphabetic', 'bottom']) {
+    ctx.clearRect(0, 0, W, H);
+    ctx.textBaseline = mode;
+    ctx.fillText('H', PAD, base);
+    const b = ink(ctx, W, H);
+    bm[mode] = b ? b.bottom : null;
+  }
+  const tol = Math.max(2.5, s * 0.06);
+  const ok = bm.top != null && bm.middle != null && bm.alphabetic != null && bm.bottom != null &&
+    bm.top > bm.middle && bm.middle > bm.bottom &&
+    bm.top > bm.alphabetic && bm.alphabetic > bm.bottom &&
+    approx(bm.alphabetic, base, tol);
+  record(`E · baseline-mode order · ${f} ${s}px`, ok,
+    `bottoms: top=${bm.top}, middle=${bm.middle}, alphabetic=${bm.alphabetic} (≈${base}), bottom=${bm.bottom}`);
+}
+
+// ---- F. Decoration hugs the baseline (the Google Docs symptom) ------------
+// An underline drawn just below the baseline must sit immediately under the
+// glyph ink. If fillText is shifted, text and underline separate by a line —
+// exactly what the Docs screenshot showed.
+for (const f of FONTS) for (const s of SIZES) {
+  const { W, H, base } = ctxFor(s);
+
+  const tc = mkCanvas(W, H), tctx = tc.getContext('2d');
+  tctx.fillStyle = '#000'; tctx.font = `${s}px ${f}`; tctx.textBaseline = 'alphabetic';
+  tctx.fillText('H', PAD, base);
+  const tb = ink(tctx, W, H);
+
+  const uTop = base + Math.max(1, Math.round(s * 0.05));
+  const maxGap = Math.max(3, s * 0.2);
+  const gap = tb ? (uTop - tb.bottom) : Infinity;
+  const ok = tb && gap >= -maxGap && gap <= maxGap;
+  record(`F · underline hugs baseline · ${f} ${s}px`, ok,
+    tb ? `textInkBottom=${tb.bottom}, underlineTop=${uTop}, gap=${gap}px (allowed ±${maxGap.toFixed(1)})` : 'no ink');
+}
+
+// ---- Report ----------------------------------------------------------------
+const counted = results.filter(r => !r.skip);
+const passed = counted.filter(r => r.ok).length;
+const failed = counted.length - passed;
+const skipped = results.length - counted.length;
+const allPass = failed === 0;
+
+const banner = document.getElementById('banner');
+banner.textContent = `${allPass ? 'PASS' : 'FAIL'} — ${passed}/${counted.length} checks` + (skipped ? `, ${skipped} skipped` : '');
+banner.className = allPass ? 'pass' : 'fail';
+
+document.getElementById('summary').textContent =
+  `${counted.length} checks (${passed} pass, ${failed} fail)` + (skipped ? `, ${skipped} skipped` : '') +
+  ` · fonts: ${FONTS.join(', ')} · sizes: ${SIZES.join(', ')}px`;
+
+const tbody = document.querySelector('#results tbody');
+for (const r of results) {
+  const tr = document.createElement('tr');
+  tr.className = r.skip ? 't-skip' : (r.ok ? 't-pass' : 't-fail');
+  const verdict = r.skip ? 'SKIP' : (r.ok ? 'PASS' : 'FAIL');
+  const td = (t) => { const e = document.createElement('td'); e.textContent = t; return e; };
+  tr.append(td(r.name), td(verdict), td(r.detail));
+  tbody.append(tr);
+}
+
+const payload = {
+  suite: 'canvas-text',
+  allPass, total: counted.length, passed, failed, skipped,
+  fonts: FONTS, sizes: SIZES,
+  failures: counted.filter(r => !r.ok).map(r => ({ name: r.name, detail: r.detail })),
+  tests: results
+};
+document.getElementById('json').textContent = JSON.stringify(payload, null, 2);
+
+// Hooks for an external harness / CI: read the title, scrape this console line,
+// or read window.canvasTextTestResults after load.
+document.title = `CANVAS-TEXT ${allPass ? 'PASS' : 'FAIL'} ${passed}/${counted.length}`;
+window.canvasTextTestResults = payload;
+console.log('CANVAS_TEXT_RESULTS ' + JSON.stringify(payload));
+</script>

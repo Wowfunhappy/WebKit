@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>first-party interaction: none yet</title>
+<style>body{font:13px -apple-system,sans-serif;margin:2em}</style>
+<h1>First-party user interaction</h1>
+<p>Load this at the origin that will later be embedded, and click. ITP only offers storage access to
+a domain the user has interacted with as first party.</p>
+<button id="b">Click me</button>
+<p id="out"></p>
+<script>
+document.getElementById('b').addEventListener('click', () => {
+    document.cookie = 'sa=1; path=/';
+    document.cookie = 'sa_none=1; path=/; SameSite=None';
+    document.getElementById('out').textContent = 'interacted on ' + location.host + '; cookie: ' + document.cookie;
+    document.title = 'first-party interaction: done';
+});
+</script>

@@ -1,0 +1,107 @@
+<!DOCTYPE html><html>
+<!-- Expected on a correct build: every "want"/"must" line in #out is satisfied -- synthesized small caps measure
+     wider than the lowercase-0.7em reference, real-smcp fonts (Seravek, Avenir Next) keep their real small caps,
+     fi/ffi ligate (glyph count shrinks), AVAV/To kern and font-kerning:none does not, the NBSP run still ligates and
+     kerns, Hebrew/Arabic lay out, and zapfino dream w=129.000 (130.000 = kern stripped). -->
+<head><meta charset="utf-8"><title>shape</title>
+<style>
+body{background:#fff;color:#000;font:16px Helvetica;margin:8px}
+.s{font-size:40px;white-space:nowrap;display:inline-block;outline:1px solid #ddd;margin-right:4px}
+#out{white-space:pre;font:12px/16px monospace;margin-top:14px}
+h2{font:13px Helvetica;margin:12px 0 2px;color:#06c}
+</style></head><body>
+<p style="font:12px Helvetica">CTFontShapeGlyphs over CTFontTransformGlyphs: the caller's glyph array is
+shaped in place, so a synthesized small-caps run keeps its capitals, ligatures still substitute, kerning
+still applies, and a run carrying a no-break space (which GlyphPage maps to the space glyph) is shaped
+like any other.</p>
+
+<h2>1 small caps — synthesis must render CAPITALS (fonts without real smcp)</h2>
+<div><span class=s id=a1 style="font-family:'Hoefler Text'">hamburgefonstiv</span
+><span class=s id=a2 style="font-family:'Hoefler Text';font-variant:small-caps">hamburgefonstiv</span
+><span class=s id=a3 style="font-family:'Hoefler Text';font-size:28px;text-transform:uppercase">hamburgefonstiv</span
+><span class=s id=a4 style="font-family:'Hoefler Text';font-size:28px">hamburgefonstiv</span></div>
+<div><span class=s id=b1 style="font-family:Palatino">hamburgefonstiv</span
+><span class=s id=b2 style="font-family:Palatino;font-variant:small-caps">hamburgefonstiv</span
+><span class=s id=b3 style="font-family:Palatino;font-size:28px;text-transform:uppercase">hamburgefonstiv</span></div>
+<div><span class=s id=c1 style="font-family:Georgia">hamburgefonstiv</span
+><span class=s id=c2 style="font-family:Georgia;font-variant:small-caps">hamburgefonstiv</span
+><span class=s id=c3 style="font-family:Georgia;font-size:28px;text-transform:uppercase">hamburgefonstiv</span></div>
+
+<h2>2 small caps — fonts WITH real smcp must stay real (Seravek, Avenir Next)</h2>
+<div><span class=s id=d1 style="font-family:Seravek">hamburgefonstiv</span
+><span class=s id=d2 style="font-family:Seravek;font-variant:small-caps">hamburgefonstiv</span
+><span class=s id=d3 style="font-family:Seravek;font-feature-settings:'smcp'">hamburgefonstiv</span></div>
+<div><span class=s id=e1 style="font-family:'Avenir Next'">hamburgefonstiv</span
+><span class=s id=e2 style="font-family:'Avenir Next';font-variant:small-caps">hamburgefonstiv</span
+><span class=s id=e3 style="font-family:'Avenir Next';font-feature-settings:'smcp'">hamburgefonstiv</span></div>
+
+<h2>3 ligatures — fi / ffi must substitute (glyph count shrinks through the handler)</h2>
+<div><span class=s id=f1 style="font-family:'Hoefler Text'">fi fl ffi ffl</span
+><span class=s id=f2 style="font-family:'Hoefler Text';font-variant-ligatures:none">fi fl ffi ffl</span></div>
+
+<h2>4 kerning — AVAV / To must kern, and font-kerning:none must not</h2>
+<div><span class=s id=g1 style="font-family:Helvetica;font-kerning:normal">AVAV To Yo</span
+><span class=s id=g2 style="font-family:Helvetica;font-kerning:none">AVAV To Yo</span></div>
+
+<h2>5 a run carrying NBSP must still ligate and kern</h2>
+<div><span class=s id=h1 style="font-family:'Hoefler Text'">fi&#160;ffl AVAV</span
+><span class=s id=h2 style="font-family:'Hoefler Text'">fi ffl AVAV</span></div>
+
+<h2>6 RTL — Hebrew and Arabic must lay out</h2>
+<div><span class=s id=i1 dir=rtl>&#1513;&#1500;&#1493;&#1501; &#1506;&#1493;&#1500;&#1501;</span
+><span class=s id=i2 dir=rtl style="font-family:'Geeza Pro'">&#1605;&#1585;&#1581;&#1576;&#1575;</span></div>
+
+<h2>7 kern on a ligated slot — Zapfino "dream": 'dr' ligates and that slot carries a kern delta.
+Measured with CoreText on this host at 40px: shaped run = 129.000; the ligature slot at its nominal
+advance instead = 130.000; unshaped = 130.800.</h2>
+<div><span class=s id=z1 style="font-family:Zapfino">dream</span></div>
+
+<div id=out></div>
+<script>
+function w(id){return document.getElementById(id).getBoundingClientRect().width;}
+var L=[], fail=0;
+function caps(name, n, v, upper){
+  var okCaps = Math.abs(v-upper) < 2.0;
+  if(!okCaps) fail++;
+  L.push((name+'            ').slice(0,13)+' normal40='+n.toFixed(3)+' variant='+v.toFixed(3)+
+         ' UPPER0.7='+upper.toFixed(3)+(okCaps?'   CAPITALS':'   *** NOT CAPITALIZED'));
+}
+caps('HoeflerText', w('a1'), w('a2'), w('a3'));
+L.push('              lowercase0.7 reference = '+w('a4').toFixed(3)+' (variant must NOT equal this)');
+caps('Palatino',    w('b1'), w('b2'), w('b3'));
+caps('Georgia',     w('c1'), w('c2'), w('c3'));
+L.push('');
+['d','e'].forEach(function(k,i){
+  var name=['Seravek','Avenir Next'][i];
+  var n=w(k+'1'), v=w(k+'2'), m=w(k+'3');
+  var real = Math.abs(v-m) < 0.51 && Math.abs(m-n) > 0.01;
+  if(!real) fail++;
+  L.push((name+'            ').slice(0,13)+' normal40='+n.toFixed(3)+' variant='+v.toFixed(3)+
+         ' smcp='+m.toFixed(3)+(real?'   REAL small caps':'   *** variant != smcp'));
+});
+L.push('');
+var lig=w('f1'), nolig=w('f2');
+if(!(nolig-lig > 0.5)) fail++;
+L.push('ligatures     on='+lig.toFixed(3)+'  none='+nolig.toFixed(3)+'  delta='+(nolig-lig).toFixed(3)+
+       ((nolig-lig>0.5)?'   SUBSTITUTED':'   *** no ligature substitution'));
+var kern=w('g1'), nokern=w('g2');
+if(!(nokern-kern > 0.5)) fail++;
+L.push('kerning       normal='+kern.toFixed(3)+'  none='+nokern.toFixed(3)+'  delta='+(nokern-kern).toFixed(3)+
+       ((nokern-kern>0.5)?'   KERNED':'   *** no kerning'));
+var nbsp=w('h1'), sp=w('h2');
+if(Math.abs(nbsp-sp) > 1.0) fail++;
+L.push('nbsp run      withNBSP='+nbsp.toFixed(3)+'  withSpace='+sp.toFixed(3)+'  delta='+(nbsp-sp).toFixed(3)+
+       ((Math.abs(nbsp-sp)<=1.0)?'   shaped the same':'   *** NBSP run shaped differently'));
+var heb=w('i1'), ara=w('i2');
+if(!(heb>10 && ara>10)) fail++;
+L.push('rtl           hebrew='+heb.toFixed(3)+'  arabic='+ara.toFixed(3)+((heb>10&&ara>10)?'   laid out':'   *** collapsed'));
+var zap=w('z1');
+var zapOk = Math.abs(zap-129.000) < 0.51;
+if(!zapOk) fail++;
+L.push('zapfino dream w='+zap.toFixed(3)+'  want 129.000 (ligated-slot kern kept; 130.000 = stripped to nominal)'+
+       (zapOk?'   KERN KEPT':'   *** ligated-slot kern lost'));
+L.push('');
+L.push(fail===0?'RESULT: PASS':'RESULT: FAIL - '+fail);
+document.getElementById('out').textContent=L.join('\n');
+document.title='SHAPE '+(fail===0?'PASS':'FAIL '+fail);
+</script></body></html>

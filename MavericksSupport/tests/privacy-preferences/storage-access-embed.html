@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>storage access embed</title>
+<style>body{font:13px -apple-system,sans-serif;margin:8px;background:#eef}</style>
+<p>Third-party frame on <b id="host"></b></p>
+<button id="go">requestStorageAccess()</button>
+<p id="out">idle</p>
+<script>
+document.getElementById('host').textContent = location.host;
+function report(text) {
+    document.getElementById('out').textContent = text;
+    parent.postMessage(text, '*');
+}
+document.getElementById('go').addEventListener('click', () => {
+    report('requesting…');
+    document.requestStorageAccess().then(
+        () => report('GRANTED'),
+        e => report('DENIED (' + e.name + ')'));
+});
+document.hasStorageAccess().then(v => report('idle, hasStorageAccess=' + v));
+</script>
