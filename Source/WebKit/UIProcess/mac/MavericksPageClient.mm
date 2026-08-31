@@ -40,6 +40,7 @@
 - (void)_wkSetPromisedImageData:(NSData *)imageData uti:(NSString *)uti filename:(NSString *)filename url:(NSString *)url archiveBuffer:(NSData *)archiveData pasteboardName:(NSString *)pasteboardName;
 @end
 #import <WebCore/CGWindowUtilities.h>
+#import <WebCore/ColorCocoa.h> // MAVERICKS_BACKPORT: colorFromCocoaColor, for accentColor() below.
 #import <WebCore/DictionaryPopupInfo.h>
 // MAVERICKS_BACKPORT: WebCore::ScrollbarStyle, consumed by recommendedScrollbarStyleDidChange.
 #import <WebCore/ScrollTypes.h>
@@ -52,13 +53,34 @@
 #endif
 #if ENABLE(FULLSCREEN_API)
 #import "WebFullScreenManagerProxy.h"
+#if USE(AUTOCORRECTION_PANEL)
+// MAVERICKS_BACKPORT: the autocorrection bubble, held as a member below.
+#import "CorrectionPanel.h"
+#endif
 // MAVERICKS_BACKPORT: the WKView full-screen path drives this upstream controller (see the
 // MavericksFullScreenManagerProxyClient comment), the same one the WKWebView path uses.
 #import "WKFullScreenWindowController.h"
 // MAVERICKS_BACKPORT: declares -[WKView createFullScreenWindow], sent below to the NSView-typed view.
 #import "WKViewPrivate.h"
+// MAVERICKS_BACKPORT: the swipe/magnification controller the WKView owns, forwarded to below.
+#import "ViewGestureController.h"
+// MAVERICKS_BACKPORT: the content-relative child windows dismissed on navigation and swipe-back.
+#import <WebCore/TextIndicator.h>
+#import <pal/mac/DataDetectorsSoftLink.h>
+#import <pal/spi/cocoa/NSAccessibilitySPI.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
+
+// MAVERICKS_BACKPORT: -[WKView _wkExistingGestureController] (WKViewMavericks.mm) reports the
+// controller without creating one, as WebViewImpl::gestureController() does.
+@interface NSView (WKViewMavericksGestureController)
+- (WebKit::ViewGestureController *)_wkExistingGestureController;
+- (void)_wkClearPromisedDragImage;
+@end
 #endif
+// MAVERICKS_BACKPORT: the pieces navigator.clipboard's permission menu needs (see requestDOMPasteAccess).
+#import <WebCore/LocalizedStrings.h>
+#import <WebCore/PasteboardCustomData.h>
+#import <WebCore/SharedBuffer.h>
 #import <WebCore/DestinationColorSpace.h>
 #import <WebCore/FloatRect.h>
 #import <WebCore/FloatSize.h>
@@ -69,6 +91,7 @@
 #import <WebCore/ValidationBubble.h>
 #import <WebCore/WebCoreCALayerExtras.h>
 #import <WebCore/WebMediaSessionManager.h>
+#import <pal/spi/mac/NSApplicationSPI.h> // MAVERICKS_BACKPORT: -[NSApplication _effectiveAccentColor], for accentColor() below.
 #import <QuartzCore/QuartzCore.h>
 #import <AppKit/AppKit.h>
 #import <wtf/RetainPtr.h>
@@ -286,6 +309,14 @@ public:
         m_fullScreenClient.m_view = view;
 #endif
     }
+
+    // MAVERICKS_BACKPORT: the popovers and panels anchored to page content, dismissed together when
+    // the content under them goes away (WebViewImpl::dismissContentRelativeChildWindowsFromViewOnly).
+    void dismissContentRelativeChildWindows();
+
+    // MAVERICKS_BACKPORT: the paste menu's delegate calls these back (see requestDOMPasteAccess).
+    void handleDOMPasteRequestForCategoryWithResult(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteAccessResponse);
+    void hideDOMPasteMenuWithResult(WebCore::DOMPasteAccessResponse);
 
     void setPage(WebPageProxy* page)
     {
@@ -685,6 +716,8 @@ private:
     void navigationGestureDidEnd() final;
     void willRecordNavigationSnapshot(WebBackForwardListItem&) final;
     void didRemoveNavigationGestureSnapshot() final;
+    // MAVERICKS_BACKPORT: PageClient's default body is empty; the swipe snapshot needs this event.
+    void didStartProvisionalLoadForMainFrame() final;
     void didFirstVisuallyNonEmptyLayoutForMainFrame() final;
     void didFinishNavigation(API::Navigation*) final;
     void didFailNavigation(API::Navigation*) final;
@@ -755,6 +788,15 @@ private:
 
     NSView *m_view { nullptr };
     WebPageProxy *m_page { nullptr };
+#if USE(AUTOCORRECTION_PANEL)
+    // MAVERICKS_BACKPORT: the autocorrection bubble, as PageClientImplMac holds it.
+    CorrectionPanel m_correctionPanel;
+#endif
+    // MAVERICKS_BACKPORT: the navigator.clipboard paste-permission menu and the reply it owes the
+    // web process, as WebViewImpl holds them.
+    RetainPtr<NSMenu> m_domPasteMenu;
+    RetainPtr<NSObject<NSMenuDelegate>> m_domPasteMenuDelegate;
+    CompletionHandler<void(WebCore::DOMPasteAccessResponse)> m_domPasteRequestHandler;
     RetainPtr<NSColorSpace> m_colorSpace;
     // Upstream's WebViewImpl default; -[WKView setWindowOcclusionDetectionEnabled:] carries the
     // embedder's choice through to isActiveViewVisible.
@@ -1027,7 +1069,7 @@ CALayer *MavericksPageClient::acceleratedCompositingRootLayer() const
 // ===== Stubs for the remaining PageClient surface =====
 
 void MavericksPageClient::setViewNeedsDisplay(const WebCore::Region&)
-{ }
+{ ASSERT_NOT_REACHED(); }
 void MavericksPageClient::requestScroll(const WebCore::FloatPoint& scrollPosition, const WebCore::IntPoint& scrollOrigin, WebCore::ScrollIsAnimated, WebCore::InterruptScrollAnimation)
 { }
 WebCore::FloatPoint MavericksPageClient::viewScrollPosition()
@@ -1063,8 +1105,13 @@ void MavericksPageClient::toolTipChanged(const String&, const String& newToolTip
 void MavericksPageClient::decidePolicyForGeolocationPermissionRequest(WebFrameProxy&, const FrameInfoData&, Function<void(bool)>&)
 { }
 #endif
-void MavericksPageClient::didCommitLoadForMainFrame(const String& mimeType, bool useCustomContentProvider)
-{ }
+// MAVERICKS_BACKPORT: WebViewImpl::updateSupportsArbitraryLayoutModes and ::pageDidScroll are the
+// WKWebView layout-mode SPI and the hasScrolledContentsUnderTitlebar KVO, neither of which a WKView has.
+void MavericksPageClient::didCommitLoadForMainFrame(const String&, bool)
+{
+    dismissContentRelativeChildWindows();
+    [m_view _wkClearPromisedDragImage];
+}
 #if ENABLE(PDF_HUD)
 void MavericksPageClient::createPDFHUD(PDFPluginIdentifier, WebCore::FrameIdentifier, const WebCore::IntRect&)
 { }
@@ -1196,8 +1243,11 @@ void MavericksPageClient::executeUndoRedo(UndoOrRedo undoOrRedo)
     RetainPtr undoManager = [m_view undoManager];
     undoOrRedo == UndoOrRedo::Undo ? [undoManager undo] : [undoManager redo];
 }
-void MavericksPageClient::wheelEventWasNotHandledByWebCore(const NativeWebWheelEvent&)
-{ }
+void MavericksPageClient::wheelEventWasNotHandledByWebCore(const NativeWebWheelEvent& event)
+{
+    if (RefPtr gestureController = [m_view _wkExistingGestureController])
+        gestureController->wheelEventWasNotHandledByWebCore(event);
+}
 #if PLATFORM(COCOA)
 // MAVERICKS_BACKPORT: hand the WebContent process's remote-accessibility token to WKView, which
 // owns the NSAccessibilityRemoteUIElement that stands for the page in the UI process's AX tree
@@ -1289,11 +1339,18 @@ void MavericksPageClient::resetSecureInputState()
 #endif
 #if PLATFORM(COCOA)
 void MavericksPageClient::notifyInputContextAboutDiscardedComposition()
-{ }
+{
+    // <rdar://problem/9359055>: -discardMarkedText can only be called for active contexts.
+    if (![[m_view window] isKeyWindow] || m_view != [[m_view window] firstResponder])
+        return;
+
+    // Inform the input method that we won't have an inline input area despite having been asked to.
+    [[m_view inputContext] discardMarkedText];
+}
 #endif
 #if PLATFORM(COCOA)
 void MavericksPageClient::assistiveTechnologyMakeFirstResponder()
-{ }
+{ [[m_view window] makeFirstResponder:m_view]; }
 #endif
 #if PLATFORM(COCOA)
 #if ENABLE(MAC_GESTURE_EVENTS)
@@ -1310,8 +1367,29 @@ CALayer *MavericksPageClient::footerBannerLayer() const
 { return { }; }
 #endif
 #if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
+// MAVERICKS_BACKPORT: WebViewImpl::selectionDidChange's other work is its own private state
+// (m_softSpaceRange) and HAVE(TOUCH_BAR); the font-manager update reads only the page.
 void MavericksPageClient::selectionDidChange()
-{ }
+{
+    if (!m_page)
+        return;
+
+    BOOL fontPanelIsVisible = NSFontPanel.sharedFontPanelExists && NSFontPanel.sharedFontPanel.visible;
+    if (!fontPanelIsVisible && !(m_page->isEditable() && m_page->editorState().isContentRichlyEditable))
+        return;
+
+    m_page->requestFontAttributesAtSelectionStart([] (auto& attributes) {
+        if (!attributes.font)
+            return;
+
+        RetainPtr nsFont = (__bridge NSFont *)attributes.font->ctFont();
+        if (!nsFont)
+            return;
+
+        [NSFontManager.sharedFontManager setSelectedFont:nsFont.get() isMultiple:attributes.hasMultipleFonts];
+        [NSFontManager.sharedFontManager setSelectedAttributes:attributes.createDictionary().get() isMultiple:attributes.hasMultipleFonts];
+    });
+}
 #endif
 #if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
 // Wrap the WKView's on-screen content in a ViewSnapshot. ViewSnapshotStore feeds both
@@ -1368,10 +1446,10 @@ void MavericksPageClient::setPromisedDataForImage(const String& pasteboardName, 
                      pasteboardName:pasteboardName.createNSString().get()];
 }
 #endif
-WebCore::IntPoint MavericksPageClient::accessibilityScreenToRootView(const WebCore::IntPoint&)
-{ return { }; }
-WebCore::IntRect MavericksPageClient::rootViewToAccessibilityScreen(const WebCore::IntRect&)
-{ return { }; }
+WebCore::IntPoint MavericksPageClient::accessibilityScreenToRootView(const WebCore::IntPoint& point)
+{ return screenToRootView(point); }
+WebCore::IntRect MavericksPageClient::rootViewToAccessibilityScreen(const WebCore::IntRect& rect)
+{ return rootViewToScreen(rect); }
 #if PLATFORM(IOS_FAMILY)
 void MavericksPageClient::relayAccessibilityNotification(String&&, RetainPtr<NSData>&&)
 { }
@@ -1493,7 +1571,7 @@ void MavericksPageClient::didPerformDictionaryLookup(const WebCore::DictionaryPo
 #endif
 #if HAVE(APP_ACCENT_COLORS)
 WebCore::Color MavericksPageClient::accentColor()
-{ return { }; }
+{ return WebCore::colorFromCocoaColor([NSApp _effectiveAccentColor]); }
 #endif
 #if HAVE(APP_ACCENT_COLORS)
 #if PLATFORM(MAC)
@@ -1506,20 +1584,58 @@ void MavericksPageClient::showDictationAlternativeUI(const WebCore::FloatRect& b
 { }
 #endif
 #if PLATFORM(MAC)
-void MavericksPageClient::showCorrectionPanel(WebCore::AlternativeTextType, const WebCore::FloatRect& boundingBoxOfReplacedString, const String& replacedString, const String& replacementString, const Vector<String>& alternativeReplacementStrings)
-{ }
+void MavericksPageClient::showCorrectionPanel(WebCore::AlternativeTextType type, const WebCore::FloatRect& boundingBoxOfReplacedString, const String& replacedString, const String& replacementString, const Vector<String>& alternativeReplacementStrings)
+{
+#if USE(AUTOCORRECTION_PANEL)
+    if (m_page)
+        m_correctionPanel.show(m_view, *m_page, type, boundingBoxOfReplacedString, replacedString, replacementString, alternativeReplacementStrings);
+#endif
+}
 #endif
 #if PLATFORM(MAC)
-void MavericksPageClient::dismissCorrectionPanel(WebCore::ReasonForDismissingAlternativeText)
-{ }
+void MavericksPageClient::dismissCorrectionPanel(WebCore::ReasonForDismissingAlternativeText reason)
+{
+#if USE(AUTOCORRECTION_PANEL)
+    m_correctionPanel.dismiss(reason);
+#endif
+}
 #endif
 #if PLATFORM(MAC)
-String MavericksPageClient::dismissCorrectionPanelSoon(WebCore::ReasonForDismissingAlternativeText)
-{ return { }; }
+String MavericksPageClient::dismissCorrectionPanelSoon(WebCore::ReasonForDismissingAlternativeText reason)
+{
+#if USE(AUTOCORRECTION_PANEL)
+    return m_correctionPanel.dismiss(reason);
+#else
+    return String();
+#endif
+}
 #endif
 #if PLATFORM(MAC)
-void MavericksPageClient::recordAutocorrectionResponse(WebCore::AutocorrectionResponse, const String& replacedString, const String& replacementString)
-{ }
+void MavericksPageClient::recordAutocorrectionResponse(WebCore::AutocorrectionResponse response, const String& replacedString, const String& replacementString)
+{
+#if USE(AUTOCORRECTION_PANEL)
+    if (!m_page)
+        return;
+
+    // MAVERICKS_BACKPORT: upstream's toCorrectionResponse is file-static in PageClientImplMac.mm,
+    // which shares a unified source with this file, so the mapping is spelled out here.
+    auto correctionResponse = [&] {
+        switch (response) {
+        case WebCore::AutocorrectionResponse::Reverted:
+            return NSCorrectionResponseReverted;
+        case WebCore::AutocorrectionResponse::Edited:
+            return NSCorrectionResponseEdited;
+        case WebCore::AutocorrectionResponse::Accepted:
+            return NSCorrectionResponseAccepted;
+        }
+
+        ASSERT_NOT_REACHED();
+        return NSCorrectionResponseAccepted;
+    }();
+
+    CorrectionPanel::recordAutocorrectionResponse(*m_page, m_page->spellDocumentTag(), correctionResponse, replacedString, replacementString);
+#endif
+}
 #endif
 #if PLATFORM(MAC)
 // MAVERICKS_BACKPORT: recreate the WKView's mouse-tracking area with options matching the new
@@ -1546,8 +1662,13 @@ void MavericksPageClient::handleControlledElementIDResponse(const String&)
 { }
 #endif
 #if PLATFORM(MAC)
-CGRect MavericksPageClient::boundsOfLayerInLayerBackedWindowCoordinates(CALayer *) const
-{ return { }; }
+CGRect MavericksPageClient::boundsOfLayerInLayerBackedWindowCoordinates(CALayer *layer) const
+{
+    RetainPtr<CALayer> windowContentLayer = static_cast<NSView *>([[m_view window] contentView]).layer;
+    ASSERT(windowContentLayer);
+
+    return [windowContentLayer convertRect:layer.bounds fromLayer:layer];
+}
 #endif
 #if PLATFORM(MAC)
 bool MavericksPageClient::useFormSemanticContext() const
@@ -1555,23 +1676,28 @@ bool MavericksPageClient::useFormSemanticContext() const
 #endif
 #if PLATFORM(MAC)
 NSView *MavericksPageClient::viewForPresentingRevealPopover() const
-{ return { }; }
+{ return m_view; }
 #endif
 #if PLATFORM(MAC)
-void MavericksPageClient::showPlatformContextMenu(NSMenu *, WebCore::IntPoint)
-{ }
+void MavericksPageClient::showPlatformContextMenu(NSMenu *menu, WebCore::IntPoint location)
+{ [menu popUpMenuPositioningItem:nil atLocation:location inView:m_view]; }
 #endif
 #if PLATFORM(MAC)
+// MAVERICKS_BACKPORT: WebViewImpl passes the mouse-down it recorded; this client is only reached
+// synchronously from that event's dispatch (InspectorFrontendHost.startWindowDrag off a mousedown
+// listener, -webkit-app-region:drag), so the application's current event is that same event.
 void MavericksPageClient::startWindowDrag()
-{ }
+{ [[m_view window] performWindowDragWithEvent:[NSApp currentEvent]]; }
 #endif
 #if PLATFORM(MAC)
 void MavericksPageClient::setShouldSuppressFirstResponderChanges(bool)
 { }
 #endif
 #if PLATFORM(MAC)
+// MAVERICKS_BACKPORT: the view the Web Inspector docks alongside, as WebViewImpl reports it. WKView's
+// _setInspectorAttachmentView: SPI postdates Safari 7, so the WKView is always the attachment view.
 RetainPtr<NSView> MavericksPageClient::inspectorAttachmentView()
-{ return { }; }
+{ return m_view; }
 #endif
 #if PLATFORM(MAC)
 _WKRemoteObjectRegistry *MavericksPageClient::remoteObjectRegistry()
@@ -1771,8 +1897,26 @@ WebFullScreenManagerProxyClient& MavericksPageClient::fullScreenManagerProxyClie
 #endif
 void MavericksPageClient::didFinishLoadingDataForCustomContentProvider(const String& suggestedFilename, std::span<const uint8_t>)
 { }
+// MAVERICKS_BACKPORT: what WebViewImpl::dismissContentRelativeChildWindowsFromViewOnly does that a
+// WKView reaches: the immediate-action controller and the writing-tools popover are WebViewImpl's own,
+// and DictionaryLookup::hidePopup() is notImplemented() on this branch. Upstream routes this through
+// -[WKView _web_dismissContentRelativeChildWindows] so a client can override it; Safari 7 predates
+// that SPI, so the work sits here.
+void MavericksPageClient::dismissContentRelativeChildWindows()
+{
+    if ([[m_view window] isKeyWindow] && PAL::isDataDetectorsFrameworkAvailable())
+        [[PAL::getDDActionsManagerClassSingleton() sharedManager] requestBubbleClosureUnanchorOnFailure:YES];
+
+    if (m_page)
+        m_page->clearTextIndicatorWithAnimation(WebCore::TextIndicatorDismissalAnimation::FadeOut);
+
+    dismissCorrectionPanel(WebCore::ReasonForDismissingAlternativeText::Ignored);
+}
+
 void MavericksPageClient::navigationGestureDidBegin()
-{ }
+{
+    dismissContentRelativeChildWindows();
+}
 void MavericksPageClient::navigationGestureWillEnd(bool willNavigate, WebBackForwardListItem&)
 { }
 void MavericksPageClient::navigationGestureDidEnd(bool willNavigate, WebBackForwardListItem&)
@@ -1783,14 +1927,35 @@ void MavericksPageClient::willRecordNavigationSnapshot(WebBackForwardListItem&)
 { }
 void MavericksPageClient::didRemoveNavigationGestureSnapshot()
 { }
+void MavericksPageClient::didStartProvisionalLoadForMainFrame()
+{
+    if (RefPtr gestureController = [m_view _wkExistingGestureController])
+        gestureController->didStartProvisionalLoadForMainFrame();
+}
 void MavericksPageClient::didFirstVisuallyNonEmptyLayoutForMainFrame()
-{ }
-void MavericksPageClient::didFinishNavigation(API::Navigation*)
-{ }
-void MavericksPageClient::didFailNavigation(API::Navigation*)
-{ }
-void MavericksPageClient::didSameDocumentNavigationForMainFrame(SameDocumentNavigationType)
-{ }
+{
+    if (RefPtr gestureController = [m_view _wkExistingGestureController])
+        gestureController->didFirstVisuallyNonEmptyLayoutForMainFrame();
+}
+void MavericksPageClient::didFinishNavigation(API::Navigation* navigation)
+{
+    if (RefPtr gestureController = [m_view _wkExistingGestureController])
+        gestureController->didFinishNavigation(navigation);
+
+    NSAccessibilityPostNotification(RetainPtr { NSAccessibilityUnignoredAncestor(m_view) }.get(), @"AXLoadComplete");
+}
+void MavericksPageClient::didFailNavigation(API::Navigation* navigation)
+{
+    if (RefPtr gestureController = [m_view _wkExistingGestureController])
+        gestureController->didFailNavigation(navigation);
+
+    NSAccessibilityPostNotification(RetainPtr { NSAccessibilityUnignoredAncestor(m_view) }.get(), @"AXLoadComplete");
+}
+void MavericksPageClient::didSameDocumentNavigationForMainFrame(SameDocumentNavigationType type)
+{
+    if (RefPtr gestureController = [m_view _wkExistingGestureController])
+        gestureController->didSameDocumentNavigationForMainFrame(type);
+}
 void MavericksPageClient::didChangeBackgroundColor()
 { }
 #if PLATFORM(MAC)
@@ -1806,9 +1971,16 @@ WebCore::WebMediaSessionManager& MavericksPageClient::mediaSessionManager()
 { return WebCore::WebMediaSessionManager::singleton(); }
 #endif
 void MavericksPageClient::didRestoreScrollPosition()
-{ }
+{
+    if (RefPtr gestureController = [m_view _wkExistingGestureController])
+        gestureController->didRestoreScrollPosition();
+}
 WebCore::UserInterfaceLayoutDirection MavericksPageClient::userInterfaceLayoutDirection()
-{ return { }; }
+{
+    if (!m_view)
+        return WebCore::UserInterfaceLayoutDirection::LTR;
+    return ([m_view userInterfaceLayoutDirection] == NSUserInterfaceLayoutDirectionLeftToRight) ? WebCore::UserInterfaceLayoutDirection::LTR : WebCore::UserInterfaceLayoutDirection::RTL;
+}
 #if USE(QUICK_LOOK)
 void MavericksPageClient::requestPasswordForQuickLookDocument(const String& fileName, WTF::Function<void(const String&)>&&)
 { }
@@ -1825,8 +1997,130 @@ void MavericksPageClient::didReceiveEditDragSnapshot(RefPtr<WebCore::TextIndicat
 void MavericksPageClient::didReceiveInteractiveModelElement(std::optional<WebCore::NodeIdentifier>)
 { }
 #endif
-void MavericksPageClient::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, const WebCore::IntRect& elementRect, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&)
-{ }
+} // namespace WebKit
+
+// MAVERICKS_BACKPORT: ported from WebViewImpl's WKDOMPasteMenuDelegate; it holds this client rather
+// than a WebViewImpl, which is all the menu ever needed.
+@interface WKMavericksDOMPasteMenuDelegate : NSObject<NSMenuDelegate>
+- (instancetype)initWithPageClient:(WebKit::MavericksPageClient&)pageClient pasteAccessCategory:(WebCore::DOMPasteAccessCategory)category;
+- (void)invalidate;
+@end
+
+@implementation WKMavericksDOMPasteMenuDelegate {
+    WebKit::MavericksPageClient *_pageClient;
+    WebCore::DOMPasteAccessCategory _category;
+}
+
+- (instancetype)initWithPageClient:(WebKit::MavericksPageClient&)pageClient pasteAccessCategory:(WebCore::DOMPasteAccessCategory)category
+{
+    if (!(self = [super init]))
+        return nil;
+
+    _pageClient = &pageClient;
+    _category = category;
+    return self;
+}
+
+- (void)invalidate
+{
+    _pageClient = nullptr;
+}
+
+- (void)menuDidClose:(NSMenu *)menu
+{
+    RunLoop::mainSingleton().dispatch([self, protectedSelf = RetainPtr { self }] {
+        if (_pageClient)
+            _pageClient->hideDOMPasteMenuWithResult(WebCore::DOMPasteAccessResponse::DeniedForGesture);
+    });
+}
+
+- (NSInteger)numberOfItemsInMenu:(NSMenu *)menu
+{
+    return 1;
+}
+
+- (void)_web_grantDOMPasteAccess
+{
+    if (_pageClient)
+        _pageClient->handleDOMPasteRequestForCategoryWithResult(_category, WebCore::DOMPasteAccessResponse::GrantedForGesture);
+}
+
+@end
+
+namespace WebKit {
+
+static NSPasteboardName pasteboardNameForAccessCategory(WebCore::DOMPasteAccessCategory pasteAccessCategory)
+{
+    switch (pasteAccessCategory) {
+    case WebCore::DOMPasteAccessCategory::General:
+        return NSPasteboardNameGeneral;
+
+    case WebCore::DOMPasteAccessCategory::Fonts:
+        return NSPasteboardNameFont;
+    }
+}
+
+static RetainPtr<NSPasteboard> pasteboardForAccessCategory(WebCore::DOMPasteAccessCategory pasteAccessCategory)
+{
+    switch (pasteAccessCategory) {
+    case WebCore::DOMPasteAccessCategory::General:
+        return NSPasteboard.generalPasteboard;
+
+    case WebCore::DOMPasteAccessCategory::Fonts:
+        return [NSPasteboard pasteboardWithName:NSPasteboardNameFont];
+    }
+}
+
+void MavericksPageClient::handleDOMPasteRequestForCategoryWithResult(WebCore::DOMPasteAccessCategory pasteAccessCategory, WebCore::DOMPasteAccessResponse response)
+{
+    if (m_page && (response == WebCore::DOMPasteAccessResponse::GrantedForCommand || response == WebCore::DOMPasteAccessResponse::GrantedForGesture))
+        m_page->grantAccessToCurrentPasteboardData(pasteboardNameForAccessCategory(pasteAccessCategory), [] () { });
+
+    hideDOMPasteMenuWithResult(response);
+}
+
+void MavericksPageClient::hideDOMPasteMenuWithResult(WebCore::DOMPasteAccessResponse response)
+{
+    if (auto handler = std::exchange(m_domPasteRequestHandler, { }))
+        handler(response);
+    [m_domPasteMenu removeAllItems];
+    [m_domPasteMenu update];
+    [m_domPasteMenu cancelTracking];
+    [m_domPasteMenuDelegate invalidate];
+    m_domPasteMenu = nil;
+    m_domPasteMenuDelegate = nil;
+}
+
+void MavericksPageClient::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory pasteAccessCategory, WebCore::DOMPasteRequiresInteraction requiresInteraction, const WebCore::IntRect&, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&& completion)
+{
+    hideDOMPasteMenuWithResult(WebCore::DOMPasteAccessResponse::DeniedForGesture);
+
+    if (!m_page)
+        return completion(WebCore::DOMPasteAccessResponse::DeniedForGesture);
+
+    RetainPtr data = [pasteboardForAccessCategory(pasteAccessCategory).get() dataForType:RetainPtr { @(WebCore::PasteboardCustomData::cocoaType().characters()) }.get()];
+    auto buffer = WebCore::SharedBuffer::create(data.get());
+    if (requiresInteraction == WebCore::DOMPasteRequiresInteraction::No && WebCore::PasteboardCustomData::fromSharedBuffer(buffer.get()).origin() == originIdentifier) {
+        m_page->grantAccessToCurrentPasteboardData(pasteboardNameForAccessCategory(pasteAccessCategory), [completion = WTF::move(completion)] () mutable {
+            completion(WebCore::DOMPasteAccessResponse::GrantedForGesture);
+        });
+        return;
+    }
+
+    m_domPasteMenuDelegate = adoptNS([[WKMavericksDOMPasteMenuDelegate alloc] initWithPageClient:*this pasteAccessCategory:pasteAccessCategory]);
+    m_domPasteRequestHandler = WTF::move(completion);
+    m_domPasteMenu = adoptNS([[NSMenu alloc] initWithTitle:WebCore::contextMenuItemTagPaste().createNSString().get()]);
+
+    [m_domPasteMenu setDelegate:m_domPasteMenuDelegate.get()];
+    [m_domPasteMenu setAllowsContextMenuPlugIns:NO];
+
+    auto pasteMenuItem = RetainPtr([m_domPasteMenu insertItemWithTitle:WebCore::contextMenuItemTagPaste().createNSString().get() action:@selector(_web_grantDOMPasteAccess) keyEquivalent:@"" atIndex:0]);
+    [pasteMenuItem setTarget:m_domPasteMenuDelegate.get()];
+
+    RetainPtr window = [m_view window];
+    RetainPtr event = m_page->createSyntheticEventForContextMenu([window convertPointFromScreen:NSEvent.mouseLocation]);
+    [NSMenu popUpContextMenu:m_domPasteMenu.get() withEvent:event.get() forView:retainPtr(window.get().contentView).get()];
+}
 #if USE(WPE_RENDERER)
 UnixFileDescriptor MavericksPageClient::hostFileDescriptor()
 { return { }; }

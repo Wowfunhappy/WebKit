@@ -871,6 +871,19 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
     add_custom_target(WebKitSandboxProfiles ALL DEPENDS ${WebKit_SB_FILES})
     add_dependencies(WebKit WebKitSandboxProfiles)
 
+    # MAVERICKS_BACKPORT: the images for the inspector window's native dock buttons, which the frontend
+    # this port ships needs to re-dock (see WebInspectorUIProxy::platformCreateFrontendWindow). Upstream
+    # shipped them from its Xcode project; this is that copy step for the CMake build.
+    foreach (_dock_image DockBottomLegacy DockRightLegacy)
+        add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/${_dock_image}.pdf
+            COMMAND ${CMAKE_COMMAND} -E copy ${WEBKIT_DIR}/Resources/${_dock_image}.pdf ${WebKit_RESOURCES_DIR}/${_dock_image}.pdf
+            DEPENDS ${WEBKIT_DIR}/Resources/${_dock_image}.pdf
+            VERBATIM)
+        list(APPEND WebKit_DOCK_IMAGE_FILES ${WebKit_RESOURCES_DIR}/${_dock_image}.pdf)
+    endforeach ()
+    add_custom_target(WebKitInspectorDockImages ALL DEPENDS ${WebKit_DOCK_IMAGE_FILES})
+    add_dependencies(WebKit WebKitInspectorDockImages)
+
     # MAVERICKS_BACKPORT: WebContentProcess.xib has no 10.9-runnable nib content, so this creates an
     # empty placeholder .nib (make_directory + touch) where upstream runs `ibtool --compile … .xib`.
     # The custom target and its dependency edge on WebKit keep the bundle layout matching upstream's.

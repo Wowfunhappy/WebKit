@@ -29,7 +29,7 @@
 #if USE(AUTOCORRECTION_PANEL)
 
 #import "WebPageProxy.h"
-#import "WebViewImpl.h"
+#import "WebPageProxy.h" // MAVERICKS_BACKPORT: this panel is driven by the page (see CorrectionPanel.h).
 #import <WebCore/CorrectionIndicator.h>
 #import <pal/SessionID.h>
 #import <wtf/cocoa/VectorCocoa.h>
@@ -48,14 +48,14 @@ CorrectionPanel::~CorrectionPanel()
     dismissInternal(ReasonForDismissingAlternativeText::Ignored, false);
 }
 
-void CorrectionPanel::show(NSView *view, WebViewImpl& webViewImpl, AlternativeTextType type, const FloatRect& boundingBoxOfReplacedString, const String& replacedString, const String& replacementString, const Vector<String>& alternativeReplacementStrings)
+void CorrectionPanel::show(NSView *view, WebPageProxy& page, AlternativeTextType type, const FloatRect& boundingBoxOfReplacedString, const String& replacedString, const String& replacementString, const Vector<String>& alternativeReplacementStrings)  // MAVERICKS_BACKPORT: takes the page (see the class comment).
 {
     dismissInternal(ReasonForDismissingAlternativeText::Ignored, false);
 
     if (!view)
         return;
 
-    NSInteger spellCheckerDocumentTag = webViewImpl.spellCheckerDocumentTag();
+    NSInteger spellCheckerDocumentTag = page.spellDocumentTag(); // MAVERICKS_BACKPORT: was webViewImpl.spellCheckerDocumentTag(), which forwards here.
 
     RetainPtr replacedStringAsNSString = replacedString.createNSString();
     RetainPtr replacementStringAsNSString = replacementString.createNSString();
@@ -70,7 +70,7 @@ void CorrectionPanel::show(NSView *view, WebViewImpl& webViewImpl, AlternativeTe
 
     RetainPtr spellChecker = [NSSpellChecker sharedSpellChecker];
     [spellChecker showCorrectionIndicatorOfType:indicatorType primaryString:replacementStringAsNSString.get() alternativeStrings:alternativeStrings.get() forStringInRect:boundingBoxOfReplacedString view:m_view.get() completionHandler:^(NSString* acceptedString) {
-        handleAcceptedReplacement(webViewImpl, acceptedString, replacedStringAsNSString.get(), replacementStringAsNSString.get(), indicatorType);
+        handleAcceptedReplacement(page, acceptedString, replacedStringAsNSString.get(), replacementStringAsNSString.get(), indicatorType);  // MAVERICKS_BACKPORT: takes the page (see the class comment).
     }];
 }
 
@@ -91,15 +91,15 @@ String CorrectionPanel::dismissInternal(ReasonForDismissingAlternativeText reaso
     return m_resultForDismissal.get();
 }
 
-void CorrectionPanel::recordAutocorrectionResponse(WebViewImpl& webViewImpl, NSInteger spellCheckerDocumentTag, NSCorrectionResponse response, const String& replacedString, const String& replacementString)
+void CorrectionPanel::recordAutocorrectionResponse(WebPageProxy& page, NSInteger spellCheckerDocumentTag, NSCorrectionResponse response, const String& replacedString, const String& replacementString)  // MAVERICKS_BACKPORT: takes the page (see the class comment).
 {
-    if (webViewImpl.page().sessionID().isEphemeral())
+    if (page.sessionID().isEphemeral()) // MAVERICKS_BACKPORT: was webViewImpl.page().sessionID().
         return;
 
     [[NSSpellChecker sharedSpellChecker] recordResponse:response toCorrection:replacementString.createNSString().get() forWord:replacedString.createNSString().get() language:nil inSpellDocumentWithTag:spellCheckerDocumentTag];
 }
 
-void CorrectionPanel::handleAcceptedReplacement(WebViewImpl& webViewImpl, NSString* acceptedReplacement, NSString* replaced, NSString* proposedReplacement,  NSCorrectionIndicatorType correctionIndicatorType)
+void CorrectionPanel::handleAcceptedReplacement(WebPageProxy& page, NSString* acceptedReplacement, NSString* replaced, NSString* proposedReplacement,  NSCorrectionIndicatorType correctionIndicatorType)  // MAVERICKS_BACKPORT: takes the page (see the class comment).
 {
     if (!m_view)
         return;
@@ -107,25 +107,25 @@ void CorrectionPanel::handleAcceptedReplacement(WebViewImpl& webViewImpl, NSStri
     switch (correctionIndicatorType) {
     case NSCorrectionIndicatorTypeDefault:
         if (acceptedReplacement)
-            recordAutocorrectionResponse(webViewImpl, m_spellCheckerDocumentTag, NSCorrectionResponseAccepted, replaced, acceptedReplacement);
+            recordAutocorrectionResponse(page, m_spellCheckerDocumentTag, NSCorrectionResponseAccepted, replaced, acceptedReplacement);  // MAVERICKS_BACKPORT: takes the page (see the class comment).
         else {
             if (!m_wasDismissedExternally || m_reasonForDismissing == ReasonForDismissingAlternativeText::Cancelled)
-                recordAutocorrectionResponse(webViewImpl, m_spellCheckerDocumentTag, NSCorrectionResponseRejected, replaced, proposedReplacement);
+                recordAutocorrectionResponse(page, m_spellCheckerDocumentTag, NSCorrectionResponseRejected, replaced, proposedReplacement);
             else
-                recordAutocorrectionResponse(webViewImpl, m_spellCheckerDocumentTag, NSCorrectionResponseIgnored, replaced, proposedReplacement);
+                recordAutocorrectionResponse(page, m_spellCheckerDocumentTag, NSCorrectionResponseIgnored, replaced, proposedReplacement);  // MAVERICKS_BACKPORT: takes the page (see the class comment).
         }
         break;
     case NSCorrectionIndicatorTypeReversion:
         if (acceptedReplacement)
-            recordAutocorrectionResponse(webViewImpl, m_spellCheckerDocumentTag, NSCorrectionResponseReverted, replaced, acceptedReplacement);
+            recordAutocorrectionResponse(page, m_spellCheckerDocumentTag, NSCorrectionResponseReverted, replaced, acceptedReplacement);  // MAVERICKS_BACKPORT: takes the page (see the class comment).
         break;
     case NSCorrectionIndicatorTypeGuesses:
         if (acceptedReplacement)
-            recordAutocorrectionResponse(webViewImpl, m_spellCheckerDocumentTag, NSCorrectionResponseAccepted, replaced, acceptedReplacement);
+            recordAutocorrectionResponse(page, m_spellCheckerDocumentTag, NSCorrectionResponseAccepted, replaced, acceptedReplacement);  // MAVERICKS_BACKPORT: takes the page (see the class comment).
         break;
     }
 
-    webViewImpl.handleAcceptedAlternativeText(acceptedReplacement);
+    page.handleAlternativeTextUIResult(acceptedReplacement); // MAVERICKS_BACKPORT: was webViewImpl.handleAcceptedAlternativeText(), which forwards here.
     m_spellCheckerDocumentTag = 0;
     m_view = nullptr;
     if (acceptedReplacement)

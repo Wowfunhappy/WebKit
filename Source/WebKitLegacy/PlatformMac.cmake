@@ -693,3 +693,17 @@ set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-reexport_librar
 # Linked by exact dylib path because the stock 10.9 framework is not in the modern SDK's
 # search paths.
 target_link_options(WebKitLegacy PRIVATE -weak_library /System/Library/PrivateFrameworks/WebInspectorUI.framework/Versions/A/WebInspectorUI)
+
+# MAVERICKS_BACKPORT: the image for the inspector window's native dock button, which the frontend this
+# port ships needs to re-dock (see -[WebInspectorWindowController window]). Upstream shipped it from its
+# Xcode project; this is that copy step for the CMake build.
+set(WebKitLegacy_RESOURCES_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WebKitLegacy.framework/Versions/A/Resources)
+foreach (_dock_image DockLegacy)
+    add_custom_command(OUTPUT ${WebKitLegacy_RESOURCES_DIR}/${_dock_image}.pdf
+        COMMAND ${CMAKE_COMMAND} -E copy ${WEBKITLEGACY_DIR}/mac/Resources/${_dock_image}.pdf ${WebKitLegacy_RESOURCES_DIR}/${_dock_image}.pdf
+        DEPENDS ${WEBKITLEGACY_DIR}/mac/Resources/${_dock_image}.pdf
+        VERBATIM)
+    list(APPEND WebKitLegacy_DOCK_IMAGE_FILES ${WebKitLegacy_RESOURCES_DIR}/${_dock_image}.pdf)
+endforeach ()
+add_custom_target(WebKitLegacyInspectorDockImages ALL DEPENDS ${WebKitLegacy_DOCK_IMAGE_FILES})
+add_dependencies(WebKitLegacy WebKitLegacyInspectorDockImages)

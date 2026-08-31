@@ -1896,6 +1896,22 @@ WKV_EDIT_ACTION(capitalizeWord,  "CapitalizeWord")
 // its WebViewImpl counterpart; the work itself lives in ViewGestureController
 // (UIProcess/mac/ViewGestureControllerMac.mm), which needs only a WebPageProxy.
 
+// Drops the image a promised-file drag is holding, as WebViewImpl::clearPromisedDragImage does; the
+// page client calls it when the main frame commits a new load.
+- (void)_wkClearPromisedDragImage
+{
+    if (_wkState)
+        _wkState->promisedImageData = nil;
+}
+
+// The controller as it stands, for callers that must not bring one into being: MavericksPageClient
+// forwards the two PageClient members whose WebViewImpl counterparts read m_gestureController
+// directly (wheelEventWasNotHandledByWebCore, didRestoreScrollPosition).
+- (WebKit::ViewGestureController *)_wkExistingGestureController
+{
+    return _wkState ? _wkState->gestureController.get() : nullptr;
+}
+
 // ported from WebViewImpl::ensureGestureController.
 - (WebKit::ViewGestureController *)_wkEnsureGestureController
 {

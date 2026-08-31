@@ -51,8 +51,12 @@ namespace WebCore {
 //     unified titlebar (Finder, lossless samples, frontmost-verified): ACTIVE = 1px rgb(242) bevel,
 //     rgb(234)->rgb(176), 1px rgb(105) border; INACTIVE = rgb(240)->rgb(223), 1px rgb(166) border.
 //  2. InspectorFrontendHost drift. The classic frontend calls platform()/localizedStringsURL()/
-//     inspectorBackendCommandsURL() as METHODS and uses a few IFH methods the modern host dropped;
-//     the modern IDL exposes attribute getters. Wrap the attributes as methods, stub the removed.
+//     inspectorBackendCommandsURL() as METHODS where the modern IDL exposes attribute getters, so
+//     each attribute is wrapped as a method. setToolbarHeight() is the classic name for what the
+//     modern frontend does in WI._updateSheetRect(): both report the geometry a sheet is positioned
+//     against (-window:willPositionSheet:usingRect: reads it back), so it forwards #main's bounding
+//     rect to setSheetRect() exactly as today's frontend does, from the classic call site and from
+//     the two WI._updateSheetRect() runs on (load completion and window resize).
 //  3. Protocol bridge. The classic frontend sends bare per-domain commands ({method:'DOM.getDocument'});
 //     the modern backend routes per-target via Target.sendMessageToTarget and answers with
 //     Target.dispatchMessageFromTarget. Wrap outgoing non-Target/Browser commands (queueing until
@@ -99,14 +103,14 @@ function wkAddStyle(){if(document.getElementById('wk-unified-style'))return;var 
 if(document.documentElement)wkAddStyle();else document.addEventListener('DOMContentLoaded',wkAddStyle);
 var IFH=window.InspectorFrontendHost;if(!IFH)return;
 function asMethod(name){var val=IFH[name];Object.defineProperty(IFH,name,{value:function(){return val;},writable:true,configurable:true});}
-if(typeof IFH.platform!=='function')asMethod('platform');
-if(typeof IFH.localizedStringsURL!=='function')asMethod('localizedStringsURL');
-if(typeof IFH.inspectorBackendCommandsURL!=='function')Object.defineProperty(IFH,'inspectorBackendCommandsURL',{value:function(){return 'InspectorBackendCommands.js';},writable:true,configurable:true});
-if(typeof IFH.inspectorBackendCommandsURLs!=='function')Object.defineProperty(IFH,'inspectorBackendCommandsURLs',{value:function(){return ['InspectorBackendCommands.js'];},writable:true,configurable:true});
-if(typeof IFH.debuggableType!=='function'&&'debuggableInfo' in IFH){var di=IFH.debuggableInfo;Object.defineProperty(IFH,'debuggableType',{value:function(){return di&&di.debuggableType||'web';},writable:true,configurable:true});}
-if(typeof IFH.setToolbarHeight!=='function')Object.defineProperty(IFH,'setToolbarHeight',{value:function(){},writable:true,configurable:true});
-if(typeof IFH.setAttachedWindowHeight!=='function')Object.defineProperty(IFH,'setAttachedWindowHeight',{value:function(){},writable:true,configurable:true});
-if(typeof IFH.setAttachedWindowWidth!=='function')Object.defineProperty(IFH,'setAttachedWindowWidth',{value:function(){},writable:true,configurable:true});
+asMethod('platform');
+asMethod('localizedStringsURL');
+Object.defineProperty(IFH,'inspectorBackendCommandsURL',{value:function(){return 'InspectorBackendCommands.js';},writable:true,configurable:true});
+Object.defineProperty(IFH,'inspectorBackendCommandsURLs',{value:function(){return ['InspectorBackendCommands.js'];},writable:true,configurable:true});
+Object.defineProperty(IFH,'debuggableType',{value:function(){return IFH.debuggableInfo.debuggableType;},writable:true,configurable:true});
+function wkUpdateSheetRect(){var r=document.getElementById('main').getBoundingClientRect();IFH.setSheetRect(r.x,r.y,r.width,r.height);}
+Object.defineProperty(IFH,'setToolbarHeight',{value:wkUpdateSheetRect,writable:true,configurable:true});
+document.addEventListener('DOMContentLoaded',function(){window.addEventListener('resize',wkUpdateSheetRect);wkUpdateSheetRect();});
 (function(){var origSend=IFH.sendMessageToBackend.bind(IFH);var currentTargetId=null;var pendingQueue=[];var wrapperIdBase=1000000;var wrapperIds=Object.create(null);var bridgeIds=Object.create(null);
 function wrap(ms){var wid=wrapperIdBase++;wrapperIds[wid]=true;return JSON.stringify({id:wid,method:'Target.sendMessageToTarget',params:{targetId:currentTargetId,message:ms}});}
 function flushQueue(){if(!currentTargetId||!pendingQueue.length)return;var q=pendingQueue;pendingQueue=[];for(var i=0;i<q.length;i++)origSend(wrap(q[i]));}

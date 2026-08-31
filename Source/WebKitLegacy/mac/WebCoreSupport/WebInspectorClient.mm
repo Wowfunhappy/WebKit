@@ -76,6 +76,51 @@ static const CGFloat minimumWindowHeight = 400;
 static const CGFloat initialWindowWidth = 1000;
 static const CGFloat initialWindowHeight = 650;
 
+// MAVERICKS_BACKPORT: the margin from the top and right of the dock button (same as the full screen
+// button). The frontend this port ships hides its own dock control while the inspector is undocked and
+// expects the window to carry one, as WebKit's did through 792f511.
+static const CGFloat dockButtonMargin = 3;
+
+@interface NSView (AppKitDetails)
+- (void)_addKnownSubview:(NSView *)subview;
+@end
+
+@interface NSWindow (AppKitDetails)
+- (NSCursor *)_cursorForResizeDirection:(NSInteger)direction;
+- (NSRect)_customTitleFrame;
+@end
+
+// MAVERICKS_BACKPORT: the inspector window lays its title out around its dock button and suppresses the
+// northeast resize cursor the button sits under.
+@interface WebInspectorWindow : NSWindow {
+@public
+    RetainPtr<NSButton> _dockButton;
+}
+@end
+
+@implementation WebInspectorWindow
+
+- (NSCursor *)_cursorForResizeDirection:(NSInteger)direction
+{
+    // Don't show a resize cursor for the northeast (top right) direction if the dock button is visible.
+    // This matches what happens when the full screen button is visible.
+    if (direction == 1 && ![_dockButton isHidden])
+        return nil;
+    return [super _cursorForResizeDirection:direction];
+}
+
+- (NSRect)_customTitleFrame
+{
+    // Adjust the title frame if needed to prevent it from intersecting the dock button.
+    NSRect titleFrame = [super _customTitleFrame];
+    NSRect dockButtonFrame = _dockButton.get().frame;
+    if (NSMaxX(titleFrame) > NSMinX(dockButtonFrame) - dockButtonMargin)
+        titleFrame.size.width -= (NSMaxX(titleFrame) - NSMinX(dockButtonFrame)) + dockButtonMargin;
+    return titleFrame;
+}
+
+@end
+
 // MAVERICKS_BACKPORT: this backport deliberately ships the system stock (Safari 8-era)
 // WebInspectorUI frontend for its Aqua toolbar + pill tab look, run against the modern backend. It
 // is served to the undocked WK1 inspector WebView under a real-origin custom scheme (not file://),
@@ -189,6 +234,7 @@ static void ensureWebInspectorClassicFrontendRegistered()
     RetainPtr<WebView> _frontendWebView;
     NakedPtr<WebInspectorFrontendClient> _frontendClient;
     WebInspectorClient* _inspectorClient;
+    RetainPtr<NSButton> _dockButton; // MAVERICKS_BACKPORT: the window's dock control (see WebInspectorWindow above).
     BOOL _attachedToInspectedWebView;
     BOOL _shouldAttach;
     BOOL _visible;
@@ -718,7 +764,8 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
         return window;
 
     NSUInteger styleMask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable | NSWindowStyleMaskFullSizeContentView;
-    auto window = adoptNS([[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, initialWindowWidth, initialWindowHeight) styleMask:styleMask backing:NSBackingStoreBuffered defer:NO]);
+    // MAVERICKS_BACKPORT: WebInspectorWindow, for the dock button built below.
+    auto window = adoptNS([[WebInspectorWindow alloc] initWithContentRect:NSMakeRect(0, 0, initialWindowWidth, initialWindowHeight) styleMask:styleMask backing:NSBackingStoreBuffered defer:NO]);
     [window setDelegate:self];
     [window setMinSize:NSMakeSize(minimumWindowWidth, minimumWindowHeight)];
     [window setCollectionBehavior:([window collectionBehavior] | NSWindowCollectionBehaviorFullScreenPrimary)];
@@ -729,6 +776,51 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
     [window setCollectionBehavior:([window collectionBehavior] | NSWindowCollectionBehaviorFullScreenAllowsTiling | NSWindowCollectionBehaviorAuxiliary)];
 
     [window setTitlebarAppearsTransparent:YES];
+
+    // MAVERICKS_BACKPORT: create a full screen button so we can turn it into a dock button.
+    _dockButton = [NSWindow standardWindowButton:NSWindowFullScreenButton forStyleMask:styleMask];
+    _dockButton.get().target = self;
+    _dockButton.get().action = @selector(attachWindow:);
+
+    // Store the dock button on the window too so it can lay its title out around it.
+    window.get()->_dockButton = _dockButton;
+
+    // Get the dock image and make it a template so the button cell effects will apply.
+    NSImage *dockImage = [[NSBundle bundleForClass:[self class]] imageForResource:@"DockLegacy"];
+    [dockImage setTemplate:YES];
+
+    // Set the dock image on the button cell.
+    NSCell *dockButtonCell = _dockButton.get().cell;
+    dockButtonCell.image = dockImage;
+
+    // Get the frame view, the superview of the content view, and its frame.
+    // This will be the superview of the dock button too.
+    NSView *contentView = window.get().contentView;
+    NSView *frameView = contentView.superview;
+    NSRect frameViewBounds = frameView.bounds;
+    NSSize dockButtonSize = _dockButton.get().frame.size;
+
+    ASSERT(!frameView.isFlipped);
+
+    // Position the dock button one slot in from the corner where the full screen button normally
+    // sits: this window carries NSWindowCollectionBehaviorFullScreenPrimary (set above), so the
+    // window's own full screen button — the same size as this one, being the same control — holds
+    // that corner.
+    NSPoint dockButtonOrigin;
+    dockButtonOrigin.x = NSMaxX(frameViewBounds) - (dockButtonSize.width * 2) - dockButtonMargin - (dockButtonMargin * 2);
+    dockButtonOrigin.y = NSMaxY(frameViewBounds) - dockButtonSize.height - dockButtonMargin;
+    _dockButton.get().frameOrigin = dockButtonOrigin;
+
+    // Set the autoresizing mask to keep the dock button pinned to the top right corner.
+    _dockButton.get().autoresizingMask = NSViewMinXMargin | NSViewMinYMargin;
+
+    if ([frameView respondsToSelector:@selector(_addKnownSubview:)])
+        [frameView _addKnownSubview:_dockButton.get()];
+    else
+        [frameView addSubview:_dockButton.get()];
+
+    // Hide the dock button if we can't attach.
+    _dockButton.get().hidden = !_frontendClient->canAttachWindow() || _inspectorClient->inspectorAttachDisabled();
 
     [self setWindow:window.get()];
     return window.unsafeGet();
@@ -912,7 +1004,8 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
 - (void)setDockingUnavailable:(BOOL)unavailable
 {
-    // Do nothing.
+    // MAVERICKS_BACKPORT: the window's dock button shows exactly while the inspector can attach.
+    _dockButton.get().hidden = unavailable;
 }
 
 - (void)destroyInspectorView

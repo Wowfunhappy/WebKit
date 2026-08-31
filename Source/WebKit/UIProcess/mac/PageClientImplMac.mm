@@ -728,7 +728,8 @@ void PageClientImpl::showCorrectionPanel(AlternativeTextType type, const FloatRe
 #if USE(AUTOCORRECTION_PANEL)
     if (!isActiveViewVisible() || !isViewInWindow())
         return;
-    m_correctionPanel.show(m_view.get().get(), *protect(m_impl), type, boundingBoxOfReplacedString, replacedString, replacementString, alternativeReplacementStrings);
+    // MAVERICKS_BACKPORT: the panel takes the page (see CorrectionPanel.h).
+    m_correctionPanel.show(m_view.get().get(), protect(m_impl)->page(), type, boundingBoxOfReplacedString, replacedString, replacementString, alternativeReplacementStrings);
 #endif
 }
 
@@ -766,7 +767,8 @@ static inline NSCorrectionResponse NODELETE toCorrectionResponse(AutocorrectionR
 void PageClientImpl::recordAutocorrectionResponse(AutocorrectionResponse response, const String& replacedString, const String& replacementString)
 {
     CheckedRef impl = *m_impl;
-    CorrectionPanel::recordAutocorrectionResponse(impl.get(), impl->spellCheckerDocumentTag(), toCorrectionResponse(response), replacedString, replacementString);
+    // MAVERICKS_BACKPORT: the panel takes the page (see CorrectionPanel.h).
+    CorrectionPanel::recordAutocorrectionResponse(impl->page(), impl->spellCheckerDocumentTag(), toCorrectionResponse(response), replacedString, replacementString);
 }
 
 void PageClientImpl::recommendedScrollbarStyleDidChange(ScrollbarStyle newStyle)
