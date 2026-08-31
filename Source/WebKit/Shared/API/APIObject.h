@@ -27,7 +27,9 @@
 
 #include <wtf/Platform.h>
 
-#if !PLATFORM(COCOA) || !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
+// MAVERICKS_BACKPORT: force the full class definition to be compiled.
+// Safari 7 / clang on this build doesn't have the Swift/ObjC interop module path.
+#if 1 // !PLATFORM(COCOA) || !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
 
 #include <wtf/HashTable.h>
 #include <wtf/Noncopyable.h>
@@ -72,11 +74,13 @@ public:
         FrameHandle,
         Image,
         PageHandle,
+        PageGroupHandle, // MAVERICKS_BACKPORT: page-group carrier in UserData for Safari 7 (removed upstream).
         ProtectionSpace,
         RenderLayer,
         RenderObject,
         ResourceLoadInfo,
         SecurityOrigin,
+        SerializedScriptValue, // MAVERICKS_BACKPORT: legacy WKSerializedScriptValue support for Safari 7.
         SessionState,
         String,
         TargetedElementInfo,
@@ -230,9 +234,12 @@ public:
         BundleDOMWindowExtension,
         BundleFrame,
         BundleHitTestResult,
+        // MAVERICKS_BACKPORT: restored with InjectedBundleNavigationAction (upstream 8ee28eb removed it).
+        BundleNavigationAction,
         BundleNodeHandle,
         BundlePage,
         BundlePageBanner,
+        BundlePageGroup, // MAVERICKS_BACKPORT: legacy WKBundlePageGroupRef support for Safari 7.
         BundlePageOverlay,
         BundleRangeHandle,
         BundleScriptWorld,

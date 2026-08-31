@@ -578,9 +578,10 @@ static uintptr_t generateSignpostIdentifier()
 Error Connection::sendMessage(UniqueRef<Encoder>&& encoder, OptionSet<SendOption> sendOptions, std::optional<Thread::QOS> qos)
 {
 #if ENABLE(CORE_IPC_SIGNPOSTS)
-    // Signposts can turn in to log message IPCs when emitted from WebContent. Don't emit a signpost
-    // for log messages to avoid an infinite number of signposts.
-    if (signpostsEnabled() && receiverName(encoder->messageName()) != IPC::ReceiverName::LogStream) [[unlikely]]
+    // MAVERICKS_BACKPORT: ReceiverName::LogStream is not generated in our message set, so the
+    // upstream "don't signpost log-message IPCs" check (receiverName() != LogStream) does not compile.
+    // LogStream IPC isn't enabled here, so dropping the exclusion is behaviorally equivalent.
+    if (signpostsEnabled()) [[unlikely]]
         WTFEmitSignpost(generateSignpostIdentifier(), IPCConnection, "sendMessage: %" PUBLIC_LOG_STRING, description(encoder->messageName()).characters());
 #endif
 

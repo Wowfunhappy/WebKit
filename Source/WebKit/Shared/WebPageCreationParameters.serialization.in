@@ -32,6 +32,8 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
     WebKit::WebPreferencesStore store;
 #if ENABLE(TILED_CA_DRAWING_AREA)
     WebKit::DrawingAreaType drawingAreaType;
+    # MAVERICKS_BACKPORT: restored LayerHostingMode member so the UI process tells the WebProcess the window's compositing mode (iBooks 537 dual-LayerHostingMode fix); absent at base.
+    WebKit::LayerHostingMode layerHostingMode;
 #endif
     WebKit::DrawingAreaIdentifier drawingAreaIdentifier;
     WebKit::WebPageProxyIdentifier webPageProxyIdentifier;

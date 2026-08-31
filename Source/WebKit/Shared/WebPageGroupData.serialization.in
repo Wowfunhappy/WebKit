@@ -23,4 +23,6 @@
 struct WebKit::WebPageGroupData {
     String identifier;
     WebKit::PageGroupIdentifier pageGroupID;
+    # MAVERICKS_BACKPORT: page-group user content controller (Safari 7 extension content scripts).
+    WebKit::UserContentControllerIdentifier userContentControllerIdentifier;
 }

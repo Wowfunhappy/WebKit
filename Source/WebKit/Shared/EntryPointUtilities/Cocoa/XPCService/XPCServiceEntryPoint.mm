@@ -199,6 +199,16 @@ void setOSTransaction(OSObjectPtr<os_transaction_t>&& transaction)
 }
 #endif
 
+// MAVERICKS_BACKPORT: holds the launcher's pre-bootstrap message (ProcessLauncherCocoa.mm) for the
+// life of the process. 10.9's libxpc ends a received message's importance assertion when the message
+// is disposed, so holding the message holds the boost that keeps this adaptive service out of
+// Darwin-background.
+void setPriorityBoostMessage(OSObjectPtr<xpc_object_t>&& message)
+{
+    static NeverDestroyed<OSObjectPtr<xpc_object_t>> priorityBoostMessage;
+    priorityBoostMessage.get() = WTF::move(message);
+}
+
 void setJSCOptions(xpc_object_t initializerMessage, EnableLockdownMode enableLockdownMode, EnableEnhancedSecurity enableEnhancedSecurity, bool isWebContentProcess)
 {
     RELEASE_ASSERT(!g_jscConfig.initializeHasBeenCalled);
@@ -258,6 +268,7 @@ void disableJSC(NOESCAPE WTF::CompletionHandler<void(void)>&& beforeFinalizeHand
 
 void XPCServiceExit()
 {
+    setPriorityBoostMessage(nullptr); // MAVERICKS_BACKPORT: release the boost with the process, like the transaction below.
 #if !USE(RUNNINGBOARD)
     setOSTransaction(nullptr);
 #endif

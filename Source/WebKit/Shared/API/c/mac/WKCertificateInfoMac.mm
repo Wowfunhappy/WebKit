@@ -26,22 +26,130 @@
 #import "config.h"
 #import "WKCertificateInfoMac.h"
 
+// MAVERICKS_BACKPORT: restored the whole file — upstream gutted every function to return
+// null when it deleted the deprecated WKCertificateInfo C API. Safari 7 reads the chain
+// off the main frame's certificate info on every commit to drive the address-bar lock and
+// the Show Certificate sheet, and wraps the client-certificate panel's chosen identity in
+// a chain-created WKCertificateInfo (#103).
+#import "APICertificateInfo.h"
+#import "WKAPICast.h"
+#import <Security/Security.h>
+#import <WebCore/Credential.h>
+#import <wtf/RetainPtr.h>
+
+namespace API {
+
+Ref<CertificateInfo> CertificateInfo::create(CFArrayRef certificateChain)
+{
+    // The chain may lead with a SecIdentityRef (client-certificate flow); SecTrust wants
+    // certificates only, so substitute the identity's certificate when building the trust
+    // but preserve the caller's array verbatim for WKCertificateInfoGetCertificateChain.
+    RetainPtr<CFMutableArrayRef> certificates = adoptCF(CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks));
+    CFIndex count = certificateChain ? CFArrayGetCount(certificateChain) : 0;
+    for (CFIndex i = 0; i < count; ++i) {
+        CFTypeRef value = CFArrayGetValueAtIndex(certificateChain, i);
+        if (CFGetTypeID(value) == SecIdentityGetTypeID()) {
+            SecCertificateRef certificate = nullptr;
+            // No CFTypeTrait exists for Sec types, so cast plainly; the type ID check above guards it.
+            if (SecIdentityCopyCertificate(static_cast<SecIdentityRef>(const_cast<void*>(value)), &certificate) == errSecSuccess && certificate)
+                CFArrayAppendValue(certificates.get(), adoptCF(certificate).get());
+        } else if (CFGetTypeID(value) == SecCertificateGetTypeID())
+            CFArrayAppendValue(certificates.get(), value);
+    }
+
+    WebCore::CertificateInfo coreCertificateInfo;
+    if (CFArrayGetCount(certificates.get())) {
+        RetainPtr<SecPolicyRef> policy = adoptCF(SecPolicyCreateSSL(true, nullptr));
+        SecTrustRef trust = nullptr;
+        if (SecTrustCreateWithCertificates(certificates.get(), policy.get(), &trust) == errSecSuccess && trust)
+            coreCertificateInfo = WebCore::CertificateInfo(adoptCF(trust));
+    }
+
+    Ref<CertificateInfo> certificateInfo = adoptRef(*new CertificateInfo(coreCertificateInfo));
+    if (certificateChain)
+        certificateInfo->m_certificateChain = certificateChain;
+    return certificateInfo;
+}
+
+CFArrayRef CertificateInfo::certificateChain() const
+{
+    if (!m_certificateChain) {
+        if (const RetainPtr<SecTrustRef>& trust = m_certificateInfo.trust())
+            m_certificateChain = WebCore::CertificateInfo::certificateChainFromSecTrust(trust.get());
+    }
+    return m_certificateChain.get();
+}
+
+} // namespace API
+
+namespace WebKit {
+
+WebCore::Credential credentialWithCertificateInfo(API::CertificateInfo* certificateInfo)
+{
+    if (!certificateInfo)
+        return { };
+
+    CFArrayRef chain = certificateInfo->certificateChain();
+    CFIndex count = chain ? CFArrayGetCount(chain) : 0;
+    if (!count)
+        return { };
+
+    // Safari 7 passes the client-certificate panel's selection as an identity-first chain;
+    // fall back to looking the identity up in the keychain when given certificates only.
+    RetainPtr<SecIdentityRef> identity;
+    CFIndex firstCertificateIndex = 0;
+    CFTypeRef first = CFArrayGetValueAtIndex(chain, 0);
+    if (CFGetTypeID(first) == SecIdentityGetTypeID()) {
+        // No CFTypeTrait exists for Sec types, so cast plainly; the type ID checks guard these.
+        identity = static_cast<SecIdentityRef>(const_cast<void*>(first));
+        firstCertificateIndex = 1;
+    } else if (CFGetTypeID(first) == SecCertificateGetTypeID()) {
+        SecIdentityRef foundIdentity = nullptr;
+        if (SecIdentityCreateWithCertificate(nullptr, static_cast<SecCertificateRef>(const_cast<void*>(first)), &foundIdentity) == errSecSuccess)
+            identity = adoptCF(foundIdentity);
+    }
+    if (!identity)
+        return { };
+
+    RetainPtr<NSMutableArray> intermediates = adoptNS([[NSMutableArray alloc] init]);
+    for (CFIndex i = firstCertificateIndex; i < count; ++i)
+        [intermediates addObject:(__bridge id)CFArrayGetValueAtIndex(chain, i)];
+
+    RetainPtr<NSURLCredential> credential = [NSURLCredential credentialWithIdentity:identity.get() certificates:([intermediates count] ? intermediates.get() : nil) persistence:NSURLCredentialPersistenceForSession];
+    return WebCore::Credential(credential.get());
+}
+
+} // namespace WebKit
+
 WKCertificateInfoRef WKCertificateInfoCreateWithServerTrust(SecTrustRef serverTrust)
 {
-    return nullptr;
+    // MAVERICKS_BACKPORT: upstream gutted this to null.
+    // return nullptr;
+    return WebKit::toAPILeakingRef(API::CertificateInfo::create(WebCore::CertificateInfo(retainPtr(serverTrust))));
 }
 
 WKCertificateInfoRef WKCertificateInfoCreateWithCertficateChain(CFArrayRef certificateChain)
 {
-    return nullptr;
+    // MAVERICKS_BACKPORT: upstream gutted this to null.
+    // return nullptr;
+    return WebKit::toAPILeakingRef(API::CertificateInfo::create(certificateChain));
 }
 
 CFArrayRef WKCertificateInfoGetCertificateChain(WKCertificateInfoRef certificateInfoRef)
 {
-    return nullptr;
+    // MAVERICKS_BACKPORT: upstream gutted this to null. Guarded because Safari 7 can hold
+    // a null WKCertificateInfoRef from a frame that has not committed.
+    // return nullptr;
+    if (!certificateInfoRef)
+        return nullptr;
+    return WebKit::toImpl(certificateInfoRef)->certificateChain();
 }
 
 SecTrustRef WKCertificateInfoGetServerTrust(WKCertificateInfoRef certificateInfoRef)
 {
-    return nullptr;
+    // MAVERICKS_BACKPORT: upstream gutted this to null.
+    // return nullptr;
+    if (!certificateInfoRef)
+        return nullptr;
+    return WebKit::toImpl(certificateInfoRef)->certificateInfo().trust().get();
 }

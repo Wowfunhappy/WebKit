@@ -48,6 +48,11 @@ extern "C" char __llvm_profile_filename[] = "/private/tmp/WebKitPGO/WebKit_%m_pi
 #endif
 #endif
 
+// MAVERICKS_BACKPORT: libgcrypt-backed crypto initialization (CryptoKit path unavailable on 10.9).
+#if USE(GCRYPT)
+#include <pal/crypto/gcrypt/Initialization.h>
+#endif
+
 namespace WebKit {
 
 static std::once_flag flag;
@@ -68,6 +73,14 @@ static void runInitializationCode(void* = nullptr)
     WTF::RefCountDebuggerBase::enableThreadingChecksGlobally();
 
     WebCore::populateJITOperations();
+
+#if USE(GCRYPT)
+    // MAVERICKS_BACKPORT: UIProcess calls wrapSerializedCryptoKey through the
+    // libgcrypt path too (see WebPageProxy.cpp / WebProcessProxy.cpp).
+    // gcry_check_version must run before any other libgcrypt call.
+    PAL::GCrypt::initialize();
+#endif
+
 }
 
 void InitializeWebKit2()
