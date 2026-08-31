@@ -49,6 +49,11 @@
 #import <pal/spi/cocoa/AccessibilitySupportSPI.h>
 #endif
 
+// MAVERICKS_BACKPORT: this file uses the deprecated string-based AppKit AX API (NSAccessibilityException in
+// <AppKit/NSErrors.h>, NSAccessibilityChildrenAttribute in <AppKit/NSAccessibilityConstants.h>); under
+// -fno-modules those declarations are not pulled in transitively, so import the AppKit umbrella explicitly.
+#import <AppKit/AppKit.h>
+
 namespace WTR {
 
 void AccessibilityController::platformInitialize()

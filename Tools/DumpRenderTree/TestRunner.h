@@ -41,6 +41,10 @@
 #if PLATFORM(COCOA)
 #include <pal/spi/cocoa/NetworkSPI.h>
 #include <wtf/darwin/NetworkOSObject.h>
+// MAVERICKS_BACKPORT: m_resolverConfig below is an OSObjectPtr<nw_resolver_config_t> member, so the
+// OSObjectPtr template definition must be complete here. Under -fno-modules it is not transitively pulled
+// in by the SPI headers above (Apple's modular build gets it for free), so include it explicitly.
+#include <wtf/OSObjectPtr.h>
 #endif // PLATFORM(COCOA)
 
 extern FILE* testResult;

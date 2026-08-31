@@ -47,6 +47,9 @@
 #if !ENABLE(DNS_SERVER_FOR_TESTING_IN_NETWORKING_PROCESS)
 #include <pal/spi/cocoa/NetworkSPI.h>
 #include <wtf/darwin/NetworkOSObject.h>
+// MAVERICKS_BACKPORT: m_resolverConfig is an OSObjectPtr<nw_resolver_config_t> member, so the template
+// definition must be complete here; under -fno-modules it isn't pulled in transitively by the SPI headers.
+#include <wtf/OSObjectPtr.h>
 #endif // !ENABLE(DNS_SERVER_FOR_TESTING_IN_NETWORKING_PROCESS)
 #endif // PLATFORM(COCOA)
 
