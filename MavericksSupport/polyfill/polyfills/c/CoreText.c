@@ -329,11 +329,16 @@ static CTFontDescriptorRef wk_descriptorAttributesToCarryOver(CTFontDescriptorRe
 // Realizes a variable font at the axis values its descriptor asks for, or returns NULL to let
 // 10.9's own realization run. NULL is the answer for every font that is not a variable web font
 // this layer created the descriptor for, and for every request that lands on the fvar defaults.
+static CFTypeRef wk_carriedAttribute(CTFontDescriptorRef descriptor, CFStringRef key);
+
 static CTFontRef wk_realizeVariableFontInstance(CTFontDescriptorRef descriptor, CGFloat size, const CGAffineTransform *matrix)
 {
     if (!descriptor)
         return NULL;
-    CFDataRef sourceData = (CFDataRef)CTFontDescriptorCopyAttribute(descriptor, WK_LEGACY_VARIABLE_FONT_SOURCE_KEY);
+    // The key is one only descriptors this layer minted carry, so it is read off the descriptor's own
+    // attributes; CTFontDescriptorCopyAttribute would answer it by matching, per realization, for the
+    // overwhelming majority of descriptors that lack it.
+    CFDataRef sourceData = (CFDataRef)wk_carriedAttribute(descriptor, WK_LEGACY_VARIABLE_FONT_SOURCE_KEY);
     if (!sourceData)
         return NULL;
 
@@ -403,7 +408,12 @@ typedef struct {
 
 static const void *wk_fontRequestKey(void)
 {
-    return (const void *)sel_registerName("wk_fontRequest");
+    // Cached: sel_registerName hashes under the runtime lock, and this runs per metric read.
+    // The SEL is the one address every image's copy of this archive agrees on.
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_fontRequest");
+    return key;
 }
 
 static void wk_setFontRequest(CTFontRef font, const wk_font_request *request)
@@ -442,7 +452,12 @@ static CTFontRef wk_inheritFontRequest(CTFontRef font, CTFontRef source)
 // the system-UI serialization branch that would rebuild it from a type carrying the wrong weight.
 static const void *wk_uiFontTypeKey(void)
 {
-    return (const void *)sel_registerName("wk_uiFontType");
+    // Cached: sel_registerName hashes under the runtime lock, and this runs per metric read.
+    // The SEL is the one address every image's copy of this archive agrees on.
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_uiFontType");
+    return key;
 }
 
 static CTFontRef wk_recordUIFontType(CTFontRef font, uint32_t type)
@@ -481,12 +496,15 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateUIFontForLanguage,
 
 WK_POLYFILL_REPLACES("CoreText", CGAffineTransform, CTFontGetMatrix, (CTFontRef font))
 {
+    CGAffineTransform matrix = WK_ORIGINAL(CTFontGetMatrix)
+        ? WK_ORIGINAL(CTFontGetMatrix)(font) : wk_identityFontMatrix;
+    if (!wk_matrixScalesToNothing(matrix))
+        return matrix;
+    // Only a font whose realized map scales to nothing can carry a record (wk_recordFontRequest).
     wk_font_request request;
     if (wk_recordedFontRequest(font, &request))
         return request.matrix;
-    CGAffineTransform matrix = WK_ORIGINAL(CTFontGetMatrix)
-        ? WK_ORIGINAL(CTFontGetMatrix)(font) : wk_identityFontMatrix;
-    return wk_matrixScalesToNothing(matrix) ? wk_identityFontMatrix : matrix;
+    return wk_identityFontMatrix;
 }
 
 // Recorded for the fonts whose realized map scales to nothing, which are the only ones whose
@@ -516,11 +534,14 @@ static bool wk_fontScalesToNothing(CTFontRef font)
 
 WK_POLYFILL_REPLACES("CoreText", CGFloat, CTFontGetSize, (CTFontRef font))
 {
-    wk_font_request request;
-    if (wk_recordedFontRequest(font, &request))
-        return request.size;
-    if (wk_fontScalesToNothing(font))
+    // Only a font whose realized map scales to nothing can carry a record (wk_recordFontRequest),
+    // so the cheap matrix test gates the associations lookup off every normal font's read.
+    if (wk_fontScalesToNothing(font)) {
+        wk_font_request request;
+        if (wk_recordedFontRequest(font, &request))
+            return request.size;
         return 0;
+    }
     return WK_ORIGINAL(CTFontGetSize) ? WK_ORIGINAL(CTFontGetSize)(font) : 0;
 }
 
@@ -528,7 +549,12 @@ WK_POLYFILL_REPLACES("CoreText", CGFloat, CTFontGetSize, (CTFontRef font))
 // is toll-free bridged to NSFontDescriptor, so the record lives and dies with the descriptor.
 static const void *wk_opticalSizeIsDefaultKey(void)
 {
-    return (const void *)sel_registerName("wk_opticalSizeIsDefault");
+    // Cached: sel_registerName hashes under the runtime lock, and this runs per metric read.
+    // The SEL is the one address every image's copy of this archive agrees on.
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_opticalSizeIsDefault");
+    return key;
 }
 
 static CTFontDescriptorRef wk_markOpticalSizeDefault(CTFontDescriptorRef descriptor)
@@ -636,7 +662,12 @@ static wk_optical_size_request wk_opticalSizeRequest(CTFontDescriptorRef descrip
 // so the request rides the font the way wk_font_request does.
 static const void *wk_opticalSizeFollowsPointSizeKey(void)
 {
-    return (const void *)sel_registerName("wk_opticalSizeFollowsPointSize");
+    // Cached: sel_registerName hashes under the runtime lock, and this runs per metric read.
+    // The SEL is the one address every image's copy of this archive agrees on.
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_opticalSizeFollowsPointSize");
+    return key;
 }
 
 static CTFontRef wk_markOpticalSizeFollowsPointSize(CTFontRef font)
@@ -715,17 +746,18 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontCopyAttribute, (CTFontRef font
     if (font && attribute && CFEqual(attribute, kCTFontUserInstalledAttribute))
         return CFRetain(wk_fontIsUserInstalled(font) ? (CFTypeRef)kCFBooleanTrue : (CFTypeRef)kCFBooleanFalse);
 
-    wk_font_request request;
-    bool recorded = attribute && wk_recordedFontRequest(font, &request);
-    if (attribute && (recorded || wk_fontScalesToNothing(font))) {
+    // The attribute compares gate the matrix probe, and the matrix probe gates the associations
+    // lookup: only a font whose realized map scales to nothing can carry a record.
+    if (attribute && (CFEqual(attribute, kCTFontSizeAttribute) || CFEqual(attribute, kCTFontMatrixAttribute))
+        && wk_fontScalesToNothing(font)) {
+        wk_font_request request;
+        bool recorded = wk_recordedFontRequest(font, &request);
         if (CFEqual(attribute, kCTFontSizeAttribute)) {
             CGFloat size = recorded ? request.size : 0;
             return CFNumberCreate(kCFAllocatorDefault, kCFNumberCGFloatType, &size);
         }
-        if (CFEqual(attribute, kCTFontMatrixAttribute)) {
-            CGAffineTransform matrix = recorded ? request.matrix : wk_identityFontMatrix;
-            return CFDataCreate(kCFAllocatorDefault, (const UInt8 *)&matrix, sizeof(matrix));
-        }
+        CGAffineTransform matrix = recorded ? request.matrix : wk_identityFontMatrix;
+        return CFDataCreate(kCFAllocatorDefault, (const UInt8 *)&matrix, sizeof(matrix));
     }
     // A font realized for an optical size of "auto" reports the request, not the points it resolved
     // to, because the points move with the size the font is copied to.
@@ -1132,17 +1164,15 @@ static CTFontRef wkFontWithFaceName(CTFontRef copy, CFStringRef name)
 // family answers an italic request with its upright face, which WebCore obliques itself
 // (FontFamilySpecificationCoreText::fontRanges passes the synthetic oblique it computes). Width and
 // weight are ranked, because every family member is a legitimate answer to them.
-static CTFontRef wkNearestEnumeratedFamilyMember(CTFontRef copy, CGFloat targetWidth, CGFloat targetWeight,
-                                                 uint32_t wantedSlant)
+// The enumeration-and-ranking half of wkNearestEnumeratedFamilyMember: the chosen member's name, or
+// NULL when the family gives no answer. The caller owns the returned name.
+static CFStringRef wkSelectFamilyMemberName(CFStringRef family, CFStringRef sourceName, const uint32_t slants[2],
+                                            CGFloat targetWidth, CGFloat targetWeight)
 {
-    CFStringRef family = CTFontCopyFamilyName(copy);
-    if (!family)
-        return NULL;
     const void *familyKeys[] = { kCTFontFamilyNameAttribute };
     const void *familyValues[] = { family };
     CFDictionaryRef familyAttributes = CFDictionaryCreate(kCFAllocatorDefault, familyKeys, familyValues, 1,
                                                           &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    CFRelease(family);
     if (!familyAttributes)
         return NULL;
     CTFontDescriptorRef familyDescriptor = CTFontDescriptorCreateWithAttributes(familyAttributes);
@@ -1157,14 +1187,11 @@ static CTFontRef wkNearestEnumeratedFamilyMember(CTFontRef copy, CGFloat targetW
     if (!members)
         return NULL;
 
-    uint32_t slants[2] = { wantedSlant, CTFontGetSymbolicTraits(copy) & kCTFontTraitItalic };
-    CFStringRef sourceName = CTFontCopyPostScriptName(copy);
-
     // A font whose family name is one an installed family also carries, without its own face being in
     // that family -- a CGFont-backed face, a @font-face whose internal family reads "Helvetica Neue"
     // -- is not a member and has no member to be moved to.
     bool sourceIsMember = false;
-    for (CFIndex i = 0, count = CFArrayGetCount(members); sourceName && !sourceIsMember && i < count; ++i) {
+    for (CFIndex i = 0, count = CFArrayGetCount(members); !sourceIsMember && i < count; ++i) {
         CFStringRef memberName = (CFStringRef)CTFontDescriptorCopyAttribute(
             (CTFontDescriptorRef)CFArrayGetValueAtIndex(members, i), kCTFontNameAttribute);
         sourceIsMember = memberName && CFEqual(memberName, sourceName);
@@ -1172,8 +1199,6 @@ static CTFontRef wkNearestEnumeratedFamilyMember(CTFontRef copy, CGFloat targetW
             CFRelease(memberName);
     }
     if (!sourceIsMember) {
-        if (sourceName)
-            CFRelease(sourceName);
         CFRelease(members);
         return NULL;
     }
@@ -1196,7 +1221,7 @@ static CTFontRef wkNearestEnumeratedFamilyMember(CTFontRef copy, CGFloat targetW
             CFStringRef memberName = (CFStringRef)CTFontDescriptorCopyAttribute(member, kCTFontNameAttribute);
             wk_face_rank rank = wkRankFace(traits.haveWidth ? traits.width : 0.0, traits.weight,
                                            targetWidth, targetWeight,
-                                           memberName && sourceName && CFEqual(memberName, sourceName));
+                                           memberName && CFEqual(memberName, sourceName));
             if (memberName)
                 CFRelease(memberName);
 
@@ -1206,20 +1231,129 @@ static CTFontRef wkNearestEnumeratedFamilyMember(CTFontRef copy, CGFloat targetW
             }
         }
     }
-    if (sourceName)
-        CFRelease(sourceName);
 
     // One candidate is the family's only face for this style: an answer when it is not the face the
     // request started from, and nothing to say when it is.
-    CTFontRef selected = NULL;
-    if (best && (candidates > 1 || !bestRank.isSourceFace)) {
-        CFStringRef name = (CFStringRef)CTFontDescriptorCopyAttribute(best, kCTFontNameAttribute);
-        if (name) {
-            selected = wkFontWithFaceName(copy, name);
-            CFRelease(name);
+    CFStringRef name = NULL;
+    if (best && (candidates > 1 || !bestRank.isSourceFace))
+        name = (CFStringRef)CTFontDescriptorCopyAttribute(best, kCTFontNameAttribute);
+    CFRelease(members);
+    return name;
+}
+
+// Memo over wkSelectFamilyMemberName. The choice is a pure function of its arguments and the set of
+// installed faces, and the enumeration behind it is a full font-database match paid per font
+// realization -- every system-UI request carries the traits that lead here. The installed set can
+// change (CTFontManagerRegisterFonts*), and CoreText announces that; the observer flushes the memo.
+enum { WK_FACE_MEMO_SLOTS = 32 };
+struct wk_face_memo {
+    CFStringRef family;      // NULL = empty slot
+    CFStringRef source;
+    CGFloat targetWidth;
+    CGFloat targetWeight;
+    uint32_t slants[2];
+    CFStringRef face;        // NULL = the family gives no answer (cached too)
+};
+static struct wk_face_memo wk_faceMemo[WK_FACE_MEMO_SLOTS];
+static unsigned wk_faceMemoNext;
+// Bumped by every flush, captured before a compute, checked before its insert: a selection computed
+// against the pre-flush installed set must not be planted after the flush, where it would outlive
+// the very notification meant to clear it.
+static unsigned wk_faceMemoFlushGeneration;
+static pthread_mutex_t wk_faceMemoLock = PTHREAD_MUTEX_INITIALIZER;
+
+static void wk_faceMemoFlush(CFNotificationCenterRef center, void *observer, CFStringRef name,
+                             const void *object, CFDictionaryRef userInfo)
+{
+    (void)center; (void)observer; (void)name; (void)object; (void)userInfo;
+    pthread_mutex_lock(&wk_faceMemoLock);
+    ++wk_faceMemoFlushGeneration;
+    for (unsigned i = 0; i < WK_FACE_MEMO_SLOTS; ++i) {
+        if (!wk_faceMemo[i].family)
+            continue;
+        CFRelease(wk_faceMemo[i].family);
+        CFRelease(wk_faceMemo[i].source);
+        if (wk_faceMemo[i].face)
+            CFRelease(wk_faceMemo[i].face);
+        memset(&wk_faceMemo[i], 0, sizeof(wk_faceMemo[i]));
+    }
+    pthread_mutex_unlock(&wk_faceMemoLock);
+}
+
+static void wk_faceMemoInstallFlushObserver(void)
+{
+    CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(), wk_faceMemo, wk_faceMemoFlush,
+                                    kCTFontManagerRegisteredFontsChangedNotification, NULL,
+                                    CFNotificationSuspensionBehaviorDeliverImmediately);
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDistributedCenter(), wk_faceMemo, wk_faceMemoFlush,
+                                    kCTFontManagerRegisteredFontsChangedNotification, NULL,
+                                    CFNotificationSuspensionBehaviorDeliverImmediately);
+}
+
+static CTFontRef wkNearestEnumeratedFamilyMember(CTFontRef copy, CGFloat targetWidth, CGFloat targetWeight,
+                                                 uint32_t wantedSlant)
+{
+    CFStringRef family = CTFontCopyFamilyName(copy);
+    if (!family)
+        return NULL;
+    CFStringRef sourceName = CTFontCopyPostScriptName(copy);
+    if (!sourceName) {
+        // No PostScript name means the source cannot be a family member, which is the enumeration's
+        // own no-member answer.
+        CFRelease(family);
+        return NULL;
+    }
+    uint32_t slants[2] = { wantedSlant, CTFontGetSymbolicTraits(copy) & kCTFontTraitItalic };
+
+    static pthread_once_t observerOnce = PTHREAD_ONCE_INIT;
+    pthread_once(&observerOnce, wk_faceMemoInstallFlushObserver);
+
+    CFStringRef face = NULL;
+    bool cached = false;
+    pthread_mutex_lock(&wk_faceMemoLock);
+    unsigned flushGeneration = wk_faceMemoFlushGeneration;
+    for (unsigned i = 0; i < WK_FACE_MEMO_SLOTS && !cached; ++i) {
+        struct wk_face_memo *memo = &wk_faceMemo[i];
+        if (memo->family && memo->targetWidth == targetWidth && memo->targetWeight == targetWeight
+            && memo->slants[0] == slants[0] && memo->slants[1] == slants[1]
+            && CFEqual(memo->family, family) && CFEqual(memo->source, sourceName)) {
+            face = memo->face ? (CFStringRef)CFRetain(memo->face) : NULL;
+            cached = true;
         }
     }
-    CFRelease(members);
+    pthread_mutex_unlock(&wk_faceMemoLock);
+
+    if (!cached) {
+        face = wkSelectFamilyMemberName(family, sourceName, slants, targetWidth, targetWeight);
+        pthread_mutex_lock(&wk_faceMemoLock);
+        if (wk_faceMemoFlushGeneration != flushGeneration) {
+            pthread_mutex_unlock(&wk_faceMemoLock);
+            goto selected;
+        }
+        struct wk_face_memo *memo = &wk_faceMemo[wk_faceMemoNext++ % WK_FACE_MEMO_SLOTS];
+        if (memo->family) {
+            CFRelease(memo->family);
+            CFRelease(memo->source);
+            if (memo->face)
+                CFRelease(memo->face);
+        }
+        memo->family = (CFStringRef)CFRetain(family);
+        memo->source = (CFStringRef)CFRetain(sourceName);
+        memo->targetWidth = targetWidth;
+        memo->targetWeight = targetWeight;
+        memo->slants[0] = slants[0];
+        memo->slants[1] = slants[1];
+        memo->face = face ? (CFStringRef)CFRetain(face) : NULL;
+        pthread_mutex_unlock(&wk_faceMemoLock);
+    }
+
+selected:
+    CFRelease(family);
+    CFRelease(sourceName);
+    if (!face)
+        return NULL;
+    CTFontRef selected = wkFontWithFaceName(copy, face);
+    CFRelease(face);
     return selected;
 }
 
@@ -3243,10 +3377,6 @@ WK_POLYFILL_ABSENT("CoreText", void, CTRunGetBaseAdvancesAndOrigins,
 // (CGContextGetTransparencyLayerDepth and CGContextIsInTransparencyLayer are both
 // absent from CoreGraphics here), so the CGContext{Begin,End}TransparencyLayer
 // replacements in CoreGraphics.c carry the count (wk_helpers.h).
-
-// CGContextGetType's PDF result, measured on 10.9; bitmap contexts report 4. Matches
-// kCGContextTypePDF in PAL's CoreGraphicsSPI.h.
-#define WK_CG_CONTEXT_TYPE_PDF 1
 
 WK_SYSTEM_FN("CoreGraphics", int, CGContextGetType, (CGContextRef));
 WK_SYSTEM_FN("CoreGraphics", CGTextDrawingMode, CGContextGetTextDrawingMode, (CGContextRef));

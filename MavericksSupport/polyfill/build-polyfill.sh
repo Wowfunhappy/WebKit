@@ -56,8 +56,8 @@ cc_wait() {
 # the site that makes it, so the check reads as a claim about that line.
 WARN='-Wall -Wextra -Wno-unused-command-line-argument -Werror=unguarded-availability -Werror=unguarded-availability-new'
 INC="-I$MECH"                                        # so a polyfill can #include "wk_polyfill.h"
-HOST="--no-default-config -mmacosx-version-min=10.9 $WARN"                       # the 10.9 host headers
-MODERN="--no-default-config -isysroot $SDK -mmacosx-version-min=10.9 -Wno-deprecated-declarations $WARN"
+HOST="--no-default-config -mmacosx-version-min=10.9 -O2 $WARN"                       # the 10.9 host headers
+MODERN="--no-default-config -isysroot $SDK -mmacosx-version-min=10.9 -O2 -Wno-deprecated-declarations $WARN"
 # HIDDEN: libpolyfill.a is force-loaded into WebKit's binaries, so its definitions only ever need to
 # satisfy references within the image that pulled them in. Keeping them out of the export tables confines
 # the layer to WebKit -- nothing else in the process can bind to a polyfill by accident -- and lets a
@@ -74,7 +74,7 @@ for f in "$PF"/c/*.c "$PF"/c/*.m; do
 done
 for f in "$PF"/c/*.cpp; do
     [ -e "$f" ] || continue
-    cc_queue "$CLANGXX" -c $MODERN $HIDDEN $INC -std=c++17 -O2 -o "$OBJ/c/$(basename "${f%.*}").o" "$f"
+    cc_queue "$CLANGXX" -c $MODERN $HIDDEN $INC -std=c++17 -o "$OBJ/c/$(basename "${f%.*}").o" "$f"
 done
 
 echo "### compiling polyfills/shared (also compiled by the vendored non-WebKit builds)"

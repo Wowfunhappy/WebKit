@@ -300,14 +300,50 @@ static Class wk_replace_body_owner(Class cls, SEL priv)
 // an aliased override; and two WebKit overrides stacked in one chain. No class list, no assumption about
 // which classes exist, and resolver-free throughout. The shadow gate keeps one REPLACE body per selector
 // in any one chain, which is what makes "the first body up the chain" the running one.
+// Memo over wk_original_of. The answer is a pure function of (receiver's class, private selector)
+// between method installations: the registry is append-only and an installed body never moves, so an
+// entry only goes stale when an image-load event installs methods (wk_alias_class / wk_install_side),
+// each of which bumps the generation. WK_ORIGINAL_METHOD runs on hot paths — every NSURL construction
+// and every request stamp goes through a REPLACE body — and the full search below costs several
+// class_copyMethodList allocations per call, so the memo is what keeps a call-through at
+// one-hash-probe cost. Per-entry seqlock, no lock on the read path; a writer that loses the claim
+// simply doesn't cache, and the search it already ran supplies its answer.
+enum { WK_ORIG_MEMO_SLOTS = 256 };   // power of two
+struct wk_orig_memo {
+    uint32_t seq;        // odd while a writer is mid-update
+    uint32_t gen;
+    Class cls;
+    SEL priv;
+    IMP imp;
+    SEL pub;
+};
+static struct wk_orig_memo wk_orig_memo[WK_ORIG_MEMO_SLOTS];
+static uint32_t wk_install_generation = 1;
+
+static unsigned wk_orig_memo_slot(Class cls, SEL priv)
+{
+    uintptr_t a = (uintptr_t)cls, b = (uintptr_t)(const void *)priv;
+    return (unsigned)(((a >> 4) ^ (a >> 12) ^ (b >> 4)) & (WK_ORIG_MEMO_SLOTS - 1));
+}
+
 struct wk_original wk_original_of(id receiver, SEL privateSelector)
 {
+    Class start = object_getClass(receiver);
+    uint32_t generation = __atomic_load_n(&wk_install_generation, __ATOMIC_ACQUIRE);
+    struct wk_orig_memo *memo = &wk_orig_memo[wk_orig_memo_slot(start, privateSelector)];
+    uint32_t seq = __atomic_load_n(&memo->seq, __ATOMIC_ACQUIRE);
+    if (!(seq & 1) && memo->cls == start && memo->priv == privateSelector && memo->gen == generation) {
+        struct wk_original cached = { memo->imp, memo->pub };
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (__atomic_load_n(&memo->seq, __ATOMIC_ACQUIRE) == seq)
+            return cached;
+    }
+
     SEL pub = NULL;
     int count = __atomic_load_n(&wk_count, __ATOMIC_ACQUIRE);
     for (int j = 0; j < count && !pub; j++)
         if (wk_priv[j] == privateSelector)
             pub = wk_pub[j];
-    Class start = object_getClass(receiver);
     Class bodyClass = pub ? wk_replace_body_owner(start, privateSelector) : Nil;
     if (!bodyClass) {
         fprintf(stderr, "[wk_selref_scope] FATAL: WK_ORIGINAL_METHOD called for %s on %s, which is not a "
@@ -334,6 +370,18 @@ struct wk_original wk_original_of(id receiver, SEL privateSelector)
         fflush(stderr);
         abort();
     }
+
+    uint32_t current = __atomic_load_n(&memo->seq, __ATOMIC_RELAXED);
+    if (!(current & 1) && __atomic_compare_exchange_n(&memo->seq, &current, current + 1, false,
+                                                      __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+        memo->cls = start;
+        memo->priv = privateSelector;
+        memo->imp = imp;
+        memo->pub = pub;
+        memo->gen = generation;
+        __atomic_store_n(&memo->seq, current + 2, __ATOMIC_RELEASE);
+    }
+
     struct wk_original original = { imp, pub };
     return original;
 }
@@ -366,6 +414,8 @@ static void wk_alias_class(Class cls, int from, int to, bool clsFromWebKitImage)
             IMP realIMP = method_getImplementation(methods[i]);
             const char *types = method_getTypeEncoding(methods[i]);
             class_addMethod(cls, wk_priv[j], realIMP, types);
+            // Invalidates the wk_original_of memo: this class's chain answers differently now.
+            __atomic_fetch_add(&wk_install_generation, 1, __ATOMIC_RELEASE);
             break;
         }
     }
@@ -509,6 +559,8 @@ static void wk_install_side(Class side, Class target, int intent)
             class_addMethod(target, priv, imp, types);
     }
     free(methods);
+    // Invalidates the wk_original_of memo: the targets' chains answer differently now.
+    __atomic_fetch_add(&wk_install_generation, 1, __ATOMIC_RELEASE);
 }
 
 // YES once every target class exists — the bodies are now installed on all of them.

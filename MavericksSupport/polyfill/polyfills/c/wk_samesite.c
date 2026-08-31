@@ -206,25 +206,27 @@ static CFStringRef wk_copyPercentEncoded(CFStringRef value)
         return NULL;
     }
 
-    CFMutableStringRef encoded = CFStringCreateMutable(NULL, 0);
-    if (!encoded) {
+    // Encoded in one pass into a byte buffer and minted as one string: this runs per cookie value,
+    // and the output is pure ASCII.
+    uint8_t *out = (uint8_t *)malloc((size_t)(used ? used : 1) * 3);
+    if (!out) {
         free(bytes);
         return NULL;
     }
     static const char hex[] = "0123456789ABCDEF";
+    CFIndex outLength = 0;
     for (CFIndex i = 0; i < used; ++i) {
-        UniChar out[3];
         if (wk_isUnreserved(bytes[i])) {
-            out[0] = bytes[i];
-            CFStringAppendCharacters(encoded, out, 1);
+            out[outLength++] = bytes[i];
             continue;
         }
-        out[0] = '%';
-        out[1] = (UniChar)hex[(bytes[i] >> 4) & 0xF];
-        out[2] = (UniChar)hex[bytes[i] & 0xF];
-        CFStringAppendCharacters(encoded, out, 3);
+        out[outLength++] = '%';
+        out[outLength++] = (uint8_t)hex[(bytes[i] >> 4) & 0xF];
+        out[outLength++] = (uint8_t)hex[bytes[i] & 0xF];
     }
     free(bytes);
+    CFStringRef encoded = CFStringCreateWithBytes(NULL, out, outLength, kCFStringEncodingASCII, false);
+    free(out);
     return encoded;
 }
 
@@ -494,12 +496,18 @@ static struct wk_attribute *wk_copyAttributes(CFStringRef header, long *outCount
 // the name it stands in for, so every other offset in the field stays where it was.
 static CFStringRef wk_copyInertName(CFIndex length)
 {
-    CFMutableStringRef name = CFStringCreateMutable(NULL, 0);
-    if (!name)
+    UniChar stack[64];
+    UniChar *chars = length <= 64 ? stack : (UniChar *)malloc((size_t)length * sizeof(UniChar));
+    if (!chars)
         return NULL;
-    CFStringAppend(name, CFSTR("wk"));
+    chars[0] = 'w';
+    if (length > 1)
+        chars[1] = 'k';
     for (CFIndex i = 2; i < length; ++i)
-        CFStringAppend(name, CFSTR("x"));
+        chars[i] = 'x';
+    CFStringRef name = CFStringCreateWithCharacters(NULL, chars, length);
+    if (chars != stack)
+        free(chars);
     return name;
 }
 
@@ -681,13 +689,48 @@ static bool wk_attributeOccurrences(CFStringRef inert, CFURLRef url, struct wk_a
     return true;
 }
 
+// A field that trips one of the failure reports below trips it on every response from that origin,
+// and syslog is a synchronous write to syslogd; one report per message site carries the diagnostic.
+#define WK_SAMESITE_REPORT_ONCE(...) do { \
+        static bool wk_reported; \
+        if (!wk_reported) { \
+            wk_reported = true; \
+            syslog(__VA_ARGS__); \
+        } \
+    } while (0)
+
+// Does the field name "samesite", ASCII-case-insensitively? Runs on every cookie-setting response
+// over fields that are routinely multi-kilobyte, so it is a byte scan rather than CFStringFind's
+// Unicode-folding search.
+static bool wk_headerNamesSameSite(CFStringRef header)
+{
+    static const char wanted[] = "samesite";
+    CFIndex length = CFStringGetLength(header);
+    CFStringInlineBuffer buffer;
+    CFStringInitInlineBuffer(header, &buffer, CFRangeMake(0, length));
+    for (CFIndex i = 0; i + 8 <= length; ++i) {
+        CFIndex j = 0;
+        while (j < 8) {
+            UniChar c = CFStringGetCharacterFromInlineBuffer(&buffer, i + j);
+            if (c >= 'A' && c <= 'Z')
+                c += 'a' - 'A';
+            if (c != (UniChar)wanted[j])
+                break;
+            ++j;
+        }
+        if (j == 8)
+            return true;
+    }
+    return false;
+}
+
 wk_samesite_header_disposition wk_sameSiteRewriteSetCookieHeader(CFStringRef header, CFURLRef url, CFStringRef *rewritten)
 {
     *rewritten = NULL;
     if (!header || !CFStringGetLength(header) || !url)
         return WK_SAMESITE_HEADER_UNCHANGED;
-    // What a field carrying no attribute costs: this one search.
-    if (CFStringFind(header, CFSTR("samesite"), kCFCompareCaseInsensitive).location == kCFNotFound)
+    // What a field carrying no attribute costs: this one scan.
+    if (!wk_headerNamesSameSite(header))
         return WK_SAMESITE_HEADER_UNCHANGED;
 
     long attributeCount = 0;
@@ -730,6 +773,14 @@ wk_samesite_header_disposition wk_sameSiteRewriteSetCookieHeader(CFStringRef hea
         pending[i] = i;
     }
 
+    if (attributeCount == 1 && cookieCount == 1) {
+        // One attribute and one cookie — the overwhelmingly common field — can only pair one way,
+        // so the inert copy, the baseline parse and the probe rounds have nothing to decide. The
+        // reparse verification below still rejects a field whose "attribute" is bytes inside a
+        // quoted value: the edit changes the cookie, the reparse shows it, and the field goes to
+        // the parser as the server sent it.
+        attributes[0].cookie = 0;
+    } else {
     // Attribution runs against a copy of the field with every one of these names replaced by one the
     // parser drops, so no cookie in it carries a comment and a probe is the only thing that can give
     // one. Each name keeps its length, so the offsets measured above still address the same bytes.
@@ -738,15 +789,16 @@ wk_samesite_header_disposition wk_sameSiteRewriteSetCookieHeader(CFStringRef hea
         wk_patch_fail(kSameSiteEncoding, "a field with inert attribute names could not be made");
     baseline = wk_parseSetCookieHeader(inert, url);
     if (!baseline || CFArrayGetCount(baseline) != cookieCount) {
-        syslog(LOG_ERR, "[wk_polyfill] SameSite: a Set-Cookie field's attribute names cannot be told from "
+        WK_SAMESITE_REPORT_ONCE(LOG_ERR, "[wk_polyfill] SameSite: a Set-Cookie field's attribute names cannot be told from "
                         "its cookies; leaving the field as the server sent it.");
         goto done;
     }
 
     if (!wk_attributeOccurrences(inert, url, attributes, attributeCount, pending, attributeCount, baseline)) {
-        syslog(LOG_ERR, "[wk_polyfill] SameSite: a Set-Cookie field's attributes cannot be told apart; "
+        WK_SAMESITE_REPORT_ONCE(LOG_ERR, "[wk_polyfill] SameSite: a Set-Cookie field's attributes cannot be told apart; "
                         "leaving the field as the server sent it.");
         goto done;
+    }
     }
 
     for (CFIndex c = 0; c < cookieCount; ++c)
@@ -784,7 +836,7 @@ wk_samesite_header_disposition wk_sameSiteRewriteSetCookieHeader(CFStringRef hea
         // Text this layer cannot encode leaves the cookie as the server sent it, which is the cookie
         // 10.9 stores for every restriction it is given.
         if (!blobs[c]) {
-            syslog(LOG_ERR, "[wk_polyfill] SameSite: a cookie's restriction cannot be carried in a "
+            WK_SAMESITE_REPORT_ONCE(LOG_ERR, "[wk_polyfill] SameSite: a cookie's restriction cannot be carried in a "
                             "comment; leaving its field as the server sent it.");
             lastSameSite[c] = -1;
             continue;
@@ -834,7 +886,7 @@ wk_samesite_header_disposition wk_sameSiteRewriteSetCookieHeader(CFStringRef hea
             CFRelease(result);
             // The field reaches the parser as the server sent it, so every cookie it sets is stored:
             // the restriction is what is lost, and 10.9 without this layer loses it for every cookie.
-            syslog(LOG_ERR, "[wk_polyfill] SameSite: carrying the attribute would have changed a cookie; "
+            WK_SAMESITE_REPORT_ONCE(LOG_ERR, "[wk_polyfill] SameSite: carrying the attribute would have changed a cookie; "
                             "leaving the field as the server sent it.");
         }
     }

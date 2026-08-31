@@ -917,31 +917,34 @@ WK_POLYFILL_ABSENT(NULL, int, dyld_shared_cache_iterate_text, (const void *uuid,
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
 
+// @selector literals, not sel_getUid: dyld uniques a selref once at image load, whereas sel_getUid
+// is a locked hash-table lookup on every call — and these entry points are the compiler-emitted
+// fast paths, so they run on hot code.
 WK_POLYFILL_ABSENT(NULL, id, objc_alloc_init, (Class cls))
 {
-    id object = ((id (*)(Class, SEL))objc_msgSend)(cls, sel_getUid("alloc"));
-    return ((id (*)(id, SEL))objc_msgSend)(object, sel_getUid("init"));
+    id object = ((id (*)(Class, SEL))objc_msgSend)(cls, @selector(alloc));
+    return ((id (*)(id, SEL))objc_msgSend)(object, @selector(init));
 }
 
 WK_POLYFILL_ABSENT(NULL, Class, objc_opt_class, (id object))
 {
     if (!object)
         return Nil;
-    return ((Class (*)(id, SEL))objc_msgSend)(object, sel_getUid("class"));
+    return ((Class (*)(id, SEL))objc_msgSend)(object, @selector(class));
 }
 
 WK_POLYFILL_ABSENT(NULL, BOOL, objc_opt_isKindOfClass, (id object, Class cls))
 {
     if (!object)
         return NO;
-    return ((BOOL (*)(id, SEL, Class))objc_msgSend)(object, sel_getUid("isKindOfClass:"), cls);
+    return ((BOOL (*)(id, SEL, Class))objc_msgSend)(object, @selector(isKindOfClass:), cls);
 }
 
 WK_POLYFILL_ABSENT(NULL, BOOL, objc_opt_respondsToSelector, (id object, SEL selector))
 {
     if (!object)
         return NO;
-    return ((BOOL (*)(id, SEL, SEL))objc_msgSend)(object, sel_getUid("respondsToSelector:"), selector);
+    return ((BOOL (*)(id, SEL, SEL))objc_msgSend)(object, @selector(respondsToSelector:), selector);
 }
 
 #pragma clang diagnostic pop

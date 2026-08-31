@@ -221,16 +221,22 @@ static void *resolveOriginal(struct wk_polyfill_entry *entry, int mayLoad)
 }
 
 // Also called from a running polyfill body, so loading the provider is already paid for.
+// A symbol this OS lacks is cached too (as the sentinel below), so the check-then-call idiom at the
+// call sites costs one load per call rather than a dlopen per call.
+static char wk_absentSymbolSentinel;
+
 void *wk_polyfill_system_symbol(const char *provider, const char *name, void **cache)
 {
     if (!*cache) {
         resolveSystemDlsym();
         void *handle = providerHandle(provider, 1);
         // A token names a framework that is not here, so there is no image behind it to search.
+        void *address = NULL;
         if (handle && !wk_polyfill_is_absent_provider_token(handle))
-            *cache = systemDlsym(handle, name);
+            address = systemDlsym(handle, name);
+        *cache = address ? address : (void *)&wk_absentSymbolSentinel;
     }
-    return *cache;
+    return *cache == &wk_absentSymbolSentinel ? NULL : *cache;
 }
 
 // Called from a polyfill body that is running, so the process is already using this API and loading

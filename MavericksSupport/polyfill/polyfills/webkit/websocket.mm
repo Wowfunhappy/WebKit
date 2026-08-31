@@ -46,7 +46,6 @@
 #import <sys/socket.h>
 #import <unistd.h>
 #import <atomic>
-#import <vector>
 
 // The whole NSURLSessionWebSocket surface is 10.15+ in the SDK and absent on the 10.9 runtime -- which
 // is what this file exists to supply: it defines NSURLSessionWebSocketMessage and the task that
@@ -782,6 +781,23 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
 
 // ----- frame parsing (RFC 6455) -----
 
+// XOR `length` bytes with the 4-byte mask in place, eight bytes at a time.
+static void maskBytes(uint8_t *bytes, NSUInteger length, const uint8_t key[4])
+{
+    uint64_t mask64;
+    uint8_t key8[8] = { key[0], key[1], key[2], key[3], key[0], key[1], key[2], key[3] };
+    memcpy(&mask64, key8, 8);
+    NSUInteger i = 0;
+    for (; i + 8 <= length; i += 8) {
+        uint64_t word;
+        memcpy(&word, bytes + i, 8);
+        word ^= mask64;
+        memcpy(bytes + i, &word, 8);
+    }
+    for (; i < length; i++)
+        bytes[i] ^= key[i & 3];
+}
+
 - (void)parseFrames
 {
     const uint8_t *bytes = (const uint8_t *)_inBuffer.bytes;
@@ -825,13 +841,17 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
         }
         if ((uint64_t)(available - p) < len) break;
 
-        std::vector<uint8_t> payload(len);
-        for (uint64_t i = 0; i < len; i++)
-            payload[i] = masked ? (bytes[p + i] ^ maskKey[i & 3]) : bytes[p + i];
+        // The payload is handed out as a pointer into _inBuffer — the frame's bytes are dead once
+        // `offset` moves past them, and handleFrameOpcode: copies what it keeps. A masked frame
+        // (unusual from a server) is unmasked in place first; mutableBytes is the same storage
+        // `bytes` already points at.
+        if (masked && len)
+            maskBytes((uint8_t *)_inBuffer.mutableBytes + p, (NSUInteger)len, maskKey);
+        const uint8_t *payload = bytes + p;
         p += len;
         offset = p;
 
-        [self handleFrameOpcode:opcode fin:fin payload:payload.data() length:len];
+        [self handleFrameOpcode:opcode fin:fin payload:payload length:len];
         if (_state == WKWSStateClosed)
             return; // _inBuffer was torn down
     }
@@ -940,11 +960,11 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
     arc4random_buf(maskKey, 4);
     [frame appendBytes:maskKey length:4];
 
-    const uint8_t *src = (const uint8_t *)payload.bytes;
-    std::vector<uint8_t> masked(len);
-    for (NSUInteger i = 0; i < len; i++)
-        masked[i] = src[i] ^ maskKey[i & 3];
-    [frame appendBytes:masked.data() length:len];
+    NSUInteger headerLength = frame.length;
+    if (payload)
+        [frame appendData:payload];   // appendData: throws for nil, and a nil payload is a legal empty frame
+    if (len)
+        maskBytes((uint8_t *)frame.mutableBytes + headerLength, len, maskKey);
 
     [self writeBytes:frame];
     return YES;

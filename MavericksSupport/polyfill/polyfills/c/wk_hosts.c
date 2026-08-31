@@ -4,6 +4,7 @@
 #include "wk_polyfill.h"
 
 #include <dlfcn.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -117,12 +118,48 @@ static CFStringRef wk_copyTopPrivatelyControlledDomain(CFStringRef host)
     return result;
 }
 
+// Memo over the derivation above. The answer is a pure function of the host — the public-suffix set
+// behind _CFHostIsDomainTopLevel is fixed for the process — and this runs once per request while a
+// page load asks about the same few hosts hundreds of times in a row; each miss costs a label walk of
+// substring allocations and public-suffix oracle calls.
+enum { WK_DOMAIN_MEMO_SLOTS = 8 };
+static struct { CFStringRef host; CFStringRef domain; } wk_domainMemo[WK_DOMAIN_MEMO_SLOTS];
+static unsigned wk_domainMemoNext;
+static pthread_mutex_t wk_domainMemoLock = PTHREAD_MUTEX_INITIALIZER;
+
 CFStringRef wk_copyRegistrableDomain(CFStringRef host)
 {
     if (!host || !CFStringGetLength(host))
         return (CFStringRef)CFRetain(CFSTR("nullOrigin"));
+
+    pthread_mutex_lock(&wk_domainMemoLock);
+    for (unsigned i = 0; i < WK_DOMAIN_MEMO_SLOTS; ++i) {
+        if (wk_domainMemo[i].host && CFEqual(wk_domainMemo[i].host, host)) {
+            CFStringRef domain = (CFStringRef)CFRetain(wk_domainMemo[i].domain);
+            pthread_mutex_unlock(&wk_domainMemoLock);
+            return domain;
+        }
+    }
+    pthread_mutex_unlock(&wk_domainMemoLock);
+
     CFStringRef domain = wk_copyTopPrivatelyControlledDomain(host);
-    return domain ? domain : (CFStringRef)CFRetain(host);
+    if (!domain)
+        domain = (CFStringRef)CFRetain(host);
+
+    // The key is a copy, not a retain: a caller's mutable string must not change under CFEqual.
+    CFStringRef key = CFStringCreateCopy(NULL, host);
+    if (key) {
+        pthread_mutex_lock(&wk_domainMemoLock);
+        unsigned slot = wk_domainMemoNext++ % WK_DOMAIN_MEMO_SLOTS;
+        if (wk_domainMemo[slot].host) {
+            CFRelease(wk_domainMemo[slot].host);
+            CFRelease(wk_domainMemo[slot].domain);
+        }
+        wk_domainMemo[slot].host = key;
+        wk_domainMemo[slot].domain = (CFStringRef)CFRetain(domain);
+        pthread_mutex_unlock(&wk_domainMemoLock);
+    }
+    return domain;
 }
 
 bool wk_registrableDomainMatchesHost(CFStringRef registrableDomain, CFStringRef host)

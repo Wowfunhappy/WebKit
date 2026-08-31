@@ -218,12 +218,14 @@ WK_POLYFILL_ADD_METHODS(NSAppearance)
 - (void)_drawInRect:(NSRect)rect context:(CGContextRef)context options:(NSDictionary *)options
 {
     NSString *isFlippedKey = wkCoreUIIsFlippedKey();
+    NSMutableDictionary *oriented = nil;
     if (context && isFlippedKey && ![options objectForKey:isFlippedKey]) {
-        NSMutableDictionary *oriented = [options mutableCopy] ?: [NSMutableDictionary dictionary];
-        oriented[isFlippedKey] = @(wkContextYGrowsDown(context));
+        oriented = [options mutableCopy] ?: [[NSMutableDictionary alloc] init];
+        oriented[isFlippedKey] = wkContextYGrowsDown(context) ? @YES : @NO;
         options = oriented;
     }
     [self _drawInRect:rect context:context options:options inView:nil];
+    [oriented release];   // MRR: the copy above is +1 and this runs per widget paint
 }
 // 10.9's appearances (Aqua and LightContent) all descend from Aqua and none of them is dark, so the
 // receiver's own name wins when it is offered and Aqua is the best match otherwise — the same resolution
@@ -555,14 +557,23 @@ WK_POLYFILL_ADD_METHODS(NSWindow)
 // the SPI is only the accessor pair, with raw-assign semantics (no retain/release, no layout side
 // effects) — which is exactly what object_getIvar/object_setIvar do under MRR.
 WK_POLYFILL_ADD_METHODS(NSView)
+// The Ivar is process-constant; the by-name lookup walks NSView's ivar list, and this pair runs
+// around drawing.
+static Ivar wkSubviewsIvar(void)
+{
+    static Ivar ivar;
+    if (!ivar)
+        ivar = class_getInstanceVariable([NSView class], "_subviews");
+    return ivar;
+}
 - (NSMutableArray *)_subviewsIvar
 {
-    Ivar ivar = class_getInstanceVariable([NSView class], "_subviews");
+    Ivar ivar = wkSubviewsIvar();
     return ivar ? object_getIvar(self, ivar) : nil;
 }
 - (void)_setSubviewsIvar:(NSMutableArray *)subviews
 {
-    Ivar ivar = class_getInstanceVariable([NSView class], "_subviews");
+    Ivar ivar = wkSubviewsIvar();
     if (ivar)
         object_setIvar(self, ivar, subviews);
 }

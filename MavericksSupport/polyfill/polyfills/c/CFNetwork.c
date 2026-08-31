@@ -326,8 +326,9 @@ static CFArrayRef wk_copyCookiesForURL(const void *storage, CFURLRef url, unsign
     wk_copy_cookies_for_url_fn original = (wk_copy_cookies_for_url_fn)wk_hookForStorage(storage)->copyCookiesForURL;
     CFArrayRef cookies = original(storage, url, secure);
     // Every other caller of this -- CFNetwork's own accept-policy path among them -- gets exactly what
-    // it would have got.
-    if (!cookies || !wk_cookieContext.known)
+    // it would have got. A same-site read lets every cookie ride whatever its policy says
+    // (wk_sameSiteAllows), so only a cross-site read pays the per-cookie comment scan.
+    if (!cookies || !wk_cookieContext.known || wk_cookieContext.isSameSite)
         return cookies;
 
     CFIndex count = CFArrayGetCount(cookies);
@@ -361,6 +362,11 @@ static CFArrayRef wk_copyCookiesForURL(const void *storage, CFURLRef url, unsign
 // The field name a response carries Set-Cookie under, in whatever case it arrived in.
 static CFStringRef wk_setCookieFieldName(CFDictionaryRef fields)
 {
+    // The canonical spelling first: one hash probe answers nearly every response (most carry no
+    // Set-Cookie at all, and CFNetwork canonicalizes the ones that do), and only an uncanonical
+    // spelling pays the key-vector scan below.
+    if (CFDictionaryGetValue(fields, CFSTR("Set-Cookie")))
+        return CFSTR("Set-Cookie");
     CFIndex count = CFDictionaryGetCount(fields);
     if (count <= 0)
         return NULL;

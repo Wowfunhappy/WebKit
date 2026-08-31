@@ -146,8 +146,9 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGPathAddUnevenCornersRoundedRect,
 // into a 1xN strip, so colours, interpolation and alpha match every other gradient path exactly.
 // Antialiasing is off for the wedge fill so adjacent wedges share edges without seams; the caller's clip
 // still antialiases the outer boundary.
+// One wedge per ramp sample: each wedge's midpoint falls on its own sample, and adjacent wedges
+// share an edge whose endpoint is computed once and carried forward.
 #define WK_CONIC_RAMP_SAMPLES 360
-#define WK_CONIC_WEDGES 720
 
 static void wk_drawConicFan(CGContextRef context, const uint8_t *ramp, CGPoint center, CGFloat angle)
 {
@@ -161,26 +162,25 @@ static void wk_drawConicFan(CGContextRef context, const uint8_t *ramp, CGPoint c
 
     CGContextSaveGState(context);
     CGContextSetShouldAntialias(context, false);
-    for (int i = 0; i < WK_CONIC_WEDGES; ++i) {
-        CGFloat t = (i + 0.5) / WK_CONIC_WEDGES;
-        int idx = (int)(t * WK_CONIC_RAMP_SAMPLES);
-        if (idx < 0)
-            idx = 0;
-        else if (idx >= WK_CONIC_RAMP_SAMPLES)
-            idx = WK_CONIC_RAMP_SAMPLES - 1;
-        CGFloat a = ramp[idx * 4 + 3] / 255.0;
-        CGFloat r = a > 0 ? fmin(1.0, (ramp[idx * 4 + 0] / 255.0) / a) : 0;
-        CGFloat g = a > 0 ? fmin(1.0, (ramp[idx * 4 + 1] / 255.0) / a) : 0;
-        CGFloat b = a > 0 ? fmin(1.0, (ramp[idx * 4 + 2] / 255.0) / a) : 0;
+    CGFloat previousX = center.x + radius * cos(angle);
+    CGFloat previousY = center.y + radius * sin(angle);
+    for (int i = 0; i < WK_CONIC_RAMP_SAMPLES; ++i) {
+        CGFloat a = ramp[i * 4 + 3] / 255.0;
+        CGFloat r = a > 0 ? fmin(1.0, (ramp[i * 4 + 0] / 255.0) / a) : 0;
+        CGFloat g = a > 0 ? fmin(1.0, (ramp[i * 4 + 1] / 255.0) / a) : 0;
+        CGFloat b = a > 0 ? fmin(1.0, (ramp[i * 4 + 2] / 255.0) / a) : 0;
         CGContextSetRGBFillColor(context, r, g, b, a);
-        CGFloat a0 = angle + twoPi * i / WK_CONIC_WEDGES;
-        CGFloat a1 = angle + twoPi * (i + 1) / WK_CONIC_WEDGES;
+        CGFloat a1 = angle + twoPi * (i + 1) / WK_CONIC_RAMP_SAMPLES;
+        CGFloat nextX = center.x + radius * cos(a1);
+        CGFloat nextY = center.y + radius * sin(a1);
         CGContextBeginPath(context);
         CGContextMoveToPoint(context, center.x, center.y);
-        CGContextAddLineToPoint(context, center.x + radius * cos(a0), center.y + radius * sin(a0));
-        CGContextAddLineToPoint(context, center.x + radius * cos(a1), center.y + radius * sin(a1));
+        CGContextAddLineToPoint(context, previousX, previousY);
+        CGContextAddLineToPoint(context, nextX, nextY);
         CGContextClosePath(context);
         CGContextFillPath(context);
+        previousX = nextX;
+        previousY = nextY;
     }
     CGContextRestoreGState(context);
 }
@@ -583,6 +583,19 @@ struct wk_transparency_layer_entry {
 
 static pthread_mutex_t wk_transparencyLayerLock = PTHREAD_MUTEX_INITIALIZER;
 static struct wk_transparency_layer_entry *wk_transparencyLayerHead;
+// Total layers open across every tracked context. wk_isInsideTransparencyLayer runs once per glyph
+// run painted (CTFontDrawGlyphs), so the zero case — all of screen painting — must not take the lock.
+static int wk_transparencyLayerOpenCount;
+
+WK_SYSTEM_FN("CoreGraphics", int, CGContextGetType, (CGContextRef));
+
+// Only a PDF context is tracked (wk_helpers.h): everything else returns before the lock, so a
+// screen context's layers cost one type query here and nothing below.
+static bool wk_transparencyLayerTracks(CGContextRef context)
+{
+    return context && WK_SYSTEM(CGContextGetType)
+        && WK_SYSTEM(CGContextGetType)(context) == WK_CG_CONTEXT_TYPE_PDF;
+}
 
 // The context is retained for as long as an entry exists. Core Graphics requires
 // begin and end to balance, but nothing can enforce that a caller does not release a
@@ -591,37 +604,42 @@ static struct wk_transparency_layer_entry *wk_transparencyLayerHead;
 // layer" answer and have its text silently converted to outlines.
 void wk_transparencyLayerBegan(CGContextRef context)
 {
-    if (!context)
+    if (!wk_transparencyLayerTracks(context))
         return;
     pthread_mutex_lock(&wk_transparencyLayerLock);
     struct wk_transparency_layer_entry *entry = wk_transparencyLayerHead;
     while (entry && entry->context != context)
         entry = entry->next;
-    if (entry)
+    if (entry) {
         entry->depth++;
-    else if ((entry = (struct wk_transparency_layer_entry *)malloc(sizeof(*entry)))) {
+        __atomic_fetch_add(&wk_transparencyLayerOpenCount, 1, __ATOMIC_RELEASE);
+    } else if ((entry = (struct wk_transparency_layer_entry *)malloc(sizeof(*entry)))) {
         entry->context = CGContextRetain(context);
         entry->depth = 1;
         entry->next = wk_transparencyLayerHead;
         wk_transparencyLayerHead = entry;
+        __atomic_fetch_add(&wk_transparencyLayerOpenCount, 1, __ATOMIC_RELEASE);
     }
     pthread_mutex_unlock(&wk_transparencyLayerLock);
 }
 
 void wk_transparencyLayerEnded(CGContextRef context)
 {
-    if (!context)
+    if (!context || !__atomic_load_n(&wk_transparencyLayerOpenCount, __ATOMIC_ACQUIRE))
         return;
     CGContextRef release = NULL;
     pthread_mutex_lock(&wk_transparencyLayerLock);
     struct wk_transparency_layer_entry **link = &wk_transparencyLayerHead;
     while (*link && (*link)->context != context)
         link = &(*link)->next;
-    if (*link && --(*link)->depth == 0) {
-        struct wk_transparency_layer_entry *closed = *link;
-        *link = closed->next;
-        release = closed->context;
-        free(closed);
+    if (*link) {
+        __atomic_fetch_sub(&wk_transparencyLayerOpenCount, 1, __ATOMIC_RELEASE);
+        if (--(*link)->depth == 0) {
+            struct wk_transparency_layer_entry *closed = *link;
+            *link = closed->next;
+            release = closed->context;
+            free(closed);
+        }
     }
     pthread_mutex_unlock(&wk_transparencyLayerLock);
     if (release)
@@ -630,6 +648,8 @@ void wk_transparencyLayerEnded(CGContextRef context)
 
 bool wk_isInsideTransparencyLayer(CGContextRef context)
 {
+    if (!__atomic_load_n(&wk_transparencyLayerOpenCount, __ATOMIC_ACQUIRE))
+        return false;
     bool inside = false;
     pthread_mutex_lock(&wk_transparencyLayerLock);
     for (struct wk_transparency_layer_entry *entry = wk_transparencyLayerHead; entry; entry = entry->next) {

@@ -46,7 +46,13 @@ WK_POLYFILL_ABSENT("Accelerate", vImage_Error, vImageCopyBuffer,
     unsigned long rows = s->height < d->height ? s->height : d->height;
     unsigned long cols = s->width < d->width ? s->width : d->width;
     size_t bytes = (size_t)cols * pixelSize;
-    for (unsigned long row = 0; row < rows; ++row)
-        memcpy((unsigned char *)d->data + row * d->rowBytes, (const unsigned char *)s->data + row * s->rowBytes, bytes);
+    // One copy when the rows are contiguous in both buffers — a full video frame per call rides
+    // this, and a single large memcpy reaches memcpy's non-temporal path where a per-row loop
+    // re-enters it a thousand times.
+    if (s->rowBytes == d->rowBytes && bytes == s->rowBytes)
+        memcpy(d->data, s->data, rows * bytes);
+    else
+        for (unsigned long row = 0; row < rows; ++row)
+            memcpy((unsigned char *)d->data + row * d->rowBytes, (const unsigned char *)s->data + row * s->rowBytes, bytes);
     return kvImageNoError;
 }

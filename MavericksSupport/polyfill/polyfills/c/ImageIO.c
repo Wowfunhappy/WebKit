@@ -72,14 +72,23 @@ WK_POLYFILL_ABSENT("ImageIO", int, CGImageSourceEnableRestrictedDecoding, (void)
 // thread could publish again, so the array is made immortal (an extra CFRetain, no release path)
 // rather than protected by a lock. That costs one small array per call to a function callers make
 // once, and it removes the use-after-free instead of relying on the caller's std::call_once.
+// Both cached: these run per decoded frame, and sel_registerName/objc_getClass are locked hash
+// lookups. The SEL is process-canonical and the class object immortal, so the cached values are the
+// same answers every later call would get.
 static const void *wk_allowableImageTypesKey(void)
 {
-    return (const void *)sel_registerName("wk_allowableImageTypes");
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_allowableImageTypes");
+    return key;
 }
 
 static id wk_allowableImageTypesAnchor(void)
 {
-    return (id)objc_getClass("NSObject");   // any process-global object; the runtime owns it
+    static id anchor;
+    if (!anchor)
+        anchor = (id)objc_getClass("NSObject");   // any process-global object; the runtime owns it
+    return anchor;
 }
 
 static CFArrayRef wk_allowableImageTypes(void)

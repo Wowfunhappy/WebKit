@@ -192,7 +192,15 @@ static BOOL wk_cookieDomainMatchesHost(NSString *cookieDomain, NSString *host)
         return NO;
     if ([host caseInsensitiveCompare:bare] == NSOrderedSame)
         return YES;
-    return [[host lowercaseString] hasSuffix:[[@"." stringByAppendingString:bare] lowercaseString]];
+    // Suffix match in place — this runs per (cookie, host) pair under the watcher's diff, so no
+    // lowercased or joined copies.
+    NSUInteger hostLength = host.length, bareLength = bare.length;
+    if (hostLength <= bareLength)
+        return NO;
+    NSRange suffix = NSMakeRange(hostLength - bareLength, bareLength);
+    if ([host compare:bare options:NSCaseInsensitiveSearch range:suffix] != NSOrderedSame)
+        return NO;
+    return [host characterAtIndex:suffix.location - 1] == '.';
 }
 
 // Name, domain and path are a stored cookie's identity (RFC 6265 5.3): a second Set-Cookie carrying all
@@ -373,6 +381,9 @@ static WKPolyfillCookieWatcher *wk_cookieWatcherForStorage(NSHTTPCookieStorage *
 
     NSMutableArray<NSArray *> *deliveries = [NSMutableArray array];
     if ([_snapshots count] && (changedHandler || removedHandler)) {
+        // The diff walks the whole jar per subscribed host on every cookie write; the pool keeps its
+        // intermediates from accumulating for the length of the run-loop turn.
+        @autoreleasepool {
         NSArray<NSHTTPCookie *> *cookies = [_storage cookies];
         for (NSString *host in [_snapshots allKeys]) {
             NSDictionary<NSString *, NSHTTPCookie *> *previous = [_snapshots objectForKey:host];
@@ -396,6 +407,7 @@ static WKPolyfillCookieWatcher *wk_cookieWatcherForStorage(NSHTTPCookieStorage *
             [_snapshots setObject:current forKey:host];
             if ([added count] || [removed count])
                 [deliveries addObject:@[host, added, removed]];
+        }
         }
     }
 
@@ -505,14 +517,16 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
     // off the presence of the stamp, because a stamp travels unchanged across a redirect that changes
     // host.
     id siteForCookies = policyProperties[@"_kCFHTTPCookiePolicyPropertySiteForCookies"];
-    if ([siteForCookies isKindOfClass:[NSURL class]] && cookies.count) {
-        bool isSameSite = wk_sameSiteURLsAreSameSite((CFURLRef)siteForCookies, (CFURLRef)url);
+    if ([siteForCookies isKindOfClass:[NSURL class]] && cookies.count
+        && !wk_sameSiteURLsAreSameSite((CFURLRef)siteForCookies, (CFURLRef)url)) {
+        // A same-site read lets every cookie ride whatever its policy says (wk_sameSiteAllows), so
+        // only a cross-site read pays the per-cookie comment scan.
         bool isTopLevelNavigation = [policyProperties[@"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation"] boolValue];
         NSMutableArray<NSHTTPCookie *> *allowed = [NSMutableArray arrayWithCapacity:cookies.count];
         for (NSHTTPCookie *cookie in cookies) {
             // A read carries no HTTP method, so a navigation is the only safe-method case there is.
             if (wk_sameSiteAllows(wk_sameSitePolicyOfComment((CFStringRef)wk_rawCookieComment(cookie)),
-                                  isSameSite, isTopLevelNavigation, isTopLevelNavigation))
+                                  false, isTopLevelNavigation, isTopLevelNavigation))
                 [allowed addObject:cookie];
         }
         cookies = allowed;
@@ -813,8 +827,13 @@ WK_POLYFILL_REPLACE_METHODS(NSURL)
         WKURLInitRelativeFn originalRelative = (WKURLInitRelativeFn)objc_msgSend;
         typedef id (*WKURLWithStringFn)(id, SEL, NSString *);
         WKURLWithStringFn urlWithString = (WKURLWithStringFn)objc_msgSend;
-        NSURL *emptyBase = urlWithString([NSURL class], sel_registerName("URLWithString:"), @"");
-        return originalRelative(self, sel_registerName("initWithString:relativeToURL:"), string, emptyBase);
+        static SEL urlWithStringSelector, initRelativeSelector;
+        if (!urlWithStringSelector) {
+            urlWithStringSelector = sel_registerName("URLWithString:");
+            initRelativeSelector = sel_registerName("initWithString:relativeToURL:");
+        }
+        NSURL *emptyBase = urlWithString([NSURL class], urlWithStringSelector, @"");
+        return originalRelative(self, initRelativeSelector, string, emptyBase);
     }
     return WK_ORIGINAL_METHOD(id, (NSString *), string);
 }
@@ -1292,7 +1311,10 @@ static CFHTTPCookieStorageRef wk_cfCookieStorageOf(id storage)
 {
     if (!storage)
         return NULL;
-    return ((CFHTTPCookieStorageRef (*)(id, SEL))objc_msgSend)(storage, sel_registerName("_cookieStorage"));
+    static SEL cookieStorageSelector;
+    if (!cookieStorageSelector)
+        cookieStorageSelector = sel_registerName("_cookieStorage");
+    return ((CFHTTPCookieStorageRef (*)(id, SEL))objc_msgSend)(storage, cookieStorageSelector);
 }
 
 static void wk_setCookieStorageOverridesSessionCookieAcceptPolicy(id storage, BOOL overrides)
@@ -1369,13 +1391,19 @@ static NSURLRequest *wk_requestCarryingStorageCookieAcceptPolicy(id session, NSU
 {
     if (!request || !session)
         return request;
-    id configuration = ((id (*)(id, SEL))objc_msgSend)(session, sel_registerName("configuration"));
+    static SEL configurationSelector;
+    if (!configurationSelector)
+        configurationSelector = sel_registerName("configuration");
+    id configuration = ((id (*)(id, SEL))objc_msgSend)(session, configurationSelector);
     id storage = [configuration HTTPCookieStorage];
     if (!wk_cookieStorageOverridesSessionCookieAcceptPolicy(storage))
         return request;
 
     NSMutableURLRequest *stamped = [[request mutableCopy] autorelease];
-    WKCFMutableURLRequestRef cfRequest = (WKCFMutableURLRequestRef)((void *(*)(id, SEL))objc_msgSend)(stamped, sel_registerName("_CFURLRequest"));
+    static SEL cfRequestSelector;
+    if (!cfRequestSelector)
+        cfRequestSelector = sel_registerName("_CFURLRequest");
+    WKCFMutableURLRequestRef cfRequest = (WKCFMutableURLRequestRef)((void *(*)(id, SEL))objc_msgSend)(stamped, cfRequestSelector);
     if (!cfRequest)
         return request;
     CFURLRequestSetHTTPCookieStorageAcceptPolicy(cfRequest, (int32_t)[storage cookieAcceptPolicy]);
@@ -2488,7 +2516,10 @@ static id wk_urlSession_taskFailedBySpool(id task, BOOL spoolFailed)
 // would quietly hand every caller a 60-second timeout and the protocol cache policy.
 static NSURLRequest *wk_urlSession_requestForURL(id session, NSURL *url)
 {
-    id configuration = ((id (*)(id, SEL))objc_msgSend)(session, sel_registerName("configuration"));
+    static SEL configurationSelector;
+    if (!configurationSelector)
+        configurationSelector = sel_registerName("configuration");
+    id configuration = ((id (*)(id, SEL))objc_msgSend)(session, configurationSelector);
     if (!configuration)
         return [NSURLRequest requestWithURL:url];
     return [NSURLRequest requestWithURL:url
@@ -2549,12 +2580,18 @@ WK_POLYFILL_REPLACE_METHODS_ON(NSURLSession, "NSURLSession", "__NSCFURLSession")
 // re-enter the request-taking body above; that body is what prepares a request for the session.
 - (NSURLSessionDataTask *)dataTaskWithURL:(NSURL *)url
 {
-    return ((id (*)(id, SEL, id))objc_msgSend)(self, sel_registerName("dataTaskWithRequest:"),
+    static SEL dataTaskSelector;
+    if (!dataTaskSelector)
+        dataTaskSelector = sel_registerName("dataTaskWithRequest:");
+    return ((id (*)(id, SEL, id))objc_msgSend)(self, dataTaskSelector,
         wk_requestCarryingStorageCookieAcceptPolicy(self, wk_urlSession_requestForURL(self, url)));
 }
 - (NSURLSessionDownloadTask *)downloadTaskWithURL:(NSURL *)url
 {
-    return ((id (*)(id, SEL, id))objc_msgSend)(self, sel_registerName("downloadTaskWithRequest:"),
+    static SEL downloadTaskSelector;
+    if (!downloadTaskSelector)
+        downloadTaskSelector = sel_registerName("downloadTaskWithRequest:");
+    return ((id (*)(id, SEL, id))objc_msgSend)(self, downloadTaskSelector,
         wk_requestCarryingStorageCookieAcceptPolicy(self, wk_urlSession_requestForURL(self, url)));
 }
 @end

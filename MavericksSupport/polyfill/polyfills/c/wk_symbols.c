@@ -220,20 +220,22 @@ void *wk_patch_vtable_slot(const wk_vtable_patch *patch, bool *installed)
         wk_patch_fail(patch->what, "the image's symbol table does not name the vtable this patches");
 
     void **slot = NULL;
-    bool siblingIsInThisVtable = false;
     for (void **entry = first; entry < last; ++entry) {
         if (*entry == original) {
             if (slot)
                 wk_patch_fail(patch->what, "the vtable holds that function in more than one slot, so no one slot is the one this patches");
             slot = entry;
-        } else if (*entry == patch->replacement || wk_address_is_in_polyfilled_image(*entry))
-            siblingIsInThisVtable = true;
+        }
     }
 
     if (!slot) {
         // The function this stands in for is no longer in the vtable. Another slot pointing into a
         // WebKit image is a sibling framework's copy of this patch having run first; anything else is
-        // a CFNetwork this patch does not describe.
+        // a CFNetwork this patch does not describe. The dladdr walk runs only on this no-slot path:
+        // per slot of the common first-load pass it would be the dominant cost of the patch.
+        bool siblingIsInThisVtable = false;
+        for (void **entry = first; entry < last && !siblingIsInThisVtable; ++entry)
+            siblingIsInThisVtable = *entry == patch->replacement || wk_address_is_in_polyfilled_image(*entry);
         if (!siblingIsInThisVtable)
             wk_patch_fail(patch->what, "the vtable does not hold the function this stands in for");
         return original;

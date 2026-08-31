@@ -198,16 +198,14 @@ static int mav_signatureHashAlgorithmForOID(CFStringRef oid)
         { "1.2.840.10045.4.3.4",    MavSecSignatureHashAlgorithmSHA512 },   // ecdsa-with-SHA512
     };
 
-    if (!oid)
+    // One C-string extraction, then byte compares: this runs per certificate of every TLS handshake,
+    // and a CFString is allocated per table row otherwise. A dotted OID longer than the buffer is one
+    // the table does not name.
+    char dotted[64];
+    if (!oid || !CFStringGetCString(oid, dotted, sizeof(dotted), kCFStringEncodingASCII))
         return MavSecSignatureHashAlgorithmUnknown;
     for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
-        CFStringRef candidate = CFStringCreateWithCStringNoCopy(kCFAllocatorDefault, table[i].oid,
-            kCFStringEncodingASCII, kCFAllocatorNull);
-        if (!candidate)
-            continue;
-        Boolean match = CFEqual(oid, candidate);
-        CFRelease(candidate);
-        if (match)
+        if (!strcmp(dotted, table[i].oid))
             return table[i].algorithm;
     }
     return MavSecSignatureHashAlgorithmUnknown;

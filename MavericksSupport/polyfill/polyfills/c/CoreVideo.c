@@ -11,6 +11,11 @@ WK_POLYFILL_ABSENT("CoreVideo", CFDictionaryRef, CVBufferCopyAttachments, (CVBuf
 {
     if (!WK_SYSTEM(CVBufferGetAttachments))
         return NULL;
+    // A COPY, not a retain: 10.9's CVBufferGetAttachments hands back the buffer's live mutable
+    // dictionary (measured — the same pointer mutates under a later CVBufferSetAttachment), and the
+    // contract promises a snapshot the caller owns. An absent-or-empty set is the documented NULL.
     CFDictionaryRef attachments = WK_SYSTEM(CVBufferGetAttachments)(buffer, mode);
-    return attachments ? CFDictionaryCreateCopy(kCFAllocatorDefault, attachments) : NULL;
+    if (!attachments || !CFDictionaryGetCount(attachments))
+        return NULL;
+    return CFDictionaryCreateCopy(kCFAllocatorDefault, attachments);
 }
