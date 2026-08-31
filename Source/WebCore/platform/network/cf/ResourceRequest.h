@@ -103,7 +103,30 @@ public:
     WEBCORE_EXPORT static bool httpPipeliningEnabled();
     WEBCORE_EXPORT static void setHTTPPipeliningEnabled(bool);
 
-    static bool resourcePrioritiesEnabled() { return true; }
+    // MAVERICKS_BACKPORT: hand priority scheduling to WebCore instead of CFNetwork, which is exactly what
+    // this switch is for -- initializeMaximumHTTPConnectionCountPerHost() reads it as "use the WebCore
+    // scheduler when we can't use request priorities with CFNetwork", and on 10.9 we can't.
+    //
+    // The 10.9 defect, measured on this host with a no-WebKit NSURLSession probe against a server holding
+    // one never-ending chunked response: once a request carrying an EXPLICIT CFURLRequest priority has
+    // been dispatched to a host, every later request of LOWER priority -- including priority-unset, which
+    // reads back as -1 -- is parked until that host's in-flight work drains. A never-ending response never
+    // drains, so those requests are never written at all and die at their 60s timeout. Ordering is what
+    // matters, not any threshold: prio1 alone after the hold is fine (2ms), and prio1 after a prio2 is
+    // starved. It is not a mis-set limit either -- it reproduces with kHTTPMinimumFastLanePriority at both
+    // extremes (0, so everything is eligible, and 9, so nothing is), with kHTTPNumFastLanes at 0/1/3, and
+    // on 10.9's own defaults.
+    //
+    // Left enabled, that made every page holding an SSE stream or long-poll unusable: WebKit sets a
+    // priority on every request, so claude.ai's chat POST and every Low-priority IMAGE hung behind the
+    // higher-priority traffic that had already gone out. Turning it off means WebKit sets no CFURLRequest
+    // priority at all, nothing configures CFNetwork's lanes (this predicate gates all three sites --
+    // ResourceRequestCFNet.cpp, NetworkProcessCocoa.mm, NetworkSessionCocoa.mm), and ordering falls to
+    // WebCore, as on every port without CFNetwork priorities. Verified after the flip: with a response
+    // held open, a Low-priority image loads in 4ms (was never sent), and WK1 -- whose
+    // WebResourceLoadScheduler this also switches to the 6-in-flight-per-host serve path -- loads 12 of 12
+    // same-host images with a never-ending EventSource open.
+    static bool resourcePrioritiesEnabled() { return false; }
 
     WEBCORE_EXPORT void replacePlatformRequest(HTTPBodyUpdatePolicy);
 

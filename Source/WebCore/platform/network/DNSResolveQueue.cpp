@@ -27,7 +27,8 @@
 #include "config.h"
 #include "DNSResolveQueue.h"
 
-#if USE(GLIB)
+// MAVERICKS_BACKPORT: USE(GLIB) is globally on for GStreamer; DNS prefetch stays on the CFNet backend.
+#if USE(GLIB) && !PLATFORM(COCOA)
 #include "DNSResolveQueueGLib.h"
 #elif USE(CURL)
 #include "DNSResolveQueueCurl.h"
