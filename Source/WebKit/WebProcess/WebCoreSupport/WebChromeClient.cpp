@@ -430,6 +430,10 @@ RefPtr<Page> WebChromeClient::createWindow(LocalFrame& frame, const String& open
         originalRequest, /* request */
         originalRequest.url().isValid() ? String() : originalRequest.url().string(), /* invalidURLString */
         navigationAction.requester(), /* requester */
+        // MAVERICKS_BACKPORT: bundlePolicyUserData stays empty here -- window.open does not run the
+        // injected-bundle policy client, so there is no bundle userData to carry. Listed rather than
+        // left off so the field we appended to NavigationActionData is accounted for at every site.
+        { }, /* bundlePolicyUserData */
     };
 
     auto sendResult = protect(webProcess.parentProcessConnection())->sendSync(Messages::WebPageProxy::CreateNewPage(windowFeatures, navigationActionData), page->identifier(), IPC::Timeout::infinity(), { IPC::SendSyncOption::MaintainOrderingWithAsyncMessages });
@@ -953,10 +957,17 @@ void WebChromeClient::mouseDidMoveOverElement(const HitTestResult& hitTestResult
     if (!page)
         return;
 
+    RefPtr<API::Object> userData;
+
+    // MAVERICKS_BACKPORT: notify the injected bundle so Safari's WebProcess plug-in can produce the
+    // hovered-element userData (link URL) the UI process needs for the status bar (#58).
+    page->injectedBundleUIClient().mouseDidMoveOverElement(*page, hitTestResult, wkModifiers, userData);
+
     // Notify the UIProcess.
     WebHitTestResultData webHitTestResultData(hitTestResult, toolTip);
     webHitTestResultData.elementBoundingBox = webHitTestResultData.elementBoundingBox.toRectWithExtentsClippedToNumericLimits();
-    page->send(Messages::WebPageProxy::MouseDidMoveOverElement(webHitTestResultData, wkModifiers));
+    // MAVERICKS_BACKPORT: send the injected-bundle userData (hovered link URL) to the UI process via the restored 3-arg MouseDidMoveOverElement message (#58).
+    page->send(Messages::WebPageProxy::MouseDidMoveOverElement(webHitTestResultData, wkModifiers, UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get())));
 }
 
 void WebChromeClient::print(LocalFrame& frame, const StringWithDirection& title)

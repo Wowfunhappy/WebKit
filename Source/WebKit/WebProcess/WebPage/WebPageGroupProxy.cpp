@@ -43,6 +43,8 @@ Ref<WebPageGroupProxy> WebPageGroupProxy::create(WebPageGroupData&& data)
 WebPageGroupProxy::WebPageGroupProxy(WebPageGroupData&& data)
     : m_data(WTF::move(data))
     , m_pageGroup(WebCore::PageGroup::pageGroup(m_data.identifier))
+    // MAVERICKS_BACKPORT: restored from upstream e05340a^ (see header).
+    , m_userContentController(WebUserContentController::getOrCreate(m_data.userContentControllerIdentifier))
 {
 }
 
@@ -51,6 +53,12 @@ WebPageGroupProxy::~WebPageGroupProxy() = default;
 WebCore::PageGroup* WebPageGroupProxy::corePageGroup() const
 {
     return m_pageGroup.get();
+}
+
+// MAVERICKS_BACKPORT: restored from upstream e05340a^ (see header).
+WebUserContentController& WebPageGroupProxy::userContentController()
+{
+    return m_userContentController;
 }
 
 } // namespace WebKit

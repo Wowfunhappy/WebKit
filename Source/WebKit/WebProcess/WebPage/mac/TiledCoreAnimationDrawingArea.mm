@@ -583,13 +583,42 @@ void TiledCoreAnimationDrawingArea::updateLayerHostingContext()
         m_layerHostingContext = nullptr;
     }
 
-    m_layerHostingContext = LayerHostingContext::create();
+    // MAVERICKS_BACKPORT: WebKit-537 parity — create the hosted context in the flavor the page's
+    // window can display: WindowServer-hosted windows (every normal window) display
+    // CGS-connection contexts; windows that composite their layer tree in-process (iBooks'
+    // reader window) display only contexts created against the UI process's CARemoteLayerServer
+    // port. See LayerHostingMode in DrawingAreaInfo.h.
+    switch (m_webPage->layerHostingMode()) {
+    case LayerHostingMode::InProcess:
+        m_layerHostingContext = LayerHostingContext::createForPort(WebProcess::singleton().compositingRenderServerPort().sendRight());
+        break;
+    case LayerHostingMode::InWindowServer:
+        m_layerHostingContext = LayerHostingContext::create();
+        break;
+    }
 
     if (m_rootLayer)
         m_layerHostingContext->setRootLayer(m_hostingLayer.get());
 
     if (colorSpace)
         m_layerHostingContext->setColorSpace(colorSpace.get());
+}
+
+// MAVERICKS_BACKPORT: WebKit-537 parity — the UI process reports that the page's window changed
+// which hosted-context flavor it can display; recreate the context and hand the replacement
+// context ID back (the page client re-mints its CALayerHost from it).
+void TiledCoreAnimationDrawingArea::setLayerHostingMode(LayerHostingMode layerHostingMode)
+{
+    if (layerHostingMode == m_webPage->layerHostingMode())
+        return;
+
+    m_webPage->setLayerHostingMode(layerHostingMode);
+
+    updateLayerHostingContext();
+
+    LayerTreeContext layerTreeContext;
+    layerTreeContext.contextID = m_layerHostingContext->cachedContextID();
+    send(Messages::DrawingAreaProxy::UpdateAcceleratedCompositingMode(0, layerTreeContext));
 }
 
 void TiledCoreAnimationDrawingArea::setRootCompositingLayer(CALayer *layer)

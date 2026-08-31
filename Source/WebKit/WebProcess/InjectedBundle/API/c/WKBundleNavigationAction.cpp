@@ -23,51 +23,65 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// MAVERICKS_BACKPORT: restored verbatim from upstream 8ee28eb^ ("Remove InjectedBundleNavigationAction",
+// bug 247819). Safari 7 imports WKBundleNavigationActionCopyHitTestResult / GetNavigationType /
+// CopyFormElement and calls them from its injected-bundle policy client; the return-0 stubs upstream
+// left behind made that client build an empty userData dictionary.
+
 #include "config.h"
 #include "WKBundleNavigationAction.h"
 #include "WKBundleNavigationActionPrivate.h"
 
+// MAVERICKS_BACKPORT: includes for the restored real implementations below.
+#include "InjectedBundleHitTestResult.h"
+#include "InjectedBundleNavigationAction.h"
+#include "InjectedBundleNodeHandle.h"
+#include "WKAPICast.h"
+#include "WKBundleAPICast.h"
+
 WKTypeID WKBundleNavigationActionGetTypeID()
 {
-    return 0;
+    return WebKit::toAPI(WebKit::InjectedBundleNavigationAction::APIType); // MAVERICKS_BACKPORT: restored from 8ee28eb^ (upstream returns 0).
 }
 
 WKFrameNavigationType WKBundleNavigationActionGetNavigationType(WKBundleNavigationActionRef navigationActionRef)
 {
-    return 0;
+    return WebKit::toAPI(WebKit::toImpl(navigationActionRef)->navigationType()); // MAVERICKS_BACKPORT: restored from 8ee28eb^ (upstream returns 0).
 }
 
 WKEventModifiers WKBundleNavigationActionGetEventModifiers(WKBundleNavigationActionRef navigationActionRef)
 {
-    return 0;
+    return WebKit::toAPI(WebKit::toImpl(navigationActionRef)->modifiers()); // MAVERICKS_BACKPORT: restored from 8ee28eb^ (upstream returns 0).
 }
 
 WKEventMouseButton WKBundleNavigationActionGetEventMouseButton(WKBundleNavigationActionRef navigationActionRef)
 {
-    return 0;
+    return WebKit::toAPI(WebKit::toImpl(navigationActionRef)->mouseButton()); // MAVERICKS_BACKPORT: restored from 8ee28eb^ (upstream returns 0).
 }
 
 WKBundleHitTestResultRef WKBundleNavigationActionCopyHitTestResult(WKBundleNavigationActionRef navigationActionRef)
 {
-    return 0;
+    RefPtr<WebKit::InjectedBundleHitTestResult> hitTestResult = WebKit::toImpl(navigationActionRef)->hitTestResult();
+    return toAPI(hitTestResult.leakRef()); // MAVERICKS_BACKPORT: restored from 8ee28eb^ (upstream returns 0).
 }
 
 WKBundleNodeHandleRef WKBundleNavigationActionCopyFormElement(WKBundleNavigationActionRef navigationActionRef)
 {
-    return 0;
+    RefPtr<WebKit::InjectedBundleNodeHandle> formElement = WebKit::toImpl(navigationActionRef)->formElement();
+    return toAPI(formElement.leakRef()); // MAVERICKS_BACKPORT: restored from 8ee28eb^ (upstream returns 0).
 }
 
 bool WKBundleNavigationActionGetShouldOpenExternalURLs(WKBundleNavigationActionRef navigationActionRef)
 {
-    return 0;
+    return WebKit::toImpl(navigationActionRef)->shouldOpenExternalURLs(); // MAVERICKS_BACKPORT: restored from 8ee28eb^ (upstream returns 0).
 }
 
 bool WKBundleNavigationActionGetShouldTryAppLinks(WKBundleNavigationActionRef navigationActionRef)
 {
-    return 0;
+    return WebKit::toImpl(navigationActionRef)->shouldTryAppLinks(); // MAVERICKS_BACKPORT: restored from 8ee28eb^ (upstream returns 0).
 }
 
 WKStringRef WKBundleNavigationActionCopyDownloadAttribute(WKBundleNavigationActionRef navigationActionRef)
 {
-    return 0;
+    return WebKit::toCopiedAPI(WebKit::toImpl(navigationActionRef)->downloadAttribute()); // MAVERICKS_BACKPORT: restored from 8ee28eb^ (upstream returns 0).
 }

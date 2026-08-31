@@ -209,6 +209,10 @@ public:
     static WebProcess& singleton();
     static constexpr WTF::AuxiliaryProcessType processType = WTF::AuxiliaryProcessType::WebContent;
 
+    // MAVERICKS_BACKPORT: true for app-registered custom-protocol schemes (e.g. safari-reader://), so the
+    // static WebPage::canHandleRequest accepts them (see WebProcess::registerURLSchemeForCustomProtocol).
+    bool isURLSchemeRegisteredForCustomProtocol(const String&) const;
+
     template <typename T>
     T* supplement()
     {
@@ -370,6 +374,14 @@ public:
 
     const String& uiProcessBundleIdentifier() const LIFETIME_BOUND { return m_uiProcessBundleIdentifier; }
 
+#if PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: the UI process's CARemoteLayerServer port (WebKit-537
+    // acceleratedCompositingPort arrangement); LayerHostingContext::createForPort creates hosted
+    // CAContexts against it for pages in windows that composite their layer tree in-process
+    // (LayerHostingMode::InProcess). MACH_PORT_NULL when not supplied.
+    const WTF::MachSendRight& compositingRenderServerPort() const LIFETIME_BOUND { return m_compositingRenderServerPort; }
+#endif
+
     void updateActivePages(const String& overrideDisplayName);
     void getActivePagesOriginsForTesting(CompletionHandler<void(Vector<String>&&)>&&);
     void pageActivityStateDidChange(WebCore::PageIdentifier, OptionSet<WebCore::ActivityState> changed);
@@ -431,6 +443,11 @@ public:
 
 #if PLATFORM(MAC)
     void openDirectoryCacheInvalidated(SandboxExtension::Handle&&, SandboxExtension::Handle&&);
+#if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
+    // MAVERICKS_BACKPORT: where the UIProcess installed Google's Widevine CDM (see WebCore's
+    // WidevineCdmInstaller.h), and the extension that lets this process read it.
+    void setWidevineCdmModule(const String& path, SandboxExtension::Handle&&);
+#endif
 #endif
 
 #if ENABLE(NOTIFY_BLOCKING)
@@ -594,6 +611,12 @@ private:
     void registerURLSchemeAsAlwaysRevalidated(const String&) const;
     void registerURLSchemeAsCachePartitioned(const String&) const;
     void registerURLSchemeAsCanDisplayOnlyIfCanRequest(const String&) const;
+
+    // MAVERICKS_BACKPORT: schemes registered by the app for NetworkProcess custom-protocol handling
+    // (e.g. safari-reader://). Tracked so WebPage::canHandleRequest accepts them (the public query
+    // isURLSchemeRegisteredForCustomProtocol is declared in the public section above).
+    void registerURLSchemeForCustomProtocol(const String&);
+    void unregisterURLSchemeForCustomProtocol(const String&);
 
 #if ENABLE(WK_WEB_EXTENSIONS)
     void registerURLSchemeAsWebExtension(const String&) const;
@@ -811,6 +834,10 @@ private:
     OptionSet<TextCheckerState> m_textCheckerState;
 
     String m_uiProcessBundleIdentifier;
+#if PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: see compositingRenderServerPort().
+    WTF::MachSendRight m_compositingRenderServerPort;
+#endif
     RefPtr<NetworkProcessConnection> m_networkProcessConnection;
     bool m_needsIDBConnectionRefreshForWorkers { false };
     const UniqueRef<WebLoaderStrategy> m_webLoaderStrategy;
@@ -852,6 +879,9 @@ private:
 
     HashSet<String> m_dnsPrefetchedHosts;
     PAL::HysteresisActivity m_dnsPrefetchHystereris;
+
+    // MAVERICKS_BACKPORT: app-registered custom-protocol schemes (case-insensitive, like URL schemes).
+    HashSet<String, ASCIICaseInsensitiveHash> m_urlSchemesRegisteredForCustomProtocols;
 
     RefPtr<WebAutomationSessionProxy> m_automationSessionProxy;
 

@@ -73,6 +73,8 @@ bool FindIndicator::update(WebCore::LocalFrame* selectedFrame, bool isShowingOve
         return false;
 
     m_findIndicatorRect = enclosingIntRect(indicator->selectionRectInRootViewCoordinates());
+    // MAVERICKS_BACKPORT: see FindIndicator::scrollPositionWhenShown().
+    m_scrollPositionWhenShown = selectedFrame && selectedFrame->view() ? selectedFrame->view()->scrollPosition() : WebCore::IntPoint();
 #if PLATFORM(COCOA)
     m_webPage->send(Messages::WebPageProxy::SetTextIndicatorFromFrame(frame->frameID(), WTF::move(indicator), isShowingOverlay ? WebCore::TextIndicatorLifetime::Permanent : WebCore::TextIndicatorLifetime::Temporary));
 #endif

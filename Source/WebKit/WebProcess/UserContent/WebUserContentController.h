@@ -52,6 +52,9 @@ enum class InjectUserScriptImmediately : bool;
 class WebUserContentController final : public WebCore::UserContentProvider, public IPC::MessageReceiver {
 public:
     static Ref<WebUserContentController> getOrCreate(UserContentControllerParameters&&);
+    // MAVERICKS_BACKPORT: restored from upstream e05340a^ — reaches the controller a page group
+    // already shares with its pages, for the legacy bundle user-content C API (Safari 7 extensions).
+    static Ref<WebUserContentController> getOrCreate(UserContentControllerIdentifier);
     virtual ~WebUserContentController();
 
     void ref() const final { WebCore::UserContentProvider::ref(); }

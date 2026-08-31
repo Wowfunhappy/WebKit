@@ -30,6 +30,8 @@
 #include "MessageSender.h"
 #include "RemoteSnapshotIdentifier.h"
 #include "SandboxExtension.h"
+// MAVERICKS_BACKPORT: restored with InjectedBundlePagePolicyClient (upstream 9eeab8d removed it).
+#include "InjectedBundlePagePolicyClient.h"
 #include <JavaScriptCore/InspectorFrontendChannel.h>
 #include <WebCore/BoxExtents.h>
 #include <WebCore/CornerRadii.h>
@@ -487,6 +489,7 @@ enum class ContentAsStringIncludesChildFrames : bool;
 enum class DragControllerAction : uint8_t;
 #if ENABLE(TILED_CA_DRAWING_AREA)
 enum class DrawingAreaType : bool;
+enum class LayerHostingMode : uint8_t; // MAVERICKS_BACKPORT (DrawingAreaInfo.h)
 #endif
 enum class FindOptions : uint16_t;
 enum class FindDecorationStyle : uint8_t;
@@ -633,6 +636,11 @@ public:
     inline WebCore::IntRect bounds() const;
 
     DrawingArea* drawingArea() const { return m_drawingArea.get(); }
+#if ENABLE(TILED_CA_DRAWING_AREA)
+    // MAVERICKS_BACKPORT: 537-parity per-window layer hosting mode (see DrawingAreaInfo.h).
+    LayerHostingMode layerHostingMode() const { return m_layerHostingMode; }
+    void setLayerHostingMode(LayerHostingMode layerHostingMode) { m_layerHostingMode = layerHostingMode; }
+#endif
 
 #if ENABLE(ASYNC_SCROLLING)
     WebCore::ScrollingCoordinator* scrollingCoordinator() const;
@@ -816,6 +824,8 @@ public:
     void setInjectedBundleEditorClient(std::unique_ptr<API::InjectedBundle::EditorClient>&&);
     void setInjectedBundleFormClient(std::unique_ptr<API::InjectedBundle::FormClient>&&);
     void setInjectedBundlePageLoaderClient(std::unique_ptr<API::InjectedBundle::PageLoaderClient>&&);
+    // MAVERICKS_BACKPORT: restored with InjectedBundlePagePolicyClient (upstream 9eeab8d).
+    void initializeInjectedBundlePolicyClient(WKBundlePagePolicyClientBase*);
     void setInjectedBundleResourceLoadClient(std::unique_ptr<API::InjectedBundle::ResourceLoadClient>&&);
     void setInjectedBundleUIClient(std::unique_ptr<API::InjectedBundle::PageUIClient>&&);
 
@@ -825,6 +835,8 @@ public:
     API::InjectedBundle::EditorClient& injectedBundleEditorClient() LIFETIME_BOUND { return *m_editorClient; }
     API::InjectedBundle::FormClient& injectedBundleFormClient() LIFETIME_BOUND { return *m_formClient; }
     API::InjectedBundle::PageLoaderClient& injectedBundleLoaderClient() LIFETIME_BOUND { return *m_loaderClient; }
+    // MAVERICKS_BACKPORT: restored with InjectedBundlePagePolicyClient (upstream 9eeab8d).
+    InjectedBundlePagePolicyClient& injectedBundlePolicyClient() LIFETIME_BOUND { return m_policyClient; }
     API::InjectedBundle::ResourceLoadClient& injectedBundleResourceLoadClient() LIFETIME_BOUND { return *m_resourceLoadClient; }
     API::InjectedBundle::PageUIClient& injectedBundleUIClient() LIFETIME_BOUND { return *m_uiClient; }
 
@@ -1754,6 +1766,8 @@ public:
     void flushPendingEditorStateUpdate();
 
     void loadAndDecodeImage(WebCore::ResourceRequest&&, std::optional<WebCore::FloatSize> sizeConstraint, uint64_t, CompletionHandler<void(Expected<Ref<WebCore::ShareableBitmap>, WebCore::ResourceError>&&)>&&);
+    // MAVERICKS_BACKPORT: the same load without the decode, for the UI process's favicon store (#112).
+    void loadImageData(WebCore::ResourceRequest&&, uint64_t maximumBytesFromNetwork, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
 #if PLATFORM(COCOA)
     void getInformationFromImageData(const Vector<uint8_t>&, CompletionHandler<void(Expected<std::pair<String, Vector<WebCore::IntSize>>, WebCore::ImageDecodingError>&&)>&&);
     void createBitmapsFromImageData(Ref<WebCore::SharedBuffer>&&, const Vector<unsigned>&, CompletionHandler<void(Vector<Ref<WebCore::ShareableBitmap>>&&)>&&);
@@ -2784,6 +2798,9 @@ private:
 
 #if ENABLE(TILED_CA_DRAWING_AREA)
     DrawingAreaType m_drawingAreaType;
+    // MAVERICKS_BACKPORT: 537-parity per-window layer hosting mode (see DrawingAreaInfo.h);
+    // updated by TiledCoreAnimationDrawingArea::setLayerHostingMode.
+    LayerHostingMode m_layerHostingMode;
 #endif
 
     HashMap<TextCheckerRequestID, Ref<WebCore::TextCheckingRequest>> m_pendingTextCheckingRequestMap;
@@ -2889,6 +2906,8 @@ private:
     std::unique_ptr<API::InjectedBundle::EditorClient> m_editorClient;
     std::unique_ptr<API::InjectedBundle::FormClient> m_formClient;
     std::unique_ptr<API::InjectedBundle::PageLoaderClient> m_loaderClient;
+    // MAVERICKS_BACKPORT: restored with InjectedBundlePagePolicyClient (upstream 9eeab8d).
+    InjectedBundlePagePolicyClient m_policyClient;
     std::unique_ptr<API::InjectedBundle::ResourceLoadClient> m_resourceLoadClient;
     std::unique_ptr<API::InjectedBundle::PageUIClient> m_uiClient;
 
