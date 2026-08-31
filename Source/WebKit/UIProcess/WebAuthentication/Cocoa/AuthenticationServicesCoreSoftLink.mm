@@ -36,22 +36,24 @@ SOFT_LINK_CONSTANT_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCAuthorizati
 
 #if HAVE(ASC_AUTH_UI) || HAVE(UNIFIED_ASC_AUTH_UI)
 
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCAgentProxy);
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCAppleIDCredential);
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCAuthorizationPresentationContext);
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCAuthorizationPresenter);
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCAuthorizationRemotePresenter);
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCCredentialRequestContext);
+// MAVERICKS_BACKPORT: these AuthenticationServicesCore classes are absent/newer on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCAgentProxy);
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCAppleIDCredential);
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCAuthorizationPresentationContext);
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCAuthorizationPresenter);
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCAuthorizationRemotePresenter);
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCCredentialRequestContext);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCWebAuthenticationExtensionsClientInputs);
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCPlatformPublicKeyCredentialAssertion);
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCPlatformPublicKeyCredentialLoginChoice);
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCPlatformPublicKeyCredentialRegistration);
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCPublicKeyCredentialAssertionOptions);
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCPublicKeyCredentialCreationOptions);
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCPublicKeyCredentialDescriptor);
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCSecurityKeyPublicKeyCredentialAssertion);
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCSecurityKeyPublicKeyCredentialLoginChoice);
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCSecurityKeyPublicKeyCredentialRegistration);
+// MAVERICKS_BACKPORT: these AuthenticationServicesCore public-key-credential classes are absent/newer on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCPlatformPublicKeyCredentialAssertion);
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCPlatformPublicKeyCredentialLoginChoice);
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCPlatformPublicKeyCredentialRegistration);
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCPublicKeyCredentialAssertionOptions);
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCPublicKeyCredentialCreationOptions);
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCPublicKeyCredentialDescriptor);
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCSecurityKeyPublicKeyCredentialAssertion);
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCSecurityKeyPublicKeyCredentialLoginChoice);
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASCSecurityKeyPublicKeyCredentialRegistration);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServicesCore, ASGlobalFrameIdentifier);
 
 SOFT_LINK_CONSTANT_FOR_SOURCE(WebKit, AuthenticationServicesCore, ASCPINValidationResultKey, NSString*);

@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "DrawingAreaInfo.h" // MAVERICKS_BACKPORT: LayerHostingMode (viewLayerHostingMode)
 #include "IdentifierTypes.h"
 #include "LayerTreeContext.h"
 #include "PDFPluginIdentifier.h"
@@ -506,6 +507,12 @@ public:
     virtual void exitAcceleratedCompositingMode() = 0;
     virtual void updateAcceleratedCompositingMode(const LayerTreeContext&) = 0;
     virtual void didFirstLayerFlush(const LayerTreeContext&) { }
+
+#if PLATFORM(MAC) && ENABLE(TILED_CA_DRAWING_AREA)
+    // MAVERICKS_BACKPORT: which hosted-context flavor the view's current window can display
+    // (WebKit-537 PageClientImpl::viewLayerHostingMode parity; see DrawingAreaInfo.h).
+    virtual LayerHostingMode viewLayerHostingMode() { return LayerHostingMode::InWindowServer; }
+#endif
 
     virtual void takeFocus(WebCore::FocusDirection) { }
 

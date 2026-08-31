@@ -53,6 +53,17 @@ WebsiteDataStoreConfiguration::WebsiteDataStoreConfiguration(IsPersistent isPers
 #if PLATFORM(IOS) || PLATFORM(VISION)
         setPCMMachServiceName("com.apple.webkit.adattributiond.service"_s);
 #endif
+
+#if USE(MOZILLA_PUSH_SERVICE)
+        // MAVERICKS_BACKPORT: upstream only ever sets this through the
+        // _WKWebsiteDataStoreConfiguration SPI, which Safari 7 predates; without it the
+        // network session has no daemon connection and PushManager rejects everything
+        // with "No connection to push daemon". Persistent stores therefore default to
+        // the relocatable-webpushd service name — this port's daemon deployment flavor
+        // (see ENABLE_RELOCATABLE_WEBPUSHD in OptionsMac.cmake); the PCM default above
+        // is the same pattern.
+        setWebPushMachServiceName("com.apple.webkit.webpushd.relocatable.service"_s);
+#endif
     }
 }
 
@@ -70,6 +81,10 @@ WebsiteDataStoreConfiguration::WebsiteDataStoreConfiguration(const WTF::UUID& id
     , m_standardVolumeCapacity(WebsiteDataStore::defaultStandardVolumeCapacity())
 #if PLATFORM(IOS) || PLATFORM(VISION)
     , m_pcmMachServiceName("com.apple.webkit.adattributiond.service"_s)
+#endif
+#if USE(MOZILLA_PUSH_SERVICE)
+    // MAVERICKS_BACKPORT: same default as the primary constructor above.
+    , m_webPushMachServiceName("com.apple.webkit.webpushd.relocatable.service"_s)
 #endif
 {
     ASSERT(m_identifier);

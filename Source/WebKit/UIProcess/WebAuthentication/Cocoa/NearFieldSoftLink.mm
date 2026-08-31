@@ -31,9 +31,10 @@
 
 SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE(WebKit, NearField);
 
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, NearField, NFTag);
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, NearField, NFSession);
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, NearField, NFReaderSession);
+// MAVERICKS_BACKPORT: the NearField framework (NFTag/NFSession/NFReaderSession) is absent on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, NearField, NFTag);
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, NearField, NFSession);
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, NearField, NFReaderSession);
 
 #if PLATFORM(MAC)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, NearField, NFHardwareManager);

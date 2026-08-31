@@ -57,6 +57,13 @@ HTTPCookieStore::~HTTPCookieStore()
     ASSERT(m_observers.isEmptyIgnoringNullReferences());
 }
 
+// MAVERICKS_BACKPORT: reaches WebsiteDataStore::removeData for the since-date deletion the legacy
+// WKCookieManager C SPI exposes (see the declaration in APIHTTPCookieStore.h).
+WebKit::WebsiteDataStore* HTTPCookieStore::owningDataStore() const
+{
+    return m_owningDataStore.get();
+}
+
 void HTTPCookieStore::filterAppBoundCookies(Vector<WebCore::Cookie>&& cookies, CompletionHandler<void(Vector<WebCore::Cookie>&&)>&& completionHandler)
 {
 #if ENABLE(APP_BOUND_DOMAINS)

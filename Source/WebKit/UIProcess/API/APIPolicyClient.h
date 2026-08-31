@@ -51,18 +51,25 @@ class PolicyClient {
 public:
     virtual ~PolicyClient() { }
 
-    virtual void decidePolicyForNavigationAction(WebKit::WebPageProxy&, WebKit::WebFrameProxy*, Ref<API::NavigationAction>&&, WebKit::WebFrameProxy*, const WebCore::ResourceRequest&, const WebCore::ResourceRequest&, Ref<WebKit::WebFramePolicyListenerProxy>&& listener)
+    // MAVERICKS_BACKPORT (#60): the trailing userData carries the injected-bundle policy client's
+    // object (restored with InjectedBundlePagePolicyClient); Safari's legacy V0/V1 WKPagePolicyClient
+    // callback requires it to be a non-null WKDictionary before it drives the listener.
+    virtual void decidePolicyForNavigationAction(WebKit::WebPageProxy&, WebKit::WebFrameProxy*, Ref<API::NavigationAction>&&, WebKit::WebFrameProxy*, const WebCore::ResourceRequest&, const WebCore::ResourceRequest&, Ref<WebKit::WebFramePolicyListenerProxy>&& listener, API::Object* /* userData */ = nullptr)
     {
         listener->use();
     }
-    virtual void decidePolicyForNewWindowAction(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, Ref<API::NavigationAction>&&, const WebCore::ResourceRequest&, const WTF::String&, Ref<WebKit::WebFramePolicyListenerProxy>&& listener)
+    // MAVERICKS_BACKPORT: userData carries the injected-bundle policy client's object (restored with InjectedBundlePagePolicyClient).
+    virtual void decidePolicyForNewWindowAction(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, Ref<API::NavigationAction>&&, const WebCore::ResourceRequest&, const WTF::String&, Ref<WebKit::WebFramePolicyListenerProxy>&& listener, API::Object* /* userData */)
     {
         listener->use();
     }
-    virtual void decidePolicyForResponse(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, const WebCore::ResourceResponse&, const WebCore::ResourceRequest&, bool, Ref<WebKit::WebFramePolicyListenerProxy>&& listener)
+    // MAVERICKS_BACKPORT: userData carries the injected-bundle policy client's object (restored with InjectedBundlePagePolicyClient).
+    virtual void decidePolicyForResponse(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, const WebCore::ResourceResponse&, const WebCore::ResourceRequest&, bool, Ref<WebKit::WebFramePolicyListenerProxy>&& listener, API::Object* /* userData */)
     {
         listener->use();
     }
+    // MAVERICKS_BACKPORT: restored with InjectedBundlePagePolicyClient (upstream 9eeab8d removed it).
+    virtual void unableToImplementPolicy(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, const WebCore::ResourceError&, API::Object*) { }
 };
 
 } // namespace API

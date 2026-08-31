@@ -133,12 +133,12 @@ protected:
     bool m_hasBannerViewOverlay { false };
 #endif
 
+    void didAddPendingScrollUpdate() override; // MAVERICKS_BACKPORT: hoisted out of the gate below; the base declares it unconditionally.
 #if ENABLE(THREADED_ANIMATIONS)
     void updateProgressBasedTimelinesForNode(const WebCore::ScrollingTreeScrollingNode&);
 
 private:
-    void didAddPendingScrollUpdate() override;
-
+    // MAVERICKS_BACKPORT: didAddPendingScrollUpdate() is declared above the gate (the base declares it unconditionally).
     std::unique_ptr<RemoteProgressBasedTimelineRegistry> m_progressBasedTimelineRegistry;
 #endif
 };

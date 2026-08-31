@@ -864,8 +864,14 @@ void WebPageProxy::addActivityStateUpdateCompletionHandler(CompletionHandler<voi
 
 void WebPageProxy::createTextFragmentDirectiveFromSelection(CompletionHandler<void(URL&&)>&& completionHandler)
 {
-    if (!hasRunningProcess())
+    if (!hasRunningProcess()) {
+        // MAVERICKS_BACKPORT(upstreamable): upstream returns here without invoking the handler, so it
+        // is destroyed uncalled -- ~CompletionHandler asserts "Completion handler should always be
+        // called", and in release the caller's continuation simply never runs. getTextFragmentRanges()
+        // immediately below is upstream's own example of the correct shape.
+        completionHandler({ });
         return;
+    } // MAVERICKS_BACKPORT(upstreamable): brace added with the completionHandler call above.
 
     protect(legacyMainFrameProcess())->sendWithAsyncReply(Messages::WebPage::CreateTextFragmentDirectiveFromSelection(), WTF::move(completionHandler), webPageIDInMainFrameProcess());
 }
@@ -1161,10 +1167,18 @@ bool WebPageProxy::useGPUProcessForDOMRenderingEnabled() const
 
     HashSet<Ref<const WebPageProxy>> visitedPages;
     visitedPages.add(*this);
-    for (RefPtr page = configuration->relatedPage(); page && !visitedPages.contains(*page); page = page->configuration().relatedPage()) {
+    // MAVERICKS_BACKPORT(upstreamable): fetch the next related page before releaseNonNull() empties |page|.
+    // When useGPUProcessForDOMRenderingEnabled() is false for every page in the chain, a loop increment
+    // of page->configuration().relatedPage() dereferences the emptied RefPtr and crashes on any page
+    // opened with a relatedPage.
+    for (RefPtr page = configuration->relatedPage(); page && !visitedPages.contains(*page);) {
         if (protect(page->preferences())->useGPUProcessForDOMRenderingEnabled())
             return true;
+        // MAVERICKS_BACKPORT: cache the next related page before releaseNonNull() empties |page| (see the loop marker above).
+        RefPtr nextPage = page->configuration().relatedPage();
         visitedPages.add(page.releaseNonNull());
+        // MAVERICKS_BACKPORT: advance |page| to the cached next related page (the loop increment is moved out of the for-header above).
+        page = WTF::move(nextPage);
     }
 
     return false;
@@ -1665,8 +1679,15 @@ void WebPageProxy::setTextIndicator(RefPtr<WebCore::TextIndicator>&& textIndicat
 
     [installationLayer addSublayer:m_textIndicatorLayer.get()];
 
-    if (m_textIndicator->presentationTransition() != WebCore::TextIndicatorPresentationTransition::None)
-        [m_textIndicatorLayer present];
+    // MAVERICKS_BACKPORT: -present must run for every transition, including None.
+    // -updateWithFrame:…updatingIndicator:NO sets each bounce layer's opacity to 0 and only -present
+    // puts it back to 1, so skipping it here left a TextIndicatorPresentationTransition::None
+    // indicator built, installed and permanently invisible. None means "no entrance animation", not
+    // "do not show" — with it -present just sets the opacity, adding no animation. This is what a
+    // re-snapshot after the page reflows relies on (#85), and it also unbreaks the other
+    // shouldAnimate=false callers, FindController::redraw and deviceScaleFactorDidChange.
+    // if (m_textIndicator->presentationTransition() != WebCore::TextIndicatorPresentationTransition::None)
+    [m_textIndicatorLayer present];
 
     if ((TextIndicatorLifetime)lifetime == TextIndicatorLifetime::Temporary)
         m_textIndicatorFadeTimer.startOneShot(WebCore::timeBeforeFadeStarts);

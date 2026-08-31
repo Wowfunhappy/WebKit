@@ -50,6 +50,8 @@
 #endif
 
 namespace API {
+// MAVERICKS_BACKPORT: restored for the WKCertificateInfo C API the base gutted (#103)
+class CertificateInfo;
 class Data;
 class Navigation;
 class URL;
@@ -174,6 +176,9 @@ public:
     const String& title() const LIFETIME_BOUND { return m_title; }
 
     const WebCore::CertificateInfo& certificateInfo() const LIFETIME_BOUND { return m_certificateInfo; }
+    // MAVERICKS_BACKPORT: WKFrameGetCertificateInfo has Get (borrowed) semantics — Safari 7
+    // never releases the returned object — so the frame owns the API wrapper (#103).
+    API::CertificateInfo& apiCertificateInfo();
 
     bool canProvideSource() const;
 
@@ -336,6 +341,8 @@ private:
     String m_frameName;
     bool m_containsPluginDocument { false };
     WebCore::CertificateInfo m_certificateInfo;
+    // MAVERICKS_BACKPORT: lazily-built C API wrapper for m_certificateInfo, reset on each commit (#103).
+    RefPtr<API::CertificateInfo> m_apiCertificateInfo;
     RefPtr<WebFramePolicyListenerProxy> m_activeListener;
     WebCore::FrameIdentifier m_frameID;
     ListHashSet<Ref<WebFrameProxy>> m_childFrames;

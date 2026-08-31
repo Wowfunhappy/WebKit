@@ -49,6 +49,7 @@ enum class FrameLoadType : uint8_t;
 enum class HasInsecureContent : bool;
 enum class MediaProducerMediaState : uint32_t;
 enum class MouseEventPolicy : uint8_t;
+enum class ScreenOrientationType : uint8_t; // MAVERICKS_BACKPORT: was reached transitively; forward-declare it directly (-fno-modules).
 
 class CertificateInfo;
 class ResourceResponse;

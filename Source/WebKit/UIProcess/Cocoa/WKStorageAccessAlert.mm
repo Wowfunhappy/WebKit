@@ -106,7 +106,29 @@
 
 namespace WebKit {
 
-void presentStorageAccessAlert(WKWebView *webView, const WebCore::RegistrableDomain& requesting, const WebCore::RegistrableDomain& current, CompletionHandler<void(bool)>&& completionHandler)
+// MAVERICKS_BACKPORT: declared here rather than in the header, which carries no ObjC types so that a
+// plain C++ translation unit can include it.
+void displayStorageAccessAlert(WebPageProxy&, NSString *, NSString *, NSString *, NSArray<NSString *> *, CompletionHandler<void(bool)>&&);
+
+// MAVERICKS_BACKPORT: the quirk-first fallback, shared by the Cocoa UI delegate and the legacy C UI
+// client so both reach the same sheet in the same order.
+void presentStorageAccessAlert(WebPageProxy& page, const WebCore::RegistrableDomain& requesting, const WebCore::RegistrableDomain& current, std::optional<WebCore::OrganizationStorageAccessPromptQuirk>&& organizationStorageAccessPromptQuirk, CompletionHandler<void(bool)>&& completionHandler)
+{
+    if (organizationStorageAccessPromptQuirk) {
+        presentStorageAccessAlertSSOQuirk(page, organizationStorageAccessPromptQuirk->organizationName, organizationStorageAccessPromptQuirk->quirkDomains, WTF::move(completionHandler));
+        return;
+    }
+
+    // Some sites have quirks where multiple login domains require storage access.
+    if (auto additionalLoginDomain = WebCore::NetworkStorageSession::findAdditionalLoginDomain(current, requesting)) {
+        presentStorageAccessAlertQuirk(page, requesting, *additionalLoginDomain, current, WTF::move(completionHandler));
+        return;
+    }
+
+    presentStorageAccessAlert(page, requesting, current, WTF::move(completionHandler));
+}
+
+void presentStorageAccessAlert(WebPageProxy& page, const WebCore::RegistrableDomain& requesting, const WebCore::RegistrableDomain& current, CompletionHandler<void(bool)>&& completionHandler) // MAVERICKS_BACKPORT: takes the page; see WKStorageAccessAlert.h.
 {
     auto requestingDomain = requesting.string().createCFString();
     auto currentDomain = current.string().createCFString();
@@ -119,10 +141,10 @@ void presentStorageAccessAlert(WKWebView *webView, const WebCore::RegistrableDom
 
     SUPPRESS_UNRETAINED_ARG RetainPtr informativeText = adoptNS([[NSString alloc] initWithFormat:WEB_UI_NSSTRING(@"This will allow “%@” to track your activity.", @"Informative text for requesting cross-site cookie and website data access."), requestingDomain.get()]);
 
-    displayStorageAccessAlert(webView, alertTitle.get(), informativeText.get(), nil, nil, WTF::move(completionHandler));
+    displayStorageAccessAlert(page, alertTitle.get(), informativeText.get(), nil, nil, WTF::move(completionHandler)); // MAVERICKS_BACKPORT: forwards the page.
 }
 
-void presentStorageAccessAlertQuirk(WKWebView *webView, const WebCore::RegistrableDomain& firstRequesting, const WebCore::RegistrableDomain& secondRequesting, const WebCore::RegistrableDomain& current, CompletionHandler<void(bool)>&& completionHandler)
+void presentStorageAccessAlertQuirk(WebPageProxy& page, const WebCore::RegistrableDomain& firstRequesting, const WebCore::RegistrableDomain& secondRequesting, const WebCore::RegistrableDomain& current, CompletionHandler<void(bool)>&& completionHandler) // MAVERICKS_BACKPORT: takes the page.
 {
     RetainPtr firstRequestingDomain = firstRequesting.string().createCFString();
     RetainPtr secondRequestingDomain = secondRequesting.string().createCFString();
@@ -135,10 +157,10 @@ void presentStorageAccessAlertQuirk(WKWebView *webView, const WebCore::Registrab
 #endif
 
     SUPPRESS_UNRETAINED_ARG RetainPtr informativeText = adoptNS([[NSString alloc] initWithFormat:WEB_UI_NSSTRING(@"This will allow “%@” and “%@” to track your activity.", @"Informative text for requesting cross-site cookie and website data access."), firstRequestingDomain.get(), secondRequestingDomain.get()]);
-    displayStorageAccessAlert(webView, alertTitle.get(), informativeText.get(), nil, nil, WTF::move(completionHandler));
+    displayStorageAccessAlert(page, alertTitle.get(), informativeText.get(), nil, nil, WTF::move(completionHandler)); // MAVERICKS_BACKPORT: forwards the page.
 }
 
-void presentStorageAccessAlertSSOQuirk(WKWebView *webView, const String& organizationName, const HashMap<WebCore::RegistrableDomain, Vector<WebCore::RegistrableDomain>>& domainPairings, CompletionHandler<void(bool)>&& completionHandler)
+void presentStorageAccessAlertSSOQuirk(WebPageProxy& page, const String& organizationName, const HashMap<WebCore::RegistrableDomain, Vector<WebCore::RegistrableDomain>>& domainPairings, CompletionHandler<void(bool)>&& completionHandler) // MAVERICKS_BACKPORT: takes the page.
 {
     SUPPRESS_UNRETAINED_ARG RetainPtr alertTitle = adoptNS([[NSString alloc] initWithFormat:WEB_UI_NSSTRING(@"Allow related %@ websites to share cookies and website data?", @"Message for requesting cross-site cookie and website data access."), organizationName.createCFString().get()]);
 
@@ -180,10 +202,10 @@ void presentStorageAccessAlertSSOQuirk(WKWebView *webView, const String& organiz
             [accessoryTextList addObject:domains.createNSString().get()];
     }
 
-    displayStorageAccessAlert(webView, alertTitle.get(), informativeText.get(), relatedWebsitesString.get(), accessoryTextList.get(), WTF::move(completionHandler));
+    displayStorageAccessAlert(page, alertTitle.get(), informativeText.get(), relatedWebsitesString.get(), accessoryTextList.get(), WTF::move(completionHandler)); // MAVERICKS_BACKPORT: forwards the page.
 }
 
-void displayStorageAccessAlert(WKWebView *webView, NSString *alertTitle, NSString *informativeText, NSString *accessoryLabel, NSArray<NSString *> *accessoryTextList, CompletionHandler<void(bool)>&& completionHandler)
+void displayStorageAccessAlert(WebPageProxy& page, NSString *alertTitle, NSString *informativeText, NSString *accessoryLabel, NSArray<NSString *> *accessoryTextList, CompletionHandler<void(bool)>&& completionHandler) // MAVERICKS_BACKPORT: takes the page.
 {
     auto completionBlock = makeBlockPtr([completionHandler = WTF::move(completionHandler)](bool shouldAllow) mutable {
         completionHandler(shouldAllow);
@@ -193,6 +215,10 @@ void displayStorageAccessAlert(WKWebView *webView, NSString *alertTitle, NSStrin
     RetainPtr doNotAllowButtonString = WEB_UI_STRING_KEY(@"Don’t Allow", "Don’t Allow (cross-site cookie and website data access)", @"Button title in Storage Access API prompt").createNSString();
 
 #if PLATFORM(MAC)
+    // MAVERICKS_BACKPORT: only the hosting window is needed here, and the page knows it whichever view
+    // is in use -- the Safari this port targets hosts the page in a WKView, not a WKWebView.
+    RetainPtr<NSWindow> hostWindow = page.platformWindow();
+
     auto alert = adoptNS([NSAlert new]);
     [alert setMessageText:alertTitle];
     [alert setInformativeText:informativeText];
@@ -231,11 +257,13 @@ void displayStorageAccessAlert(WKWebView *webView, NSString *alertTitle, NSStrin
     }
     [alert addButtonWithTitle:allowButtonString.get()];
     [alert addButtonWithTitle:doNotAllowButtonString.get()];
-    [alert beginSheetModalForWindow:retainPtr(webView.window).get() completionHandler:makeBlockPtr([ssoSiteList, completionBlock](NSModalResponse returnCode) {
+    // MAVERICKS_BACKPORT: the sheet is hosted on the page's window; see above.
+    [alert beginSheetModalForWindow:hostWindow.get() completionHandler:makeBlockPtr([ssoSiteList, completionBlock](NSModalResponse returnCode) {
         auto shouldAllow = returnCode == NSAlertFirstButtonReturn;
         completionBlock(shouldAllow);
     }).get()];
 #else
+    RetainPtr webView = page.cocoaView(); // MAVERICKS_BACKPORT: the view comes from the page now.
     auto alert = WebKit::createUIAlertController(alertTitle, informativeText);
 
     RetainPtr allowAction = [UIAlertAction actionWithTitle:allowButtonString.get() style:UIAlertActionStyleCancel handler:[completionBlock](UIAlertAction *action) {
@@ -250,9 +278,10 @@ void displayStorageAccessAlert(WKWebView *webView, NSString *alertTitle, NSStrin
     [alert addAction:allowAction.get()];
 
 #if PLATFORM(VISION)
-    [webView _page]->dispatchWillPresentModalUI();
+    page.dispatchWillPresentModalUI(); // MAVERICKS_BACKPORT: the page is already at hand.
 #endif
-    [webView._wk_viewControllerForFullScreenPresentation presentViewController:alert.get() animated:YES completion:nil];
+    // MAVERICKS_BACKPORT: webView is a RetainPtr resolved from the page above.
+    [[webView _wk_viewControllerForFullScreenPresentation] presentViewController:alert.get() animated:YES completion:nil];
 #endif
 }
 

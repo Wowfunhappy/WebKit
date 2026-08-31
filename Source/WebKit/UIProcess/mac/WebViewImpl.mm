@@ -1733,6 +1733,9 @@ void WebViewImpl::viewDidEndLiveResize()
     [m_layoutStrategy didEndLiveResize];
 }
 
+// MAVERICKS_BACKPORT: gate to match the ENABLE(PDF_HUD)-off base (PDFs download on 10.9). WKPDFHUDView is
+// only a complete type under ENABLE(PDF_HUD); the uncommitted restore dropped this guard.
+#if ENABLE(PDF_HUD)
 void WebViewImpl::createPDFHUD(PDFPluginIdentifier identifier, WebCore::FrameIdentifier frameID, const WebCore::IntRect& rect)
 {
     removePDFHUD(identifier);
@@ -1767,6 +1770,7 @@ RetainPtr<NSSet> WebViewImpl::pdfHUDs()
         [set addObject:hud.get()];
     return set;
 }
+#endif // MAVERICKS_BACKPORT: ENABLE(PDF_HUD) (PDFs download on 10.9)
 
 void WebViewImpl::renewGState()
 {
@@ -2225,8 +2229,13 @@ void WebViewImpl::windowDidChangeBackingProperties(CGFloat oldBackingScaleFactor
         return;
 
     m_page->setIntrinsicDeviceScaleFactor(newBackingScaleFactor);
+    // MAVERICKS_BACKPORT: same ENABLE(PDF_HUD) gate as createPDFHUD above -- with the HUD off
+    // _pdfHUDViews is never populated, and WKPDFHUDView's interface (which declares this method)
+    // compiles away, so an ungated send here is an undeclared selector on a loop that never runs.
+#if ENABLE(PDF_HUD)
     for (auto& hud : _pdfHUDViews.values())
         [hud setDeviceScaleFactor:newBackingScaleFactor];
+#endif // MAVERICKS_BACKPORT: ENABLE(PDF_HUD) (PDFs download on 10.9)
 }
 
 void WebViewImpl::windowDidChangeScreen()
@@ -6356,10 +6365,14 @@ void WebViewImpl::mouseDown(NSEvent *event, WebMouseEventInputSource inputSource
     setLastMouseDownEvent(event);
     setIgnoresMouseDraggedEvents(false);
 
+    // MAVERICKS_BACKPORT: see windowDidChangeBackingProperties -- ENABLE(PDF_HUD) is off, so this
+    // loop is empty and -handleMouseDown: is undeclared.
+#if ENABLE(PDF_HUD)
     for (auto& hud : _pdfHUDViews.values()) {
         if ([hud handleMouseDown:event])
             return;
     }
+#endif // MAVERICKS_BACKPORT: ENABLE(PDF_HUD) (PDFs download on 10.9)
 
     mouseDownInternal(event, inputSource);
 }
@@ -6375,10 +6388,14 @@ void WebViewImpl::mouseUp(NSEvent *event, WebMouseEventInputSource inputSource)
     fulfillDeferredImageAnalysisOverlayViewHierarchyTask();
 #endif
 
+    // MAVERICKS_BACKPORT: see windowDidChangeBackingProperties -- ENABLE(PDF_HUD) is off, so this
+    // loop is empty and -handleMouseUp: is undeclared.
+#if ENABLE(PDF_HUD)
     for (auto& hud : _pdfHUDViews.values()) {
         if ([hud handleMouseUp:event])
             return;
     }
+#endif // MAVERICKS_BACKPORT: ENABLE(PDF_HUD) (PDFs download on 10.9)
 
     mouseUpInternal(event, inputSource);
 }

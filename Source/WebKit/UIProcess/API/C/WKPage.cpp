@@ -47,12 +47,18 @@
 #include "APIOpenPanelParameters.h"
 #include "APIPageConfiguration.h"
 #include "APIPolicyClient.h"
+// MAVERICKS_BACKPORT: needed to vend a deserializable WKSerializedScriptValueRef from the legacy WKPageRunJavaScriptInMainFrame alias.
+#include "APISecurityOrigin.h" // MAVERICKS_BACKPORT: legacy website-data managers at the bottom of this file.
+#include "APISerializedScriptValue.h"
 #include "APISessionState.h"
 #include "APIUIClient.h"
 #include "APIWebAuthenticationPanel.h"
 #include "APIWebAuthenticationPanelClient.h"
 #include "APIWebsitePolicies.h"
 #include "APIWindowFeatures.h"
+#include "WKWebsiteDataStoreRef.h" // MAVERICKS_BACKPORT: legacy website-data managers at the bottom of this file.
+#include "WebsiteDataRecord.h" // MAVERICKS_BACKPORT: ditto.
+#include "WebsiteDataStore.h" // MAVERICKS_BACKPORT: ditto.
 #include "AuthenticationChallengeDisposition.h"
 #include "AuthenticationChallengeProxy.h"
 #include "AuthenticationDecisionListener.h"
@@ -79,6 +85,13 @@
 #include "UserMediaPermissionRequestProxy.h"
 #include "WKAPICast.h"
 #include "WKPagePolicyClientInternal.h"
+#if PLATFORM(COCOA) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
+#include "WKStorageAccessAlert.h" // MAVERICKS_BACKPORT: WebKit's own Storage Access consent sheet, for the requestStorageAccessConfirm fallback below.
+#endif // MAVERICKS_BACKPORT: closes the guard around the include above.
+#if PLATFORM(MAC)
+#include <CoreFoundation/CFPreferences.h> // MAVERICKS_BACKPORT: the host browser's privacy preference, read in applyBrowserPrivacyPreferenceToDefaultPolicies.
+#include <WebCore/AdvancedPrivacyProtections.h> // MAVERICKS_BACKPORT: ditto.
+#endif // MAVERICKS_BACKPORT: closes the guard around the two includes above.
 #include "WKPageRenderingProgressEventsInternal.h"
 #include "WKPluginInformation.h"
 #include "WebBackForwardCache.h"
@@ -91,6 +104,7 @@
 #include "WebOpenPanelResultListenerProxy.h"
 #include "WebPageDiagnosticLoggingClient.h"
 #include "WebPageGroup.h"
+#include "WebNotificationManagerProxy.h" // MAVERICKS_BACKPORT: for the notification answer the queryPermission shim reads.
 #include "WebPageMessages.h"
 #include "WebPageProxy.h"
 #include "WebPageProxyTesting.h"
@@ -111,6 +125,9 @@
 #include <WebCore/SerializedCryptoKeyWrap.h>
 #include <WebCore/SharedBuffer.h>
 #include <WebCore/WindowFeatures.h>
+// MAVERICKS_BACKPORT: needed by runLoadOnMainRunLoop (main-thread marshalling of off-main load calls).
+#include <wtf/MainThread.h>
+#include <wtf/RunLoop.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -203,7 +220,16 @@ WKContextRef WKPageGetContext(WKPageRef pageRef)
 
 WKPageGroupRef WKPageGetPageGroup(WKPageRef pageRef)
 {
-    return nullptr;
+    // MAVERICKS_BACKPORT: upstream gutted this to return null (page groups were
+    // decoupled from pages), but QuickLook's Web2.qldisplay drives the HTML
+    // preview by calling WKPageGetPageGroup(page) -> WKPageGroupGetPreferences()
+    // and then WKPreferencesSet*() on the result to configure the preview. A null
+    // here makes the QL host crash in WKPreferencesSet* on a null WKPreferencesRef.
+    // WebPageProxy still owns m_pageGroup, so hand it back.
+    auto* page = toImpl(pageRef);
+    if (!page)
+        return nullptr;
+    return toAPI(&page->pageGroup());
 }
 
 WKPageConfigurationRef WKPageCopyPageConfiguration(WKPageRef pageRef)
@@ -211,37 +237,67 @@ WKPageConfigurationRef WKPageCopyPageConfiguration(WKPageRef pageRef)
     return toAPILeakingRef(toImpl(pageRef)->configuration().copy());
 }
 
+// MAVERICKS_BACKPORT: the legacy App Store drives WebKit2 page loads (WKPageLoadURL /
+// WKPageLoadURLRequest) from a background GCD queue ("WebView Initial Load Queue").
+// Modern WebKit's load path (WebPageProxy::loadRequest -> launchProcess ->
+// WebProcessProxy::removeWebPage -> WebProcessPool::pageEndUsingWebsiteDataStore)
+// is main-thread-affine and correctly asserts RunLoop::isMain(). Original 10.9
+// WebKit2 tolerated these off-main calls; modern WebKit does not. Marshal the load
+// onto the main run loop so the work actually runs on main. On-main callers (Safari,
+// QuickLook, internal) keep the synchronous fast path unchanged.
+static void runLoadOnMainRunLoop(Function<void()>&& load)
+{
+    if (RunLoop::isMain()) {
+        load();
+        return;
+    }
+    callOnMainRunLoop(WTF::move(load));
+}
+
 void WKPageLoadURL(WKPageRef pageRef, WKURLRef URLRef)
 {
     CRASH_IF_SUSPENDED;
-    protect(toImpl(pageRef))->loadRequest(URL { toWTFString(URLRef) });
+    // MAVERICKS_BACKPORT: marshal the load onto the main run loop (see runLoadOnMainRunLoop) for off-main callers.
+    runLoadOnMainRunLoop([page = protect(toImpl(pageRef)), url = URL { toWTFString(URLRef) }]() mutable {
+        page->loadRequest(WTF::move(url));
+    });
 }
 
 void WKPageLoadURLWithShouldOpenExternalURLsPolicy(WKPageRef pageRef, WKURLRef URLRef, bool shouldOpenExternalURLs)
 {
     CRASH_IF_SUSPENDED;
     WebCore::ShouldOpenExternalURLsPolicy shouldOpenExternalURLsPolicy = shouldOpenExternalURLs ? WebCore::ShouldOpenExternalURLsPolicy::ShouldAllow : WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow;
-    protect(toImpl(pageRef))->loadRequest(URL { toWTFString(URLRef) }, shouldOpenExternalURLsPolicy);
+    // MAVERICKS_BACKPORT: marshal the load onto the main run loop (see runLoadOnMainRunLoop) for off-main callers.
+    runLoadOnMainRunLoop([page = protect(toImpl(pageRef)), url = URL { toWTFString(URLRef) }, shouldOpenExternalURLsPolicy]() mutable {
+        page->loadRequest(WTF::move(url), shouldOpenExternalURLsPolicy);
+    });
 }
 
 void WKPageLoadURLWithUserData(WKPageRef pageRef, WKURLRef URLRef, WKTypeRef userDataRef)
 {
     CRASH_IF_SUSPENDED;
-    protect(toImpl(pageRef))->loadRequest(URL { toWTFString(URLRef) }, WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow, WebCore::NavigationUpgradeToHTTPSBehavior::BasedOnPolicy, nullptr, protect(toImpl(userDataRef)).get());
+    // MAVERICKS_BACKPORT: marshal the load onto the main run loop (see runLoadOnMainRunLoop) for off-main callers.
+    runLoadOnMainRunLoop([page = protect(toImpl(pageRef)), url = URL { toWTFString(URLRef) }, userData = protect(toImpl(userDataRef))]() mutable {
+        page->loadRequest(WTF::move(url), WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow, WebCore::NavigationUpgradeToHTTPSBehavior::BasedOnPolicy, nullptr, userData.get());
+    });
 }
 
 void WKPageLoadURLRequest(WKPageRef pageRef, WKURLRequestRef urlRequestRef)
 {
     CRASH_IF_SUSPENDED;
-    auto resourceRequest = toImpl(urlRequestRef)->resourceRequest();
-    protect(toImpl(pageRef))->loadRequest(WTF::move(resourceRequest));
+    // MAVERICKS_BACKPORT: marshal the load onto the main run loop (see runLoadOnMainRunLoop) for off-main callers.
+    runLoadOnMainRunLoop([page = protect(toImpl(pageRef)), resourceRequest = toImpl(urlRequestRef)->resourceRequest()]() mutable {
+        page->loadRequest(WTF::move(resourceRequest));
+    });
 }
 
 void WKPageLoadURLRequestWithUserData(WKPageRef pageRef, WKURLRequestRef urlRequestRef, WKTypeRef userDataRef)
 {
     CRASH_IF_SUSPENDED;
-    auto resourceRequest = toImpl(urlRequestRef)->resourceRequest();
-    protect(toImpl(pageRef))->loadRequest(WTF::move(resourceRequest), WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow, WebCore::NavigationUpgradeToHTTPSBehavior::BasedOnPolicy, nullptr, protect(toImpl(userDataRef)).get());
+    // MAVERICKS_BACKPORT: marshal the load onto the main run loop (see runLoadOnMainRunLoop) for off-main callers.
+    runLoadOnMainRunLoop([page = protect(toImpl(pageRef)), resourceRequest = toImpl(urlRequestRef)->resourceRequest(), userData = protect(toImpl(userDataRef))]() mutable {
+        page->loadRequest(WTF::move(resourceRequest), WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow, WebCore::NavigationUpgradeToHTTPSBehavior::BasedOnPolicy, nullptr, userData.get());
+    });
 }
 
 void WKPageLoadFile(WKPageRef pageRef, WKURLRef fileURL, WKURLRef resourceDirectoryURL)
@@ -1265,37 +1321,42 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
         explicit LoaderClient(const WKPageLoaderClientBase* client)
         {
             initialize(client);
-            
-            // WKPageSetPageLoaderClient is deprecated. Use WKPageSetPageNavigationClient instead.
-            RELEASE_ASSERT(!m_client.didFinishDocumentLoadForFrame);
-            RELEASE_ASSERT(!m_client.didSameDocumentNavigationForFrame);
-            RELEASE_ASSERT(!m_client.didReceiveTitleForFrame);
-            RELEASE_ASSERT(!m_client.didFirstLayoutForFrame);
-            RELEASE_ASSERT(!m_client.didRemoveFrameFromHierarchy);
-            RELEASE_ASSERT(!m_client.didDisplayInsecureContentForFrame);
-            RELEASE_ASSERT(!m_client.didRunInsecureContentForFrame);
-            RELEASE_ASSERT(!m_client.canAuthenticateAgainstProtectionSpaceInFrame);
-            RELEASE_ASSERT(!m_client.didReceiveAuthenticationChallengeInFrame);
-            RELEASE_ASSERT(!m_client.didStartProgress);
-            RELEASE_ASSERT(!m_client.didChangeProgress);
-            RELEASE_ASSERT(!m_client.didFinishProgress);
-            RELEASE_ASSERT(!m_client.processDidBecomeUnresponsive);
-            RELEASE_ASSERT(!m_client.processDidBecomeResponsive);
-            RELEASE_ASSERT(!m_client.shouldGoToBackForwardListItem);
-            RELEASE_ASSERT(!m_client.didFailToInitializePlugin_deprecatedForUseWithV0);
-            RELEASE_ASSERT(!m_client.didDetectXSSForFrame);
-            RELEASE_ASSERT(!m_client.didNewFirstVisuallyNonEmptyLayout_unavailable);
-            RELEASE_ASSERT(!m_client.willGoToBackForwardListItem);
-            RELEASE_ASSERT(!m_client.interactionOccurredWhileProcessUnresponsive);
-            RELEASE_ASSERT(!m_client.pluginDidFail_deprecatedForUseWithV1);
-            RELEASE_ASSERT(!m_client.didReceiveIntentForFrame_unavailable);
-            RELEASE_ASSERT(!m_client.registerIntentServiceForFrame_unavailable);
-            RELEASE_ASSERT(!m_client.pluginLoadPolicy_deprecatedForUseWithV2);
-            RELEASE_ASSERT(!m_client.pluginDidFail);
-            RELEASE_ASSERT(!m_client.pluginLoadPolicy);
-            RELEASE_ASSERT(!m_client.navigationGestureDidBegin);
-            RELEASE_ASSERT(!m_client.navigationGestureWillEnd);
-            RELEASE_ASSERT(!m_client.navigationGestureDidEnd);
+            // MAVERICKS_BACKPORT: upstream RELEASE_ASSERTs that none of the legacy loader callbacks
+            // are set, to force callers onto WKPageNavigationClient. The Safari this port targets
+            // still uses WKPageSetPageLoaderClient with those callbacks, so every assert below would
+            // fire before the browser could open a window. They are dropped rather than satisfied;
+            // the callbacks Safari actually depends on are forwarded individually further down (see
+            // the legacy first-layout and legacy-callback markers). Upstream's asserts were:
+            // // WKPageSetPageLoaderClient is deprecated. Use WKPageSetPageNavigationClient instead.
+            // RELEASE_ASSERT(!m_client.didFinishDocumentLoadForFrame);
+            // RELEASE_ASSERT(!m_client.didSameDocumentNavigationForFrame);
+            // RELEASE_ASSERT(!m_client.didReceiveTitleForFrame);
+            // RELEASE_ASSERT(!m_client.didFirstLayoutForFrame);
+            // RELEASE_ASSERT(!m_client.didRemoveFrameFromHierarchy);
+            // RELEASE_ASSERT(!m_client.didDisplayInsecureContentForFrame);
+            // RELEASE_ASSERT(!m_client.didRunInsecureContentForFrame);
+            // RELEASE_ASSERT(!m_client.canAuthenticateAgainstProtectionSpaceInFrame);
+            // RELEASE_ASSERT(!m_client.didReceiveAuthenticationChallengeInFrame);
+            // RELEASE_ASSERT(!m_client.didStartProgress);
+            // RELEASE_ASSERT(!m_client.didChangeProgress);
+            // RELEASE_ASSERT(!m_client.didFinishProgress);
+            // RELEASE_ASSERT(!m_client.processDidBecomeUnresponsive);
+            // RELEASE_ASSERT(!m_client.processDidBecomeResponsive);
+            // RELEASE_ASSERT(!m_client.shouldGoToBackForwardListItem);
+            // RELEASE_ASSERT(!m_client.didFailToInitializePlugin_deprecatedForUseWithV0);
+            // RELEASE_ASSERT(!m_client.didDetectXSSForFrame);
+            // RELEASE_ASSERT(!m_client.didNewFirstVisuallyNonEmptyLayout_unavailable);
+            // RELEASE_ASSERT(!m_client.willGoToBackForwardListItem);
+            // RELEASE_ASSERT(!m_client.interactionOccurredWhileProcessUnresponsive);
+            // RELEASE_ASSERT(!m_client.pluginDidFail_deprecatedForUseWithV1);
+            // RELEASE_ASSERT(!m_client.didReceiveIntentForFrame_unavailable);
+            // RELEASE_ASSERT(!m_client.registerIntentServiceForFrame_unavailable);
+            // RELEASE_ASSERT(!m_client.pluginLoadPolicy_deprecatedForUseWithV2);
+            // RELEASE_ASSERT(!m_client.pluginDidFail);
+            // RELEASE_ASSERT(!m_client.pluginLoadPolicy);
+            // RELEASE_ASSERT(!m_client.navigationGestureDidBegin);
+            // RELEASE_ASSERT(!m_client.navigationGestureWillEnd);
+            // RELEASE_ASSERT(!m_client.navigationGestureDidEnd);
         }
 
     private:
@@ -1356,6 +1417,17 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             m_client.didFirstVisuallyNonEmptyLayoutForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
         }
 
+        // MAVERICKS_BACKPORT: forward the legacy first-layout callback (registration below already
+        // listens for the DidFirstLayout milestone when the client sets it, but the forwarding had
+        // been dropped); iBooks' loader client waits on it before showing a loaded chapter.
+        void didFirstLayoutForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Object* userData) override
+        {
+            if (!m_client.didFirstLayoutForFrame)
+                return;
+
+            m_client.didFirstLayoutForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
+        }
+
         void didReachLayoutMilestone(WebPageProxy& page, OptionSet<WebCore::LayoutMilestone> milestones) override
         {
             if (!m_client.didLayout)
@@ -1396,6 +1468,60 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
 
             return m_client.shouldKeepCurrentBackForwardListItemInList(toAPI(&page), toAPI(&item), m_client.base.clientInfo);
         }
+
+        // MAVERICKS_BACKPORT: forward legacy callbacks Safari uses.
+        void didFinishDocumentLoadForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Navigation*, API::Object* userData) override
+        {
+            if (m_client.didFinishDocumentLoadForFrame)
+                m_client.didFinishDocumentLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
+        }
+
+        void didReceiveTitleForFrame(WebPageProxy& page, const String& title, WebFrameProxy& frame, API::Object* userData) override
+        {
+            if (m_client.didReceiveTitleForFrame)
+                m_client.didReceiveTitleForFrame(toAPI(&page), toAPI(title.impl()), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
+        }
+
+        void didSameDocumentNavigationForFrame(WebPageProxy& page, WebFrameProxy& frame, WebKit::SameDocumentNavigationType type, API::Object* userData) override
+        {
+            if (m_client.didSameDocumentNavigationForFrame)
+                m_client.didSameDocumentNavigationForFrame(toAPI(&page), toAPI(&frame), toAPI(type), toAPI(userData), m_client.base.clientInfo);
+        }
+
+        void didStartProgress(WebPageProxy& page) override
+        {
+            if (m_client.didStartProgress)
+                m_client.didStartProgress(toAPI(&page), m_client.base.clientInfo);
+        }
+
+        void didChangeProgress(WebPageProxy& page) override
+        {
+            if (m_client.didChangeProgress)
+                m_client.didChangeProgress(toAPI(&page), m_client.base.clientInfo);
+        }
+
+        void didFinishProgress(WebPageProxy& page) override
+        {
+            if (m_client.didFinishProgress)
+                m_client.didFinishProgress(toAPI(&page), m_client.base.clientInfo);
+        }
+
+        // MAVERICKS_BACKPORT: restored authentication forwarding (github #95), the implementation
+        // upstream deleted along with most of this client. Safari 7 registers no navigation client,
+        // so this is the only client that can put an authentication panel on screen. Returns false
+        // when the embedder set neither callback, leaving the challenge to the navigation client
+        // (whose default is PerformDefaultHandling — upstream's behaviour for such embedders).
+        bool didReceiveAuthenticationChallengeInFrame(WebPageProxy& page, WebFrameProxy& frame, AuthenticationChallengeProxy& authenticationChallenge) override
+        {
+            if (m_client.canAuthenticateAgainstProtectionSpaceInFrame && !m_client.canAuthenticateAgainstProtectionSpaceInFrame(toAPI(&page), toAPI(&frame), toAPI(protect(authenticationChallenge.protectionSpace()).get()), m_client.base.clientInfo)) {
+                authenticationChallenge.listener().completeChallenge(WebKit::AuthenticationChallengeDisposition::RejectProtectionSpaceAndContinue);
+                return true;
+            }
+            if (!m_client.didReceiveAuthenticationChallengeInFrame)
+                return false;
+            m_client.didReceiveAuthenticationChallengeInFrame(toAPI(&page), toAPI(&frame), toAPI(&authenticationChallenge), m_client.base.clientInfo);
+            return true;
+        }
     };
 
     RefPtr webPageProxy = toImpl(pageRef);
@@ -1422,6 +1548,29 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     webPageProxy->setLoaderClient(WTF::move(loaderClient));
 }
 
+#if PLATFORM(MAC)
+// MAVERICKS_BACKPORT: Safari 7's Privacy pane writes "Ask websites not to track me" to
+// SendDoNotTrackHTTPHeader in this process's own defaults, and modern WebKit has no Do Not Track
+// header left to carry it. The protections that preference stands for are the ones Safari's
+// "Advanced Tracking and Fingerprinting Protection" switch sets through
+// -[WKWebpagePreferences _setNetworkConnectionIntegrityEnabled:], which a WKPagePolicyClient has no
+// surface for. WebPageProxy copies the page's default website policies for any main-frame navigation
+// this client leaves unqualified, so they are where the answer belongs; it is read per navigation so
+// a change to the checkbox reaches the next load.
+static void applyBrowserPrivacyPreferenceToDefaultPolicies(WebPageProxy& page)
+{
+    bool enabled = CFPreferencesGetAppBooleanValue(CFSTR("SendDoNotTrackHTTPHeader"), kCFPreferencesCurrentApplication, nullptr);
+
+    Ref policies = page.configuration().defaultWebsitePolicies();
+    auto webCorePolicy = policies->advancedPrivacyProtections();
+    webCorePolicy.set(WebCore::AdvancedPrivacyProtections::BaselineProtections, enabled);
+    webCorePolicy.set(WebCore::AdvancedPrivacyProtections::FingerprintingProtections, enabled);
+    webCorePolicy.set(WebCore::AdvancedPrivacyProtections::EnhancedNetworkPrivacy, enabled);
+    webCorePolicy.set(WebCore::AdvancedPrivacyProtections::LinkDecorationFiltering, enabled);
+    policies->setAdvancedPrivacyProtections(webCorePolicy);
+}
+#endif // MAVERICKS_BACKPORT: closes the guard around the helper above.
+
 void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* wkClient)
 {
     CRASH_IF_SUSPENDED;
@@ -1430,14 +1579,19 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
         explicit PolicyClient(const WKPagePolicyClientBase* client)
         {
             initialize(client);
-
-            // This callback is unused and deprecated.
-            RELEASE_ASSERT(!m_client.unableToImplementPolicy);
+            // MAVERICKS_BACKPORT: constructor no longer RELEASE_ASSERTs against the deprecated callbacks Safari 7 sets.
+            // MAVERICKS_BACKPORT: Safari sets m_client.unableToImplementPolicy; the override below
+            // drives it (restored with InjectedBundlePagePolicyClient).
         }
 
     private:
-        void decidePolicyForNavigationAction(WebPageProxy& page, WebFrameProxy* frame, Ref<API::NavigationAction>&& navigationAction, WebFrameProxy* originatingFrame, const WebCore::ResourceRequest& originalResourceRequest, const WebCore::ResourceRequest& resourceRequest, Ref<WebFramePolicyListenerProxy>&& listener) override
+        // MAVERICKS_BACKPORT: signature carries an extra userData parameter forwarded to the legacy V0/V1 callbacks below.
+        void decidePolicyForNavigationAction(WebPageProxy& page, WebFrameProxy* frame, Ref<API::NavigationAction>&& navigationAction, WebFrameProxy* originatingFrame, const WebCore::ResourceRequest& originalResourceRequest, const WebCore::ResourceRequest& resourceRequest, Ref<WebFramePolicyListenerProxy>&& listener, API::Object* userData) override
         {
+#if PLATFORM(MAC)
+            applyBrowserPrivacyPreferenceToDefaultPolicies(page); // MAVERICKS_BACKPORT: see the helper above WKPageSetPagePolicyClient.
+#endif // MAVERICKS_BACKPORT: closes the guard around the call above.
+
             if (!m_client.decidePolicyForNavigationAction_deprecatedForUseWithV0 && !m_client.decidePolicyForNavigationAction_deprecatedForUseWithV1 && !m_client.decidePolicyForNavigationAction) {
                 listener->use();
                 return;
@@ -1447,14 +1601,18 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
             Ref<API::URLRequest> request = API::URLRequest::create(resourceRequest);
 
             if (m_client.decidePolicyForNavigationAction_deprecatedForUseWithV0)
-                m_client.decidePolicyForNavigationAction_deprecatedForUseWithV0(toAPI(&page), toAPI(frame), toAPI(navigationAction->data().navigationType), toAPI(navigationAction->data().modifiers), toAPI(navigationAction->data().mouseButton), toAPI(request.ptr()), toAPI(listener.ptr()), nullptr, m_client.base.clientInfo);
+            // MAVERICKS_BACKPORT: pass the real userData through to the legacy V0/V1/V2 callbacks (modern WebKit passed nullptr here).
+                m_client.decidePolicyForNavigationAction_deprecatedForUseWithV0(toAPI(&page), toAPI(frame), toAPI(navigationAction->data().navigationType), toAPI(navigationAction->data().modifiers), toAPI(navigationAction->data().mouseButton), toAPI(request.ptr()), toAPI(listener.ptr()), toAPI(userData), m_client.base.clientInfo);
+            // MAVERICKS_BACKPORT: pass the real userData through (modern WebKit passed nullptr here).
             else if (m_client.decidePolicyForNavigationAction_deprecatedForUseWithV1)
-                m_client.decidePolicyForNavigationAction_deprecatedForUseWithV1(toAPI(&page), toAPI(frame), toAPI(navigationAction->data().navigationType), toAPI(navigationAction->data().modifiers), toAPI(navigationAction->data().mouseButton), toAPI(originatingFrame), toAPI(request.ptr()), toAPI(listener.ptr()), nullptr, m_client.base.clientInfo);
+                m_client.decidePolicyForNavigationAction_deprecatedForUseWithV1(toAPI(&page), toAPI(frame), toAPI(navigationAction->data().navigationType), toAPI(navigationAction->data().modifiers), toAPI(navigationAction->data().mouseButton), toAPI(originatingFrame), toAPI(request.ptr()), toAPI(listener.ptr()), toAPI(userData), m_client.base.clientInfo);
+            // MAVERICKS_BACKPORT: pass the real userData through (modern WebKit passed nullptr here).
             else
-                m_client.decidePolicyForNavigationAction(toAPI(&page), toAPI(frame), toAPI(navigationAction->data().navigationType), toAPI(navigationAction->data().modifiers), toAPI(navigationAction->data().mouseButton), toAPI(originatingFrame), toAPI(originalRequest.ptr()), toAPI(request.ptr()), toAPI(listener.ptr()), nullptr, m_client.base.clientInfo);
+                m_client.decidePolicyForNavigationAction(toAPI(&page), toAPI(frame), toAPI(navigationAction->data().navigationType), toAPI(navigationAction->data().modifiers), toAPI(navigationAction->data().mouseButton), toAPI(originatingFrame), toAPI(originalRequest.ptr()), toAPI(request.ptr()), toAPI(listener.ptr()), toAPI(userData), m_client.base.clientInfo);
         }
 
-        void decidePolicyForNewWindowAction(WebPageProxy& page, WebFrameProxy& frame, Ref<API::NavigationAction>&& navigationAction, const WebCore::ResourceRequest& resourceRequest, const String& frameName, Ref<WebFramePolicyListenerProxy>&& listener) override
+        // MAVERICKS_BACKPORT: signature carries an extra userData parameter forwarded to the legacy callback below.
+        void decidePolicyForNewWindowAction(WebPageProxy& page, WebFrameProxy& frame, Ref<API::NavigationAction>&& navigationAction, const WebCore::ResourceRequest& resourceRequest, const String& frameName, Ref<WebFramePolicyListenerProxy>&& listener, API::Object* userData) override
         {
             if (!m_client.decidePolicyForNewWindowAction) {
                 listener->use();
@@ -1463,10 +1621,17 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
 
             Ref<API::URLRequest> request = API::URLRequest::create(resourceRequest);
 
-            m_client.decidePolicyForNewWindowAction(toAPI(&page), toAPI(&frame), toAPI(navigationAction->data().navigationType), toAPI(navigationAction->data().modifiers), toAPI(navigationAction->data().mouseButton), toAPI(request.ptr()), toAPI(frameName.impl()), toAPI(listener.ptr()), nullptr, m_client.base.clientInfo);
+            // MAVERICKS_BACKPORT: forward the injected-bundle policy client's userData. Safari 7's
+            // handler casts it to a WKDictionary, reads "CanHandleRequest"/"OriginatingFrame", and
+            // returns WITHOUT driving the listener if the cast fails -- so a null one meant
+            // target="_blank" links did nothing. Upstream passes nullptr because it no longer has a
+            // bundle policy client to ask; this port restored that client (InjectedBundlePagePolicyClient),
+            // so the real object arrives here from the WebProcess.
+            m_client.decidePolicyForNewWindowAction(toAPI(&page), toAPI(&frame), toAPI(navigationAction->data().navigationType), toAPI(navigationAction->data().modifiers), toAPI(navigationAction->data().mouseButton), toAPI(request.ptr()), toAPI(frameName.impl()), toAPI(listener.ptr()), toAPI(userData), m_client.base.clientInfo);
         }
 
-        void decidePolicyForResponse(WebPageProxy& page, WebFrameProxy& frame, const WebCore::ResourceResponse& resourceResponse, const WebCore::ResourceRequest& resourceRequest, bool canShowMIMEType, Ref<WebFramePolicyListenerProxy>&& listener) override
+        // MAVERICKS_BACKPORT: signature carries an extra userData parameter forwarded to the legacy V0 callback below.
+        void decidePolicyForResponse(WebPageProxy& page, WebFrameProxy& frame, const WebCore::ResourceResponse& resourceResponse, const WebCore::ResourceRequest& resourceRequest, bool canShowMIMEType, Ref<WebFramePolicyListenerProxy>&& listener, API::Object* userData) override
         {
             if (!m_client.decidePolicyForResponse_deprecatedForUseWithV0 && !m_client.decidePolicyForResponse) {
                 listener->use();
@@ -1476,10 +1641,28 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
             Ref<API::URLResponse> response = API::URLResponse::create(resourceResponse);
             Ref<API::URLRequest> request = API::URLRequest::create(resourceRequest);
 
-            if (m_client.decidePolicyForResponse_deprecatedForUseWithV0)
-                m_client.decidePolicyForResponse_deprecatedForUseWithV0(toAPI(&page), toAPI(&frame), toAPI(response.ptr()), toAPI(request.ptr()), toAPI(listener.ptr()), nullptr, m_client.base.clientInfo);
-            else
-                m_client.decidePolicyForResponse(toAPI(&page), toAPI(&frame), toAPI(response.ptr()), toAPI(request.ptr()), canShowMIMEType, toAPI(listener.ptr()), nullptr, m_client.base.clientInfo);
+            // MAVERICKS_BACKPORT: forward the injected-bundle policy client's userData; upstream
+            // hardcodes nullptr here because it no longer has a bundle policy client to ask. Safari 7's
+            // handler (BrowserPagePolicyClient::decidePolicyForResponse) casts it to a WKBoolean and
+            // only calls use() when it is true -- a null one reads as false, so it instead runs
+            // openFileExternallyIfSafe()/revealFileInFileManager() and ignore()s the load.
+            if (m_client.decidePolicyForResponse_deprecatedForUseWithV0) {
+                // MAVERICKS_BACKPORT: forward the bundle's userData; upstream hardcodes nullptr here.
+                m_client.decidePolicyForResponse_deprecatedForUseWithV0(toAPI(&page), toAPI(&frame), toAPI(response.ptr()), toAPI(request.ptr()), toAPI(listener.ptr()), toAPI(userData), m_client.base.clientInfo);
+            } else {
+                // MAVERICKS_BACKPORT: forward the bundle's userData; upstream hardcodes nullptr here.
+                m_client.decidePolicyForResponse(toAPI(&page), toAPI(&frame), toAPI(response.ptr()), toAPI(request.ptr()), canShowMIMEType, toAPI(listener.ptr()), toAPI(userData), m_client.base.clientInfo);
+            }
+        }
+
+        // MAVERICKS_BACKPORT: restored with InjectedBundlePagePolicyClient (upstream 9eeab8d removed
+        // the whole path); Safari registers this callback.
+        void unableToImplementPolicy(WebPageProxy& page, WebFrameProxy& frame, const WebCore::ResourceError& error, API::Object* userData) override
+        {
+            if (!m_client.unableToImplementPolicy)
+                return;
+
+            m_client.unableToImplementPolicy(toAPI(&page), toAPI(&frame), toAPI(error), toAPI(userData), m_client.base.clientInfo);
         }
     };
 
@@ -1702,12 +1885,17 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
     CRASH_IF_SUSPENDED;
     class UIClient : public API::Client<WKPageUIClientBase>, public API::UIClient {
     public:
-        explicit UIClient(const WKPageUIClientBase* client)
+        // MAVERICKS_BACKPORT: takes the page, so queryPermission can reach its process pool's
+        // WebNotificationManagerProxy.
+        UIClient(const WKPageUIClientBase* client, WebPageProxy* page)
+            : m_page(page)
         {
             initialize(client);
         }
 
     private:
+        WeakPtr<WebPageProxy> m_page; // MAVERICKS_BACKPORT: see the constructor.
+
         void createNewPage(WebPageProxy& page, Ref<API::PageConfiguration>&& configuration, Ref<API::NavigationAction>&& navigationAction, CompletionHandler<void(RefPtr<WebPageProxy>&&)>&& completionHandler) final
         {
             ASSERT(configuration->windowFeatures());
@@ -1919,7 +2107,8 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
             m_client.setStatusText(toAPI(page), toAPI(text.impl()), m_client.base.clientInfo);
         }
 
-        void mouseDidMoveOverElement(WebPageProxy& page, const WebHitTestResultData& data, OptionSet<WebKit::WebEventModifier> modifiers) final
+        // MAVERICKS_BACKPORT: restored 4-arg signature (added API::Object* userData) so the WKPageUIClient hover callback receives the injected-bundle data Safari 7's status bar needs (#58).
+        void mouseDidMoveOverElement(WebPageProxy& page, const WebHitTestResultData& data, OptionSet<WebKit::WebEventModifier> modifiers, API::Object* userData) final
         {
             if (!m_client.mouseDidMoveOverElement && !m_client.mouseDidMoveOverElement_deprecatedForUseWithV0)
                 return;
@@ -1928,12 +2117,13 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
                 return;
 
             if (!m_client.base.version) {
-                m_client.mouseDidMoveOverElement_deprecatedForUseWithV0(toAPI(&page), toAPI(modifiers), nullptr, m_client.base.clientInfo);
+                m_client.mouseDidMoveOverElement_deprecatedForUseWithV0(toAPI(&page), toAPI(modifiers), toAPI(userData), m_client.base.clientInfo); // MAVERICKS_BACKPORT: forwards the injected-bundle userData (hovered link URL) for Safari 7's status bar (#58).
                 return;
             }
 
             Ref apiHitTestResult = API::HitTestResult::create(data, &page);
-            m_client.mouseDidMoveOverElement(toAPI(&page), toAPI(apiHitTestResult.ptr()), toAPI(modifiers), nullptr, m_client.base.clientInfo);
+            // MAVERICKS_BACKPORT: pass userData (hovered link URL) to the V1+ WKPageUIClient callback too (was nullptr upstream) (#58).
+            m_client.mouseDidMoveOverElement(toAPI(&page), toAPI(apiHitTestResult.ptr()), toAPI(modifiers), toAPI(userData), m_client.base.clientInfo);
         }
 
         void tooltipDidChange(WebPageProxy& page, const String& tooltip) final
@@ -2042,7 +2232,11 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
         void decidePolicyForUserMediaPermissionRequest(WebPageProxy& page, WebFrameProxy& frame, API::SecurityOrigin& userMediaDocumentOrigin, API::SecurityOrigin& topLevelDocumentOrigin, UserMediaPermissionRequestProxy& permissionRequest) final
         {
             if (!m_client.decidePolicyForUserMediaPermissionRequest) {
-                permissionRequest.deny();
+                // MAVERICKS_BACKPORT: Safari 7 predates getUserMedia and never installs this WKPageUIClient
+                // callback. Route to the same default the base API::UIClient uses: doDefaultAction()
+                // presents WebKit's native per-origin NSAlert consent sheet (alertForPermission) for
+                // camera/microphone/screen capture and allows or denies from the user's answer.
+                permissionRequest.doDefaultAction();
                 return;
             }
 
@@ -2057,10 +2251,22 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
             m_client.decidePolicyForNotificationPermissionRequest(toAPI(&page), toAPI(&origin), toAPI(NotificationPermissionRequest::create(WTF::move(completionHandler)).ptr()), m_client.base.clientInfo);
         }
 
-        void requestStorageAccessConfirm(WebPageProxy& page, WebFrameProxy* frame, const WebCore::RegistrableDomain& requestingDomain, const WebCore::RegistrableDomain& currentDomain, std::optional<WebCore::OrganizationStorageAccessPromptQuirk>&&, CompletionHandler<void(bool)>&& completionHandler) final
+        // MAVERICKS_BACKPORT: the quirk parameter is named so the fallback below can use it.
+        void requestStorageAccessConfirm(WebPageProxy& page, WebFrameProxy* frame, const WebCore::RegistrableDomain& requestingDomain, const WebCore::RegistrableDomain& currentDomain, std::optional<WebCore::OrganizationStorageAccessPromptQuirk>&& organizationStorageAccessPromptQuirk, CompletionHandler<void(bool)>&& completionHandler) final
         {
             if (!m_client.requestStorageAccessConfirm) {
+                // MAVERICKS_BACKPORT: Safari 7 predates the Storage Access API and never installs this
+                // WKPageUIClient callback, so every requestStorageAccess() was answered yes without the
+                // user being asked. Present WebKit's own consent sheet instead, following the same
+                // quirk-first order UIDelegate::UIClient uses when a Cocoa embedder implements no
+                // storage-access panel.
+                // completionHandler(true);
+                // return;
+#if PLATFORM(COCOA) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
+                presentStorageAccessAlert(page, requestingDomain, currentDomain, WTF::move(organizationStorageAccessPromptQuirk), WTF::move(completionHandler));
+#else
                 completionHandler(true);
+#endif // MAVERICKS_BACKPORT: closes the Cocoa consent-sheet branch above.
                 return;
             }
 
@@ -2176,8 +2382,21 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
 #if ENABLE(POINTER_LOCK)
         void requestPointerLock(WebPageProxy* page, CompletionHandler<void(bool)>&& completionHandler) final
         {
-            if (!m_client.requestPointerLock)
+            if (!m_client.requestPointerLock) {
+                // MAVERICKS_BACKPORT: Pointer Lock's UI-client opt-in is a real app-level permission
+                // decision — upstream (and modern Safari's WKUIDelegate) deny when the embedder does
+                // not implement it, so the generic default below stays deny. But Safari 7's frozen
+                // WKPageUIClient predates this callback and cannot be recompiled to wire it up, so on
+                // that specific host Pointer Lock (WebGL games, 3D viewers) is permanently unusable
+                // (WrongDocumentError "requires the window to have focus"). Grant it on behalf of the
+                // frozen Safari host ONLY — every other non-opting C-API embedder keeps upstream's
+                // deny. The grant is still bounded by WebPageProxy::requestPointerLock's visible +
+                // focused gates and WebCore PointerLockController's user-gesture/sandbox checks (plus
+                // Esc-to-exit), which limit the abuse surface the opt-in otherwise guards.
+                if (WTF::MacApplication::isSafari())
+                    return completionHandler(true);
                 return completionHandler(false);
+            } // MAVERICKS_BACKPORT: closes the Safari-7 pointer-lock grant block above (#64).
 
             Ref listener = API::CompletionListener::create([completionHandler = WTF::move(completionHandler)] (WKTypeRef) mutable { completionHandler(true); });
             m_client.requestPointerLock(toAPI(page), toAPI(listener.ptr()), m_client.base.clientInfo);
@@ -2269,7 +2488,13 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
         void decidePolicyForMediaKeySystemPermissionRequest(WebPageProxy& page, API::SecurityOrigin& origin, const String& keySystem, CompletionHandler<void(bool)>&& completionHandler) final
         {
             if (!m_client.decidePolicyForMediaKeySystemPermissionRequest) {
-                completionHandler(false);
+                // MAVERICKS_BACKPORT: legacy (Safari 7 era) UI clients predate this callback and can
+                // never implement it, which denied every requestMediaKeySystemAccess() before the key
+                // system was even consulted. Take the default action API::UIClient takes for an
+                // embedder that does not implement it -- the same action
+                // MediaKeySystemPermissionRequestProxy::doDefaultAction() takes on Cocoa.
+                // completionHandler(false);
+                API::UIClient::decidePolicyForMediaKeySystemPermissionRequest(page, origin, keySystem, WTF::move(completionHandler));
                 return;
             }
 
@@ -2279,7 +2504,24 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
         void queryPermission(const WTF::String& permissionName, API::SecurityOrigin& origin, CompletionHandler<void(std::optional<WebCore::PermissionState>)>&& completionHandler) final
         {
             if (!m_client.queryPermission) {
-                completionHandler({ });
+                // MAVERICKS_BACKPORT: legacy (Safari 7 era) UI clients predate this callback. Answer
+                // notifications from the provider map WebNotificationManagerProxy holds, which is the
+                // store Safari 7 supplies through WKNotificationProvider. Camera, microphone,
+                // geolocation and screen wake lock have no Safari 7 store behind them and report
+                // Prompt, the same default WebPermissionControllerProxy uses when no page is available.
+#if ENABLE(NOTIFICATIONS)
+                if (permissionName == "notifications"_s) {
+                    if (RefPtr page = m_page.get()) {
+                        if (RefPtr manager = protect(page->configuration().processPool())->supplement<WebNotificationManagerProxy>()) {
+                            if (auto allowed = manager->providerPermissionForOrigin(origin.securityOrigin().toString())) {
+                                completionHandler(*allowed ? WebCore::PermissionState::Granted : WebCore::PermissionState::Denied);
+                                return;
+                            }
+                        }
+                    }
+                }
+#endif // MAVERICKS_BACKPORT: closes the ENABLE(NOTIFICATIONS) branch above.
+                completionHandler(WebCore::PermissionState::Prompt);
                 return;
             }
             m_client.queryPermission(toAPI(API::String::create(permissionName).ptr()), toAPI(&origin), toAPI(QueryPermissionResultCallback::create(WTF::move(completionHandler)).ptr()));
@@ -2317,7 +2559,7 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
         }
     };
 
-    protect(toImpl(pageRef))->setUIClient(makeUnique<UIClient>(wkClient));
+    protect(toImpl(pageRef))->setUIClient(makeUnique<UIClient>(wkClient, toImpl(pageRef))); // MAVERICKS_BACKPORT: passes the page; see the UIClient constructor.
 }
 
 void WKPageSetPageNavigationClient(WKPageRef pageRef, const WKPageNavigationClientBase* wkClient)
@@ -2697,6 +2939,66 @@ void WKPageSetPageStateClient(WKPageRef pageRef, WKPageStateClientBase* client)
 void WKPageEvaluateJavaScriptInMainFrame(WKPageRef pageRef, WKStringRef scriptRef, void* context, WKPageEvaluateJavaScriptFunction callback)
 {
     WKPageEvaluateJavaScriptInFrame(pageRef, nullptr, scriptRef, context, callback);
+}
+
+// MAVERICKS_BACKPORT: Safari 7/9 call the older WKPageRunJavaScriptInMainFrame
+// symbol (the API was renamed to *Evaluate*). Without this alias, Safari
+// crashes with dyld_fatal_error on osascript "do JavaScript" commands.
+// Unlike the modern Evaluate API, the legacy contract hands the callback a
+// WKSerializedScriptValueRef the caller deserializes with
+// WKSerializedScriptValueDeserialize, so deliver an API::SerializedScriptValue
+// (see APISerializedScriptValue.h) rather than toAPI()'s plain WKType objects.
+extern "C" WK_EXPORT void WKPageRunJavaScriptInMainFrame(WKPageRef pageRef, WKStringRef scriptRef, void* context, WKPageEvaluateJavaScriptFunction callback);
+extern "C" void WKPageRunJavaScriptInMainFrame(WKPageRef pageRef, WKStringRef scriptRef, void* context, WKPageEvaluateJavaScriptFunction callback)
+{
+    CRASH_IF_SUSPENDED;
+    auto scriptString = IPC::TransferString::create(toImpl(scriptRef)->stringView());
+    if (!scriptString) {
+        if (callback)
+            callback(nullptr, nullptr, context);
+        return;
+    };
+
+    protect(toImpl(pageRef))->runJavaScriptInFrameInScriptWorld(WebKit::RunJavaScriptParameters {
+        WTF::move(*scriptString),
+        JSC::SourceTaintedOrigin::Untainted,
+        URL { },
+        WebCore::RunAsAsyncFunction::No,
+        std::nullopt,
+        WebCore::ForceUserGesture::Yes,
+        RemoveTransientActivation::Yes
+    }, std::nullopt, API::ContentWorld::pageContentWorldSingleton(), !!callback, [context, callback] (auto&& result) {
+        if (!callback)
+            return;
+        if (result) {
+            Ref serializedValue = API::SerializedScriptValue::create(WTF::move(*result));
+            callback(toAPI(static_cast<API::Object*>(serializedValue.ptr())), nullptr, context);
+        } else
+            callback(nullptr, nullptr, context);
+    });
+}
+
+// MAVERICKS_BACKPORT: MailUI.framework links against the block-based WKPageRunJavaScriptInMainFrame_b
+// variant (the Safari-7-era spelling). Without this exported symbol Mail.app fails to launch with
+// dyld: Symbol not found: _WKPageRunJavaScriptInMainFrame_b (expected in WebKit2). The block carries
+// its own context, so copy it into the function-pointer implementation's context slot and release it
+// once the single callback fires. Delivering the result with the (result, error) shape is compatible
+// with the legacy single-argument block too (extra arguments are ignored by the block's invoke).
+static void callRunJavaScriptInMainFrameBlock(WKTypeRef result, WKErrorRef error, void* context)
+{
+    auto block = reinterpret_cast<void (^)(WKSerializedScriptValueRef, WKErrorRef)>(context);
+    block(static_cast<WKSerializedScriptValueRef>(result), error);
+    Block_release(block);
+}
+
+extern "C" WK_EXPORT void WKPageRunJavaScriptInMainFrame_b(WKPageRef pageRef, WKStringRef scriptRef, void (^block)(WKSerializedScriptValueRef, WKErrorRef));
+extern "C" void WKPageRunJavaScriptInMainFrame_b(WKPageRef pageRef, WKStringRef scriptRef, void (^block)(WKSerializedScriptValueRef, WKErrorRef))
+{
+    if (!block) {
+        WKPageRunJavaScriptInMainFrame(pageRef, scriptRef, nullptr, nullptr);
+        return;
+    }
+    WKPageRunJavaScriptInMainFrame(pageRef, scriptRef, reinterpret_cast<void*>(Block_copy(block)), callRunJavaScriptInMainFrameBlock);
 }
 
 void WKPageEvaluateJavaScriptInFrame(WKPageRef pageRef, WKFrameInfoRef frame, WKStringRef scriptRef, void* context, WKPageEvaluateJavaScriptFunction callback)
@@ -3544,3 +3846,166 @@ void WKPageDoAfterProcessingAllPendingKeyEvents(WKPageRef page, void* context, W
     });
 }
 #endif
+
+// MAVERICKS_BACKPORT: Safari 7 lazy-binds removed/renamed legacy WK_* C-API symbols;
+// dyld_fatal_error fires on first call, so they are defined here. The preference and
+// inspector entry points below cover engine features modern WebKit no longer has (Java,
+// region-based columns, screen-font substitution). The website-data managers are the
+// surface Safari 7's Privacy pane drives through
+// Safari::TrackingDataController::populateWebsiteTrackingData: each one hands back the
+// default WKWebsiteDataStore and answers its callback, which the pane waits on before it
+// can list or remove anything.
+extern "C" {
+WK_EXPORT void WKPreferencesSetJavaEnabledForLocalFiles(WKPreferencesRef, bool);
+WK_EXPORT void WKPreferencesSetOfflineWebApplicationCacheEnabled(WKPreferencesRef, bool);
+WK_EXPORT void WKPreferencesSetRegionBasedColumnsEnabled(WKPreferencesRef, bool);
+WK_EXPORT bool WKPreferencesGetRegionBasedColumnsEnabled(WKPreferencesRef);
+WK_EXPORT void WKPreferencesSetScreenFontSubstitutionEnabled(WKPreferencesRef, bool);
+WK_EXPORT bool WKPreferencesGetScreenFontSubstitutionEnabled(WKPreferencesRef);
+WK_EXPORT void WKPreferencesSetApplicationChromeModeEnabled(WKPreferencesRef, bool);
+WK_EXPORT void WKPageSetVisibilityState(WKPageRef, int, bool);
+WK_EXPORT void WKPageLoadWebArchiveData(WKPageRef, WKDataRef);
+WK_EXPORT bool WKInspectorIsProfilingJavaScript(WKInspectorRef);
+WK_EXPORT void WKInspectorToggleJavaScriptProfiling(WKInspectorRef);
+WK_EXPORT WKDataRef WKDownloadGetResumeData(WKDownloadRef);
+WK_EXPORT void* WKGraphicsContextGetCGContext(void*);
+// Safari passes Safari::StorageManagerAnnotatedCallback::callback(OpaqueWKArray const*,
+// OpaqueWKError const*, void*) to each of the three getters, in (manager, context, function) order.
+typedef void (*WK109StorageManagerGetOriginsFunction)(WKArrayRef, WKErrorRef, void*);
+WK_EXPORT WKWebsiteDataStoreRef WKContextGetApplicationCacheManager(WKContextRef);
+WK_EXPORT WKWebsiteDataStoreRef WKContextGetDatabaseManager(WKContextRef);
+WK_EXPORT WKWebsiteDataStoreRef WKContextGetMediaCacheManager(WKContextRef);
+WK_EXPORT WKWebsiteDataStoreRef WKContextGetPluginSiteDataManager(WKContextRef);
+WK_EXPORT void WKApplicationCacheManagerDeleteAllEntries(WKWebsiteDataStoreRef);
+WK_EXPORT void WKApplicationCacheManagerDeleteEntriesForOrigin(WKWebsiteDataStoreRef, WKSecurityOriginRef);
+WK_EXPORT void WKApplicationCacheManagerGetApplicationCacheOrigins(WKWebsiteDataStoreRef, void*, WK109StorageManagerGetOriginsFunction);
+WK_EXPORT void WKDatabaseManagerDeleteAllDatabases(WKWebsiteDataStoreRef);
+WK_EXPORT void WKDatabaseManagerDeleteDatabasesForOrigin(WKWebsiteDataStoreRef, WKSecurityOriginRef);
+WK_EXPORT void WKDatabaseManagerGetDatabaseOrigins(WKWebsiteDataStoreRef, void*, WK109StorageManagerGetOriginsFunction);
+WK_EXPORT void WKMediaCacheManagerClearCacheForAllHostnames(WKWebsiteDataStoreRef);
+WK_EXPORT void WKMediaCacheManagerClearCacheForHostname(WKWebsiteDataStoreRef, WKStringRef);
+WK_EXPORT void WKMediaCacheManagerGetHostnamesWithMediaCache(WKWebsiteDataStoreRef, void*, WK109StorageManagerGetOriginsFunction);
+// Safari passes Safari::WK::didClearDataCallback(OpaqueWKError const*, void*) as the callback and
+// its own continuation as the context, which that callback invokes as a function pointer.
+typedef void (*WK109StorageManagerDidClearFunction)(WKErrorRef, void*);
+WK_EXPORT void WKPluginSiteDataManagerClearAllSiteData(WKWebsiteDataStoreRef, void*, WK109StorageManagerDidClearFunction);
+WK_EXPORT void WKPluginSiteDataManagerClearSiteData(WKWebsiteDataStoreRef, WKArrayRef, uint64_t, uint64_t, void*, WK109StorageManagerDidClearFunction);
+WK_EXPORT void WKPluginSiteDataManagerGetSitesWithData(WKWebsiteDataStoreRef, void*, WK109StorageManagerGetOriginsFunction);
+WK_EXPORT bool WKBundleBackForwardListItemIsInPageCache(void*);
+WK_EXPORT void WKBundlePageSetDiagnosticLoggingClient(void*, void*);
+}
+extern "C" {
+void WKPreferencesSetJavaEnabledForLocalFiles(WKPreferencesRef, bool) {}
+void WKPreferencesSetOfflineWebApplicationCacheEnabled(WKPreferencesRef, bool) {}
+void WKPreferencesSetRegionBasedColumnsEnabled(WKPreferencesRef, bool) {}
+bool WKPreferencesGetRegionBasedColumnsEnabled(WKPreferencesRef) { return false; }
+void WKPreferencesSetScreenFontSubstitutionEnabled(WKPreferencesRef, bool) {}
+bool WKPreferencesGetScreenFontSubstitutionEnabled(WKPreferencesRef) { return false; }
+void WKPreferencesSetApplicationChromeModeEnabled(WKPreferencesRef, bool) {}
+void WKPageSetVisibilityState(WKPageRef, int, bool) {}
+// MAVERICKS_BACKPORT: Safari 7 uses this to open .webarchive files; load the bytes
+// with the webarchive MIME type, which WebCore's LegacyWebArchive handles.
+void WKPageLoadWebArchiveData(WKPageRef pageRef, WKDataRef dataRef)
+{
+    if (!pageRef || !dataRef)
+        return;
+    protect(toImpl(pageRef))->loadData(WebCore::SharedBuffer::create(protect(toImpl(dataRef))->span()), "application/x-webarchive"_s, "utf-16"_s, "about:blank"_s);
+}
+bool WKInspectorIsProfilingJavaScript(WKInspectorRef) { return false; }
+void WKInspectorToggleJavaScriptProfiling(WKInspectorRef) {}
+// MAVERICKS_BACKPORT: return the download's real resume data instead of null (github #94 follow-up).
+// Safari 7 reads this in -[DownloadProgressEntry _initializeResumeInformationForDownload] to build the
+// state behind the ↻ button on a stopped download. With the stub returning null it had no resume
+// information at all, and clicking ↻ aborted the UI process with
+// "-[NSURL initFileURLWithPath:]: nil string parameter" from its file-presenter registration. Upstream
+// deleted this function but kept DownloadProxy::legacyResumeData() for exactly this client;
+// DownloadProxy::cancel populates it before completing. "Get" is +0, which toAPI() gives.
+//
+// It is deliberately NOT m_legacyResumeData as-is: this caller feeds the dictionary to NSURLDownload,
+// not to WK2, so it gets the CFURLDownload spelling of the same facts. See
+// DownloadProxy::legacyResumeDataForNSURLDownload(). WK2's own resume path
+// (-[WKWebView resumeDownloadFromResumeData:]) still gets the untranslated NSURLSession data.
+WKDataRef WKDownloadGetResumeData(WKDownloadRef download)
+{
+    if (!download)
+        return nullptr;
+#if PLATFORM(COCOA)
+    return toAPI(toImpl(download)->legacyResumeDataForNSURLDownload().get());
+#else
+    return toAPI(toImpl(download)->legacyResumeData());
+#endif
+}
+void* WKGraphicsContextGetCGContext(void*) { return nullptr; }
+
+// The store an empty engine-side feature still has to answer from, so the Privacy pane's
+// per-type queries complete.
+WKWebsiteDataStoreRef WKContextGetApplicationCacheManager(WKContextRef) { return WKWebsiteDataStoreGetDefaultDataStore(); }
+WKWebsiteDataStoreRef WKContextGetDatabaseManager(WKContextRef) { return WKWebsiteDataStoreGetDefaultDataStore(); }
+WKWebsiteDataStoreRef WKContextGetMediaCacheManager(WKContextRef) { return WKWebsiteDataStoreGetDefaultDataStore(); }
+WKWebsiteDataStoreRef WKContextGetPluginSiteDataManager(WKContextRef) { return WKWebsiteDataStoreGetDefaultDataStore(); }
+
+static void wk109AnswerWithEmptyList(void* context, WK109StorageManagerGetOriginsFunction callback)
+{
+    if (callback)
+        callback(toAPI(API::Array::create().ptr()), nullptr, context);
+}
+
+static void wk109AnswerWithOrigins(WKWebsiteDataStoreRef store, OptionSet<WebKit::WebsiteDataType> types, void* context, WK109StorageManagerGetOriginsFunction callback)
+{
+    if (!callback)
+        return;
+    protect(toImpl(store))->fetchData(types, { }, [context, callback](Vector<WebKit::WebsiteDataRecord> records) {
+        Vector<RefPtr<API::Object>> origins;
+        for (auto& record : records) {
+            for (auto& origin : record.origins)
+                origins.append(API::SecurityOrigin::create(origin));
+        }
+        callback(toAPI(API::Array::create(WTF::move(origins)).ptr()), nullptr, context);
+    });
+}
+
+static void wk109RemoveForOrigin(WKWebsiteDataStoreRef store, OptionSet<WebKit::WebsiteDataType> types, WKSecurityOriginRef originRef)
+{
+    WebKit::WebsiteDataRecord record;
+    for (auto type : types)
+        record.add(type, protect(toImpl(originRef))->securityOrigin());
+    protect(toImpl(store))->removeData(types, { record }, [] { });
+}
+
+// Application Cache is not part of this engine, so its origin list is empty in fact, not by stub.
+void WKApplicationCacheManagerDeleteAllEntries(WKWebsiteDataStoreRef) { }
+void WKApplicationCacheManagerDeleteEntriesForOrigin(WKWebsiteDataStoreRef, WKSecurityOriginRef) { }
+void WKApplicationCacheManagerGetApplicationCacheOrigins(WKWebsiteDataStoreRef, void* context, WK109StorageManagerGetOriginsFunction callback) { wk109AnswerWithEmptyList(context, callback); }
+
+void WKDatabaseManagerDeleteAllDatabases(WKWebsiteDataStoreRef store)
+{
+    protect(toImpl(store))->removeData(WebKit::WebsiteDataType::WebSQLDatabases, WallTime::fromRawSeconds(0), [] { });
+}
+void WKDatabaseManagerDeleteDatabasesForOrigin(WKWebsiteDataStoreRef store, WKSecurityOriginRef origin) { wk109RemoveForOrigin(store, WebKit::WebsiteDataType::WebSQLDatabases, origin); }
+void WKDatabaseManagerGetDatabaseOrigins(WKWebsiteDataStoreRef store, void* context, WK109StorageManagerGetOriginsFunction callback) { wk109AnswerWithOrigins(store, WebKit::WebsiteDataType::WebSQLDatabases, context, callback); }
+
+// MediaPlayerPrivateAVFoundationObjC is the only engine implementing originsInMediaCache and
+// clearMediaCache, and MediaPlayer registers it only under !USE(GSTREAMER). GStreamer is this
+// port's sole media engine and inherits MediaPlayerPrivate's empty defaults, so the set of
+// registered engines reports no media-cache hostname at all.
+void WKMediaCacheManagerClearCacheForAllHostnames(WKWebsiteDataStoreRef) { }
+void WKMediaCacheManagerClearCacheForHostname(WKWebsiteDataStoreRef, WKStringRef) { }
+void WKMediaCacheManagerGetHostnamesWithMediaCache(WKWebsiteDataStoreRef, void* context, WK109StorageManagerGetOriginsFunction callback) { wk109AnswerWithEmptyList(context, callback); }
+
+// NPAPI plug-ins are not part of this engine, so no site has plug-in data to report or clear.
+// The clear entry points still answer, because the context Safari hands them is the continuation
+// it runs after the clear.
+void WKPluginSiteDataManagerClearAllSiteData(WKWebsiteDataStoreRef, void* context, WK109StorageManagerDidClearFunction callback)
+{
+    if (callback)
+        callback(nullptr, context);
+}
+void WKPluginSiteDataManagerClearSiteData(WKWebsiteDataStoreRef, WKArrayRef, uint64_t, uint64_t, void* context, WK109StorageManagerDidClearFunction callback)
+{
+    if (callback)
+        callback(nullptr, context);
+}
+void WKPluginSiteDataManagerGetSitesWithData(WKWebsiteDataStoreRef, void* context, WK109StorageManagerGetOriginsFunction callback) { wk109AnswerWithEmptyList(context, callback); }
+bool WKBundleBackForwardListItemIsInPageCache(void*) { return false; }
+void WKBundlePageSetDiagnosticLoggingClient(void*, void*) {}
+}

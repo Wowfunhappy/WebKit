@@ -100,7 +100,13 @@
 
 - (NSSet<NSView *> *)_pdfHUDs
 {
+    // MAVERICKS_BACKPORT: ENABLE(PDF_HUD) is off in this build (PDFs download on 10.9); the #else returns nil.
+#if ENABLE(PDF_HUD)
     return _impl->pdfHUDs().autorelease();
+#else
+    // MAVERICKS_BACKPORT: ENABLE(PDF_HUD) is off in this build (PDFs download on 10.9).
+    return nil;
+#endif
 }
 
 - (NSMenu *)_activeMenu

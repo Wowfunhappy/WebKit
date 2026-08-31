@@ -117,7 +117,9 @@ public:
     virtual void runJavaScriptPrompt(WebKit::WebPageProxy&, const WTF::String&, const WTF::String&, WebKit::WebFrameProxy*, WebKit::FrameInfoData&&, Function<void(const WTF::String&)>&& completionHandler) { completionHandler(WTF::String()); }
 
     virtual void setStatusText(WebKit::WebPageProxy*, const WTF::String&) { }
-    virtual void mouseDidMoveOverElement(WebKit::WebPageProxy&, const WebKit::WebHitTestResultData&, OptionSet<WebKit::WebEventModifier>) { }
+    // MAVERICKS_BACKPORT: trailing API::Object* userData restores the injected-bundle hovered-URL that Safari 7's
+    // status bar reads (#58); upstream dropped it. Overriders below are synced to this signature.
+    virtual void mouseDidMoveOverElement(WebKit::WebPageProxy&, const WebKit::WebHitTestResultData&, OptionSet<WebKit::WebEventModifier>, API::Object*) { }
     virtual void tooltipDidChange(WebKit::WebPageProxy&, const WTF::String&) { }
 
     virtual void didNotHandleKeyEvent(WebKit::WebPageProxy*, const WebKit::NativeWebKeyboardEvent&) { }

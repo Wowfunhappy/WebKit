@@ -850,6 +850,30 @@ static std::optional<API::PageConfiguration::OpenerInfo>& NODELETE openerInfoOfP
 }
 #endif
 
+// MAVERICKS_BACKPORT: Safari 7 opens auxiliary browsing contexts (window.open) through the legacy
+// V0/V1 WKPageUIClient createNewPage callback. Unlike the modern configuration-based callback, that
+// path never hands our PageConfiguration — the one createNewPage() populated with openerInfo — to the
+// client, so Safari constructs the popup's WebPageProxy from its own configuration, which carries no
+// openerInfo and therefore gives the popup no opener frame. The popup's initial about:blank document
+// then receives a fresh opaque origin instead of inheriting the opener's, so the opener is cross-origin
+// to the popup: window.opener is null and any later `popupWindow.location = url` (or DOM access) throws
+// a SecurityError. Sites that open a blank tab and then redirect it to the real target — e.g. itch.io's
+// "No thanks, just take me to the downloads" — never navigate, so their download never starts.
+//
+// createNewPage() stashes the correct openerInfo in openerInfoOfPageBeingOpened() for the synchronous
+// span in which the client constructs the popup; recover it here whenever the configuration itself
+// carries none. The modern/Cocoa path is unaffected because its configuration already carries openerInfo
+// (so the stash is never consulted), and outside a createNewPage() the stash is empty (so an ordinary
+// new page is unaffected too).
+static const std::optional<API::PageConfiguration::OpenerInfo>& openerInfoForNewPage(const API::PageConfiguration& configuration)
+{
+#if PLATFORM(MAC)
+    if (!configuration.openerInfo() && openerInfoOfPageBeingOpened())
+        return openerInfoOfPageBeingOpened();
+#endif
+    return configuration.openerInfo();
+}
+
 static HashMap<WebPageProxyIdentifier, WeakPtr<WebPageProxy>>& NODELETE webPageProxyMap()
 {
     static MainRunLoopNeverDestroyed<HashMap<WebPageProxyIdentifier, WeakPtr<WebPageProxy>>> map;
@@ -880,7 +904,9 @@ static Ref<BrowsingContextGroup> getOrCreateBrowsingContextGroup(const API::Page
 }
 
 WebPageProxy::WebPageProxy(PageClient& pageClient, WebProcessProxy& process, Ref<API::PageConfiguration>&& configuration)
-    : m_internals(makeUniqueRefWithoutRefCountedCheck<Internals>(*this, configuration->openerInfo().transform([](API::PageConfiguration::OpenerInfo info) { return info.securityOrigin; } )))
+    // MAVERICKS_BACKPORT: openerInfoForNewPage() (vs upstream's direct configuration->openerInfo()) recovers the
+    // opener for Safari 7's legacy createNewPage path — see openerInfoForNewPage's definition for the full rationale.
+    : m_internals(makeUniqueRefWithoutRefCountedCheck<Internals>(*this, openerInfoForNewPage(configuration.get()).transform([](API::PageConfiguration::OpenerInfo info) { return info.securityOrigin; } )))
     , m_identifier(Identifier::generate())
     , m_webPageID(PageIdentifier::generate())
     , m_pageClient(pageClient)
@@ -929,13 +955,20 @@ WebPageProxy::WebPageProxy(PageClient& pageClient, WebProcessProxy& process, Ref
 #if ENABLE(REMOTE_INSPECTOR)
     , m_inspectorDebuggable(WebPageDebuggable::create(*this))
 #endif
-    , m_corsDisablingPatterns(configuration->corsDisablingPatterns())
+    // MAVERICKS_BACKPORT: 2013 MailUI predates API::PageConfiguration's corsDisablingPatterns, the
+    // configuration modern MailUI passes so a message's remote subresources load under the app's
+    // own remote-content consent rather than web CORS/CORP rules (a message document's x-webdoc://
+    // origin can never satisfy them; the app's load delegate is the arbiter of remote content).
+    // Supply on Mail's behalf what its modern counterpart sets itself; everything downstream --
+    // the web-process origin-access grants and the network-process pattern sync -- is upstream
+    // machinery. Keyed on the host app exactly as WebPreferencesDefaultValues does.
+    , m_corsDisablingPatterns(!configuration->corsDisablingPatterns().isEmpty() ? configuration->corsDisablingPatterns() : (WTF::MacApplication::isAppleMail() ? Vector<String> { "*://*/*"_s } : Vector<String> { }))
 #if ENABLE(APP_BOUND_DOMAINS)
     , m_ignoresAppBoundDomains(m_configuration->ignoresAppBoundDomains())
     , m_limitsNavigationsToAppBoundDomains(m_configuration->limitsNavigationsToAppBoundDomains())
 #endif
     , m_browsingContextGroup(getOrCreateBrowsingContextGroup(m_configuration))
-    , m_openerFrameIdentifier(configuration->openerInfo() ? std::optional(configuration->openerInfo()->frameID) : std::nullopt)
+    , m_openerFrameIdentifier(openerInfoForNewPage(configuration.get()) ? std::optional(openerInfoForNewPage(configuration.get())->frameID) : std::nullopt) // MAVERICKS_BACKPORT: recover opener for Safari 7's legacy createNewPage path (see openerInfoForNewPage)
 #if HAVE(AUDIT_TOKEN)
     , m_presentingApplicationAuditToken(process.processPool().configuration().presentingApplicationProcessToken())
 #endif
@@ -948,6 +981,12 @@ WebPageProxy::WebPageProxy(PageClient& pageClient, WebProcessProxy& process, Ref
     webPageProxyMap().set(m_identifier, this);
 
 #if PLATFORM(MAC)
+    // MAVERICKS_BACKPORT: when we recovered the opener from the stash above (Safari 7's legacy
+    // createNewPage path, see openerInfoForNewPage), mirror it onto m_configuration so the state is
+    // coherent: the diagnostic below does not misfire and consumeOpenerInfo() clears the right thing.
+    if (!m_configuration->openerInfo() && openerInfoOfPageBeingOpened())
+        m_configuration->setOpenerInfo(std::optional<API::PageConfiguration::OpenerInfo> { *openerInfoOfPageBeingOpened() });
+
     if (openerInfoOfPageBeingOpened() && openerInfoOfPageBeingOpened() != m_configuration->openerInfo())
         RELEASE_LOG_FAULT(Process, "Created WebPageProxy with wrong configuration");
 #endif
@@ -2259,25 +2298,53 @@ void WebPageProxy::loadRequestWithNavigationShared(Ref<WebProcessProxy>&& proces
         process->requestResourceMonitorRuleLists(protect(preferences())->iFrameResourceMonitoringTestingSettingsEnabled());
 #endif
 
-    maybeInitializeSandboxExtensionHandle(process, url, pageLoadState->resourceDirectoryURL(), true, [weakThis = WeakPtr { *this }, weakProcess = WeakPtr { process }, loadParameters = WTF::move(loadParameters), url, navigation = protect(navigation), webPageID, shouldTreatAsContinuingLoad] (std::optional<SandboxExtension::Handle>&& sandboxExtensionHandle) mutable {
-        RefPtr protectedProcess = weakProcess.get();
+    // MAVERICKS_BACKPORT: register the WebProcess as allowed to access the first-party
+    // cookie set for this navigation's URL. NetworkProcess otherwise rejects
+    // ScheduleResourceLoad for this domain with AllowCookieAccess::Terminate
+    // because the path-of-least-resistance code paths (processForNavigation,
+    // continueNavigationInNewProcess, etc.) only register first parties on
+    // process swaps, and our build forces same-process navigation.
+    // The registration is asynchronous, and the load MUST NOT be sent before it has been recorded.
+    // NetworkProcess::allowsFirstPartyForCookies answers Terminate -- not merely Disallow -- for an
+    // unregistered NON-EMPTY registrable domain (NetworkProcess.cpp: `firstPartyDomain.isEmpty() ?
+    // Disallow : Terminate`), and MESSAGE_CHECK then kills the WebProcess. Firing this off and
+    // sending the load in the same turn loses that race whenever the WebProcess is still launching:
+    // the load reaches the NetworkProcess first and the WebProcess is killed mid-navigation, leaving
+    // a client that never gets didFailProvisionalLoad and hangs forever. It only ever showed up for
+    // remote URLs because an IP-address or loopback first party has an EMPTY registrable domain,
+    // which takes the harmless Disallow branch -- so localhost previews worked and every real site
+    // hung (QuickLook web previews; github.com/Wowfunhappy/WebKit issue for .webloc previews).
+    // Sequencing the rest of the load inside the completion handler closes the race.
+    auto firstPartyDomain = WebCore::RegistrableDomain { url };
+    Ref networkProcessForCookieAccess = websiteDataStore().networkProcess();
+    networkProcessForCookieAccess->addAllowedFirstPartyForCookies(process, firstPartyDomain, LoadedWebArchive::No, [weakThis = WeakPtr { *this }, protectedProcess = Ref { process }, resourceDirectoryURL = pageLoadState->resourceDirectoryURL(), loadParameters = WTF::move(loadParameters), url, navigation = protect(navigation), webPageID, shouldTreatAsContinuingLoad] () mutable {
         RefPtr protectedThis = weakThis.get();
-        if (!protectedProcess || !protectedThis)
+        // MAVERICKS_BACKPORT: the page can go away while the registration IPC is in flight.
+        if (!protectedThis)
             return;
-        if (sandboxExtensionHandle)
-            loadParameters.sandboxExtensionHandle = WTF::move(*sandboxExtensionHandle);
-        protectedThis->prepareToLoadWebPage(*weakProcess, loadParameters);
+        // MAVERICKS_BACKPORT: the rest of the load, moved inside the registration's completion handler.
+        protectedThis->maybeInitializeSandboxExtensionHandle(protectedProcess.get(), url, resourceDirectoryURL, true, [weakThis, weakProcess = WeakPtr { protectedProcess.get() }, loadParameters = WTF::move(loadParameters), url, navigation, webPageID, shouldTreatAsContinuingLoad] (std::optional<SandboxExtension::Handle>&& sandboxExtensionHandle) mutable {
+            RefPtr protectedProcess = weakProcess.get();
+            RefPtr protectedThis = weakThis.get();
+            if (!protectedProcess || !protectedThis)
+                return;
+            if (sandboxExtensionHandle)
+                loadParameters.sandboxExtensionHandle = WTF::move(*sandboxExtensionHandle);
+            protectedThis->prepareToLoadWebPage(*protectedProcess, loadParameters);
 
-        if (shouldTreatAsContinuingLoad == ShouldTreatAsContinuingLoad::No)
-            protectedThis->preconnectTo(ResourceRequest { loadParameters.request });
+            // MAVERICKS_BACKPORT: unchanged upstream body, re-indented one level by the move above.
+            if (shouldTreatAsContinuingLoad == ShouldTreatAsContinuingLoad::No)
+                protectedThis->preconnectTo(ResourceRequest { loadParameters.request });
 
-        navigation->setIsLoadedWithNavigationShared(true);
-        protectedProcess->markProcessAsRecentlyUsed();
-        if (!protectedProcess->isLaunching() || !url.protocolIsFile())
-            protectedProcess->send(Messages::WebPage::LoadRequest(WTF::move(loadParameters)), webPageID);
-        else
-            protectedProcess->send(Messages::WebPage::LoadRequestWaitingForProcessLaunch(WTF::move(loadParameters), protectedThis->pageLoadState().resourceDirectoryURL(), protectedThis->identifier(), true), webPageID);
-        protectedProcess->startResponsivenessTimer();
+            // MAVERICKS_BACKPORT: still the same re-indented upstream body.
+            navigation->setIsLoadedWithNavigationShared(true);
+            protectedProcess->markProcessAsRecentlyUsed();
+            if (!protectedProcess->isLaunching() || !url.protocolIsFile())
+                protectedProcess->send(Messages::WebPage::LoadRequest(WTF::move(loadParameters)), webPageID);
+            else
+                protectedProcess->send(Messages::WebPage::LoadRequestWaitingForProcessLaunch(WTF::move(loadParameters), protectedThis->pageLoadState().resourceDirectoryURL(), protectedThis->identifier(), true), webPageID);
+            protectedProcess->startResponsivenessTimer();
+        });
     });
 }
 
@@ -2422,13 +2489,24 @@ void WebPageProxy::loadDataWithNavigationShared(Ref<WebProcessProxy>&& process, 
     prepareToLoadWebPage(process, loadParameters);
 
     process->markProcessAsRecentlyUsed();
-    process->assumeReadAccessToBaseURL(*this, baseURL, [weakProcess = WeakPtr { process }, webPageID, loadParameters = WTF::move(loadParameters)] () mutable {
-        RefPtr protectedProcess = weakProcess.get();
-        if (!protectedProcess)
-            return;
-        protectedProcess->send(Messages::WebPage::LoadData(WTF::move(loadParameters)), webPageID);
-        protectedProcess->startResponsivenessTimer();
-    }, true);
+    // MAVERICKS_BACKPORT: register the WebProcess as allowed to access the first-party
+    // cookie set for this data load's baseURL, like loadRequestWithNavigationShared and
+    // loadAlternateHTML already do. Upstream relies on the UIProcess navigation-policy
+    // path (receivedNavigationActionPolicyDecision -> sharedProcessForSite /
+    // processForNavigation) to register it, but a restored injected-bundle policy client
+    // that answers Use short-circuits policy in the WebProcess (537 semantics), so that
+    // path never runs; NetworkProcess then rejects the page's first cookie access with
+    // AllowCookieAccess::Terminate and the WebContent process is killed (Mail's
+    // conversation view, where processes are reused across x-webdoc:// message loads).
+    protect(protect(websiteDataStore())->networkProcess())->addAllowedFirstPartyForCookies(process, WebCore::RegistrableDomain { URL { baseURL } }, LoadedWebArchive::No, [process, protectedThis = Ref { *this }, webPageID, baseURL, loadParameters = WTF::move(loadParameters)] () mutable {
+        process->assumeReadAccessToBaseURL(protectedThis.get(), baseURL, [weakProcess = WeakPtr { process }, webPageID, loadParameters = WTF::move(loadParameters)] () mutable {
+            RefPtr protectedProcess = weakProcess.get();
+            if (!protectedProcess)
+                return;
+            protectedProcess->send(Messages::WebPage::LoadData(WTF::move(loadParameters)), webPageID);
+            protectedProcess->startResponsivenessTimer();
+        }, true);
+    });
 }
 
 RefPtr<API::Navigation> WebPageProxy::loadSimulatedRequest(WebCore::ResourceRequest&& simulatedRequest, WebCore::ResourceResponse&& simulatedResponse, Ref<WebCore::SharedBuffer>&& data)
@@ -3265,6 +3343,22 @@ void WebPageProxy::viewDidLeaveWindow()
 
 void WebPageProxy::viewDidEnterWindow()
 {
+#if PLATFORM(MAC) && ENABLE(TILED_CA_DRAWING_AREA)
+    // MAVERICKS_BACKPORT: recompute the layer hosting mode for the window just joined (WebKit-537
+    // WebPageProxy::viewInWindowStateDidChange parity). On 10.9 the hosted-context flavor the
+    // window can display depends on whether it composites its layer tree in the WindowServer or
+    // in-process (iBooks' reader window); on a change the drawing area tells the web process to
+    // recreate its context (DrawingArea::SetLayerHostingMode).
+    if (RefPtr pageClient = this->pageClient()) {
+        LayerHostingMode layerHostingMode = pageClient->viewLayerHostingMode();
+        if (m_layerHostingMode != layerHostingMode) {
+            m_layerHostingMode = layerHostingMode;
+            if (RefPtr drawingArea = m_drawingArea)
+                drawingArea->layerHostingModeDidChange();
+        }
+    }
+#endif
+
 #if HAVE(SPATIAL_TRACKING_LABEL)
     updateDefaultSpatialTrackingLabel();
 #endif
@@ -4214,7 +4308,7 @@ void WebPageProxy::dispatchMouseDidMoveOverElementAsynchronously(const NativeWeb
 {
     sendWithAsyncReply(Messages::WebPage::PerformHitTestForMouseEvent { event }, [this, protectedThis = Ref { *this }] (WebHitTestResultData&& hitTestResult, OptionSet<WebEventModifier> modifiers) {
         if (!isClosed())
-            mouseDidMoveOverElement(WTF::move(hitTestResult), modifiers);
+            dispatchMouseDidMoveOverElement(WTF::move(hitTestResult), modifiers, nullptr); // MAVERICKS_BACKPORT: split dispatch helper; this async hover path carries no injected-bundle data (#58).
     });
 }
 
@@ -5179,6 +5273,18 @@ Expected<WebPageProxy::DataStoreUpdateResult, WebCore::ResourceError> WebPagePro
 }
 #endif
 
+// MAVERICKS_BACKPORT: Safari 7's global Private Browsing toggle reaches each of its pages here (#55).
+void WebPageProxy::privateBrowsingEnabledDidChange()
+{
+    // Reload so the navigation-policy path (receivedNavigationActionPolicyDecision) moves this page onto or off
+    // its client's ephemeral store. The swap belongs there because it also forces the process swap the new
+    // session needs: a process stays bound to the session it was launched for, so moving the store without it
+    // leaves the load running against the old one. Without a reload the toggle would only affect future
+    // navigations, leaving the current page on its old session (the "still logged in everywhere" symptom in #55).
+    if (!currentURL().isEmpty())
+        reload({ });
+}
+
 Ref<BrowsingContextGroup> WebPageProxy::browsingContextGroupForNavigation(WebFrameProxy& frame, API::Navigation& navigation, WebsiteDataStore& websiteDataStore, ProcessSwapRequestedByClient processSwapRequestedByClient)
 {
     // Browsing context group can only be changed for main frame navigation.
@@ -5240,7 +5346,13 @@ void WebPageProxy::receivedNavigationActionPolicyDecision(WebProcessProxy& proce
     Ref preferences = m_preferences;
 
 #if PLATFORM(COCOA)
-    static const bool forceDownloadFromDownloadAttribute = false;
+    // MAVERICKS_BACKPORT: the Cocoa constant assumes a navigation delegate that reads the action and
+    // answers WKNavigationActionPolicyDownload (NavigationState.mm does). Safari 7 drives policy
+    // through the legacy WKPagePolicyClient, whose callbacks carry no navigation action at all --
+    // only navigationType/modifiers/mouseButton/frames/requests -- so downloadAttribute cannot reach
+    // it and WebKit applies the attribute itself, as on every port without such a delegate.
+    // static const bool forceDownloadFromDownloadAttribute = false;
+    const bool forceDownloadFromDownloadAttribute = !!m_policyClient;
 #else
     static const bool forceDownloadFromDownloadAttribute = true;
 #endif
@@ -5288,6 +5400,31 @@ void WebPageProxy::receivedNavigationActionPolicyDecision(WebProcessProxy& proce
         }
     }
 #endif
+
+    // MAVERICKS_BACKPORT: honor Safari 7's global Private Browsing toggle by moving this navigation onto (or off
+    // of) this client's ephemeral WebsiteDataStore. This mirrors the eager store swap in updateDataStoreForWebArchiveLoad
+    // above (pageEnd the old store -> reassign m_websiteDataStore -> pageBegin the new store) and forces a process
+    // swap the same way (processSwapRequestedByClient = Yes). Only touches the default persistent store and our own
+    // shared private store, so it composes with the web-archive and website-policy store overrides. Note: the local
+    // `websiteDataStore` shadows the websiteDataStore() member accessor, so we operate on the local directly. Only
+    // acts when the navigation will actually proceed (policyAction == Use), matching updateDataStoreForWebArchiveLoad,
+    // so an Ignore/Download decision never swaps the store. (#55)
+    if (policyAction == PolicyAction::Use && m_websiteDataStore.ptr() == websiteDataStore.ptr()) {
+        bool wantPrivate = preferences->privateBrowsingEnabled();
+        bool onSharedPrivateStore = websiteDataStore.ptr() == preferences->privateBrowsingDataStoreIfExists();
+        RefPtr<WebsiteDataStore> targetStore;
+        if (wantPrivate && !onSharedPrivateStore && websiteDataStore->isPersistent())
+            targetStore = &preferences->privateBrowsingDataStore();
+        else if (!wantPrivate && onSharedPrivateStore)
+            targetStore = &WebsiteDataStore::defaultDataStore();
+        if (targetStore) {
+            protect(m_configuration->processPool())->pageEndUsingWebsiteDataStore(*this, websiteDataStore);
+            m_websiteDataStore = *targetStore;
+            websiteDataStore = m_websiteDataStore;
+            protect(m_configuration->processPool())->pageBeginUsingWebsiteDataStore(*this, websiteDataStore);
+            processSwapRequestedByClient = ProcessSwapRequestedByClient::Yes;
+        }
+    }
 
     URL sourceURL { pageLoadState().url() };
     if (RefPtr provisionalPage = provisionalPageProxy()) {
@@ -5785,7 +5922,17 @@ void WebPageProxy::continueNavigationInNewProcess(API::Navigation& navigation, W
 
     Ref process = provisionalPage->process();
 
-    if (provisionalPage->needsCookieAccessAddedInNetworkProcess()) {
+    // MAVERICKS_BACKPORT: register unconditionally, not just when needsCookieAccessAddedInNetworkProcess()
+    // says so. That flag is set in exactly one place (ProvisionalPageProxy::initializeWebPage, under
+    // siteIsolationEnabled()), and this port does not enable site isolation -- so on every process swap
+    // here the provisional page's NEW process began its load with no allowed first party registered.
+    // NetworkProcess::allowsFirstPartyForCookies answers Terminate, not merely Disallow, for an
+    // unregistered NON-EMPTY registrable domain, so MESSAGE_CHECK killed that process mid-navigation and
+    // the client sat forever with no didFailProvisionalLoad. An IP-address or loopback first party has an
+    // EMPTY registrable domain and takes the harmless Disallow branch, which is why localhost loaded and
+    // every real host hung (QuickLook web previews of a remote .webloc). Registering the domain for the
+    // process that is about to load it is what every other path already does.
+    {
         continuation = [
             networkProcess = protect(Ref { websiteDataStore() }->networkProcess()),
             continuation = WTF::move(continuation),
@@ -7122,6 +7269,10 @@ void WebPageProxy::didStartProgress()
     pageLoadState->didStartProgress(transaction);
 
     pageLoadState->commitChanges();
+
+    // MAVERICKS_BACKPORT: forward to legacy loader client.
+    if (m_loaderClient)
+        m_loaderClient->didStartProgress(*this);
 }
 
 void WebPageProxy::didChangeProgress(double value)
@@ -7133,6 +7284,10 @@ void WebPageProxy::didChangeProgress(double value)
     pageLoadState->didChangeProgress(transaction, value);
 
     pageLoadState->commitChanges();
+
+    // MAVERICKS_BACKPORT: forward to legacy loader client (Safari 7 uses this).
+    if (m_loaderClient)
+        m_loaderClient->didChangeProgress(*this);
 }
 
 void WebPageProxy::didFinishProgress()
@@ -7144,6 +7299,10 @@ void WebPageProxy::didFinishProgress()
     pageLoadState->didFinishProgress(transaction);
 
     pageLoadState->commitChanges();
+
+    // MAVERICKS_BACKPORT: forward to legacy loader client (Safari 7 uses this).
+    if (m_loaderClient)
+        m_loaderClient->didFinishProgress(*this);
 }
 
 void WebPageProxy::setNetworkRequestsInProgress(bool networkRequestsInProgress)
@@ -7869,6 +8028,18 @@ void WebPageProxy::didCommitLoadForFrame(IPC::Connection& connection, FrameIdent
         protectedPageLoadState->didCommitLoad(transaction, certificateInfo, markPageInsecure, usedLegacyTLS, wasPrivateRelayed, WTF::move(proxyName), source, frameInfo.securityOrigin);
         m_shouldSuppressNextAutomaticNavigationSnapshot = false;
 
+        // MAVERICKS_BACKPORT: the page URL now exists, which is all a favicon guess needs — the page's
+        // own icons are offered only once its head is parsed, and a reader can be gone by then (#112).
+        // The URL travels explicitly: pageLoadState().url() still reads the previous page while this
+        // commit's transaction is open.
+        //
+        // The navigation's original request is the URL the load started from, before any redirect;
+        // committedInitialRequestURL() holds it for the icon store, which maps this page's icon under
+        // it too, and it must be current before the two calls below read it.
+        m_committedInitialRequestURL = navigation ? navigation->originalRequest().url() : URL { };
+        legacyMainFrameProcess().processPool().fetchGuessedIconForPage(*this, request.url());
+        legacyMainFrameProcess().processPool().carryIconToInitialRequestURL(*this, request.url());
+
 #if PLATFORM(COCOA)
         for (auto frameIDWithPendingLoad : m_framesWithSubresourceLoadingForPageLoadTiming)
             WTFEndSignpost(static_cast<uintptr_t>(frameID.toUInt64()), PLTSubresourceLoading, "didCommitLoadForFrame(%llu), ending pending resource loads for frame %llu", frameID.toUInt64(), frameIDWithPendingLoad.toUInt64());
@@ -8031,6 +8202,10 @@ void WebPageProxy::didFinishDocumentLoadForFrame(IPC::Connection& connection, Fr
         m_navigationClient->didFinishDocumentLoad(*this, navigation.get(), process->transformHandlesToObjects(protect(userData.object()).get()).get());
         internals().didFinishDocumentLoadForMainFrameTimestamp = MonotonicTime::now();
     }
+
+    // MAVERICKS_BACKPORT: forward to legacy loader client (Safari 7 uses this).
+    if (m_loaderClient)
+        m_loaderClient->didFinishDocumentLoadForFrame(*this, *frame, navigation.get(), nullptr);
 }
 
 HashSet<Ref<WebProcessProxy>> WebPageProxy::webContentProcessesWithFrame()
@@ -8314,8 +8489,14 @@ void WebPageProxy::didSameDocumentNavigationForFrame(IPC::Connection& connection
     auto transaction = protectedPageLoadState->transaction();
 
     bool isMainFrame = frame->isMainFrame();
-    if (isMainFrame)
+    if (isMainFrame) {
+        // MAVERICKS_BACKPORT: this navigation makes a history entry for a URL no load will ever commit,
+        // so the favicon paths that hang off loads cannot reach it — the document's icon claim carries
+        // to the URL it now shows under (#112). pageLoadState().url() still reads the URL navigated
+        // FROM until this transaction's commitChanges below.
+        legacyMainFrameProcess().processPool().carryIconForSameDocumentNavigation(*this, protectedPageLoadState->url(), url);
         protectedPageLoadState->didSameDocumentNavigation(transaction, url.string());
+    } // MAVERICKS_BACKPORT: closes the brace opened for the favicon carry above (#112).
 
     if (m_controlledByAutomation) {
         if (RefPtr automationSession = m_configuration->processPool().automationSession())
@@ -8333,7 +8514,13 @@ void WebPageProxy::didSameDocumentNavigationForFrame(IPC::Connection& connection
 
     if (isMainFrame) {
         Ref process = WebProcessProxy::fromConnection(connection);
-        m_navigationClient->didSameDocumentNavigation(*this, navigation.get(), navigationType, process->transformHandlesToObjects(protect(userData.object()).get()).get());
+        auto apiUserData = process->transformHandlesToObjects(protect(userData.object()).get());
+        m_navigationClient->didSameDocumentNavigation(*this, navigation.get(), navigationType, apiUserData.get());
+        // MAVERICKS_BACKPORT: Safari registers the legacy loader client (WKPageSetPageLoaderClient),
+        // not a navigation client, so same-document navigations must also reach the loader client (mirrors
+        // didChangeBackForwardList). Without this the address bar never updates on pushState/replaceState.
+        if (m_loaderClient)
+            m_loaderClient->didSameDocumentNavigationForFrame(*this, *frame, navigationType, apiUserData.get());
     }
 
     if (isMainFrame)
@@ -8365,8 +8552,12 @@ void WebPageProxy::didSameDocumentNavigationForFrameViaJS(IPC::Connection& conne
     auto transaction = protectedPageLoadState->transaction();
 
     bool isMainFrame = frame->isMainFrame();
-    if (isMainFrame)
+    if (isMainFrame) {
+        // MAVERICKS_BACKPORT: history.pushState/replaceState land here — the same-document favicon
+        // carry above applies identically (#112).
+        legacyMainFrameProcess().processPool().carryIconForSameDocumentNavigation(*this, protectedPageLoadState->url(), url);
         protectedPageLoadState->didSameDocumentNavigation(transaction, url.string());
+    } // MAVERICKS_BACKPORT: closes the brace opened for the favicon carry above (#112).
 
     if (m_controlledByAutomation) {
         if (RefPtr automationSession = m_configuration->processPool().automationSession())
@@ -8382,8 +8573,14 @@ void WebPageProxy::didSameDocumentNavigationForFrameViaJS(IPC::Connection& conne
         automationSession->fragmentNavigatedForFrame(*frame, navigation ? std::optional(navigation->navigationID()) : std::nullopt);
 #endif
 
-    if (isMainFrame)
-        m_navigationClient->didSameDocumentNavigation(*this, navigation.get(), navigationType, process->transformHandlesToObjects(protect(userData.object()).get()).get());
+    if (isMainFrame) {
+        auto apiUserData = process->transformHandlesToObjects(protect(userData.object()).get());
+        m_navigationClient->didSameDocumentNavigation(*this, navigation.get(), navigationType, apiUserData.get());
+        // MAVERICKS_BACKPORT: bridge same-document navigations to the legacy loader client too, so the
+        // address bar updates on history.pushState/replaceState (see didSameDocumentNavigationForFrame).
+        if (m_loaderClient)
+            m_loaderClient->didSameDocumentNavigationForFrame(*this, *frame, navigationType, apiUserData.get());
+    }
 
     if (isMainFrame)
         protectedPageClient->didSameDocumentNavigationForMainFrame(navigationType);
@@ -8505,9 +8702,15 @@ void WebPageProxy::didReceiveTitleForFrame(IPC::Connection& connection, FrameIde
         }
     }
 
+    // MAVERICKS_BACKPORT: keep a copy of the title before it's moved, to forward to the legacy loader client below.
+    String forwardedTitle = title;
     frame->didChangeTitle(WTF::move(title));
 
     protectedPageLoadState->commitChanges();
+
+    // MAVERICKS_BACKPORT: forward to legacy loader client (Safari 7 uses this).
+    if (m_loaderClient)
+        m_loaderClient->didReceiveTitleForFrame(*this, forwardedTitle, *frame, nullptr);
 
 #if ENABLE(REMOTE_INSPECTOR)
     if (frame->isMainFrame())
@@ -8522,8 +8725,20 @@ void WebPageProxy::processDidUpdateThrottleState()
 }
 
 
-void WebPageProxy::didFirstLayoutForFrame(FrameIdentifier, const UserData& userData)
+// MAVERICKS_BACKPORT: frameID/userData params are now named (were anonymous in the upstream empty stub) because the body below dispatches the legacy first-layout signal to the deprecated loader client (iBooks reader-window sequencing).
+void WebPageProxy::didFirstLayoutForFrame(FrameIdentifier frameID, const UserData& userData)
 {
+    // MAVERICKS_BACKPORT: dispatch the legacy first-layout signal to the deprecated loader
+    // client (this was an empty stub upstream). WKPageSetPageLoaderClient registers for the
+    // DidFirstLayout milestone whenever the client sets didFirstLayoutForFrame, and legacy
+    // embedders sequence on the callback — iBooks will not swap a freshly loaded chapter's
+    // view into its reader window until its loader client hears first layout.
+    RefPtr frame = WebFrameProxy::webFrame(frameID);
+    if (!frame)
+        return;
+
+    if (m_loaderClient)
+        m_loaderClient->didFirstLayoutForFrame(*this, *frame, protect(legacyMainFrameProcess())->transformHandlesToObjects(protect(userData.object()).get()).get());
 }
 
 void WebPageProxy::didFirstVisuallyNonEmptyLayoutForFrame(IPC::Connection& connection, FrameIdentifier frameID, const UserData& userData, WallTime timestamp)
@@ -8653,6 +8868,9 @@ void WebPageProxy::decidePolicyForNavigationAction(Ref<WebProcessProxy>&& proces
     auto originatingFrameInfoData = navigationActionData.originatingFrameInfoData;
     auto originalRequest = navigationActionData.originalRequest;
     auto request = navigationActionData.request;
+    // MAVERICKS_BACKPORT (#60): capture the injected-bundle policy userData (serialized handles) before
+    // navigationActionData is consumed; rehydrated and handed to the legacy policy client below.
+    RefPtr<API::Object> bundlePolicyUserDataObject = navigationActionData.bundlePolicyUserData.objectForSerialization();
 
     WEBPAGEPROXY_RELEASE_LOG(Loading, "decidePolicyForNavigationAction: frameID=%" PRIu64 ", isMainFrame=%d, navigationID=%" PRIu64, frame.frameID().toUInt64(), frame.isMainFrame(), navigationID ? navigationID->toUInt64() : 0);
 
@@ -8984,9 +9202,15 @@ void WebPageProxy::decidePolicyForNavigationAction(Ref<WebProcessProxy>&& proces
     if (!sessionID().isEphemeral())
         logFrameNavigation(frame, URL { internals().pageLoadState.url() }, request, navigationAction->data().redirectResponse.url(), wasPotentiallyInitiatedByUser);
 
-    if (m_policyClient)
-        m_policyClient->decidePolicyForNavigationAction(*this, &frame, WTF::move(navigationAction), originatingFrame.get(), originalRequest, WTF::move(request), WTF::move(listener));
-    else {
+    if (m_policyClient) {
+        // MAVERICKS_BACKPORT (#60): rehydrate the userData object the restored injected-bundle
+        // policy client attached in the WebProcess. Safari's legacy
+        // V0/V1 WKPagePolicyClient callback (BrowserPagePolicyClient::decidePolicyForAction) casts
+        // this to a WKDictionary and bails WITHOUT driving the listener if it is null. Passing the
+        // real dictionary lets Safari's callback actually call use()/ignore()/download().
+        RefPtr<API::Object> bundlePolicyUserData = process->transformHandlesToObjects(bundlePolicyUserDataObject.get());
+        m_policyClient->decidePolicyForNavigationAction(*this, &frame, WTF::move(navigationAction), originatingFrame.get(), originalRequest, WTF::move(request), WTF::move(listener), bundlePolicyUserData.get());
+    } else {
 #if HAVE(APP_SSO)
         if (m_shouldSuppressSOAuthorizationInNextNavigationPolicyDecision || !protect(preferences())->isExtensibleSSOEnabled())
             navigationAction->unsetShouldPerformSOAuthorization();
@@ -9121,21 +9345,43 @@ void WebPageProxy::decidePolicyForNewWindowAction(IPC::Connection& connection, N
         receivedPolicyDecision(policyAction, nullptr, std::nullopt, WTF::move(navigationAction), WillContinueLoadInNewProcess::No, std::nullopt, std::nullopt, WTF::move(completionHandler));
     }, ShouldExpectSafeBrowsingResult::No, ShouldExpectAppBoundDomainResult::No, ShouldWaitForInitialLinkDecorationFilteringData::No, ShouldWaitForSiteHasStorageCheck::No, ShouldWaitForEnhancedSecurityLinkCheck::No);
 
-    if (m_policyClient)
-        m_policyClient->decidePolicyForNewWindowAction(*this, *frame, navigationAction.get(), request, frameName, WTF::move(listener));
+    if (m_policyClient) {
+        // MAVERICKS_BACKPORT: hand the API policy client the injected bundle's userData.
+        RefPtr<API::Object> bundleUserDataObject = process->transformHandlesToObjects(protect(navigationActionData.bundlePolicyUserData.object()).get());
+        m_policyClient->decidePolicyForNewWindowAction(*this, *frame, navigationAction.get(), request, frameName, WTF::move(listener), bundleUserDataObject.get());
+    }
     else
         m_navigationClient->decidePolicyForNavigationAction(*this, navigationAction.get(), WTF::move(listener));
 }
 
-void WebPageProxy::decidePolicyForResponse(IPC::Connection& connection, FrameInfoData&& frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, const ResourceResponse& response, const ResourceRequest& request, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, CompletionHandler<void(PolicyDecision&&)>&& completionHandler)
+// MAVERICKS_BACKPORT: signature carries bundlePolicyUserData (the injected-bundle policy client's userData) through to the C API policy client.
+void WebPageProxy::decidePolicyForResponse(IPC::Connection& connection, FrameInfoData&& frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, const ResourceResponse& response, const ResourceRequest& request, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, const UserData& bundlePolicyUserData, CompletionHandler<void(PolicyDecision&&)>&& completionHandler)
 {
     RefPtr frame = WebFrameProxy::webFrame(frameInfo.frameID);
     if (!frame)
         return completionHandler({ });
-    decidePolicyForResponseShared(WebProcessProxy::fromConnection(connection), m_webPageID, WTF::move(frameInfo), navigationID, response, request, canShowMIMEType, WTF::move(downloadAttribute), isShowingInitialAboutBlank, activeDocumentCOOPValue, WTF::move(completionHandler));
+    // MAVERICKS_BACKPORT: forwards bundlePolicyUserData.
+    decidePolicyForResponseShared(WebProcessProxy::fromConnection(connection), m_webPageID, WTF::move(frameInfo), navigationID, response, request, canShowMIMEType, WTF::move(downloadAttribute), isShowingInitialAboutBlank, activeDocumentCOOPValue, bundlePolicyUserData, WTF::move(completionHandler));
 }
 
-void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process, PageIdentifier webPageID, FrameInfoData&& frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, const ResourceResponse& response, const ResourceRequest& request, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, CompletionHandler<void(PolicyDecision&&)>&& completionHandler)
+// MAVERICKS_BACKPORT: restored with InjectedBundlePagePolicyClient (upstream 9eeab8d removed the
+// message); invokes the legacy WKPagePolicyClient.unableToImplementPolicy callback Safari registers.
+void WebPageProxy::unableToImplementPolicy(IPC::Connection& connection, WebCore::FrameIdentifier frameID, const WebCore::ResourceError& error, const UserData& userData)
+{
+    RefPtr protectedPageClient { pageClient() };
+
+    RefPtr frame = WebFrameProxy::webFrame(frameID);
+    if (!frame)
+        return;
+
+    if (!m_policyClient)
+        return;
+    Ref process = WebProcessProxy::fromConnection(connection);
+    m_policyClient->unableToImplementPolicy(*this, *frame, error, process->transformHandlesToObjects(protect(userData.object()).get()).get());
+}
+
+// MAVERICKS_BACKPORT: signature carries bundlePolicyUserData (the injected-bundle policy client's userData) through to the C API policy client.
+void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process, PageIdentifier webPageID, FrameInfoData&& frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, const ResourceResponse& response, const ResourceRequest& request, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, const UserData& bundlePolicyUserData, CompletionHandler<void(PolicyDecision&&)>&& completionHandler)
 {
     RefPtr protectedPageClient { pageClient() };
 
@@ -9175,9 +9421,27 @@ void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process,
         // FIXME: Assert the API::WebsitePolicies* is nullptr here once clients of WKFramePolicyListenerUseWithPolicies go away.
         RELEASE_ASSERT(processSwapRequestedByClient == ProcessSwapRequestedByClient::No);
 
+#if PLATFORM(MAC)
+        // MAVERICKS_BACKPORT: an HLS playlist the user opens in the main frame plays in QuickTime
+        // Player. The URL is read here because completionHandlerWrapper below moves
+        // navigationResponse; the hand-off itself runs past the safe-browsing warning.
+        URL playlistToPlayInQuickTimePlayer;
+        if (policyAction != PolicyAction::Ignore
+            && frame->isMainFrame()
+            && navigationResponse->downloadAttribute().isNull()
+            && navigation && navigation->isRequestFromClientOrUserInput()
+            && MIMETypeRegistry::isTextMediaPlaylistMIMEType(navigationResponse->response().mimeType()))
+            playlistToPlayInQuickTimePlayer = navigationResponse->response().url();
+#endif
+
         bool shouldForceDownload = [&] {
             // Disallows loading model files as the main resource for child frames. If desired in the future, we can remove this line and add required support to enable this behavior.
             if (!frame->isMainFrame() && MIMETypeRegistry::isSupportedModelMIMEType(navigationResponse->response().mimeType()))
+                return true;
+            // MAVERICKS_BACKPORT: a main-frame navigation to a raw audio/video resource downloads.
+            // Subframe loads, <object>/<embed> and WKPage/WKBundlePageCanShowMIMEType keep
+            // MIMETypeRegistry::canShowMIMEType's answer and still render a MediaDocument.
+            if (policyAction == PolicyAction::Use && frame->isMainFrame() && MIMETypeRegistry::isSupportedMediaMIMEType(navigationResponse->response().mimeType()))
                 return true;
             if (policyAction != PolicyAction::Use || process->lockdownMode() != WebProcessProxy::LockdownMode::Enabled)
                 return false;
@@ -9263,6 +9527,12 @@ void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process,
             WEBPAGEPROXY_RELEASE_LOG(Sandbox, "Enabling EnableQuickLookSandboxResources state flag, status = %d", status);
         }
 #endif
+#if PLATFORM(MAC)
+        // MAVERICKS_BACKPORT: the QuickTime Player hand-off decided above. Ignoring the response
+        // leaves the current page in place.
+        if (!playlistToPlayInQuickTimePlayer.isNull() && openMediaPlaylistInQuickTimePlayer(playlistToPlayInQuickTimePlayer))
+            policyAction = PolicyAction::Ignore;
+#endif
         completionHandlerWrapper(policyAction);
     }, expectSafeBrowsing , ShouldExpectAppBoundDomainResult::No, ShouldWaitForInitialLinkDecorationFilteringData::No, ShouldWaitForSiteHasStorageCheck::No, ShouldWaitForEnhancedSecurityLinkCheck::No);
     if (expectSafeBrowsing == ShouldExpectSafeBrowsingResult::Yes && navigation) {
@@ -9273,9 +9543,11 @@ void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process,
         });
     }
 
-    if (m_policyClient)
-        m_policyClient->decidePolicyForResponse(*this, *frame, response, request, canShowMIMEType, WTF::move(listener));
-    else
+    if (m_policyClient) {
+        // MAVERICKS_BACKPORT: hand the API policy client the injected bundle's userData.
+        RefPtr<API::Object> bundleUserDataObject = process->transformHandlesToObjects(protect(bundlePolicyUserData.object()).get());
+        m_policyClient->decidePolicyForResponse(*this, *frame, response, request, canShowMIMEType, WTF::move(listener), bundleUserDataObject.get());
+    } else
         m_navigationClient->decidePolicyForNavigationResponse(*this, WTF::move(navigationResponse), WTF::move(listener));
 }
 
@@ -9918,13 +10190,21 @@ void WebPageProxy::setStatusText(const String& text)
     m_uiClient->setStatusText(this, text);
 }
 
-void WebPageProxy::mouseDidMoveOverElement(WebHitTestResultData&& hitTestResultData, OptionSet<WebEventModifier> modifiers)
+void WebPageProxy::mouseDidMoveOverElement(IPC::Connection& connection, WebHitTestResultData&& hitTestResultData, OptionSet<WebEventModifier> modifiers, const UserData& userData)
+{
+    // MAVERICKS_BACKPORT: pass the injected-bundle userData (hovered link URL) through to
+    // WKPageUIClient.mouseDidMoveOverElement so Safari 7 can populate the status bar (#58).
+    dispatchMouseDidMoveOverElement(WTF::move(hitTestResultData), modifiers, WebProcessProxy::fromConnection(connection)->transformHandlesToObjects(protect(userData.object()).get()).get());
+}
+
+void WebPageProxy::dispatchMouseDidMoveOverElement(WebHitTestResultData&& hitTestResultData, OptionSet<WebEventModifier> modifiers, API::Object* userData)
 {
 #if PLATFORM(MAC)
     m_lastMouseMoveHitTestResult = API::HitTestResult::create(hitTestResultData, this);
 #endif
 
-    m_uiClient->mouseDidMoveOverElement(*this, hitTestResultData, modifiers);
+    // MAVERICKS_BACKPORT: forward the injected-bundle userData (hovered link URL) to the restored 4-arg WKPageUIClient.mouseDidMoveOverElement for Safari 7's status bar (#58).
+    m_uiClient->mouseDidMoveOverElement(*this, hitTestResultData, modifiers, userData);
     setToolTip(hitTestResultData.tooltipText);
 }
 
@@ -10465,6 +10745,19 @@ void WebPageProxy::loadAndDecodeImage(WebCore::ResourceRequest&& request, std::o
         launchProcess(Site(aboutBlankURL()), ProcessLaunchReason::InitialProcess);
     sendWithAsyncReply(Messages::WebPage::LoadAndDecodeImage(request, sizeConstraint, maximumBytesFromNetwork), [preventProcessShutdownScope = protect(legacyMainFrameProcess())->shutdownPreventingScope(), completionHandler = WTF::move(completionHandler)] (Expected<Ref<WebCore::ShareableBitmap>, WebCore::ResourceError>&& result) mutable {
         completionHandler(WTF::move(result));
+    });
+}
+
+// MAVERICKS_BACKPORT: the load above without the decode, so the UI process can obtain a site's own
+// image bytes. The revived favicon store needs them rather than a bitmap: it decides whether to admit
+// an icon by decoding it, and rasterizes what this OS cannot read (#49, #112).
+void WebPageProxy::loadImageData(WebCore::ResourceRequest&& request, size_t maximumBytesFromNetwork, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&& completionHandler)
+{
+    if (isClosed() || !request.url().isValid() || !hasRunningProcess())
+        return completionHandler(nullptr);
+
+    sendWithAsyncReply(Messages::WebPage::LoadImageData(request, maximumBytesFromNetwork), [preventProcessShutdownScope = protect(legacyMainFrameProcess())->shutdownPreventingScope(), completionHandler = WTF::move(completionHandler)] (RefPtr<WebCore::SharedBuffer>&& data) mutable {
+        completionHandler(WTF::move(data));
     });
 }
 
@@ -12395,6 +12688,16 @@ void WebPageProxy::stopAllURLSchemeTasks(WebProcessProxy* process)
 
 void WebPageProxy::resetState(ResetStateReason resetStateReason)
 {
+#if HAVE(DISPLAY_LINK)
+    // MAVERICKS_BACKPORT: balance the DisplayLink full-speed registration when the page is
+    // invalidated (tab close / page destruction). Nothing else decrements it on this path, and
+    // DisplayLink::removeInfoForClientIfUnused drops the client only once the count reaches zero.
+    // Mirrors the deregistration windowScreenDidChange() already performs.
+    if (hasRunningProcess() && m_displayID && m_registeredForFullSpeedUpdates)
+        protect(legacyMainFrameProcess())->setDisplayLinkForDisplayWantsFullSpeedUpdates(*m_displayID, false);
+    m_registeredForFullSpeedUpdates = false;
+#endif
+
     m_mainFrame = nullptr;
     m_focusedFrame = nullptr;
     m_suspendedPageKeptToPreventFlashing = nullptr;
@@ -12788,6 +13091,12 @@ WebPageCreationParameters WebPageProxy::creationParameters(WebProcessProxy& proc
     parameters.activityState = internals().activityState;
 #if ENABLE(TILED_CA_DRAWING_AREA)
     parameters.drawingAreaType = drawingArea.type();
+    // MAVERICKS_BACKPORT: recompute from the page client so a page created for a view that is
+    // already in a window starts with the right hosted-context flavor (537 parity; the value is
+    // otherwise refreshed in viewDidEnterWindow()).
+    if (pageClient)
+        m_layerHostingMode = pageClient->viewLayerHostingMode();
+    parameters.layerHostingMode = m_layerHostingMode;
 #endif
     parameters.store = preferencesStore();
     parameters.isEditable = m_isEditable;
@@ -13196,6 +13505,26 @@ void WebPageProxy::allowGamepadAccess()
 
 void WebPageProxy::didReceiveAuthenticationChallengeProxy(Ref<AuthenticationChallengeProxy>&& authenticationChallenge, NegotiatedLegacyTLS negotiatedLegacyTLS)
 {
+    // MAVERICKS_BACKPORT: loader client first, navigation client second (see above).
+    auto dispatchToClient = [this](AuthenticationChallengeProxy& challenge) {
+        RefPtr frame = mainFrame();
+        if (m_loaderClient && frame && m_loaderClient->didReceiveAuthenticationChallengeInFrame(*this, *frame, challenge))
+            return;
+        m_navigationClient->didReceiveAuthenticationChallenge(*this, challenge);
+    };
+
+    if (negotiatedLegacyTLS == NegotiatedLegacyTLS::Yes) {
+        // MAVERICKS_BACKPORT: dispatchToClient replaces the direct m_navigationClient call here too.
+        m_navigationClient->shouldAllowLegacyTLS(*this, authenticationChallenge.get(), [protectedThis = Ref { *this }, authenticationChallenge, dispatchToClient] (bool shouldAllowLegacyTLS) {
+            if (shouldAllowLegacyTLS)
+                dispatchToClient(authenticationChallenge.get()); // MAVERICKS_BACKPORT
+            else
+                authenticationChallenge->listener().completeChallenge(AuthenticationChallengeDisposition::Cancel);
+        });
+        return;
+    }
+    dispatchToClient(authenticationChallenge.get()); // MAVERICKS_BACKPORT
+/* MAVERICKS_BACKPORT: upstream's navigation-client-only dispatch, kept so upstream merges see the original text; not built on this backport (see above).
     if (negotiatedLegacyTLS == NegotiatedLegacyTLS::Yes) {
         m_navigationClient->shouldAllowLegacyTLS(*this, authenticationChallenge.get(), [this, protectedThis = Ref { *this }, authenticationChallenge] (bool shouldAllowLegacyTLS) {
             if (shouldAllowLegacyTLS)
@@ -13206,6 +13535,7 @@ void WebPageProxy::didReceiveAuthenticationChallengeProxy(Ref<AuthenticationChal
         return;
     }
     m_navigationClient->didReceiveAuthenticationChallenge(*this, authenticationChallenge.get());
+MAVERICKS_BACKPORT */
 }
 
 void WebPageProxy::negotiatedLegacyTLS()
@@ -13755,11 +14085,25 @@ void WebPageProxy::requestMediaKeySystemPermissionForFrame(IPC::Connection& conn
         if (!protectedThis)
             return;
 
-        protectedThis->m_uiClient->decidePolicyForMediaKeySystemPermissionRequest(*protectedThis, origin, keySystem, [request = WTF::move(request)](bool allowed) {
-            if (allowed)
-                request->allow();
-            else
+        // MAVERICKS_BACKPORT: the allowed path forks on the key system below, so the page and the
+        // key system travel with the decision.
+        protectedThis->m_uiClient->decidePolicyForMediaKeySystemPermissionRequest(*protectedThis, origin, keySystem, [weakThis = WTF::move(weakThis), keySystem, request = WTF::move(request)](bool allowed) mutable {
+            if (!allowed) {
                 request->deny();
+                return;
+            }
+#if PLATFORM(MAC) && USE(GSTREAMER)
+            // MAVERICKS_BACKPORT: Widevine is served by Google's own CDM, which is not
+            // redistributable and is installed at runtime. This is where the page's request
+            // waits for it: the key system reports itself supported once the web process has
+            // been told where the module is, and unsupported when it cannot be installed.
+            if (keySystem == "com.widevine.alpha"_s) {
+                if (RefPtr page = weakThis.get())
+                    page->allowMediaKeySystemRequestWithWidevineCdm(WTF::move(request));
+                return;
+            }
+#endif
+            request->allow();
         });
     });
 #else
@@ -14716,7 +15060,22 @@ void WebPageProxy::getWebCryptoMasterKey(CompletionHandler<void(std::optional<Ve
     m_websiteDataStore->client().webCryptoMasterKey([completionHandler = WTF::move(completionHandler), protectedThis = Ref { *this }](std::optional<Vector<uint8_t>>&& key) mutable {
         if (key)
             return completionHandler(WTF::move(key));
-        protectedThis->m_navigationClient->legacyWebCryptoMasterKey(protectedThis, WTF::move(completionHandler));
+        protectedThis->m_navigationClient->legacyWebCryptoMasterKey(protectedThis, [protectedThis, completionHandler = WTF::move(completionHandler)](std::optional<Vector<uint8_t>>&& key) mutable {
+            if (key)
+                return completionHandler(WTF::move(key));
+            // MAVERICKS_BACKPORT: Safari 7 registers only a WKPageLoaderClient (WKPageSetPageNavigationClient
+            // postdates it), so m_navigationClient is the default API::NavigationClient, which completes
+            // without a key — on Cocoa wrapCryptoKey() then refuses to wrap and every CryptoKey structured
+            // clone (e.g. an IndexedDB put) throws DataCloneError. For pages driven by the legacy loader
+            // client, fall back to the platform default master key, the same fallback every modern
+            // navigation client performs (NavigationState.mm, WKPage.cpp's PageNavigationClient) and
+            // WebProcessProxy::getWebCryptoMasterKey performs for pageless contexts. Gated on m_loaderClient
+            // so an embedder whose navigation client deliberately answers without a key keeps upstream
+            // behavior. Lives in-tree because this is WebKit's own C-API surface for the Safari 7 host.
+            if (protectedThis->m_loaderClient)
+                return WebCore::getDefaultWebCryptoMasterKey(WTF::move(completionHandler));
+            completionHandler(std::nullopt);
+        });
     });
 
 }
@@ -14945,8 +15304,12 @@ void WebPageProxy::takeSnapshot(const IntRect& rect, const IntSize& bitmapSize, 
             return;
         }
         gpuProcess->sinkCompletedSnapshotToBitmap(snapshotIdentifier, bitmapSize, rootFrameIdentifier, [callback = WTF::move(callback)] (std::optional<WebCore::ShareableBitmap::Handle>&& handle) mutable {
-            if (!handle)
+            // MAVERICKS_BACKPORT: always invoke the completion handler (with nullptr) on the no-handle path
+            // so the snapshot caller isn't left hanging.
+            if (!handle) {
+                callback(nullptr);
                 return;
+            } // MAVERICKS_BACKPORT: end of always-invoke-completion-handler guard.
             RetainPtr<CGImageRef> image;
             if (RefPtr bitmap = WebCore::ShareableBitmap::create(WTF::move(*handle), WebCore::SharedMemory::Protection::ReadOnly))
                 image = bitmap->createPlatformImage(DontCopyBackingStore);
@@ -17505,7 +17868,9 @@ INSTANTIATE_SEND_TO_PROCESS_CONTAINING_FRAME(WebPage::LoadURLInFrame);
 INSTANTIATE_SEND_TO_PROCESS_CONTAINING_FRAME(WebPage::LoadDataInFrame);
 INSTANTIATE_SEND_TO_PROCESS_CONTAINING_FRAME(WebProcess::BindAccessibilityFrameWithData);
 INSTANTIATE_SEND_TO_PROCESS_CONTAINING_FRAME(WebPage::UpdateFrameScrollingMode);
-#if PLATFORM(MAC)
+// MAVERICKS_BACKPORT: ZoomPDFOut/ZoomPDFIn messages are #if ENABLE(PDF_PLUGIN) && PLATFORM(MAC); the
+// inline PDF plugin is OFF on this port (PDFs download), so match the message guard here.
+#if ENABLE(PDF_PLUGIN) && PLATFORM(MAC)
 INSTANTIATE_SEND_TO_PROCESS_CONTAINING_FRAME(WebPage::ZoomPDFOut);
 INSTANTIATE_SEND_TO_PROCESS_CONTAINING_FRAME(WebPage::ZoomPDFIn);
 #endif
@@ -17557,7 +17922,9 @@ INSTANTIATE_SEND_WITH_ASYNC_REPLY_TO_PROCESS_CONTAINING_FRAME(WebPage::RequestDr
 INSTANTIATE_SEND_WITH_ASYNC_REPLY_TO_PROCESS_CONTAINING_FRAME(WebPage::RequestAdditionalItemsForDragSession);
 #endif
 #endif
-#if PLATFORM(MAC)
+// MAVERICKS_BACKPORT: SavePDF/OpenPDFWithPreview messages are #if ENABLE(PDF_PLUGIN) && PLATFORM(MAC);
+// the inline PDF plugin is OFF on this port (PDFs download), so match the message guard here.
+#if ENABLE(PDF_PLUGIN) && PLATFORM(MAC)
 INSTANTIATE_SEND_WITH_ASYNC_REPLY_TO_PROCESS_CONTAINING_FRAME(WebPage::SavePDF);
 INSTANTIATE_SEND_WITH_ASYNC_REPLY_TO_PROCESS_CONTAINING_FRAME(WebPage::OpenPDFWithPreview);
 #endif
