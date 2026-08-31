@@ -35,12 +35,14 @@ SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE_WITH_EXPORT(PAL, DataDetectors, PAL_EXPOR
 #if HAVE(SECURE_ACTION_CONTEXT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, DataDetectors, DDSecureActionContext, PAL_EXPORT)
 #else
-SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, DataDetectors, DDActionContext, PAL_EXPORT)
+// MAVERICKS_BACKPORT: 10.9's DataDetectors exports no DDActionContext; soft-link optionally so it resolves to nil instead of failing at load.
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, DataDetectors, DDActionContext, PAL_EXPORT)
 #endif
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, DataDetectors, DDActionsManager, PAL_EXPORT)
 
 #if HAVE(DATA_DETECTORS_MAC_ACTION)
-SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, DataDetectors, DDMacAction, PAL_EXPORT)
+// MAVERICKS_BACKPORT: 10.9's DataDetectors exports no DDMacAction; soft-link optionally so it resolves to nil instead of failing at load.
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, DataDetectors, DDMacAction, PAL_EXPORT)
 #else
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, DataDetectors, DDAction, PAL_EXPORT)
 #endif
