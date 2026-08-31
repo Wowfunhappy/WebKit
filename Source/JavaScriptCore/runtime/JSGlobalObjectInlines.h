@@ -41,6 +41,7 @@
 #include <JavaScriptCore/ParserModes.h>
 #include <JavaScriptCore/StrongInlines.h>
 #include <JavaScriptCore/StructureInlines.h>
+#include <wtf/HashSet.h> // MAVERICKS_BACKPORT: RareData::weakMaps.
 #include <wtf/Hasher.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
@@ -52,6 +53,8 @@ struct JSGlobalObject::RareData {
 
     unsigned profileGroup { 0 };
     UncheckedKeyHashMap<OpaqueJSClass*, std::unique_ptr<OpaqueJSClassContextData>> opaqueJSClassData;
+    // MAVERICKS_BACKPORT: owns the JSWeakObjectMapCreate() maps made for this global object.
+    UncheckedKeyHashSet<RefPtr<OpaqueJSWeakObjectMap>> weakMaps;
 };
 
 struct JSGlobalObject::GlobalPropertyInfo {
@@ -494,8 +497,13 @@ inline unsigned JSGlobalObject::profileGroup() const
 
 inline void JSGlobalObject::registerWeakMap(OpaqueJSWeakObjectMap* map)
 {
-    // FIXME: This used to keep a set, but not clear why that was done.
-    map->ref();
+    // MAVERICKS_BACKPORT: the rare data owns the map, so releasing it runs ~OpaqueJSWeakObjectMap
+    // and with it the caller's JSWeakMapDestroyedCallback. Safari 7's injected bundle keys a
+    // process-wide wrapper cache by JSGlobalContextRef and drops each entry from that callback.
+    // // FIXME: This used to keep a set, but not clear why that was done.
+    // map->ref();
+    createRareDataIfNeeded();
+    m_rareData->weakMaps.add(map);
 }
 
 inline std::unique_ptr<OpaqueJSClassContextData>& JSGlobalObject::contextData(OpaqueJSClass* key)
