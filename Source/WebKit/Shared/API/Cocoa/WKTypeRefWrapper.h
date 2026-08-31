@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2013 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,40 +23,21 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import "config.h"
-#import "WKMain.h"
+// MAVERICKS_BACKPORT (#137): the legacy WebKit2 ObjC wrapper that lets a WKTypeRef (C-SPI object)
+// travel through an Objective-C container (e.g. injected-bundle userData / userInfo dictionaries).
+// Removed upstream with the rest of the WKWebProcessPlugIn ObjC SPI; restored here because Apple
+// Mail's WebContent injected bundle (MailUIWebBundle) links against it. Without the class the bundle
+// fails to dlopen and the message body never renders.
 
-#import "PCMDaemonEntryPoint.h"
-#import "WebPushDaemonMain.h"
-#import "WebPushToolMain.h"
-#import "XPCServiceEntryPoint.h"
+#import <Foundation/Foundation.h>
+#import <WebKit/WKBase.h>
 
-int WKXPCServiceMain(int argc, const char** argv)
-{
-    return WebKit::XPCServiceMain(argc, argv);
+@interface WKTypeRefWrapper : NSObject {
+    WKTypeRef _object;
 }
 
-int WKAdAttributionDaemonMain(int argc, const char** argv)
-{
-    return WebKit::PCMDaemonMain(argc, argv);
-}
+- (instancetype)initWithObject:(WKTypeRef)object;
 
-int WKWebPushDaemonMain(int argc, char** argv)
-{
-#if ENABLE(WEB_PUSH_NOTIFICATIONS)
-    return WebKit::WebPushDaemonMain(argc, argv);
-#else
-    return -1;
-#endif
-}
+@property (nonatomic, readonly) WKTypeRef object;
 
-int WKWebPushToolMain(int argc, char** argv)
-{
-    // MAVERICKS_BACKPORT: the !USE(MOZILLA_PUSH_SERVICE) term is what routes this port into the
-    // #else below; see the reason there.
-#if ENABLE(WEB_PUSH_NOTIFICATIONS) && !USE(MOZILLA_PUSH_SERVICE)
-    return WebKit::WebPushToolMain(argc, argv);
-#else
-    return -1;
-#endif
-}
+@end

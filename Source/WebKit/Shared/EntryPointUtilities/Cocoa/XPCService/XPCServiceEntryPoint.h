@@ -86,6 +86,8 @@ void initializeAuxiliaryProcess(AuxiliaryProcessInitializationParameters&& param
 #if !USE(RUNNINGBOARD)
 void setOSTransaction(OSObjectPtr<os_transaction_t>&&);
 #endif
+// MAVERICKS_BACKPORT: the launcher's pre-bootstrap importance boost; see XPCServiceEventHandler.
+void setPriorityBoostMessage(OSObjectPtr<xpc_object_t>&&);
 
 enum class EnableLockdownMode: bool { No, Yes };
 enum class EnableEnhancedSecurity: bool { No, Yes };

@@ -33,6 +33,9 @@
 #import "XPCServiceEntryPoint.h"
 #import "XPCUtilities.h"
 #import <CoreFoundation/CoreFoundation.h>
+// MAVERICKS_BACKPORT: dup2 and STDOUT_FILENO/STDERR_FILENO below; this build compiles with
+// -fno-modules, so unistd.h does not arrive transitively through any Darwin header.
+#import <unistd.h>
 #import <mach/mach.h>
 #import <pal/spi/cf/CFUtilitiesSPI.h>
 #import <pal/spi/cocoa/CoreServicesSPI.h>
@@ -40,6 +43,8 @@
 #import <sys/sysctl.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/Language.h>
+// MAVERICKS_BACKPORT: WorkQueue is referenced by the 10.9 bootstrap dispatch path below.
+#import <wtf/WorkQueue.h>
 #import <wtf/OSObjectPtr.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/StdLibExtras.h>
@@ -176,6 +181,11 @@ void XPCServiceEventHandler(xpc_connection_t peer)
             RELEASE_LOG_ERROR(IPC, "XPCServiceEventHandler: 'message-name' is not present in the XPC dictionary");
             return;
         }
+        // MAVERICKS_BACKPORT: the importance boost sent ahead of the bootstrap; see ProcessLauncherCocoa.mm.
+        if (messageName == "pre-bootstrap"_s) {
+            setPriorityBoostMessage(OSObjectPtr<xpc_object_t> { event });
+            return;
+        }
         if (messageName == "bootstrap"_s) {
             WTF::initialize();
 
@@ -199,7 +209,9 @@ void XPCServiceEventHandler(xpc_connection_t peer)
             register_for_dlsym_callbacks();
 #endif
 
-#if PLATFORM(IOS_FAMILY)
+// MAVERICKS_BACKPORT: also applied on Mac — the 10.9 launcher forwards TZ through this
+// channel because 10.9 launchd spawns the services with a clean environment.
+#if PLATFORM(IOS_FAMILY) || PLATFORM(MAC)
             if (RetainPtr containerEnvironmentVariables = xpc_dictionary_get_value(event, "ContainerEnvironmentVariables")) {
                 xpc_dictionary_apply(containerEnvironmentVariables.get(), ^(const char *key, xpc_object_t value) {
                     setenv(key, xpc_string_get_string_ptr(value), 1);  // NOLINT
@@ -233,7 +245,13 @@ void XPCServiceEventHandler(xpc_connection_t peer)
                 return;
             }
 
-            RetainPtr webKitBundle = CFBundleGetBundleWithIdentifier(CFSTR("com.apple.WebKit"));
+            // MAVERICKS_BACKPORT: this build ships WK2 as WebKit2.framework with the bundle
+            // identifier com.apple.WebKit2, because Safari 7's API contract gives the
+            // WebKit.framework name and the com.apple.WebKit identity to WebKitLegacy.
+            // Upstream's com.apple.WebKit lookup finds the legacy framework here, which does
+            // not export the service initializers, so the entry-point lookup must use the
+            // identity this packaging actually installs.
+            RetainPtr webKitBundle = CFBundleGetBundleWithIdentifier(CFSTR("com.apple.WebKit2"));
             typedef void (*InitializerFunction)(xpc_connection_t, xpc_object_t);
             InitializerFunction initializerFunctionPtr = reinterpret_cast<InitializerFunction>(CFBundleGetFunctionPointerForName(webKitBundle.get(), entryPointFunctionName));
             if (!initializerFunctionPtr) {

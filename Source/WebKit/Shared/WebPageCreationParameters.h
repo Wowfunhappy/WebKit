@@ -116,6 +116,8 @@ struct WebPageCreationParameters {
     WebPreferencesStore store { };
 #if ENABLE(TILED_CA_DRAWING_AREA)
     DrawingAreaType drawingAreaType { };
+    // MAVERICKS_BACKPORT: 537-parity per-window layer hosting mode (see DrawingAreaInfo.h).
+    LayerHostingMode layerHostingMode { };
 #endif
     DrawingAreaIdentifier drawingAreaIdentifier;
     WebPageProxyIdentifier webPageProxyIdentifier;

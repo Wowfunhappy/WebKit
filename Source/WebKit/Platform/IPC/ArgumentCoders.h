@@ -45,7 +45,8 @@
 #if OS(ANDROID)
 #include "ArgumentCodersAndroid.h"
 #endif
-#if USE(GLIB)
+// MAVERICKS_BACKPORT: USE(GLIB) is on for GStreamer; the glib IPC coders stay GTK/WPE-only.
+#if USE(GLIB) && !PLATFORM(COCOA)
 #include "ArgumentCodersGlib.h"
 #include "RendererBufferFormat.h"
 #endif
