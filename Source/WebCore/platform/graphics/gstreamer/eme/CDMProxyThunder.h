@@ -43,7 +43,7 @@ namespace WebCore {
 class CDMProxyThunder final : public CDMProxy, public CanMakeWeakPtr<CDMProxyThunder, WeakPtrFactoryInitialization::Eager> {
 public:
     CDMProxyThunder(const String& keySystem)
-        : m_keySystem(keySystem) { }
+        : CDMProxy(keySystem) { } // MAVERICKS_BACKPORT: the base holds the key system (CDMProxy::keySystem()).
     virtual ~CDMProxyThunder() = default;
 
     struct DecryptionContext {
@@ -56,11 +56,13 @@ public:
     };
 
     bool decrypt(DecryptionContext&, const GRefPtr<GstCaps>& inputCaps);
-    const String& keySystem() LIFETIME_BOUND { return m_keySystem; }
+    // MAVERICKS_BACKPORT: CDMProxy::keySystem() answers this.
+    // const String& keySystem() LIFETIME_BOUND { return m_keySystem; }
 
 private:
     BoxPtr<OpenCDMSession> getDecryptionSession(DecryptionContext&) const;
-    String m_keySystem;
+    // MAVERICKS_BACKPORT: CDMProxy holds the key system.
+    // String m_keySystem;
 };
 
 } // namespace WebCore
