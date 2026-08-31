@@ -326,6 +326,13 @@ set(MAVERICKS_TC "${MAVERICKS_TC}" CACHE INTERNAL "clang-22 toolchain root")
 # frameworks and points an LC_RPATH at it so the system's old 10.9 libc++ is NOT used.
 link_libraries(${MAVERICKS_TC}/lib/libc++.1.dylib)
 link_libraries(${MAVERICKS_TC}/lib/libc++abi.1.dylib)
+# clang++.cfg puts -L<toolchain>/lib on every C++ link, so CMake's ABI detection records that
+# directory as an implicit one -- a kind it will not order into a target's runtime search path.
+# deps/build/lib is on that path for everything that links a GStreamer dylib and carries the media
+# runtime's own copies of these two, so CMake sees a name it cannot safely resolve. Spelling the
+# toolchain directory as explicit lets it order the two, ahead of deps/build/lib.
+list(REMOVE_ITEM CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES "${MAVERICKS_TC}/lib")
+list(REMOVE_ITEM CMAKE_OBJCXX_IMPLICIT_LINK_DIRECTORIES "${MAVERICKS_TC}/lib")
 # libpolyfill.a supplies the symbols this port provides in place of the 10.9 runtime's: the
 # POSIX/libc base, the framework-SPI gap-fills, and the handful of deliberate replacements for 10.9
 # functions that misbehave. Linked into every binary.
