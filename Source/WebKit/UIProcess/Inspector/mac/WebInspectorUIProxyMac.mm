@@ -37,6 +37,7 @@
 #import "WKAPICast.h"
 #import "WKInspectorPrivateMac.h"
 #import "WKInspectorViewController.h"
+#import "WKInspectorWKWebView.h" // MAVERICKS_BACKPORT: names the bundle the dock button images come from.
 #import "WKObject.h"
 #import "WKViewInternal.h"
 #import "WKWebViewInternal.h"
@@ -53,6 +54,7 @@
 #import <WebCore/Color.h>
 #import <WebCore/InspectorFrontendClientLocal.h>
 #import <WebCore/LocalizedStrings.h>
+#import <mach-o/dyld.h> // MAVERICKS_BACKPORT: NSVersionOfLinkTimeLibrary, for the dock-to-right client check.
 #import <pal/spi/cf/CFUtilitiesSPI.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/CompletionHandler.h>
@@ -68,6 +70,12 @@ static const NSUInteger windowStyleMask = NSWindowStyleMaskTitled | NSWindowStyl
 static const Seconds webViewCloseTimeout { 1_min };
 
 static void* kWindowContentLayoutObserverContext = &kWindowContentLayoutObserverContext;
+
+// MAVERICKS_BACKPORT: adding a view to the window's frame view without AppKit's "unknown subview"
+// warning, where that entry point exists (see platformCreateFrontendWindow).
+@interface NSView (AppKitDetails)
+- (void)_addKnownSubview:(NSView *)subview;
+@end
 
 @interface WKWebInspectorUIProxyObjCAdapter () <NSWindowDelegate, WKInspectorViewControllerDelegate>
 
@@ -109,6 +117,19 @@ static void* kWindowContentLayoutObserverContext = &kWindowContentLayoutObserver
 - (void)invalidate
 {
     _inspectorProxy = nullptr;
+}
+
+// MAVERICKS_BACKPORT: the actions behind the detached window's native dock buttons.
+- (IBAction)attachRight:(id)sender
+{
+    if (RefPtr proxy = _inspectorProxy.get())
+        proxy->attach(WebKit::AttachmentSide::Right);
+}
+
+- (IBAction)attachBottom:(id)sender
+{
+    if (RefPtr proxy = _inspectorProxy.get())
+        proxy->attach(WebKit::AttachmentSide::Bottom);
 }
 
 - (NSRect)window:(NSWindow *)window willPositionSheet:(NSWindow *)sheet usingRect:(NSRect)rect
@@ -491,6 +512,28 @@ RefPtr<WebPageProxy> WebInspectorUIProxy::platformCreateFrontendPage()
     return inspectorPage;
 }
 
+// MAVERICKS_BACKPORT: the frontend this port ships hides its own dock control while the inspector is
+// undocked and expects the window to carry the dock controls, as WebKit's did through 792f511. A dock
+// button is a standard full screen button wearing a dock image, so it picks up that button's cell
+// behaviour and sits where the window's own full screen button would.
+static RetainPtr<NSButton> createDockButton(NSString *imageName)
+{
+    RetainPtr<NSButton> dockButton = [NSWindow standardWindowButton:NSWindowFullScreenButton forStyleMask:windowStyleMask];
+
+    // Set the autoresizing mask to keep the dock button pinned to the top right corner.
+    dockButton.get().autoresizingMask = NSViewMinXMargin | NSViewMinYMargin;
+
+    // Get the dock image and make it a template so the button cell effects will apply.
+    RetainPtr<NSImage> dockImage = [[NSBundle bundleForClass:[WKInspectorWKWebView class]] imageForResource:imageName];
+    [dockImage setTemplate:YES];
+
+    // Set the dock image on the button cell.
+    NSCell *dockButtonCell = dockButton.get().cell;
+    dockButtonCell.image = dockImage.get();
+
+    return dockButton;
+}
+
 void WebInspectorUIProxy::platformCreateFrontendWindow()
 {
     ASSERT(!m_inspectorWindow);
@@ -508,6 +551,63 @@ void WebInspectorUIProxy::platformCreateFrontendWindow()
     RetainPtr<NSView> contentView = [m_inspectorWindow contentView];
     inspectorView.get().frame = [contentView bounds];
     [contentView addSubview:inspectorView.get()];
+
+    // MAVERICKS_BACKPORT: build the window's dock controls (see createDockButton above).
+    // The spacing between the dock buttons.
+    static const CGFloat dockButtonSpacing = WKInspectorWindowDockButtonMargin * 2;
+
+    static const int32_t firstVersionOfSafariWithDockToRightSupport = 0x02181d0d; // 536.29.13
+    static bool supportsDockToRight = NSVersionOfLinkTimeLibrary("Safari") >= firstVersionOfSafariWithDockToRightSupport;
+
+    m_dockBottomButton = createDockButton(@"DockBottomLegacy");
+    m_dockRightButton = createDockButton(@"DockRightLegacy");
+
+    m_dockRightButton.get().alphaValue = supportsDockToRight ? 1 : 0.5;
+
+    m_dockBottomButton.get().target = m_objCAdapter.get();
+    m_dockBottomButton.get().action = @selector(attachBottom:);
+
+    m_dockRightButton.get().target = m_objCAdapter.get();
+    m_dockRightButton.get().action = @selector(attachRight:);
+    m_dockRightButton.get().enabled = supportsDockToRight;
+
+    // Store the dock buttons on the window too so it can lay its title out around them.
+    RetainPtr<_WKInspectorWindow> inspectorWindow = checked_objc_cast<_WKInspectorWindow>(m_inspectorWindow.get());
+    inspectorWindow.get().dockBottomButton = m_dockBottomButton.get();
+    inspectorWindow.get().dockRightButton = m_dockRightButton.get();
+
+    // Get the frame view, the superview of the content view, and its frame.
+    // This will be the superview of the dock button too.
+    RetainPtr<NSView> frameView = contentView.get().superview;
+    NSRect frameViewBounds = frameView.get().bounds;
+    NSSize dockButtonSize = m_dockBottomButton.get().frame.size;
+
+    ASSERT(!frameView.get().isFlipped);
+
+    // Position the dock buttons one slot in from the corner where the full screen button normally
+    // sits: createFrontendWindow gives every inspector window
+    // NSWindowCollectionBehaviorFullScreenPrimary, so the window's own full screen button — the same
+    // size as these, being the same control — holds that corner.
+    NSPoint dockButtonOrigin;
+    dockButtonOrigin.x = NSMaxX(frameViewBounds) - dockButtonSize.width - WKInspectorWindowDockButtonMargin;
+    dockButtonOrigin.y = NSMaxY(frameViewBounds) - dockButtonSize.height - WKInspectorWindowDockButtonMargin;
+    dockButtonOrigin.x -= dockButtonSize.width + dockButtonSpacing;
+    m_dockRightButton.get().frameOrigin = dockButtonOrigin;
+
+    dockButtonOrigin.x -= dockButtonSize.width + dockButtonSpacing;
+    m_dockBottomButton.get().frameOrigin = dockButtonOrigin;
+
+    if ([frameView respondsToSelector:@selector(_addKnownSubview:)]) {
+        [frameView _addKnownSubview:m_dockBottomButton.get()];
+        [frameView _addKnownSubview:m_dockRightButton.get()];
+    } else {
+        [frameView addSubview:m_dockBottomButton.get()];
+        [frameView addSubview:m_dockRightButton.get()];
+    }
+
+    // Hide the dock buttons if we can't attach.
+    m_dockBottomButton.get().hidden = !canAttach();
+    m_dockRightButton.get().hidden = !canAttach();
 
     updateInspectorWindowTitle();
     applyForcedAppearance();
@@ -643,7 +743,9 @@ bool WebInspectorUIProxy::platformCanAttach(bool webProcessCanAttach)
 
 void WebInspectorUIProxy::platformAttachAvailabilityChanged(bool available)
 {
-    // Do nothing.
+    // MAVERICKS_BACKPORT: the window's dock buttons show exactly while the inspector can attach.
+    m_dockBottomButton.get().hidden = !available;
+    m_dockRightButton.get().hidden = !available;
 }
 
 void WebInspectorUIProxy::platformSetForcedAppearance(InspectorFrontendClient::Appearance appearance)

@@ -1066,11 +1066,17 @@ def generate_one_impl(type, template_argument, serialized_types):
 
     if type.members_are_subclasses:
         result.append(f'enum class {type.subclass_enum_name()} : IPC::EncodedVariantIndex {{')
+        # MAVERICKS_BACKPORT: WebCore::SystemImage's first subclass is #if ENABLE(APPLE_PAY), and PassKit
+        # is macOS 10.12+, so that enumerator compiles away. Give every enumerator its own trailing comma
+        # when the first one is conditional, so the list is well formed for any subset of them.
+        trailing_comma = type.members[0].condition is not None
         for idx in range(0, len(type.members)):
             member = type.members[idx]
             if member.condition is not None:
                 result.append(f'#if {member.condition}')
-            if idx == 0:
+            if trailing_comma:
+                result.append(f'    {member.name},')
+            elif idx == 0: # MAVERICKS_BACKPORT: every other block keeps upstream's leading-comma form.
                 result.append(f'    {member.name}')
             else:
                 result.append(f'    , {member.name}')

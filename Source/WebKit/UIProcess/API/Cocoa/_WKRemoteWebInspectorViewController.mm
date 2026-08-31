@@ -38,9 +38,13 @@
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/WeakObjCPtr.h>
 
+// MAVERICKS_BACKPORT: WKErrorDomain is used in BOTH the ENABLE(INSPECTOR_EXTENSIONS) branch and the #else
+// branch of the methods below, so its header must be imported unconditionally — upstream only imports it
+// inside the guard because their Mac always has INSPECTOR_EXTENSIONS on (it is off on this port).
+#import "WKError.h"
 #if ENABLE(INSPECTOR_EXTENSIONS)
 #import "APIInspectorExtension.h"
-#import "WKError.h"
+// MAVERICKS_BACKPORT: WKError.h was hoisted above this guard (see note above) so WKErrorDomain resolves in the INSPECTOR_EXTENSIONS-off #else branch.
 #import "WebInspectorUIExtensionControllerProxy.h"
 #import "_WKInspectorExtensionInternal.h"
 #import <wtf/BlockPtr.h>

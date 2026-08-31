@@ -41,13 +41,22 @@
 #import "WebPolicyDelegate.h"
 #import "WebQuotaManager.h"
 #import "WebSecurityOriginPrivate.h"
+// MAVERICKS_BACKPORT: WebScriptWorld standardWorld for the classic-frontend bridge user script injected below (#52/#66/#69).
+#import "WebScriptWorld.h"
 #import "WebUIDelegatePrivate.h"
 #import "WebViewInternal.h"
+// MAVERICKS_BACKPORT: WebViewPrivate declares +[WebView _addUserScriptToGroup:...] used to inject the classic-frontend bridge below.
+#import "WebViewPrivate.h"
 #import <JavaScriptCore/InspectorAgentBase.h>
 #import <SecurityInterface/SFCertificatePanel.h>
 #import <SecurityInterface/SFCertificateView.h>
 #import <WebCore/CertificateInfo.h>
+// MAVERICKS_BACKPORT: InspectorFrontendClassicBridge provides classicInspectorFrontendBridgeScriptUTF8() (classic-frontend bridge, #52/#66/#69).
+#import <WebCore/InspectorFrontendClassicBridge.h>
 #import <WebCore/InspectorFrontendClient.h>
+// MAVERICKS_BACKPORT: LegacySchemeRegistry registers inspector-resource:// as a scheme-handler (real) origin; MIMETypeRegistry types the bundle resources served by the NSURLProtocol below (#52).
+#import <WebCore/LegacySchemeRegistry.h>
+#import <WebCore/MIMETypeRegistry.h>
 #import <WebCore/LocalFrame.h>
 #import <WebCore/Page.h>
 #import <WebCore/PageInspectorController.h>
@@ -67,19 +76,169 @@ static const CGFloat minimumWindowHeight = 400;
 static const CGFloat initialWindowWidth = 1000;
 static const CGFloat initialWindowHeight = 650;
 
+// MAVERICKS_BACKPORT: the margin from the top and right of the dock button (same as the full screen
+// button). The frontend this port ships hides its own dock control while the inspector is undocked and
+// expects the window to carry one, as WebKit's did through 792f511.
+static const CGFloat dockButtonMargin = 3;
+
+@interface NSView (AppKitDetails)
+- (void)_addKnownSubview:(NSView *)subview;
+@end
+
+@interface NSWindow (AppKitDetails)
+- (NSCursor *)_cursorForResizeDirection:(NSInteger)direction;
+- (NSRect)_customTitleFrame;
+@end
+
+// MAVERICKS_BACKPORT: the inspector window lays its title out around its dock button and suppresses the
+// northeast resize cursor the button sits under.
+@interface WebInspectorWindow : NSWindow {
+@public
+    RetainPtr<NSButton> _dockButton;
+}
+@end
+
+@implementation WebInspectorWindow
+
+- (NSCursor *)_cursorForResizeDirection:(NSInteger)direction
+{
+    // Don't show a resize cursor for the northeast (top right) direction if the dock button is visible.
+    // This matches what happens when the full screen button is visible.
+    if (direction == 1 && ![_dockButton isHidden])
+        return nil;
+    return [super _cursorForResizeDirection:direction];
+}
+
+- (NSRect)_customTitleFrame
+{
+    // Adjust the title frame if needed to prevent it from intersecting the dock button.
+    NSRect titleFrame = [super _customTitleFrame];
+    NSRect dockButtonFrame = _dockButton.get().frame;
+    if (NSMaxX(titleFrame) > NSMinX(dockButtonFrame) - dockButtonMargin)
+        titleFrame.size.width -= (NSMaxX(titleFrame) - NSMinX(dockButtonFrame)) + dockButtonMargin;
+    return titleFrame;
+}
+
+@end
+
+// MAVERICKS_BACKPORT: this backport deliberately ships the system stock (Safari 8-era)
+// WebInspectorUI frontend for its Aqua toolbar + pill tab look, run against the modern backend. It
+// is served to the undocked WK1 inspector WebView under a real-origin custom scheme (not file://),
+// so the frontend's own `default-src 'self'` CSP resolves against a real tuple origin and its
+// scripts/styles load with the shipped policy left untouched — the WebKitLegacy analogue of WK2's
+// inspector-resource:// WKURLSchemeHandler (WKInspectorResourceURLSchemeHandler). WebKitLegacy has
+// no URL-scheme-handler API, so an NSURLProtocol serves the com.apple.WebInspectorUI bundle and the
+// scheme is registered as handled-by-scheme-handler, which is what makes SecurityOrigin treat it as
+// a real (non-opaque) origin (SecurityOriginData::shouldTreatAsOpaqueOrigin).
+static NSString * const WebInspectorResourceScheme = @"inspector-resource";
+
+// The classic frontend runs against the modern backend, so a document-start user script — shared
+// verbatim with WK2 in WebCore/inspector/InspectorFrontendClassicBridge.h — bridges the protocol/IDL
+// drift and paints the #52/#66/#69 unified titlebar. It is injected only into this WebView group so
+// it reaches the classic production frontend and NOT the modern built-tree test frontend, whose
+// Target protocol already matches the backend and would be broken by the bridge's wrap/unwrap.
+static NSString * const WebInspectorFrontendGroupName = @"WebInspectorClassicFrontend";
+
+// MAVERICKS_BACKPORT: NSURLProtocol serving inspector-resource:// from the WebInspectorUI bundle.
+@interface WebInspectorResourceProtocol : NSURLProtocol
+@end
+
+@implementation WebInspectorResourceProtocol
+
++ (BOOL)canInitWithRequest:(NSURLRequest *)request
+{
+    return [request.URL.scheme caseInsensitiveCompare:WebInspectorResourceScheme] == NSOrderedSame;
+}
+
++ (NSURLRequest *)canonicalRequestForRequest:(NSURLRequest *)request
+{
+    return request;
+}
+
++ (BOOL)requestIsCacheEquivalent:(NSURLRequest *)a toRequest:(NSURLRequest *)b
+{
+    return NO;
+}
+
+- (void)startLoading
+{
+    RetainPtr<NSURL> requestURL = self.request.URL;
+    NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
+    // Resolve inspector-resource:///<path> against the bundle, as WK2's
+    // WKInspectorResourceURLSchemeHandler does: the lookup stays inside the bundle and picks the
+    // localized copy of a resource that has one.
+    RetainPtr<NSURL> fileURL = [bundle URLForResource:requestURL.get().relativePath withExtension:@""];
+
+    NSError *readError = nil;
+    NSData *fileData = fileURL ? [NSData dataWithContentsOfURL:fileURL.get() options:0 error:&readError] : nil;
+    if (!fileData) {
+        [self.client URLProtocol:self didFailWithError:(readError ?: [NSError errorWithDomain:NSCocoaErrorDomain code:NSURLErrorFileDoesNotExist userInfo:nil])];
+        return;
+    }
+
+    RetainPtr<NSString> mimeType = MIMETypeRegistry::mimeTypeForExtension(String(fileURL.get().pathExtension)).createNSString();
+    if (!mimeType)
+        mimeType = @"application/octet-stream";
+
+    RetainPtr<NSMutableDictionary> headerFields = adoptNS([@{
+        @"Access-Control-Allow-Origin": @"*",
+        @"Content-Length": [NSString stringWithFormat:@"%zu", (size_t)fileData.length],
+        @"Content-Type": mimeType.get(),
+    } mutableCopy]);
+
+    // Mirror WK2's WKInspectorResourceURLSchemeHandler: loosen connect-src/img-src for the frontend
+    // page itself so its feature fetches aren't blocked by the shipped default-src 'self'.
+    if ([requestURL.get().relativePath isEqualToString:@"/Main.html"])
+        [headerFields setObject:@"connect-src *; img-src * file: blob: resource:" forKey:@"Content-Security-Policy"];
+
+    RetainPtr<NSHTTPURLResponse> response = adoptNS([[NSHTTPURLResponse alloc] initWithURL:requestURL.get() statusCode:200 HTTPVersion:@"HTTP/1.1" headerFields:headerFields.get()]);
+    [self.client URLProtocol:self didReceiveResponse:response.get() cacheStoragePolicy:NSURLCacheStorageNotAllowed];
+    [self.client URLProtocol:self didLoadData:fileData];
+    [self.client URLProtocolDidFinishLoading:self];
+}
+
+- (void)stopLoading
+{
+}
+
+@end
+
+// MAVERICKS_BACKPORT: register the inspector-resource scheme + its NSURLProtocol and install the
+// shared classic-frontend bridge user script, once per process.
+static void ensureWebInspectorClassicFrontendRegistered()
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        LegacySchemeRegistry::registerURLSchemeAsHandledBySchemeHandler("inspector-resource"_s);
+        [NSURLProtocol registerClass:[WebInspectorResourceProtocol class]];
+        // Native user scripts are exempt from the page CSP, so injecting the bridge here (main world,
+        // document start) leaves the frontend's own script-src untouched.
+        [WebView _addUserScriptToGroup:WebInspectorFrontendGroupName
+                                 world:[WebScriptWorld standardWorld]
+                                source:[NSString stringWithUTF8String:classicInspectorFrontendBridgeScriptUTF8()]
+                                   url:nil
+            includeMatchPatternStrings:nil
+            excludeMatchPatternStrings:nil
+                         injectionTime:WebInjectAtDocumentStart
+                        injectedFrames:WebInjectInAllFrames];
+    });
+}
+
 @interface WebInspectorWindowController : NSWindowController <NSWindowDelegate, WebPolicyDelegate, WebUIDelegate> {
 @private
     RetainPtr<WebView> _inspectedWebView;
     RetainPtr<WebView> _frontendWebView;
     NakedPtr<WebInspectorFrontendClient> _frontendClient;
     WebInspectorClient* _inspectorClient;
+    RetainPtr<NSButton> _dockButton; // MAVERICKS_BACKPORT: the window's dock control (see WebInspectorWindow above).
     BOOL _attachedToInspectedWebView;
     BOOL _shouldAttach;
     BOOL _visible;
     BOOL _destroyingInspectorView;
 }
 - (id)initWithInspectedWebView:(WebView *)inspectedWebView isUnderTest:(BOOL)isUnderTest;
-- (NSString *)inspectorPagePath;
+// MAVERICKS_BACKPORT: renamed from -inspectorPagePath (NSString file path) to -inspectorPageURL (NSURL) — the classic frontend now loads from the inspector-resource:// scheme, not a bundle file path.
+- (NSURL *)inspectorPageURL;
 - (NSString *)inspectorTestPagePath;
 - (WebView *)frontendWebView;
 - (void)attach;
@@ -229,15 +388,21 @@ void WebInspectorFrontendClient::startWindowDrag()
 
 String WebInspectorFrontendClient::localizedStringsURL() const
 {
-    NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
-    if (!bundle)
-        return String();
-
-    NSString *path = [bundle pathForResource:@"localizedStrings" ofType:@"js"];
-    if (!path.length)
-        return String();
-    
-    return [NSURL fileURLWithPath:path isDirectory:NO].absoluteString;
+    // MAVERICKS_BACKPORT: upstream's body was:
+    //     NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
+    //     if (!bundle)
+    //         return String();
+    //
+    //     NSString *path = [bundle pathForResource:@"localizedStrings" ofType:@"js"];
+    //     if (!path.length)
+    //         return String();
+    //
+    //     return [NSURL fileURLWithPath:path isDirectory:NO].absoluteString;
+    // The classic frontend loads this URL directly, so it comes from the same real-origin
+    // inspector-resource:// scheme the frontend page is served from, as WK2's
+    // WebInspectorUI::localizedStringsURL() does; WebInspectorResourceProtocol resolves the name
+    // through the bundle, which picks the localized copy.
+    return "inspector-resource:///localizedStrings.js"_s;
 }
 
 void WebInspectorFrontendClient::bringToFront()
@@ -482,6 +647,9 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
     if (!(self = [super initWithWindow:nil]))
         return nil;
 
+    // MAVERICKS_BACKPORT: register the inspector-resource:// NSURLProtocol + scheme (once) before the frontend WebView loads (classic-frontend backport).
+    ensureWebInspectorClassicFrontendRegistered();
+
     // Keep preferences separate from the rest of the client, making sure we are using expected preference values.
 
     auto preferences = adoptNS([[WebPreferences alloc] init]);
@@ -518,8 +686,26 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
     _inspectedWebView = webView;
 
-    NSString *pagePath = isUnderTest ? [self inspectorTestPagePath] : [self inspectorPagePath];
-    auto request = adoptNS([[NSURLRequest alloc] initWithURL:[NSURL fileURLWithPath:pagePath]]);
+    // MAVERICKS_BACKPORT: replace upstream's single file:// load with a test-vs-production split —
+    // production serves the classic frontend from the real-origin inspector-resource:// scheme
+    // (see WebInspectorResourceProtocol above); the build-tree test frontend keeps the file:// load.
+    if (isUnderTest) {
+        // The build-tree test frontend is the modern WebInspectorUI that matches the backend, so it
+        // needs no classic-frontend bridge and loads directly (upstream shape). Its WebView is left
+        // out of WebInspectorFrontendGroupName so the bridge never reaches it (it would break the
+        // modern frontend's already-correct Target protocol).
+        NSString *testPagePath = [self inspectorTestPagePath];
+        RELEASE_ASSERT(testPagePath);
+        auto request = adoptNS([[NSURLRequest alloc] initWithURL:[NSURL fileURLWithPath:testPagePath isDirectory:NO]]);
+        [[_frontendWebView mainFrame] loadRequest:request.get()];
+        return self;
+    }
+
+    // Production: serve the classic frontend from the real-origin inspector-resource:// scheme (see
+    // WebInspectorResourceProtocol above) so its shipped CSP resolves untouched, and join the group
+    // carrying the document-start bridge user script.
+    [_frontendWebView setGroupName:WebInspectorFrontendGroupName];
+    auto request = adoptNS([[NSURLRequest alloc] initWithURL:[self inspectorPageURL]]);
     [[_frontendWebView mainFrame] loadRequest:request.get()];
 
     return self;
@@ -527,13 +713,18 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
 // MARK: -
 
-- (NSString *)inspectorPagePath
+// MAVERICKS_BACKPORT: this is upstream's -inspectorPagePath, returning an inspector-resource:// URL
+// instead of Main.html's path inside WebInspectorUI.framework, so the classic frontend loads from a
+// real origin rather than file://.
+- (NSURL *)inspectorPageURL
 {
-    NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
-    if (!bundle)
-        return nil;
-
-    return [bundle pathForResource:@"Main" ofType:@"html"];
+    // MAVERICKS_BACKPORT: upstream's body was:
+    //     NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
+    //     if (!bundle)
+    //         return nil;
+    //
+    //     return [bundle pathForResource:@"Main" ofType:@"html"];
+    return [NSURL URLWithString:@"inspector-resource:///Main.html"];
 }
 
 - (NSString *)inspectorTestPagePath
@@ -559,7 +750,8 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
         return window;
 
     NSUInteger styleMask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable | NSWindowStyleMaskFullSizeContentView;
-    auto window = adoptNS([[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, initialWindowWidth, initialWindowHeight) styleMask:styleMask backing:NSBackingStoreBuffered defer:NO]);
+    // MAVERICKS_BACKPORT: WebInspectorWindow, for the dock button built below.
+    auto window = adoptNS([[WebInspectorWindow alloc] initWithContentRect:NSMakeRect(0, 0, initialWindowWidth, initialWindowHeight) styleMask:styleMask backing:NSBackingStoreBuffered defer:NO]);
     [window setDelegate:self];
     [window setMinSize:NSMakeSize(minimumWindowWidth, minimumWindowHeight)];
     [window setCollectionBehavior:([window collectionBehavior] | NSWindowCollectionBehaviorFullScreenPrimary)];
@@ -570,6 +762,51 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
     [window setCollectionBehavior:([window collectionBehavior] | NSWindowCollectionBehaviorFullScreenAllowsTiling | NSWindowCollectionBehaviorAuxiliary)];
 
     [window setTitlebarAppearsTransparent:YES];
+
+    // MAVERICKS_BACKPORT: create a full screen button so we can turn it into a dock button.
+    _dockButton = [NSWindow standardWindowButton:NSWindowFullScreenButton forStyleMask:styleMask];
+    _dockButton.get().target = self;
+    _dockButton.get().action = @selector(attachWindow:);
+
+    // Store the dock button on the window too so it can lay its title out around it.
+    window.get()->_dockButton = _dockButton;
+
+    // Get the dock image and make it a template so the button cell effects will apply.
+    NSImage *dockImage = [[NSBundle bundleForClass:[self class]] imageForResource:@"DockLegacy"];
+    [dockImage setTemplate:YES];
+
+    // Set the dock image on the button cell.
+    NSCell *dockButtonCell = _dockButton.get().cell;
+    dockButtonCell.image = dockImage;
+
+    // Get the frame view, the superview of the content view, and its frame.
+    // This will be the superview of the dock button too.
+    NSView *contentView = window.get().contentView;
+    NSView *frameView = contentView.superview;
+    NSRect frameViewBounds = frameView.bounds;
+    NSSize dockButtonSize = _dockButton.get().frame.size;
+
+    ASSERT(!frameView.isFlipped);
+
+    // Position the dock button one slot in from the corner where the full screen button normally
+    // sits: this window carries NSWindowCollectionBehaviorFullScreenPrimary (set above), so the
+    // window's own full screen button — the same size as this one, being the same control — holds
+    // that corner.
+    NSPoint dockButtonOrigin;
+    dockButtonOrigin.x = NSMaxX(frameViewBounds) - (dockButtonSize.width * 2) - dockButtonMargin - (dockButtonMargin * 2);
+    dockButtonOrigin.y = NSMaxY(frameViewBounds) - dockButtonSize.height - dockButtonMargin;
+    _dockButton.get().frameOrigin = dockButtonOrigin;
+
+    // Set the autoresizing mask to keep the dock button pinned to the top right corner.
+    _dockButton.get().autoresizingMask = NSViewMinXMargin | NSViewMinYMargin;
+
+    if ([frameView respondsToSelector:@selector(_addKnownSubview:)])
+        [frameView _addKnownSubview:_dockButton.get()];
+    else
+        [frameView addSubview:_dockButton.get()];
+
+    // Hide the dock button if we can't attach.
+    _dockButton.get().hidden = !_frontendClient->canAttachWindow() || _inspectorClient->inspectorAttachDisabled();
 
     [self setWindow:window.get()];
     return window.unsafeGet();
@@ -660,6 +897,11 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
         [_frontendWebView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable | NSViewMaxYMargin)];
         [frameView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable | NSViewMinYMargin)];
 
+        // MAVERICKS_BACKPORT (#52): docked, the frontend WebView sits inside the inspected
+        // WebView and must paint its own background again (the undocked branch makes it
+        // transparent for the rounded window corners).
+        [_frontendWebView setDrawsBackground:YES];
+
         _attachedToInspectedWebView = YES;
     } else {
         _attachedToInspectedWebView = NO;
@@ -667,6 +909,14 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
         NSView *contentView = [[self window] contentView];
         [_frontendWebView setFrame:[contentView frame]];
         [_frontendWebView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+        // MAVERICKS_BACKPORT (#52): transparent WebView so the classic-bridge CSS's rounded top
+        // corners (4px radius on body) reveal NSThemeFrame's rounded titlebar corners; the page
+        // content stays opaque (body paints the unified gradient, #main is white). The docked branch
+        // restores YES. The full-size-content-view layout itself (content view over the titlebar,
+        // traffic lights raised and layer-promoted) is the polyfill layer's emulation of the
+        // 10.10+ NSWindowStyleMaskFullSizeContentView + -setTitlebarAppearsTransparent: contract
+        // this window requests in -window (WKPolyfillFullSizeContentAdapter).
+        [_frontendWebView setDrawsBackground:NO];
         [_frontendWebView removeFromSuperview];
         [contentView addSubview:_frontendWebView.get()];
 
@@ -740,7 +990,8 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
 - (void)setDockingUnavailable:(BOOL)unavailable
 {
-    // Do nothing.
+    // MAVERICKS_BACKPORT: the window's dock button shows exactly while the inspector can attach.
+    _dockButton.get().hidden = unavailable;
 }
 
 - (void)destroyInspectorView
@@ -835,8 +1086,8 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
         return;
     }
 
-    // Allow loading of the main inspector file.
-    if ([[request URL] isFileURL] && [[[request URL] path] isEqualToString:[self inspectorPagePath]]) {
+    // MAVERICKS_BACKPORT: Allow loading of the classic frontend served from the inspector-resource:// scheme (was file:// + -inspectorPagePath).
+    if ([[request URL].scheme caseInsensitiveCompare:WebInspectorResourceScheme] == NSOrderedSame && [[[request URL] relativePath] isEqualToString:@"/Main.html"]) {
         [listener use];
         return;
     }

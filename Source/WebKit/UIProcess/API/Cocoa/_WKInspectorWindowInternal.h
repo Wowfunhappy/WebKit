@@ -29,10 +29,20 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+// MAVERICKS_BACKPORT: the margin from the top and right of a dock button (same as the full screen
+// button), shared by the window's title layout and the placement in platformCreateFrontendWindow.
+extern const CGFloat WKInspectorWindowDockButtonMargin;
+
 @interface _WKInspectorWindow ()
 
 @property (nonatomic, readwrite, getter=isForRemoteTarget) BOOL forRemoteTarget;
 @property (nonatomic, nullable, readwrite, weak) WKWebView *inspectedWebView SUPPRESS_UNRETAINED_MEMBER;
+
+// MAVERICKS_BACKPORT: the window's native dock controls, so it can lay its title out around them and
+// suppress the northeast resize cursor they sit under (WebInspectorUIProxy::platformCreateFrontendWindow
+// builds them). Nil on a window without them, which is every remote-target window.
+@property (nonatomic, nullable, readwrite, strong) NSButton *dockBottomButton;
+@property (nonatomic, nullable, readwrite, strong) NSButton *dockRightButton;
 
 @end
 

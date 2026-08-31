@@ -69,9 +69,15 @@ std::unique_ptr<LayerHostingContext> LayerHostingContext::create(const LayerHost
 #endif
     layerHostingContext->m_context = [CAContext remoteContextWithOptions:contextOptions];
 #elif !PLATFORM(MACCATALYST)
-    [CAContext setAllowsCGSConnections:NO];
-    layerHostingContext->m_context = [CAContext remoteContextWithOptions:@{
-        kCAContextCIFilterBehavior :  @"ignore",
+    // MAVERICKS_BACKPORT: use the explicit CGSConnection variant (more reliable on 10.9 than
+    // +remoteContextWithOptions:, which returns nil there). This is the WindowServer-hosted
+    // context flavor (stock 537's WKCAContextMakeRemoteForWindowServer was this exact call) —
+    // displayable in every window that hosts its layer tree in the WindowServer. Windows that
+    // composite in-process instead (iBooks' reader window) can only display contexts created
+    // by createForPort() below; TiledCoreAnimationDrawingArea picks per the page's
+    // LayerHostingMode.
+    layerHostingContext->m_context = [CAContext contextWithCGSConnection:CGSMainConnectionID() options:@{
+        kCAContextCIFilterBehavior : @"ignore",
     }];
 #else
     layerHostingContext->m_context = [CAContext contextWithCGSConnection:CGSMainConnectionID() options:@{
@@ -81,6 +87,21 @@ std::unique_ptr<LayerHostingContext> LayerHostingContext::create(const LayerHost
     layerHostingContext->m_cachedContextID = layerHostingContext->contextID();
     return layerHostingContext;
 }
+
+#if PLATFORM(MAC)
+// MAVERICKS_BACKPORT: restored from WebKit-537 (LayerHostingContext::createForPort /
+// WKCAContextMakeRemoteWithServerPort). See the header comment.
+std::unique_ptr<LayerHostingContext> LayerHostingContext::createForPort(mach_port_t serverPort)
+{
+    auto layerHostingContext = makeUnique<LayerHostingContext>();
+    layerHostingContext->m_context = [CAContext remoteContextWithOptions:@{
+        kCAContextCIFilterBehavior : @"ignore",
+        kCAContextPortNumber : @(serverPort),
+    }];
+    layerHostingContext->m_cachedContextID = layerHostingContext->contextID();
+    return layerHostingContext;
+}
+#endif
 
 std::unique_ptr<LayerHostingContext> LayerHostingContext::createTransportLayerForRemoteHosting(LayerHostingContextID contextID)
 {

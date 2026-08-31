@@ -20,16 +20,10 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-using WebKit::ActivityStateChangeID = uint64_t;
+# MAVERICKS_BACKPORT: legacy WKSerializedScriptValue carrier (see APISerializedScriptValue.h).
 
-#if ENABLE(TILED_CA_DRAWING_AREA)
-enum class WebKit::DrawingAreaType : bool
-#endif
+header: "APISerializedScriptValue.h"
 
-# MAVERICKS_BACKPORT: serialize the restored LayerHostingMode enum (used by WebPageCreationParameters) for Safari 7 layer hosting; absent at base.
-#if ENABLE(TILED_CA_DRAWING_AREA)
-enum class WebKit::LayerHostingMode : uint8_t {
-    InWindowServer,
-    InProcess
+[RefCounted, CustomHeader] class API::SerializedScriptValue {
+    WebKit::JavaScriptEvaluationResult result()
 };
-#endif

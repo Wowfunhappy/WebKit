@@ -50,7 +50,12 @@ using namespace WebCore;
 
 void GPUProcess::initializeProcess(const AuxiliaryProcessInitializationParameters&)
 {
-    setApplicationIsDaemon();
+    // MAVERICKS_BACKPORT: SetApplicationIsDaemon(true) costs the process its window-server session,
+    // which upstream can afford because its GPU process rasterizes and runs WebGL through Metal. This
+    // one runs ANGLE on CGL -- 10.9 has no Metal -- and CGL enumerates renderers through CoreGraphics:
+    // as a daemon, the CGLChoosePixelFormat call in DisplayCGL::initialize returns
+    // kCGLBadConnection and every WebGL context comes back null.
+    // setApplicationIsDaemon();
 
 #if HAVE(CSCHECKFIXDISABLE)
     _CSCheckFixDisable();

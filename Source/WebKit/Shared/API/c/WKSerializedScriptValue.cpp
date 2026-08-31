@@ -26,17 +26,45 @@
 #include "config.h"
 #include "WKSerializedScriptValue.h"
 
+#include "APISerializedScriptValue.h"
+#include "WKSharedAPICast.h"
+
+// MAVERICKS_BACKPORT: upstream gutted these functions to return null, but Safari 7
+// still uses them — WKPageRunJavaScriptInMainFrame results are handed to
+// WKSerializedScriptValueDeserialize ("do JavaScript" returned "missing value"
+// with the null stub), and WKSerializedScriptValueCreate serializes values for
+// injected-bundle/extension messaging. Reimplemented on top of
+// WebKit::JavaScriptEvaluationResult (see APISerializedScriptValue.h).
+
+// MAVERICKS_BACKPORT: reimplemented (upstream returns 0) — return the restored
+// API::SerializedScriptValue type id.
 WKTypeID WKSerializedScriptValueGetTypeID()
 {
-    return 0;
+    // MAVERICKS_BACKPORT: return the restored API::SerializedScriptValue type id (upstream returns 0).
+    return WebKit::toAPI(API::SerializedScriptValue::APIType);
 }
 
-WKSerializedScriptValueRef WKSerializedScriptValueCreate(JSContextRef, JSValueRef, JSValueRef*)
+// MAVERICKS_BACKPORT: reimplemented (upstream returns null) — serialize a JSValueRef into an
+// API::SerializedScriptValue for injected-bundle/extension messaging.
+WKSerializedScriptValueRef WKSerializedScriptValueCreate(JSContextRef context, JSValueRef value, JSValueRef*)
 {
-    return nullptr;
+    // MAVERICKS_BACKPORT: wrap the value via API::SerializedScriptValue.
+    auto serializedValue = API::SerializedScriptValue::createFromJS(context, value);
+    if (!serializedValue)
+        return nullptr;
+    return WebKit::toAPI(&serializedValue.releaseNonNull().leakRef());
 }
 
-JSValueRef WKSerializedScriptValueDeserialize(WKSerializedScriptValueRef, JSContextRef, JSValueRef*)
+// MAVERICKS_BACKPORT: reimplemented (upstream returns null) — deserialize the held
+// JavaScriptEvaluationResult back into a JSValueRef for Safari's "do JavaScript" results.
+JSValueRef WKSerializedScriptValueDeserialize(WKSerializedScriptValueRef valueRef, JSContextRef context, JSValueRef*)
 {
-    return nullptr;
+    // MAVERICKS_BACKPORT: verify the dynamic API::Object type before downcasting.
+    // Be liberal in what we accept: Safari treats whatever WKTypeRef arrives in
+    // the WKPageRunJavaScriptInMainFrame callback as a WKSerializedScriptValueRef,
+    // so verify the dynamic type before downcasting.
+    auto* object = WebKit::toImpl(reinterpret_cast<WKTypeRef>(valueRef));
+    if (!object || object->type() != API::Object::Type::SerializedScriptValue)
+        return nullptr;
+    return static_cast<API::SerializedScriptValue*>(object)->deserialize(context);
 }

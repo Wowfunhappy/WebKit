@@ -36,17 +36,26 @@
 #import "WKOpenPanelParameters.h"
 #import "WKProcessPoolInternal.h"
 #import "WKWebViewInternal.h"
+// MAVERICKS_BACKPORT: _pageConfiguration access for the setDrawsBackground(false) divergence below (#52).
+#import "WKWebViewConfigurationInternal.h"
 #import "WKWebsiteDataStoreInternal.h"
 #import "WebInspectorUIProxy.h"
 #import "WebInspectorUtilities.h"
 #import "WebPageProxy.h"
+// MAVERICKS_BACKPORT: API::PageConfiguration definition for the setDrawsBackground(false) divergence below (#52).
+#import "APIPageConfiguration.h"
 #import "WebsiteDataStore.h"
 #import "_WKInspectorConfigurationInternal.h"
+// MAVERICKS_BACKPORT: classic-frontend bridge header — provides classicInspectorFrontendBridgeScriptUTF8() used by _mavericksClassicFrontendBridgeScript below.
+#import <WebCore/InspectorFrontendClassicBridge.h>
 #import <WebKit/WKFrameInfo.h>
 #import <WebKit/WKNavigationAction.h>
 #import <WebKit/WKNavigationDelegate.h>
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKUIDelegatePrivate.h>
+// MAVERICKS_BACKPORT: for the classic-frontend bridge user script (see _mavericksClassicFrontendBridgeScript).
+#import <WebKit/WKUserContentController.h>
+#import <WebKit/WKUserScript.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
@@ -62,6 +71,8 @@ static NSString * const safeAreaInsetsKVOKey = @"safeAreaInsets";
 static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
 
 @interface WKInspectorViewController () <WKUIDelegate, WKNavigationDelegate, WKInspectorWKWebViewDelegate>
+// MAVERICKS_BACKPORT: classic-frontend bridge user script (see the definition below).
++ (NSString *)_mavericksClassicFrontendBridgeScript;
 @end
 
 @implementation WKInspectorViewController {
@@ -138,6 +149,13 @@ static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
 - (WKWebViewConfiguration *)webViewConfiguration
 {
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    // MAVERICKS_BACKPORT (#52): the frontend page draws no background, so the injected unified-
+    // toolbar CSS's rounded top corners are genuinely transparent and the NSThemeFrame's own
+    // rounded titlebar corners show through — the web view covers the whole window (frame-view
+    // hosting in WebInspectorUIProxy::platformCreateFrontendWindow) and would otherwise paint
+    // square corners over them. The page content stays opaque (body paints the gradient, #main
+    // is white). Must be set at configuration time: the page reads drawsBackground once at init.
+    configuration.get()->_pageConfiguration->setDrawsBackground(false);
     RetainPtr<WKInspectorResourceURLSchemeHandler> inspectorSchemeHandler = adoptNS([WKInspectorResourceURLSchemeHandler new]);
     RetainPtr<NSMutableSet<NSString *>> allowedURLSchemes = adoptNS([[NSMutableSet alloc] initWithObjects:WKInspectorResourceScheme, nil]);
     for (auto& pair : _configuration->_configuration->urlSchemeHandlers())
@@ -145,6 +163,20 @@ static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
 
     [inspectorSchemeHandler setAllowedURLSchemesForCSP:allowedURLSchemes.get()];
     [configuration setURLSchemeHandler:inspectorSchemeHandler.get() forURLScheme:WKInspectorResourceScheme];
+
+    // MAVERICKS_BACKPORT: this backport deliberately ships the system stock (Safari 8-era)
+    // WebInspectorUI frontend — its Aqua toolbar and pill tab icons are the native Mavericks
+    // look — served through the upstream inspector-resource:// scheme handler from the
+    // com.apple.WebInspectorUI bundle. The classic frontend predates today's
+    // InspectorFrontendHost IDL and protocol, so a document-start user script bridges the
+    // drift in-page (method-vs-attribute IFH accessors, Target-routed protocol, two CSS
+    // payload shape changes) and builds the #52/#66/#69 unified titlebar+toolbar. The page
+    // CSP does not apply to native-injected user scripts, and InspectorFrontendHost is
+    // installed at window-object-clear, before document-start user scripts run.
+    [[configuration userContentController] addUserScript:adoptNS([[WKUserScript alloc]
+        initWithSource:[WKInspectorViewController _mavericksClassicFrontendBridgeScript]
+        injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+        forMainFrameOnly:YES]).get()];
 
     RefPtr inspectedPage = _inspectedPage.get();
 #if ENABLE(WK_WEB_EXTENSIONS) && ENABLE(INSPECTOR_EXTENSIONS)
@@ -225,6 +257,16 @@ static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
 + (NSURL *)URLForInspectorResource:(NSString *)resource
 {
     return [NSURL URLWithString:adoptNS([[NSString alloc] initWithFormat:@"%@:///%@", WKInspectorResourceScheme, resource]).get()].URLByStandardizingPath;
+}
+
+// MAVERICKS_BACKPORT (#52/#66/#69): document-start bridge + unified titlebar/toolbar for the stock
+// classic (Safari 8-era) WebInspectorUI frontend run against the modern backend, injected as a
+// WKUserScript from webViewConfiguration. Single-sourced with WebKitLegacy (which injects the same
+// string via -[WebView _addUserScriptToGroup:]) so the two ports cannot drift; the script and its
+// mechanism are documented in WebCore/inspector/InspectorFrontendClassicBridge.h.
++ (NSString *)_mavericksClassicFrontendBridgeScript
+{
+    return [NSString stringWithUTF8String:WebCore::classicInspectorFrontendBridgeScriptUTF8()];
 }
 
 - (void)didAttachOrDetach

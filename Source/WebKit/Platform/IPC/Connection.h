@@ -85,7 +85,8 @@
 #endif
 #endif // OS(DARWIN)
 
-#if USE(GLIB)
+// MAVERICKS_BACKPORT: USE(GLIB) is on for GStreamer; the glib socket transport stays GTK/WPE-only.
+#if USE(GLIB) && !PLATFORM(COCOA)
 #include <wtf/glib/GSocketMonitor.h>
 #endif
 
@@ -344,7 +345,8 @@ public:
     pid_t remoteProcessID() const;
 #endif
 
-#if USE(GLIB)
+// MAVERICKS_BACKPORT: USE(GLIB) is on for GStreamer; the glib socket transport stays GTK/WPE-only.
+#if USE(GLIB) && !PLATFORM(COCOA)
     void sendCredentials() const;
     static pid_t remoteProcessID(GSocket*);
 #endif
@@ -771,7 +773,8 @@ private:
 
     Vector<uint8_t> m_readBuffer;
 
-#if USE(GLIB)
+// MAVERICKS_BACKPORT: USE(GLIB) is on for GStreamer; the glib socket transport stays GTK/WPE-only.
+#if USE(GLIB) && !PLATFORM(COCOA)
     std::unique_ptr<Decoder> createMessageDecoder();
 
     GRefPtr<GSocket> m_socket;

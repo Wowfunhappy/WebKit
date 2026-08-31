@@ -26,7 +26,14 @@
 #include "config.h"
 #include "WKCertificateInfo.h"
 
+// MAVERICKS_BACKPORT: restored — Safari 7 type-checks the WKCertificateInfoRef it reads
+// off frames (#103), so the real type ID is needed, not the gutted 0.
+#include "APICertificateInfo.h"
+#include "WKAPICast.h"
+
 WKTypeID WKCertificateInfoGetTypeID()
 {
-    return 0;
+    // MAVERICKS_BACKPORT: upstream gutted this to 0.
+    // return 0;
+    return WebKit::toAPI(API::CertificateInfo::APIType);
 }
