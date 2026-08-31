@@ -1,0 +1,127 @@
+# A stream whose media type changes mid-play -- an MSE SourceBuffer that is
+# handed a clear period and then an encrypted one, which is what server-side ad insertion produces --
+# stops at the change. The clear period leaves parsebin holding an h264parse chain; the encrypted
+# period arrives as application/x-cenc, which that chain cannot take, so the caps event is refused
+# and the next gst_pad_push answers not-negotiated. WebKit surfaces that as MEDIA_ERR_DECODE and the
+# video never resumes.
+#
+# decodebin3 already answers this for the parsebin it owns: on a caps event its chain does not
+# accept, gst_decodebin_input_reset_parsebin() sets that parsebin to NULL and syncs it back, and it
+# re-autoplugs from the new caps (here, plugging a decryptor). urisourcebin owns a parsebin too --
+# uridecodebin3 sets parse-streams=TRUE on it unconditionally, so in a playbin3 pipeline the parsing
+# happens there and decodebin3's own input is the identity passthrough. Nothing resets urisourcebin's
+# parsebin, so the reconfiguration decodebin3 assumes exists never runs.
+#
+# This gives urisourcebin the same reset, from the pad feeding parsebin rather than from parsebin's
+# own sink -- the reset deactivates that sink pad, so a probe holding its stream lock would deadlock,
+# which is also why decodebin3 does the reset from its ghost sink. parsebin answers accept-caps from
+# its current chain (gst_parse_chain_accept_caps), and with no chain yet the query falls through to
+# the pad template and accepts, so the first caps of a stream never trigger a reset.
+#
+# The probe carries the ChildSrcPadInfo it reads, so the pad it sits on and the probe id are kept on
+# that struct and the probe is removed in free_child_src_pad_info() before the struct is freed.
+#
+# Applied by build_deps with patch -p1.
+--- a/gst/playback/gsturisourcebin.c
++++ b/gst/playback/gsturisourcebin.c
+@@ -110,6 +110,10 @@
+   gboolean demuxer_streams_aware;
+   gboolean demuxer_is_parsebin;
+ 
++  /* Pad feeding parsebin, and the probe watching it for a media type change */
++  GstPad *parsebin_feed_pad;
++  gulong parsebin_caps_probe_id;
++
+   /* list of output slots */
+   GList *outputs;
+ 
+@@ -811,6 +815,14 @@
+     gst_bin_remove (GST_BIN_CAST (urisrc), info->pre_parse_queue);
+   }
+ 
++  if (info->parsebin_feed_pad) {
++    if (info->parsebin_caps_probe_id)
++      gst_pad_remove_probe (info->parsebin_feed_pad, info->parsebin_caps_probe_id);
++    gst_object_unref (info->parsebin_feed_pad);
++    info->parsebin_feed_pad = NULL;
++    info->parsebin_caps_probe_id = 0;
++  }
++
+   gst_object_replace ((GstObject **) & info->collection, NULL);
+ 
+   g_free (info);
+@@ -2086,6 +2098,57 @@
+   }
+ }
+ 
++/* Whether parsebin's current chain can take @caps. With no chain built yet the
++ * accept-caps query falls through to the pad template, which accepts, so this
++ * answers TRUE for the first caps of a stream. */
++static gboolean
++parsebin_accepts_caps (ChildSrcPadInfo * info, GstCaps * caps)
++{
++  GstPad *parse_sink;
++  gboolean accepted;
++
++  parse_sink = gst_element_get_static_pad (info->demuxer, "sink");
++  if (!parse_sink)
++    return TRUE;
++
++  accepted = gst_pad_query_accept_caps (parse_sink, caps);
++  gst_object_unref (parse_sink);
++
++  return accepted;
++}
++
++/* A media type change on an already-parsed stream needs a different chain than
++ * the one parsebin built. Reset parsebin so that it re-autoplugs from the new
++ * caps, the way decodebin3 resets the parsebin it owns. */
++static GstPadProbeReturn
++parsebin_caps_change_probe (GstPad * pad, GstPadProbeInfo * probe_info,
++    ChildSrcPadInfo * info)
++{
++  GstEvent *event = GST_PAD_PROBE_INFO_EVENT (probe_info);
++  GstURISourceBin *urisrc = info->urisrc;
++  GstCaps *caps = NULL;
++
++  if (GST_EVENT_TYPE (event) != GST_EVENT_CAPS)
++    return GST_PAD_PROBE_OK;
++
++  if (!info->demuxer || !info->demuxer_is_parsebin)
++    return GST_PAD_PROBE_OK;
++
++  gst_event_parse_caps (event, &caps);
++  if (!caps || parsebin_accepts_caps (info, caps))
++    return GST_PAD_PROBE_OK;
++
++  GST_DEBUG_OBJECT (urisrc, "parsebin cannot take %" GST_PTR_FORMAT
++      ", resetting it to reconfigure for the new stream format", caps);
++
++  GST_STATE_LOCK (urisrc);
++  gst_element_set_state (info->demuxer, GST_STATE_NULL);
++  gst_element_sync_state_with_parent (info->demuxer);
++  GST_STATE_UNLOCK (urisrc);
++
++  return GST_PAD_PROBE_OK;
++}
++
+ static gboolean
+ setup_parsebin_for_slot (ChildSrcPadInfo * info, GstPad * originating_pad)
+ {
+@@ -2163,6 +2237,16 @@
+       goto could_not_link;
+   }
+ 
++  info->parsebin_feed_pad = info->pre_parse_queue
++      ? gst_element_get_static_pad (info->pre_parse_queue, "src")
++      : gst_object_ref (originating_pad);
++  if (info->parsebin_feed_pad) {
++    info->parsebin_caps_probe_id =
++        gst_pad_add_probe (info->parsebin_feed_pad,
++        GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM,
++        (GstPadProbeCallback) parsebin_caps_change_probe, info, NULL);
++  }
++
+   /* set up callbacks to create the links between parsebin and output */
+   g_signal_connect (info->demuxer,
+       "pad-added", G_CALLBACK (new_demuxer_pad_added_cb), info);

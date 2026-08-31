@@ -1,0 +1,142 @@
+# vtenc registers an element per codec whether or not this machine's
+# VideoToolbox has an encoder for it, and a registered factory is what capability queries are
+# answered from: WebKit's GStreamerRegistryScanner reads encoder support off factory templates,
+# never off an instantiated element, and reports powerEfficient from the matched factory's
+# "Hardware" klass. Two codecs the registry claims cannot be backed here. 10.9's VideoToolbox has
+# no HEVC encoder on any hardware -- HEVC encode arrived in 10.13, and VTCopyVideoEncoderList on
+# 10.9 lists ProRes, H.263, H.264, JPEG and raw only -- so vtenc_h265, vtenc_h265a and their _hw
+# variants answer kVTCouldNotFindVideoEncoderErr (-12908); with them registered,
+# RTCRtpSender.getCapabilities("video") offered video/H265 and a peer that accepted it got a
+# sender whose encoder cannot be created. Separately vtenc_h264_hw, rank primary and klass
+# Hardware, is registered on machines with no hardware H.264 encoder at all, where a
+# RequireHardware session answers -12908 too: the scanner stops at the first Hardware-klass
+# candidate, so MediaCapabilities.encodingInfo reported powerEfficient for H.264 encoding that
+# has no hardware behind it.
+#
+# Both are the same defect -- the registry advertising an encoder VideoToolbox cannot back -- and
+# one is per-machine (Macs with QuickSync do hardware-encode H.264 under 10.9), so the answer is
+# measured rather than assumed, the way vtdec already gates VP9/AV1 on VTIsHardwareDecodeSupported
+# and the way this file already asks the runtime with __builtin_available. gst_vtenc_register()
+# creates a compression session for the element's codec type, carrying the element's own
+# hardware-only requirement, and registers the element only if that succeeds; the result is cached
+# per codec type per hardware-only setting, so the seven registrations cost one session creation
+# each on registry rebuild. On a machine whose VideoToolbox does back the codec the probe succeeds
+# and the element keeps its rank, klass and path.
+#
+# Only a status naming the encoder missing is absence. One reporting it busy or malfunctioning --
+# kVTVideoEncoderNotAvailableNowErr and kVTVideoEncoderMalfunctionErr, which this file's own
+# gst_vtenc_is_recoverable_error treats as a session restart rather than a failure -- describes
+# this instant, not the machine: a QuickSync Mac whose hardware encoder is held by another process
+# during the registry scan must not lose vtenc_h264_hw for the life of the registry. Those statuses
+# leave the element registered and are not cached, so the next scan asks again.
+#
+# Applied by build_deps with patch -p1.
+--- a/sys/applemedia/vtenc.c
++++ b/sys/applemedia/vtenc.c
+@@ -2570,10 +2570,106 @@
+ }
+ #endif
+ 
++/* Whether this machine's VideoToolbox can create a compression session for the
++ * codec, with the hardware-only requirement the element carries. Session
++ * creation resolves the encoder from the codec type, so a nominal frame size
++ * answers the availability question; a machine with no encoder for the codec
++ * answers kVTCouldNotFindVideoEncoderErr. That answer is cached per codec type
++ * per hardware-only setting; a status reporting the encoder busy or
++ * malfunctioning -- what gst_vtenc_is_recoverable_error below treats as a
++ * session restart -- describes this instant rather than the machine, so it is
++ * neither cached nor treated as absence. */
++static void
++gst_vtenc_probe_output_cb (void *outputCallbackRefCon, void *sourceFrameRefCon,
++    OSStatus status, VTEncodeInfoFlags infoFlags,
++    CMSampleBufferRef sampleBuffer)
++{
++}
++
++static gboolean
++gst_vtenc_supports_codec_type (CMVideoCodecType cm_format,
++    gboolean require_hardware)
++{
++  static GMutex probe_lock;
++  static GHashTable *probe_results[2];
++  GHashTable **results = &probe_results[require_hardware ? 1 : 0];
++  CFMutableDictionaryRef encoder_spec = NULL;
++  VTCompressionSessionRef session = NULL;
++  gpointer cached;
++  gboolean found, supported;
++  OSStatus status;
++
++  g_mutex_lock (&probe_lock);
++  if (!*results)
++    *results = g_hash_table_new (g_direct_hash, g_direct_equal);
++  found = g_hash_table_lookup_extended (*results, GINT_TO_POINTER (cm_format),
++      NULL, &cached);
++  g_mutex_unlock (&probe_lock);
++  if (found)
++    return GPOINTER_TO_INT (cached);
++
++#if TARGET_OS_OSX
++  encoder_spec = CFDictionaryCreateMutable (NULL, 0,
++      &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
++  gst_vtutil_dict_set_boolean (encoder_spec,
++      kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder, TRUE);
++  if (require_hardware)
++    gst_vtutil_dict_set_boolean (encoder_spec,
++        kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder,
++        TRUE);
++#endif
++
++  status = VTCompressionSessionCreate (NULL, 640, 480, cm_format, encoder_spec,
++      NULL, NULL, gst_vtenc_probe_output_cb, NULL, &session);
++  if (session) {
++    VTCompressionSessionInvalidate (session);
++    CFRelease (session);
++  }
++  if (encoder_spec)
++    CFRelease (encoder_spec);
++
++  if (status != noErr && status != kVTCouldNotFindVideoEncoderErr) {
++    GST_INFO ("a compression session for codec type %" G_GINT32_FORMAT
++        " answered %d, which does not report the encoder absent",
++        (gint32) cm_format, (int) status);
++    return TRUE;
++  }
++
++  supported = (status == noErr);
++
++  g_mutex_lock (&probe_lock);
++  g_hash_table_insert (*results, GINT_TO_POINTER (cm_format),
++      GINT_TO_POINTER (supported));
++  g_mutex_unlock (&probe_lock);
++
++  return supported;
++}
++
++/* The codec type to probe availability with. ProRes registers a sentinel and
++ * resolves the real variant from caps at negotiation; 422 is the representative
++ * variant, VideoToolbox's ProRes encoder being all-or-nothing per machine. */
++static CMVideoCodecType
++gst_vtenc_probe_codec_type (const GstVTEncoderDetails * codec_details)
++{
++  if (codec_details->format_id == GST_kCMVideoCodecType_Some_AppleProRes)
++    return kCMVideoCodecType_AppleProRes422;
++
++  return codec_details->format_id;
++}
++
+ static gboolean
+ gst_vtenc_register (GstPlugin * plugin,
+     const GstVTEncoderDetails * codec_details)
+ {
++  if (!gst_vtenc_supports_codec_type (gst_vtenc_probe_codec_type (codec_details),
++          codec_details->require_hardware)) {
++    GST_INFO_OBJECT (plugin,
++        "this machine's VideoToolbox has no %s%s encoder, not registering vtenc_%s",
++        codec_details->require_hardware ? "hardware " : "", codec_details->name,
++        codec_details->element_name);
++    return FALSE;
++  }
++
+   GTypeInfo type_info = {
+     sizeof (GstVTEncClass),
+     (GBaseInitFunc) gst_vtenc_base_init,

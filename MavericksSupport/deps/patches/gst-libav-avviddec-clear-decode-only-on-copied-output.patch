@@ -1,0 +1,37 @@
+# gst_ffmpegviddec_handle_frame flags every incoming frame GST_VIDEO_CODEC_FRAME_FLAG_DECODE_ONLY
+# ("treat frame as void until a buffer is requested for it"), and gst_ffmpegviddec_get_buffer2
+# is the only place that clears it. FFmpeg calls avctx->get_buffer2 only for decoders that
+# allocate through ff_get_buffer: ff_libdav1d_decoder declares no AV_CODEC_CAP_DR1 and allocates
+# from dav1d's own av_buffer_pool in libdav1d_picture_allocator, so for avdec_libdav1d the
+# callback never runs. gst_ffmpegviddec_video_frame's own fallback then allocates an output
+# buffer and copies the picture into it, but the frame still carries the flag, so
+# gst_video_decoder_finish_frame drops it on
+# "!frame->output_buffer || GST_VIDEO_CODEC_FRAME_IS_DECODE_ONLY (frame)". Every frame is
+# discarded and the decoder errors "No valid frames decoded before end of stream" at EOS,
+# which is what any AV1 stream does here.
+#
+# Clearing the flag once that fallback has produced the buffer gives the non-DR1 path the same
+# transition get_buffer2 performs for every DR1 decoder, where the clear is likewise
+# unconditional. The clear is idempotent on the direct-rendering path, which has already done
+# it. GST_FFMPEG_VIDEO_CODEC_FRAME_FLAG_ALLOCATED, which get_buffer2 sets alongside, is not
+# mirrored: its readers are the ghost-frame sweep below (which tests DECODE_ONLY) and the
+# input-frame unset further down, neither of which consults it on this path.
+#
+# Upstream master is byte-identical here; the path is unreachable there because its "lib*" skip
+# never registers a non-DR1 wrapper decoder in the first place.
+#
+# Applied by build_deps with patch -p1.
+--- a/ext/libav/gstavviddec.c
++++ b/ext/libav/gstavviddec.c
+@@ -2219,6 +2219,11 @@
+   if (G_UNLIKELY (*ret != GST_FLOW_OK))
+     goto no_output;
+ 
++  /* A buffer has been requested for this frame, so it is no longer void. Decoders
++   * that allocate through get_buffer2 have already cleared this there. */
++  GST_VIDEO_CODEC_FRAME_FLAG_UNSET (output_frame,
++      GST_VIDEO_CODEC_FRAME_FLAG_DECODE_ONLY);
++
+   /* Mark corrupted frames as corrupted */
+   if (ffmpegdec->picture->flags & AV_FRAME_FLAG_CORRUPT)
+     GST_BUFFER_FLAG_SET (output_frame->output_buffer,

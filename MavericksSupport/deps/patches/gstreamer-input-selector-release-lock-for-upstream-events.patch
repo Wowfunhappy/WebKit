@@ -1,0 +1,26 @@
+--- a/plugins/elements/gstinputselector.c
++++ b/plugins/elements/gstinputselector.c
+@@ -1829,6 +1829,11 @@
+   if (sel->active_sinkpad) {
+     eventpad = gst_object_ref (sel->active_sinkpad);
+     GST_INPUT_SELECTOR_UNLOCK (sel);
++    /* The push is synchronous and, for a seek, flushes the pipeline: that can
++     * remove this element's pads and drive its state on this very thread,
++     * where gst_input_selector_reset() takes active_sinkpad_lock as a writer.
++     * The lock covers the choice of pad; the reference keeps the pad. */
++    g_rw_lock_reader_unlock (&sel->active_sinkpad_lock);
+ 
+     gst_event_ref (event);
+     result |= gst_pad_push_event (eventpad, event);
+@@ -1836,10 +1841,9 @@
+     gst_object_unref (eventpad);
+   } else {
+     GST_INPUT_SELECTOR_UNLOCK (sel);
++    g_rw_lock_reader_unlock (&sel->active_sinkpad_lock);
+   }
+ 
+-  g_rw_lock_reader_unlock (&sel->active_sinkpad_lock);
+-
+   /* This is now essentially a copy of gst_pad_event_default_dispatch
+    * with a different iterator */
+   while (!done) {
