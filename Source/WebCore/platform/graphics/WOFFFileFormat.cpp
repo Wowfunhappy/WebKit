@@ -28,6 +28,15 @@
 
 #include "SharedBuffer.h"
 
+// MAVERICKS_BACKPORT: PlatformHave.h sets HAVE_WOFF_SUPPORT=1 for Cocoa, which makes
+// convertWOFFToSfntIfNecessary() a no-op (it assumes CoreText decodes WOFF). But on 10.9
+// CGFontCreateWithDataProvider cannot decode WOFF2 (CGFont returns null on raw 'wOF2' bytes →
+// missing icon/web fonts like Material Icons). Force the in-WebKit manual WOFF/WOFF2→sfnt path
+// (USE_WOFF2 supplies the woff2/brotli decoder) by treating the platform as lacking WOFF support.
+// WOFFFileFormat.cpp is the only Cocoa consumer of HAVE(WOFF_SUPPORT).
+#undef HAVE_WOFF_SUPPORT
+#define HAVE_WOFF_SUPPORT 0
+
 #if !HAVE(WOFF_SUPPORT)
 #include <wtf/ByteOrder.h>
 #include <zlib.h>

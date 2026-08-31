@@ -33,8 +33,13 @@
 #include "ICOImageDecoder.h"
 #include "JPEGImageDecoder.h"
 #include "PNGImageDecoder.h"
-#include "WEBPImageDecoder.h"
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note just below the block.
+// #include "WEBPImageDecoder.h"
+// (end MAVERICKS_BACKPORT restored block)
 #endif
+// MAVERICKS_BACKPORT: WEBPImageDecoder also compiled on PLATFORM(MAC) so libwebp
+// can decode WebP responses that ImageIO can't handle on this build.
+#include "WEBPImageDecoder.h"
 #if USE(AVIF)
 #include "AVIFImageDecoder.h"
 #endif
@@ -93,16 +98,24 @@ static bool matchesCURSignature(std::span<const uint8_t> contents)
     return spanHasPrefix(contents, unsafeMakeSpan("\x00\x00\x02\x00", 4));
 }
 
+#endif
+
+// MAVERICKS_BACKPORT: also needed on PLATFORM(MAC) for the WebP fallback path.
 static bool matchesWebPSignature(std::span<const uint8_t> contents)
 {
     return spanHasPrefix(contents, "RIFF"_span) && spanHasPrefix(contents.subspan(8), "WEBPVP"_span);
 }
-#endif
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
+// #endif
+// (end MAVERICKS_BACKPORT restored block)
 
 #if USE(AVIF)
 static bool matchesAVIFSignature(std::span<const uint8_t> contents, FragmentedSharedBuffer& data)
 {
-#if USE(CG)
+// MAVERICKS_BACKPORT: the CG flavor of this check asks ImageIO to name the data's UTI, and 10.9's
+// ImageIO predates AVIF -- decodeUTI can never answer public.avif/avis, so the decoder below would
+// never run. Use upstream's non-CG byte signature instead, like the WebP dispatch above.
+#if USE(CG) && !PLATFORM(MAC)
     UNUSED_PARAM(contents);
     auto sharedBuffer = data.makeContiguous();
     auto cfData = sharedBuffer->createCFData();
@@ -156,7 +169,12 @@ RefPtr<ScalableImageDecoder> ScalableImageDecoder::create(FragmentedSharedBuffer
 
     if (matchesBMPSignature(contentsSpan))
         return BMPImageDecoder::create(alphaOption, gammaAndColorProfileOption);
+// MAVERICKS_BACKPORT: the WebP dispatch is lifted out of this !PLATFORM(COCOA) block into the PLATFORM(MAC)-inclusive block below.
+#endif
 
+#if PLATFORM(MAC) || !PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: ImageIO on this build doesn't decode WebP, so fall back to the
+    // libwebp-backed scalable decoder. iOS Cocoa's ImageIO handles WebP natively.
     if (matchesWebPSignature(contentsSpan))
         return WEBPImageDecoder::create(alphaOption, gammaAndColorProfileOption);
 #endif

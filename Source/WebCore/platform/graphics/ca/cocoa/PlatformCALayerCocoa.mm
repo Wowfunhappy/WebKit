@@ -1311,6 +1311,25 @@ void PlatformCALayer::drawLayerContents(GraphicsContext& graphicsContext, WebCor
 #endif
         }
 
+        // MAVERICKS_BACKPORT: on 10.9 CoreGraphics still performs subpixel (LCD) font smoothing, so
+        // text drawn into a non-opaque layer bakes color fringes against transparency and they
+        // composite as visible color artifacts. Turn smoothing off for non-opaque layers, exactly
+        // as Safari-7-era WebKit does here (PlatformCALayerMac.mm drawLayerContents) — measured
+        // against the stock frameworks, opaque layers (page tiles, opaque composited elements,
+        // tiled or not) subpixel-smooth and non-opaque ones (e.g. a composited <body> whose
+        // background propagates to the viewport) render grayscale, matching this predicate.
+        // One knowing residual: text in composited overflow scrollers renders grayscale even when
+        // the scroller background is opaque — the background paints in the scroll container layer,
+        // not the scrolled-contents layer that draws the text (RenderLayerBacking painting-phase
+        // split), so the glyph backdrop there is transparent by construction; stock fringed only
+        // because 2013 WebKit painted scroller content directly into the page tiles.
+        // FontSmoothingMode::Auto in FontCascade::drawGlyphs adopts this context flag rather than
+        // forcing smoothing on.
+        if (!layerContents->platformCALayerContentsOpaque()) {
+            // Turn off font smoothing to improve the appearance of text rendered onto a transparent background.
+            graphicsContext.setShouldSmoothFonts(false);
+        }
+
         {
             if (dirtyRects.size() == 1)
                 layerContents->platformCALayerPaintContents(platformCALayer, graphicsContext, dirtyRects[0], layerPaintBehavior);

@@ -439,8 +439,31 @@ void ThreadedScrollingTree::willStartRenderingUpdate()
 
     m_renderingUpdateWasScheduled = false;
 
-    if (!hasRecentActivity())
-        return;
+    bool hasActivity = hasRecentActivity();
+
+    {
+        // MAVERICKS_BACKPORT: the gate below skips the synchronization when the scrolling thread has been
+        // idle, which holds only while the scrolling thread owns the layers: a wheel event it handles
+        // unsynchronized is one it will place the layers for itself. On a tree whose nodes have synchronous
+        // scrolling reasons canUpdateLayersOnScrollingThread() bars it from the layers, the main thread
+        // places them from the position it paints, and a wheel event handled during the update leaves the
+        // tree ahead of that frame with nothing to reconcile it, so the synchronization is taken there
+        // whatever the recent activity is.
+        // if (!hasRecentActivity())
+        //     return;
+        //
+        // MAVERICKS_BACKPORT: publish the update before parking the scrolling thread.
+        // waitForRenderingUpdateCompletionOrTimeout() waits for SynchronizationState::Idle, which is also
+        // the state of an update that has not started, and Condition::waitUntil evaluates its predicate
+        // before blocking, so a tree left idle by displayDidRefreshOnScrollingThread() satisfies it the
+        // moment the wait begins and the park returns without holding the tree still.
+        Locker locker { m_treeLock };
+
+        if (!hasActivity && canUpdateLayersOnScrollingThread())
+            return;
+
+        m_state = SynchronizationState::InRenderingUpdate;
+    }
 
     tracePoint(ScrollingThreadRenderUpdateSyncStart);
 
@@ -453,8 +476,9 @@ void ThreadedScrollingTree::willStartRenderingUpdate()
     });
     semaphore.wait();
 
-    Locker locker { m_treeLock };
-    m_state = SynchronizationState::InRenderingUpdate;
+    // MAVERICKS_BACKPORT: m_state is published above, before the scrolling thread parks.
+    // Locker locker { m_treeLock };
+    // m_state = SynchronizationState::InRenderingUpdate;
 }
 
 void ThreadedScrollingTree::hasNodeWithAnimatedScrollChanged(bool hasNodeWithAnimatedScroll)
@@ -484,7 +508,18 @@ void ThreadedScrollingTree::waitForRenderingUpdateCompletionOrTimeout()
 
     auto currentTime = MonotonicTime::now();
     auto estimatedNextDisplayRefreshTime = std::max(m_lastDisplayDidRefreshTime + frameDuration(), currentTime);
-    auto timeoutTime = std::min(currentTime + maxAllowableRenderingUpdateDurationForSynchronization(), estimatedNextDisplayRefreshTime);
+    // MAVERICKS_BACKPORT: the deadline is a share of the frame, and the half below is the share the scrolling
+    // thread needs to take the layers over from a main thread that is running late -- that hand-off is the
+    // only thing the expiry does, and the branch below already guards it with canUpdateLayersOnScrollingThread().
+    // With no hand-off to make, nothing is owed to the rest of the frame and expiring only lets the tree scroll
+    // past the position the frame is being painted for, so the whole frame is the update's. The deadline stays
+    // finite because the scrolling thread is one thread for the process and the main thread's next
+    // willStartRenderingUpdate() blocks on a semaphore only this thread can signal: an update that never
+    // publishes its completion would take the process' scrolling with it.
+    // auto timeoutTime = std::min(currentTime + maxAllowableRenderingUpdateDurationForSynchronization(), estimatedNextDisplayRefreshTime);
+    auto timeoutTime = canUpdateLayersOnScrollingThread()
+        ? std::min(currentTime + maxAllowableRenderingUpdateDurationForSynchronization(), estimatedNextDisplayRefreshTime)
+        : currentTime + frameDuration();
 
     bool becameIdle = m_stateCondition.waitUntil(m_treeLock, timeoutTime, [&] {
         assertIsHeld(m_treeLock);
