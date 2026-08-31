@@ -102,6 +102,21 @@ public:
         "audio/x-eac3"_s, "audio/x-ac3"_s, "audio/x-flac"_s, "audio/x-opus"_s, "video/x-vp9"_s, "video/x-av1"_s };
     static constexpr std::array<ASCIILiteral, 7> s_webmEncryptionMediaTypes = { "video/webm"_s, "audio/webm"_s, "video/x-vp9"_s, "video/x-av1"_s, "audio/x-opus"_s, "audio/x-vorbis"_s, "video/x-vp8"_s };
 
+    // MAVERICKS_BACKPORT: what Google's CDM recognises as a video bitstream and answers kNoKey for
+    // rather than decrypt: H.264, by the start code a four-byte AVCC length can read as, and VP9,
+    // by the sync code its keyframes carry. Those go to webkitwidevinevideodec, which has the CDM
+    // decode them, and are the media types webkitwidevine leaves out of its own caps.
+    static constexpr std::array<ASCIILiteral, 2> s_widevineDecodedMediaTypes = { "video/x-h264"_s, "video/x-vp9"_s };
+
+    static bool isWidevineDecodedMediaType(ASCIILiteral mediaType)
+    {
+        for (auto& decoded : s_widevineDecodedMediaTypes) {
+            if (mediaType == decoded)
+                return true;
+        }
+        return false;
+    }
+
     static bool isClearKeyKeySystem(const String& keySystem)
     {
         return equalIgnoringASCIICase(keySystem, s_ClearKeyKeySystem);

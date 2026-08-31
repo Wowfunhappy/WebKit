@@ -1,0 +1,508 @@
+// See CDMWidevine.h.
+
+#include "config.h"
+#include "CDMWidevine.h"
+
+#if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
+
+#include "CDMKeySystemConfiguration.h"
+#include "CDMProxyWidevine.h"
+#include "CDMRestrictions.h"
+#include "GStreamerEMEUtilities.h"
+#include "InitDataRegistry.h"
+#include "Logging.h"
+#include "SharedBuffer.h"
+#include <wtf/FileSystem.h>
+#include <wtf/Hasher.h>
+#include <wtf/MainThread.h>
+#include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
+
+namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(CDMFactoryWidevine);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(CDMPrivateWidevine);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(CDMInstanceWidevine);
+
+static CDMKeyStatus keyStatusFromCdmKeyStatus(cdm::KeyStatus status)
+{
+    switch (status) {
+    case cdm::KeyStatus::kUsable:
+        return CDMKeyStatus::Usable;
+    case cdm::KeyStatus::kExpired:
+        return CDMKeyStatus::Expired;
+    case cdm::KeyStatus::kReleased:
+        return CDMKeyStatus::Released;
+    case cdm::KeyStatus::kOutputRestricted:
+        return CDMKeyStatus::OutputRestricted;
+    case cdm::KeyStatus::kOutputDownscaled:
+        return CDMKeyStatus::OutputDownscaled;
+    case cdm::KeyStatus::kStatusPending:
+        return CDMKeyStatus::StatusPending;
+    case cdm::KeyStatus::kInternalError:
+        break;
+    }
+    return CDMKeyStatus::InternalError;
+}
+
+static CDMMessageType messageTypeFromCdmMessageType(cdm::MessageType type)
+{
+    switch (type) {
+    case cdm::MessageType::kLicenseRenewal:
+        return CDMMessageType::LicenseRenewal;
+    case cdm::MessageType::kLicenseRelease:
+        return CDMMessageType::LicenseRelease;
+    case cdm::MessageType::kIndividualizationRequest:
+        return CDMMessageType::IndividualizationRequest;
+    case cdm::MessageType::kLicenseRequest:
+        break;
+    }
+    return CDMMessageType::LicenseRequest;
+}
+
+CDMFactoryWidevine& CDMFactoryWidevine::singleton()
+{
+    static NeverDestroyed<CDMFactoryWidevine> factory;
+    return factory;
+}
+
+std::unique_ptr<CDMPrivate> CDMFactoryWidevine::createCDM(const String& keySystem, const String& mediaKeysHashSalt, const CDMPrivateClient&)
+{
+    ASSERT_UNUSED(keySystem, supportsKeySystem(keySystem));
+    return makeUnique<CDMPrivateWidevine>(mediaKeysHashSalt);
+}
+
+bool CDMFactoryWidevine::supportsKeySystem(const String& keySystem)
+{
+    return GStreamerEMEUtilities::isWidevineKeySystem(keySystem) && WidevineCdm::isAvailable();
+}
+
+// What the CDM parses: a cenc pssh box or a WebM key ID. It answers "keyids" with
+// kExceptionNotSupportedError, so that type is not offered.
+Vector<String> CDMPrivateWidevine::supportedInitDataTypes() const
+{
+    return { InitDataRegistry::cencName(), InitDataRegistry::webmName() };
+}
+
+Vector<String> CDMPrivateWidevine::supportedRobustnesses() const
+{
+    // The CDM decrypts in software, so only the software tiers are honest here.
+    return { emptyString(), "SW_SECURE_CRYPTO"_s, "SW_SECURE_DECODE"_s };
+}
+
+bool CDMPrivateWidevine::supportsConfiguration(const CDMKeySystemConfiguration&) const
+{
+    return true;
+}
+
+bool CDMPrivateWidevine::supportsConfigurationWithRestrictions(const CDMKeySystemConfiguration& configuration, const CDMRestrictions& restrictions) const
+{
+    if (configuration.distinctiveIdentifier == CDMRequirement::Optional && restrictions.distinctiveIdentifierDenied)
+        return false;
+    if (configuration.persistentState == CDMRequirement::Optional && restrictions.persistentStateDenied)
+        return false;
+    return supportsConfiguration(configuration);
+}
+
+bool CDMPrivateWidevine::supportsSessionTypeWithConfiguration(const CDMSessionType& sessionType, const CDMKeySystemConfiguration& configuration) const
+{
+    if (sessionType != CDMSessionType::Temporary)
+        return false;
+    return supportsConfiguration(configuration);
+}
+
+CDMRequirement CDMPrivateWidevine::distinctiveIdentifiersRequirement(const CDMKeySystemConfiguration&, const CDMRestrictions& restrictions) const
+{
+    if (restrictions.distinctiveIdentifierDenied)
+        return CDMRequirement::NotAllowed;
+    return CDMRequirement::Optional;
+}
+
+CDMRequirement CDMPrivateWidevine::persistentStateRequirement(const CDMKeySystemConfiguration&, const CDMRestrictions& restrictions) const
+{
+    if (restrictions.persistentStateDenied)
+        return CDMRequirement::NotAllowed;
+    return CDMRequirement::Optional;
+}
+
+// Every record this CDM keeps is opened through a FileIO rooted in the origin's
+// own media-keys directory, and the storage id it is handed is derived from that origin's hash salt,
+// so the identity it provisions for itself is per-origin and goes with that origin's site data.
+bool CDMPrivateWidevine::distinctiveIdentifiersAreUniquePerOriginAndClearable(const CDMKeySystemConfiguration&) const
+{
+    return true;
+}
+
+RefPtr<CDMInstance> CDMPrivateWidevine::createInstance()
+{
+    auto instance = adoptRef(*new CDMInstanceWidevine(m_mediaKeysHashSalt));
+    if (!instance->cdm())
+        return nullptr;
+    return instance;
+}
+
+void CDMPrivateWidevine::loadAndInitialize()
+{
+}
+
+bool CDMPrivateWidevine::supportsServerCertificates() const
+{
+    return true;
+}
+
+bool CDMPrivateWidevine::supportsSessions() const
+{
+    return true;
+}
+
+bool CDMPrivateWidevine::supportsInitData(const String& initDataType, const SharedBuffer& initData) const
+{
+    if (initData.isEmpty())
+        return false;
+    return equalLettersIgnoringASCIICase(initDataType, "cenc"_s) || equalLettersIgnoringASCIICase(initDataType, "webm"_s);
+}
+
+RefPtr<SharedBuffer> CDMPrivateWidevine::sanitizeResponse(const SharedBuffer& response) const
+{
+    return response.makeContiguous();
+}
+
+std::optional<String> CDMPrivateWidevine::sanitizeSessionId(const String& sessionId) const
+{
+    return sessionId;
+}
+
+CDMInstanceWidevine::CDMInstanceWidevine(const String& mediaKeysHashSalt)
+    : CDMInstanceProxy(GStreamerEMEUtilities::s_WidevineKeySystem)
+{
+    m_cdm = WidevineCdm::create();
+    if (!m_cdm)
+        return;
+
+    m_cdm->setStorageIdSeed(mediaKeysHashSalt);
+    m_cdm->setClient(WeakPtr { static_cast<WidevineCdmClient&>(*this) });
+
+    RefPtr proxy = this->proxy();
+    if (proxy && GStreamerEMEUtilities::isWidevineKeySystem(proxy->keySystem()))
+        static_cast<CDMProxyWidevine*>(proxy.get())->setCdm(RefPtr { m_cdm });
+}
+
+CDMInstanceWidevine::~CDMInstanceWidevine() = default;
+
+void CDMInstanceWidevine::registerSession(const String& sessionID, CDMInstanceSessionWidevine& session)
+{
+    m_sessions.set(sessionID, WeakPtr { session });
+}
+
+void CDMInstanceWidevine::unregisterSession(const String& sessionID)
+{
+    m_sessions.remove(sessionID);
+}
+
+void CDMInstanceWidevine::registerCreateInFlight(uint32_t promiseID, CDMInstanceSessionWidevine& session)
+{
+    m_createsInFlight.set(promiseID, WeakPtr { session });
+}
+
+void CDMInstanceWidevine::cdmSessionMessage(const String& sessionID, cdm::MessageType messageType, Vector<uint8_t>&& message)
+{
+    if (auto session = m_sessions.get(sessionID))
+        session->didReceiveMessage(messageType, WTF::move(message));
+}
+
+void CDMInstanceWidevine::cdmSessionKeyStatusesChanged(const String& sessionID, Vector<WidevineKeyStatus>&& statuses)
+{
+    if (auto session = m_sessions.get(sessionID))
+        session->didChangeKeyStatuses(WTF::move(statuses));
+}
+
+void CDMInstanceWidevine::cdmSessionExpirationChanged(const String& sessionID, double expirationTime)
+{
+    if (auto session = m_sessions.get(sessionID))
+        session->didChangeExpiration(expirationTime);
+}
+
+void CDMInstanceWidevine::cdmSessionClosed(const String& sessionID)
+{
+    if (auto session = m_sessions.get(sessionID))
+        session->didClose();
+}
+
+void CDMInstanceWidevine::cdmSessionFailed(uint32_t promiseID, const String& sessionID)
+{
+    if (RefPtr creating = m_createsInFlight.take(promiseID).get()) {
+        creating->failPendingLicenseRequests();
+        return;
+    }
+    if (auto session = m_sessions.get(sessionID))
+        session->failPendingLicenseRequests();
+}
+
+void CDMInstanceWidevine::cdmSessionCreated(uint32_t promiseID, const String& sessionID)
+{
+    RefPtr creating = m_createsInFlight.take(promiseID).get();
+    if (!creating)
+        return;
+    registerSession(sessionID, *creating);
+    creating->didCreateSession(sessionID);
+}
+
+void CDMInstanceWidevine::initializeWithConfiguration(const CDMKeySystemConfiguration&, AllowDistinctiveIdentifiers allowDistinctiveIdentifiers, AllowPersistentState allowPersistentState, SuccessCallback&& callback)
+{
+    // A CDM allowed to persist keeps one record of its own, in the origin's media-keys storage
+    // directory; one that is not, or one whose origin has no such directory, is told so and keeps
+    // nothing. Both play: the CDM asks for storage only when it has been told it may have it.
+    bool succeeded = m_cdm && m_cdm->initialize(allowDistinctiveIdentifiers == AllowDistinctiveIdentifiers::Yes,
+        allowPersistentState == AllowPersistentState::Yes && m_hasStorage);
+    callback(succeeded ? SuccessValue::Succeeded : SuccessValue::Failed);
+}
+
+void CDMInstanceWidevine::setServerCertificate(Ref<SharedBuffer>&& certificate, SuccessCallback&& callback)
+{
+    if (!m_cdm) {
+        callback(SuccessValue::Failed);
+        return;
+    }
+
+    auto result = m_cdm->setServerCertificate(certificate->makeContiguous()->span());
+    callback(result.succeeded ? SuccessValue::Succeeded : SuccessValue::Failed);
+}
+
+void CDMInstanceWidevine::setStorageDirectory(const String& directory)
+{
+    if (!directory.isEmpty())
+        FileSystem::makeAllDirectories(directory);
+    m_hasStorage = m_cdm && m_cdm->setStorageDirectory(directory);
+}
+
+const String& CDMInstanceWidevine::keySystem() const
+{
+    static NeverDestroyed<String> s_keySystem { MAKE_STATIC_STRING_IMPL("com.widevine.alpha") };
+    return s_keySystem;
+}
+
+RefPtr<CDMInstanceSession> CDMInstanceWidevine::createSession()
+{
+    return adoptRef(new CDMInstanceSessionWidevine(*this));
+}
+
+CDMInstanceSessionWidevine::~CDMInstanceSessionWidevine()
+{
+    failPendingLicenseRequests();
+    if (m_sessionID.isEmpty())
+        return;
+    if (auto* parent = parentInstance())
+        parent->unregisterSession(m_sessionID);
+}
+
+CDMInstanceWidevine* CDMInstanceSessionWidevine::parentInstance() const
+{
+    auto instance = cdmInstanceProxy();
+    return static_cast<CDMInstanceWidevine*>(instance.get());
+}
+
+void CDMInstanceSessionWidevine::didCreateSession(const String& sessionID)
+{
+    m_sessionID = sessionID;
+}
+
+void CDMInstanceSessionWidevine::failPendingLicenseRequests()
+{
+    for (auto& callback : std::exchange(m_pendingLicenseCallbacks, { }))
+        callback(SharedBuffer::create(), emptyString(), false, Failed);
+}
+
+void CDMInstanceSessionWidevine::didReceiveMessage(cdm::MessageType messageType, Vector<uint8_t>&& message)
+{
+    // A request still waiting for its message is answered with this one; the
+    // promise carries the message, so it does not also go to the session.
+    if (!m_pendingLicenseCallbacks.isEmpty()) {
+        auto callbacks = std::exchange(m_pendingLicenseCallbacks, { });
+        bool needsIndividualization = messageType == cdm::MessageType::kIndividualizationRequest;
+        for (auto& callback : callbacks)
+            callback(SharedBuffer::create(message.span()), m_sessionID, needsIndividualization, Succeeded);
+        return;
+    }
+
+    if (m_client)
+        m_client->sendMessage(messageTypeFromCdmMessageType(messageType), SharedBuffer::create(message.span()));
+}
+
+void CDMInstanceSessionWidevine::didChangeKeyStatuses(Vector<WidevineKeyStatus>&& statuses)
+{
+    if (!mergeKeyStatuses(statuses))
+        return;
+
+    if (auto* parent = parentInstance())
+        parent->mergeKeysFrom(m_keyStore);
+
+    if (m_client)
+        m_client->updateKeyStatuses(m_keyStore.convertToJSKeyStatusVector());
+}
+
+void CDMInstanceSessionWidevine::didChangeExpiration(double)
+{
+    // CDMInstanceSessionClient carries no expiration channel.
+}
+
+void CDMInstanceSessionWidevine::didClose()
+{
+    failPendingLicenseRequests();
+    if (auto* parent = parentInstance())
+        parent->unrefAllKeysFrom(m_keyStore);
+    m_keyStore.clear();
+}
+
+bool CDMInstanceSessionWidevine::mergeKeyStatuses(const Vector<WidevineKeyStatus>& statuses)
+{
+    Vector<Ref<KeyHandle>> keys;
+    keys.reserveInitialCapacity(statuses.size());
+    for (auto& status : statuses) {
+        // The content key itself stays inside the CDM; this store only tracks availability.
+        KeyIDType keyID = status.keyID;
+        keys.append(KeyHandle::create(keyStatusFromCdmKeyStatus(status.status), WTF::move(keyID), KeyHandleValueVariant { Vector<uint8_t> { } }));
+    }
+
+    return m_keyStore.addKeys(WTF::move(keys));
+}
+
+void CDMInstanceSessionWidevine::requestLicense(LicenseType licenseType, KeyGroupingStrategy, const String& initDataType, Ref<SharedBuffer>&& initData, LicenseCallback&& callback)
+{
+    auto* parent = parentInstance();
+    auto* cdm = parent ? parent->cdm() : nullptr;
+    if (!cdm || licenseType != LicenseType::Temporary) {
+        callback(SharedBuffer::create(), emptyString(), false, Failed);
+        return;
+    }
+
+    auto cdmInitDataType = equalLettersIgnoringASCIICase(initDataType, "webm"_s) ? cdm::InitDataType::kWebM : cdm::InitDataType::kCenc;
+    auto result = cdm->createSessionAndGenerateRequest(cdm::SessionType::kTemporary, cdmInitDataType, initData->makeContiguous()->span());
+
+    // A promise the CDM has not settled yet is one it settles from a host answer that completes
+    // after this call, so the session it will name is still to come.
+    if (!result.settled) {
+        parent->registerCreateInFlight(result.promiseID, *this);
+        m_pendingLicenseCallbacks.append(WTF::move(callback));
+        return;
+    }
+
+    if (!result.succeeded) {
+        LOG(EME, "EME - Widevine - could not generate a license request: %s", result.errorMessage.utf8().data());
+        callback(SharedBuffer::create(), emptyString(), false, Failed);
+        return;
+    }
+
+    m_sessionID = result.sessionID;
+    parent->registerSession(m_sessionID, *this);
+
+    // The session exists, but the CDM emits its request from whichever host
+    // answer completes it -- the storage id it asked for part way through, say. The request waits
+    // for the message rather than being called a failure.
+    if (result.messages.isEmpty()) {
+        m_pendingLicenseCallbacks.append(WTF::move(callback));
+        return;
+    }
+
+    auto& first = result.messages.first();
+    auto message = SharedBuffer::create(first.second.span());
+    bool needsIndividualization = first.first == cdm::MessageType::kIndividualizationRequest;
+    forwardRemainingMessages(result.messages, 1);
+
+    callOnMainThread([sessionID = m_sessionID, message = WTF::move(message), needsIndividualization, callback = WTF::move(callback)]() mutable {
+        callback(WTF::move(message), sessionID, needsIndividualization, Succeeded);
+    });
+}
+
+// The promise carries one message; a CDM that emitted more says the rest through the session.
+void CDMInstanceSessionWidevine::forwardRemainingMessages(const Vector<std::pair<cdm::MessageType, Vector<uint8_t>>>& messages, size_t firstIndex)
+{
+    for (size_t index = firstIndex; index < messages.size(); ++index) {
+        callOnMainThread([weakThis = WeakPtr { *this }, messageType = messages[index].first, bytes = messages[index].second]() mutable {
+            if (weakThis)
+                weakThis->didReceiveMessage(messageType, WTF::move(bytes));
+        });
+    }
+}
+
+void CDMInstanceSessionWidevine::updateLicense(const String& sessionID, LicenseType, Ref<SharedBuffer>&& response, LicenseUpdateCallback&& callback)
+{
+    auto* parent = parentInstance();
+    auto* cdm = parent ? parent->cdm() : nullptr;
+    if (!cdm) {
+        callback(false, std::nullopt, std::nullopt, std::nullopt, Failed);
+        return;
+    }
+
+    auto result = cdm->updateSession(sessionID.isEmpty() ? m_sessionID : sessionID, response->makeContiguous()->span());
+    if (!result.succeeded) {
+        LOG(EME, "EME - Widevine - license update failed: %s", result.errorMessage.utf8().data());
+        callback(false, std::nullopt, std::nullopt, std::nullopt, Failed);
+        return;
+    }
+
+    std::optional<KeyStatusVector> changedKeys;
+    if (result.keyStatuses && mergeKeyStatuses(*result.keyStatuses)) {
+        parent->mergeKeysFrom(m_keyStore);
+        changedKeys = m_keyStore.convertToJSKeyStatusVector();
+    }
+
+    // A CDM that wants another round trip (a service certificate exchange, a renewal)
+    // reports it as a further message rather than as a failure.
+    std::optional<Message> message;
+    if (!result.messages.isEmpty()) {
+        auto& emitted = result.messages.first();
+        message = Message { messageTypeFromCdmMessageType(emitted.first), SharedBuffer::create(emitted.second.span()) };
+        forwardRemainingMessages(result.messages, 1);
+    }
+
+    callOnMainThread([weakThis = WeakPtr { *this }, callback = WTF::move(callback), changedKeys = WTF::move(changedKeys),
+        expiration = result.expirationTime, message = WTF::move(message), sessionClosed = result.sessionClosed]() mutable {
+        if (!weakThis)
+            return;
+        callback(sessionClosed, WTF::move(changedKeys), WTF::move(expiration), WTF::move(message), Succeeded);
+    });
+}
+
+void CDMInstanceSessionWidevine::loadSession(LicenseType, const String&, const String&, LoadSessionCallback&& callback)
+{
+    callback(std::nullopt, std::nullopt, std::nullopt, Failed, SessionLoadFailure::NoSessionData);
+}
+
+void CDMInstanceSessionWidevine::closeSession(const String& sessionID, CloseSessionCallback&& callback)
+{
+    auto* parent = parentInstance();
+    if (auto* cdm = parent ? parent->cdm() : nullptr)
+        cdm->closeSession(sessionID.isEmpty() ? m_sessionID : sessionID);
+
+    // The CDM has dropped the session, so stop routing its events here.
+    if (parent && !m_sessionID.isEmpty())
+        parent->unregisterSession(m_sessionID);
+
+    callback();
+}
+
+void CDMInstanceSessionWidevine::removeSessionData(const String& sessionID, LicenseType, RemoveSessionDataCallback&& callback)
+{
+    auto* parent = parentInstance();
+    auto* cdm = parent ? parent->cdm() : nullptr;
+    if (!cdm) {
+        callback({ }, nullptr, Failed);
+        return;
+    }
+
+    auto result = cdm->removeSession(sessionID.isEmpty() ? m_sessionID : sessionID);
+    auto keyStatuses = m_keyStore.allKeysAs(CDMKeyStatus::Released);
+    parent->unrefAllKeysFrom(m_keyStore);
+    m_keyStore.clear();
+
+    callback(WTF::move(keyStatuses), nullptr, result.succeeded ? Succeeded : Failed);
+}
+
+void CDMInstanceSessionWidevine::storeRecordOfKeyUsage(const String&)
+{
+}
+
+} // namespace WebCore
+
+#endif // ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
