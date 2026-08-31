@@ -46,10 +46,12 @@ LogitechGamepad::LogitechGamepad(HIDDevice&& device, unsigned index)
 
     m_mapping = standardGamepadMappingString();
 
-    m_buttonValues = Vector(numberOfStandardGamepadButtonsWithoutHomeButton, SharedGamepadValue { 0.0 });
+    // m_buttonValues = Vector(numberOfStandardGamepadButtonsWithoutHomeButton, SharedGamepadValue { 0.0 });
+    m_buttonValues.resize(numberOfStandardGamepadButtonsWithoutHomeButton); // MAVERICKS_BACKPORT: copies of a SharedGamepadValue share one refcounted slot; resize() gives each button its own.
 
     constexpr size_t axisCount = 4;
-    m_axisValues = Vector(axisCount, SharedGamepadValue { 0.0 });
+    // m_axisValues = Vector(axisCount, SharedGamepadValue { 0.0 });
+    m_axisValues.resize(axisCount); // MAVERICKS_BACKPORT: copies of a SharedGamepadValue share one refcounted slot; resize() gives each axis its own.
 
     auto inputElements = hidDevice().uniqueInputElementsInDeviceTreeOrder();
 
