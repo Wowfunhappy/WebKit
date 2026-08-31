@@ -118,6 +118,8 @@
 #import "WebTextCompletionController.h"
 #import "WebTextIterator.h"
 #import "WebUIDelegatePrivate.h"
+// MAVERICKS_BACKPORT: the WebKit1 getUserMedia client, restored (upstream a5c8561 removed WK1 MediaStream support).
+#import "WebUserMediaClient.h"
 #import "WebValidationMessageClient.h"
 #import "WebViewGroup.h"
 #import "WebViewRenderingUpdateScheduler.h"
@@ -151,6 +153,11 @@
 #import <WebCore/DictionaryLookup.h>
 #import <WebCore/DisplayRefreshMonitorManager.h>
 #import <WebCore/Document.h>
+#if ENABLE(DASHBOARD_SUPPORT)
+#import "WebDashboardRegion.h" // MAVERICKS_BACKPORT
+#import <WebCore/RenderObject.h>
+#import <WebCore/StyleDashboardRegion.h>
+#endif
 #import <WebCore/DocumentFullscreen.h>
 #import <WebCore/DocumentLoader.h>
 #import <WebCore/DocumentSyncClient.h>
@@ -199,6 +206,8 @@
 #import <WebCore/LocalizedStrings.h>
 #import <WebCore/LogInitialization.h>
 #import <WebCore/MIMETypeRegistry.h>
+// MAVERICKS_BACKPORT: MainThreadSharedTimer for addRunLoopMode(), which fires WebCore's shared timer in app-pumped private run-loop modes.
+#import <WebCore/MainThreadSharedTimer.h>
 #import <WebCore/MemoryCache.h>
 #import <WebCore/MemoryRelease.h>
 #import <WebCore/MutableStyleProperties.h>
@@ -267,6 +276,11 @@
 #import <pal/spi/ios/BrowserEngineKitSPI.h>
 #import <pal/spi/mac/NSResponderSPI.h>
 #import <pal/spi/mac/NSSpellCheckerSPI.h>
+
+// MAVERICKS_BACKPORT: WebCrypto runs on libgcrypt (USE_GCRYPT); pull in its initializer for PAL::GCrypt::initialize().
+#if USE(GCRYPT)
+#import <pal/crypto/gcrypt/Initialization.h>
+#endif
 #import <pal/spi/mac/NSViewSPI.h>
 #import <pal/spi/mac/NSWindowSPI.h>
 #import <wtf/Assertions.h>
@@ -1307,6 +1321,219 @@ static RetainPtr<CFMutableSetRef>& NODELETE allWebViewsSet()
 
 @implementation WebView (WebPrivate)
 
+// MAVERICKS_BACKPORT: the legacy WebDashboard SPI removed upstream in "Remove Legacy Dashboard
+// Support" (255204). macOS 10.9's DashboardClient — which renders Dashboard widgets, including Safari
+// Web Clips via the WebClip.plugin WebKit-ObjC plug-in — declares the widget's WebView legacy through
+// it during setup. Read off DashboardClient.framework's call sites, it sends AlwaysSendMouseEvents,
+// AlwaysSendActiveNullEvents and AlwaysAcceptsFirstMouse as YES, AllowWheelScrolling as NO, and
+// UseBackwardCompatibilityMode as YES.
+//
+// Backward-compatibility mode is the host saying this surface is authored against the pre-HTML5
+// parser, so it carries into the setting that selects those quirks; widget markup uses self-closing
+// start tags and unquoted attributes that the HTML5 tokenizer otherwise reads as text.
+- (void)_setDashboardBehavior:(WebDashboardBehavior)behavior to:(BOOL)flag
+{
+    switch (behavior) {
+    case WebDashboardBehaviorAlwaysSendMouseEventsToAllWindows:
+        _private->dashboardBehaviorAlwaysSendMouseEventsToAllWindows = flag;
+        break;
+    case WebDashboardBehaviorAlwaysSendActiveNullEventsToPlugIns:
+        _private->dashboardBehaviorAlwaysSendActiveNullEventsToPlugIns = flag;
+        break;
+    case WebDashboardBehaviorAlwaysAcceptsFirstMouse:
+        _private->dashboardBehaviorAlwaysAcceptsFirstMouse = flag;
+        break;
+    case WebDashboardBehaviorAllowWheelScrolling:
+        _private->dashboardBehaviorAllowWheelScrolling = flag;
+        break;
+    case WebDashboardBehaviorUseBackwardCompatibilityMode:
+        _private->dashboardBehaviorUseBackwardCompatibilityMode = flag;
+        if (RefPtr page = _private->page) {
+#if ENABLE(DASHBOARD_SUPPORT)
+            page->settings().setUsesDashboardBackwardCompatibilityMode(flag);
+#endif
+            page->settings().setUsePreHTML5ParserQuirks(flag);
+        }
+        break;
+    }
+}
+
+- (BOOL)_dashboardBehavior:(WebDashboardBehavior)behavior
+{
+    switch (behavior) {
+    case WebDashboardBehaviorAlwaysSendMouseEventsToAllWindows:
+        return _private->dashboardBehaviorAlwaysSendMouseEventsToAllWindows;
+    case WebDashboardBehaviorAlwaysSendActiveNullEventsToPlugIns:
+        return _private->dashboardBehaviorAlwaysSendActiveNullEventsToPlugIns;
+    case WebDashboardBehaviorAlwaysAcceptsFirstMouse:
+        return _private->dashboardBehaviorAlwaysAcceptsFirstMouse;
+    case WebDashboardBehaviorAllowWheelScrolling:
+        return _private->dashboardBehaviorAllowWheelScrolling;
+    case WebDashboardBehaviorUseBackwardCompatibilityMode:
+        return _private->dashboardBehaviorUseBackwardCompatibilityMode;
+    }
+    return NO;
+}
+
+#if ENABLE(DASHBOARD_SUPPORT)
+
+// MAVERICKS_BACKPORT: the scroller/control auto-region helpers below were removed upstream (2d364c6 "Remove
+// Dashboard support"). -_dashboardRegions augments the document's CSS -apple-dashboard-region set with a
+// "control" region for every native scroller (NSScroller) and every WebCore scrollbar (e.g. a <textarea> or
+// overflow scrollbar). DashboardClient reads -_dashboardRegions to decide which areas of a widget are
+// interactive vs. a drag handle: a widget that declares no -apple-dashboard-region in CSS (e.g. the third-
+// party "Text Area" widget, a bare native <textarea>) still reports its scrollbar as a control region, which
+// is what makes DashboardClient leave the widget interior interactive (text drag-selects, the scrollbar
+// drags) and move the widget only from its border. Without this the reported set is empty and DashboardClient
+// treats the whole widget as a drag handle, so any drag moves the widget instead of selecting/scrolling.
+// Restored verbatim from stock 9537.78, adapted to the modern LocalFrameView / HashSet<Ref<Widget>> API.
+#define DASHBOARD_CONTROL_LABEL @"control"
+
+- (void)_addControlRect:(NSRect)bounds clip:(NSRect)clip fromView:(NSView *)view toDashboardRegions:(NSMutableDictionary *)regions
+{
+    NSRect adjustedBounds = bounds;
+    adjustedBounds.origin = [self convertPoint:bounds.origin fromView:view];
+    adjustedBounds.origin.y = [self bounds].size.height - adjustedBounds.origin.y;
+    adjustedBounds.size = bounds.size;
+
+    NSRect adjustedClip;
+    adjustedClip.origin = [self convertPoint:clip.origin fromView:view];
+    adjustedClip.origin.y = [self bounds].size.height - adjustedClip.origin.y;
+    adjustedClip.size = clip.size;
+
+    WebDashboardRegion *region = [[WebDashboardRegion alloc] initWithRect:adjustedBounds
+        clip:adjustedClip type:WebDashboardRegionTypeScrollerRectangle];
+    NSMutableArray *scrollerRegions = [regions objectForKey:DASHBOARD_CONTROL_LABEL];
+    if (!scrollerRegions) {
+        scrollerRegions = [[NSMutableArray alloc] init];
+        [regions setObject:scrollerRegions forKey:DASHBOARD_CONTROL_LABEL];
+        [scrollerRegions release];
+    }
+    [scrollerRegions addObject:region];
+    [region release];
+}
+
+- (void)_addScrollerDashboardRegionsForFrameView:(WebCore::LocalFrameView*)frameView dashboardRegions:(NSMutableDictionary *)regions
+{
+    using namespace WebCore;
+
+    NSView *documentView = [[kit(&frameView->frame()) frameView] documentView];
+
+    for (auto& widget : frameView->children()) {
+        if (is<LocalFrameView>(widget.get())) {
+            [self _addScrollerDashboardRegionsForFrameView:&downcast<LocalFrameView>(widget.get()) dashboardRegions:regions];
+            continue;
+        }
+
+        if (!widget->isScrollbar())
+            continue;
+
+        // FIXME: This should really pass an appropriate clip, but our first try got it wrong, and
+        // it's not common to need this to be correct in Dashboard widgets.
+        auto frameRect = widget->frameRect();
+        NSRect bounds = NSMakeRect(frameRect.x(), frameRect.y(), frameRect.width(), frameRect.height());
+        [self _addControlRect:bounds clip:bounds fromView:documentView toDashboardRegions:regions];
+    }
+}
+
+- (void)_addScrollerDashboardRegions:(NSMutableDictionary *)regions from:(NSArray *)views
+{
+    // Add scroller regions for NSScroller and WebCore scrollbars
+    NSUInteger count = [views count];
+    for (NSUInteger i = 0; i < count; i++) {
+        NSView *view = [views objectAtIndex:i];
+
+        if ([view isKindOfClass:[WebHTMLView class]]) {
+            if (auto* coreFrame = core([(WebHTMLView*)view _frame])) {
+                if (auto* coreView = coreFrame->view())
+                    [self _addScrollerDashboardRegionsForFrameView:coreView dashboardRegions:regions];
+            }
+        } else if ([view isKindOfClass:[NSScroller class]]) {
+            // AppKit places absent scrollers at -100,-100
+            if ([view frame].origin.y < 0)
+                continue;
+            [self _addControlRect:[view bounds] clip:[view visibleRect] fromView:view toDashboardRegions:regions];
+        }
+        [self _addScrollerDashboardRegions:regions from:[view subviews]];
+    }
+}
+
+- (void)_addScrollerDashboardRegions:(NSMutableDictionary *)regions
+{
+    [self _addScrollerDashboardRegions:regions from:[self subviews]];
+}
+
+#endif // ENABLE(DASHBOARD_SUPPORT)
+
+- (NSDictionary *)_dashboardRegions
+{
+#if ENABLE(DASHBOARD_SUPPORT)
+    // MAVERICKS_BACKPORT: report the document's -apple-dashboard-region control regions so DashboardClient
+    // knows which areas are interactive controls (vs. drag handles).
+    auto* coreFrame = [self _mainCoreFrame];
+    if (!coreFrame || !coreFrame->document())
+        return nil;
+
+    auto& regions = coreFrame->document()->annotatedRegions();
+    NSMutableDictionary *webRegions = [NSMutableDictionary dictionaryWithCapacity:regions.size()];
+    for (auto& region : regions) {
+        if (region.type == WebCore::StyleDashboardRegion::None)
+            continue;
+
+        RetainPtr<NSString> label = region.label.createNSString();
+        WebDashboardRegionType type = WebDashboardRegionTypeNone;
+        if (region.type == WebCore::StyleDashboardRegion::Circle)
+            type = WebDashboardRegionTypeCircle;
+        else if (region.type == WebCore::StyleDashboardRegion::Rectangle)
+            type = WebDashboardRegionTypeRectangle;
+
+        NSMutableArray *regionValues = [webRegions objectForKey:label.get()];
+        if (!regionValues) {
+            regionValues = [NSMutableArray arrayWithCapacity:1];
+            [webRegions setObject:regionValues forKey:label.get()];
+        }
+
+        auto boundsRect = WebCore::snappedIntRect(region.bounds);
+        auto clipRect = WebCore::snappedIntRect(region.clip);
+        NSRect nsBounds = NSMakeRect(boundsRect.x(), boundsRect.y(), boundsRect.width(), boundsRect.height());
+        NSRect nsClip = NSMakeRect(clipRect.x(), clipRect.y(), clipRect.width(), clipRect.height());
+        WebDashboardRegion *webRegion = [[WebDashboardRegion alloc] initWithRect:nsBounds clip:nsClip type:type];
+        [regionValues addObject:webRegion];
+        [webRegion release];
+    }
+
+    // MAVERICKS_BACKPORT: augment with auto-generated scroller/control regions (native scrollbars) so widgets
+    // that declare no -apple-dashboard-region in CSS still report their scrollbars as control regions. Matches
+    // stock 9537.78 (see -_addScrollerDashboardRegions: above).
+    [self _addScrollerDashboardRegions:webRegions];
+
+    return webRegions;
+#else
+    return nil;
+#endif
+}
+
+// MAVERICKS_BACKPORT: Safari's Top Sites view uses BrowserContentViewController which
+// renders caption labels via CaptionLayer::display(). CaptionLayer calls
+// `+[WebView _shouldUseFontSmoothing]` to pick a smoothing flag. Upstream
+// WebKit (modern) dropped this class method since the global is configured
+// differently. Safari 7 still calls it — without an implementation the
+// uncaught ObjC exception aborts the CALayer commit, leaving the Top Sites
+// grid blank. Return YES (the upstream default) so smoothing matches modern
+// behavior; the actual smoothing rendering happens further downstream.
++ (BOOL)_shouldUseFontSmoothing
+{
+    return YES;
+}
+
+// MAVERICKS_BACKPORT: Safari's BrowserContentViewController may also set the
+// smoothing pref before drawing. Provide the setter as a no-op so the call
+// doesn't raise an unrecognized-selector exception.
++ (void)_setShouldUseFontSmoothing:(BOOL)smoothing
+{
+    UNUSED_PARAM(smoothing);
+}
+
 + (NSString *)_standardUserAgentWithApplicationName:(NSString *)applicationName
 {
     return WebCore::standardUserAgentWithApplicationName(applicationName).createNSString().autorelease();
@@ -1547,12 +1774,24 @@ static void WebKitInitializeGamepadProviderIfNecessary()
 #if ENABLE(ENCRYPTED_MEDIA)
     WebCore::provideMediaKeySystemTo(*_private->page.get(), WebMediaKeySystemClient::singleton());
 #endif
+#if ENABLE(MEDIA_STREAM)
+    // MAVERICKS_BACKPORT: give WebKit1 a getUserMedia client again; see WebUserMediaClient.h.
+    WebCore::provideUserMediaTo(_private->page.get(), WebUserMediaClient::create(self));
+#endif
 
     _private->inspectorController = LegacyWebPageInspectorController::create(*_private->page);
 #if ENABLE(REMOTE_INSPECTOR)
-    _private->inspectorDebuggable = LegacyWebPageDebuggable::create(*_private->inspectorController, *_private->page);
-    _private->inspectorDebuggable->init();
-    _private->inspectorDebuggable->setInspectable(true);
+    // MAVERICKS_BACKPORT: do NOT wire the in-process legacy WebView into the system RemoteInspector.
+    // Safari browses with WKWebView (multi-process); a WebKitLegacy WebView is only instantiated
+    // for auxiliary chrome (e.g. the Preferences window NIB unarchives one via initWithCoder:).
+    // Remote inspection of such a WebView goes through the webinspectord XPC service, which is
+    // absent/protocol-incompatible on 10.9, and registerTarget()/setInspectable() cross into the
+    // deployed JavaScriptCore where the call faults (SIGSEGV in RemoteInspector::registerTarget,
+    // null target). The Web Inspector that works on this port uses the WKWebView/WebContent path,
+    // not this legacy debuggable, so skipping registration here is correct and unblocks Preferences.
+    //   _private->inspectorDebuggable = LegacyWebPageDebuggable::create(*_private->inspectorController, *_private->page);
+    //   _private->inspectorDebuggable->init();
+    //   _private->inspectorDebuggable->setInspectable(true);
 #endif
 
     _private->page->setCanStartMedia([self window]);
@@ -2423,7 +2662,14 @@ static bool fastDocumentTeardownEnabled()
     if (!_private || _private->closed)
         return;
 
-    _private->inspectorDebuggable->detachFromPage();
+    // MAVERICKS_BACKPORT: on Mac the legacy WebView is intentionally NOT registered as a RemoteInspector
+    // debuggable (see _commonInitializationWithFrameName — webinspectord is absent on 10.9, so
+    // creating/registering one faults), so _private->inspectorDebuggable is null here. Guard the
+    // teardown: closing such a WebView (e.g. Safari disabling an extension, which closes its WK1
+    // view via -[WebView _close]) would otherwise null-deref in detachFromPage() and terminate the
+    // whole Safari UI process.
+    if (_private->inspectorDebuggable)
+        _private->inspectorDebuggable->detachFromPage();
     _private->inspectorController->willDestroyPage(*_private->page);
 
     [[NSNotificationCenter defaultCenter] postNotificationName:WebViewWillCloseNotification object:self];
@@ -2666,12 +2912,15 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (BOOL)allowsRemoteInspection
 {
-    return _private->inspectorDebuggable->inspectable();
+    // MAVERICKS_BACKPORT: inspectorDebuggable is null on Mac (see -[WebView _close]); report not-inspectable.
+    return _private->inspectorDebuggable ? _private->inspectorDebuggable->inspectable() : NO;
 }
 
 - (void)setAllowsRemoteInspection:(BOOL)allow
 {
-    _private->inspectorDebuggable->setInspectable(allow);
+    // MAVERICKS_BACKPORT: inspectorDebuggable is null on Mac (see -[WebView _close]); nothing to configure.
+    if (_private->inspectorDebuggable)
+        _private->inspectorDebuggable->setInspectable(allow);
 }
 
 - (void)setShowingInspectorIndication:(BOOL)showing
@@ -2928,6 +3177,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     // This parses the user stylesheet synchronously so anything that may affect it should be done first.
     if ([preferences userStyleSheetEnabled]) {
         NSString* location = [[preferences userStyleSheetLocation] _web_originalDataAsString];
+        // MAVERICKS_BACKPORT: DashboardClient names its widget stylesheet by this sentinel, which WebKit
+        // resolves to the file. That sheet is what gives every native control in a widget its
+        // -apple-dashboard-region, so without the translation no widget reports a control region.
+        if ([location isEqualToString:@"apple-dashboard://stylesheet"])
+            location = @"file:///System/Library/PrivateFrameworks/DashboardClient.framework/Resources/widget.css";
         settings.setUserStyleSheetLocation([NSURL URLWithString:(location ? location : @"")]);
     } else
         settings.setUserStyleSheetLocation([NSURL URLWithString:@""]);
@@ -2938,7 +3192,9 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     WebCore::DeprecatedGlobalSettings::setNetworkInterfaceName([preferences networkInterfaceName]);
 #endif
 
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
+// MAVERICKS_BACKPORT: the modern Encrypted Media API's CDMs keep their per-origin records under
+// this directory too, reaching it through Document::mediaKeysStorageDirectory.
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)
     _private->page->setMediaKeysStorageDirectory([preferences mediaKeysStorageDirectory]);
 #endif
 
@@ -4236,6 +4492,27 @@ IGNORE_WARNINGS_END
     WebCore::SecurityPolicy::resetOriginAccessAllowlists();
 }
 
+// MAVERICKS_BACKPORT: restore the old "Whitelist" origin-access SPI names Safari 7 still calls.
+// Safari 7-era compatibility: these SPI were renamed "Whitelist" -> "AllowList" in modern
+// WebKit. Safari's Extension::configureCrossOriginWhiteList still calls the old "Whitelist"
+// selectors when enabling an extension; without them the call raises NSInvalidArgumentException
+// ("unrecognized selector"), which aborts Extension::enable so installed extensions never
+// register (no global page, toolbar item, or content scripts). Forward to the modern methods.
++ (void)_addOriginAccessWhitelistEntryWithSourceOrigin:(NSString *)sourceOrigin destinationProtocol:(NSString *)destinationProtocol destinationHost:(NSString *)destinationHost allowDestinationSubdomains:(BOOL)allowDestinationSubdomains
+{
+    [self _addOriginAccessAllowListEntryWithSourceOrigin:sourceOrigin destinationProtocol:destinationProtocol destinationHost:destinationHost allowDestinationSubdomains:allowDestinationSubdomains];
+}
+
++ (void)_removeOriginAccessWhitelistEntryWithSourceOrigin:(NSString *)sourceOrigin destinationProtocol:(NSString *)destinationProtocol destinationHost:(NSString *)destinationHost allowDestinationSubdomains:(BOOL)allowDestinationSubdomains
+{
+    [self _removeOriginAccessAllowListEntryWithSourceOrigin:sourceOrigin destinationProtocol:destinationProtocol destinationHost:destinationHost allowDestinationSubdomains:allowDestinationSubdomains];
+}
+
++ (void)_resetOriginAccessWhitelists
+{
+    [self _resetOriginAccessAllowLists];
+}
+
 - (BOOL)_isViewVisible
 {
     NSWindow *window = [self window];
@@ -4245,7 +4522,16 @@ IGNORE_WARNINGS_END
     if (![window isVisible])
         return false;
 
-    if ([self isHiddenOrHasHiddenAncestor])
+    // MAVERICKS_BACKPORT: consult the ancestors' hidden state but not this view's own isHidden.
+    // Safari-7-era hosts toggle the WebView's own hidden flag as a transient UI mechanism —
+    // DashboardClient's WebClip plugin hides its WebView behind a loading overlay on every widget
+    // boot — on the 537.x contract that view-hides were not pushed into page visibility (537.x
+    // WebView has no viewDidHide/viewDidUnhide overrides, so the dance went unobserved). With the
+    // modern overrides wired, consulting the self flag turns that dance into visibilitychange
+    // storms mid-boot, and a view attached while overlay-hidden latches the page hidden for life
+    // (rAF suspended; sites that gate content on visibility never show it). Window-level state and
+    // ancestor hides remain authoritative, mirroring the WK2-side visibility fix on this OS.
+    if ([[self superview] isHiddenOrHasHiddenAncestor])
         return false;
 
 #if !PLATFORM(IOS_FAMILY)
@@ -4556,8 +4842,43 @@ IGNORE_WARNINGS_END
 
 - (void)_setIsVisible:(BOOL)isVisible
 {
-    if (_private->page)
+    // MAVERICKS_BACKPORT: track the prior visibility so we can force a render on the hidden->visible edge (block below).
+    if (_private->page) {
+        bool wasVisible = _private->page->isVisible();
         _private->page->setIsVisible(isVisible);
+
+        // MAVERICKS_BACKPORT: WK1 has no implicit repaint on becoming visible; force one so offscreen-loaded WebViews aren't blank.
+        // When a Legacy WebKit page transitions to visible, force a fresh rendering update.
+        // Unlike WebKit2 (whose drawing area re-displays the page when it becomes visible),
+        // WK1 has no implicit repaint here: WebCore's Page::setIsVisibleInternal(true) only
+        // resumes animations and calls FrameView::show(), it does not trigger a rendering
+        // update. Content that was laid out/composited while the WebView was still offscreen
+        // (windowless and therefore page-hidden) never reaches the screen, and nothing
+        // schedules a new render once it is shown. This makes WebViews that are loaded before
+        // being displayed render blank — notably Safari's Extensions preference pane, the
+        // Extension Builder, and Top Sites previews. Forcing an update here rebuilds and
+        // flushes the compositing layers into the now-hosted view.
+        if (isVisible && !wasVisible && !_private->closed) {
+            // Propagate the (now-real) available size into WebCore and schedule a rendering
+            // update so a WebView created at its final size while hidden re-lays-out. This made
+            // Top Sites thumbnails render. (A forceLayout here to also fix the embedded-WebView
+            // 0x0-document-view case — Extensions pane / Extension Builder / popovers — crashes
+            // Safari whether sync or deferred; see webkit-mavericks-extensions memory.)
+            //
+            // Deliberately no _setNeedsOneShotDrawingSynchronization: here. That flag belongs to
+            // WebCore, which raises it only when content actually moves between the window and a
+            // GraphicsLayer (RenderLayerCompositor::repaintOnCompositingChange /
+            // repaintInCompositedAncestor). Raising it on a bare visibility edge makes the next
+            // -[WebHTMLView drawRect:] call -[NSWindow disableScreenUpdatesUntilFlush] on a window
+            // with no compositing change to synchronize — the hazard that method's own call site
+            // warns about. Hosts that drive display by hand rather than through window autodisplay
+            // (DashboardClient creates every widget window with autodisplay off and flushes it
+            // itself) can then leave screen updates suppressed with no flush pending, so freshly
+            // ordered-in windows present their never-drawn backing store.
+            [[[self mainFrame] frameView] _frameSizeChanged];
+            [self _scheduleUpdateRendering];
+        }
+    }
 }
 
 - (void)_setVisibilityState:(WebPageVisibilityState)visibilityState isInitialState:(BOOL)isInitialState
@@ -5027,6 +5348,16 @@ IGNORE_WARNINGS_END
 
     WebCore::initializeMainThreadIfNeeded();
 
+#if USE(GCRYPT)
+    // MAVERICKS_BACKPORT: WebCrypto is backed by libgcrypt on this port. WK1 in-process
+    // hosts (e.g. Dashboard's DashboardClient rendering web clips) never run the
+    // WebKit2 process init that calls this, so initialize libgcrypt here too —
+    // before any other libgcrypt call — to satisfy its required first-call
+    // (gcry_check_version); otherwise it logs "Libgcrypt warning: missing
+    // initialization - please fix the application".
+    PAL::GCrypt::initialize();
+#endif
+
     WTF::RefCountDebuggerBase::enableThreadingChecksGlobally();
 
     WTF::setProcessPrivileges(allPrivileges());
@@ -5162,13 +5493,132 @@ IGNORE_WARNINGS_END
     return [[self class] _canShowMIMEType:MIMEType allowingPlugins:NO];
 }
 
+// MAVERICKS_BACKPORT: these were stubbed to nil upstream (the WebView-level WebKit-ObjC
+// plug-in lookup fell out of use). Safari Web Clips need them: WebClip.html's <embed
+// type="application/x-apple-webclip-plug-in"> reaches objectContentType() ->
+// _pluginForMIMEType:; with the stub returning nil the embed never became a plug-in
+// (createPlugin was never called) and the clip rendered blank. Consult the per-view
+// database (and any existing shared one).
+//
+// Normally DashboardClient registers the widget-bundled WebClip.plugin via
+// -[WebView _setAdditionalWebPlugInPaths:] (filling _private->pluginDatabase) -- but it
+// only does so when the widget's Info.plist has AllowInternetPlugins=1, which on this
+// 64-bit-only backport ALSO forces the widget into a 32-bit DashboardClient that can't
+// load our x86_64 WebKit (so it crashes on launch). We therefore ship the widget with
+// AllowInternetPlugins=0 (forcing a 64-bit host) and recover the plug-in path ourselves:
+// when the registered databases miss, derive the enclosing .wdgt bundle from the main
+// frame's document URL and scan it for the bundled plug-in. This decouples "run 64-bit"
+// from "find the application plug-in", which AllowInternetPlugins otherwise conflates.
+- (WebPluginDatabase *)_ensureWidgetBundlePluginDatabase
+{
+    NSURL *docURL = [[[[self mainFrame] dataSource] response] URL];
+    if (!docURL) {
+        if (NSString *s = [self mainFrameURL])
+            docURL = [NSURL URLWithString:s];
+    }
+    if (![docURL isFileURL])
+        return nil;
+
+    // Walk up from the document to the enclosing *.wdgt bundle directory.
+    NSString *wdgt = nil;
+    for (NSString *p = [[docURL path] stringByDeletingLastPathComponent]; [p length] > 1; p = [p stringByDeletingLastPathComponent]) {
+        if ([[p pathExtension] isEqualToString:@"wdgt"]) {
+            wdgt = p;
+            break;
+        }
+    }
+    if (!wdgt)
+        return nil;
+
+    WebPluginDatabase *db = _private->pluginDatabase.get();
+    NSArray *existing = [db _plugInPaths];
+    if (existing && [existing containsObject:wdgt])
+        return db; // already scanned this bundle; don't rescan on every miss
+
+    if (!db) {
+        _private->pluginDatabase = adoptNS([[WebPluginDatabase alloc] init]);
+        db = _private->pluginDatabase.get();
+    }
+    NSMutableArray *paths = [NSMutableArray array];
+    if (existing)
+        [paths addObjectsFromArray:existing];
+    [paths addObject:wdgt];
+    [db setPlugInPaths:paths];
+    [db refresh];
+    return db;
+}
+
+// MAVERICKS_BACKPORT: lazily scan the HOST APP's own built-in PlugIns directory
+// (-[NSBundle builtInPlugInsPath], e.g. Mail.app/Contents/PlugIns) for a WebKit-ObjC
+// WebPlugin. Mail's file-attachment cells are <object type="application/x-apple-msg-attachment">
+// handled by Mail's bundled MailWebPlugIn.webplugin; without a handler objectContentType()
+// falls through to a failed createPlugin() and the cell renders the "Missing Plug-in" text.
+// Stock 10.9 found such app plug-ins via +[WebPluginDatabase sharedDatabase], whose
+// _defaultPlugInPaths includes builtInPlugInsPath. We deliberately do NOT create the shared
+// database here (it would also scan ~/ and /Library/Internet Plug-Ins for old NPAPI plug-ins),
+// mirroring _ensureWidgetBundlePluginDatabase: scan ONLY the app bundle's own PlugIns dir.
+- (WebPluginDatabase *)_ensureAppBuiltInPluginDatabase
+{
+    NSString *builtIn = [[NSBundle mainBundle] builtInPlugInsPath];
+    BOOL isDir = NO;
+    if (![builtIn length] || ![[NSFileManager defaultManager] fileExistsAtPath:builtIn isDirectory:&isDir] || !isDir)
+        return nil;
+
+    WebPluginDatabase *db = _private->pluginDatabase.get();
+    NSArray *existing = [db _plugInPaths];
+    if (existing && [existing containsObject:builtIn])
+        return db; // already scanned this bundle; don't rescan on every miss
+
+    if (!db) {
+        _private->pluginDatabase = adoptNS([[WebPluginDatabase alloc] init]);
+        db = _private->pluginDatabase.get();
+    }
+    NSMutableArray *paths = [NSMutableArray array];
+    if (existing)
+        [paths addObjectsFromArray:existing];
+    [paths addObject:builtIn];
+    [db setPlugInPaths:paths];
+    [db refresh];
+    return db;
+}
+
+// MAVERICKS_BACKPORT: restore the plug-in lookup (upstream returns nil); consult per-view/shared/app-built-in/widget-bundle databases so Web Clips find WebClip.plugin and Mail attachments find MailWebPlugIn.
 - (WebBasePluginPackage *)_pluginForMIMEType:(NSString *)MIMEType
 {
+    if (_private->pluginDatabase) {
+        if (WebBasePluginPackage *pluginPackage = [_private->pluginDatabase pluginForMIMEType:MIMEType])
+            return pluginPackage;
+    }
+    if (WebPluginDatabase *shared = [WebPluginDatabase sharedDatabaseIfExists]) {
+        if (WebBasePluginPackage *pluginPackage = [shared pluginForMIMEType:MIMEType])
+            return pluginPackage;
+    }
+    if (WebPluginDatabase *appDB = [self _ensureAppBuiltInPluginDatabase]) {
+        if (WebBasePluginPackage *pluginPackage = [appDB pluginForMIMEType:MIMEType])
+            return pluginPackage;
+    }
+    if (WebPluginDatabase *bundleDB = [self _ensureWidgetBundlePluginDatabase])
+        return [bundleDB pluginForMIMEType:MIMEType];
     return nil;
 }
 
 - (WebBasePluginPackage *)_pluginForExtension:(NSString *)extension
 {
+// MAVERICKS_BACKPORT: restore the plug-in lookup (upstream returns nil); consult per-view/shared/widget-bundle databases so Web Clips find WebClip.plugin.
+    if (_private->pluginDatabase) {
+        if (WebBasePluginPackage *pluginPackage = [_private->pluginDatabase pluginForExtension:extension])
+            return pluginPackage;
+    }
+    if (WebPluginDatabase *shared = [WebPluginDatabase sharedDatabaseIfExists]) {
+        if (WebBasePluginPackage *pluginPackage = [shared pluginForExtension:extension])
+            return pluginPackage;
+    }
+    if (WebPluginDatabase *appDB = [self _ensureAppBuiltInPluginDatabase]) {
+        if (WebBasePluginPackage *pluginPackage = [appDB pluginForExtension:extension])
+            return pluginPackage;
+    }
+    if (WebPluginDatabase *bundleDB = [self _ensureWidgetBundlePluginDatabase])
+        return [bundleDB pluginForExtension:extension];
     return nil;
 }
 
@@ -7276,12 +7726,41 @@ static WebFrameView *containingFrameView(NSView *view)
 
 @end
 
+// MAVERICKS_BACKPORT: also fire WebCore's shared timer in a private run-loop mode an app pumps to
+// advance a load. WebCore::Timer fires from MainThreadSharedTimer's CFRunLoopTimer, registered only
+// in kCFRunLoopCommonModes; the load-completion path (FrameLoader's checkCompleted, the HTML parser
+// scheduler) runs on those timers, so it never progresses while an app spins a non-common mode
+// (Messages pumps @"iChatWebKitLoadingRunLoopMode" via -[NSRunLoop acceptInputForMode:beforeDate:]
+// in -_windowDidLoad). Register the mode with the shared timer so the timer fires there too. (The
+// other two halves of in-mode delivery already exist: resource callbacks via
+// -[WebCoreResourceHandleAsOperationQueueDelegate callFunctionOnMainThread:] CFRunLoopPerformBlock,
+// and the deferred main-resource continuation via RunLoop::dispatch(SchedulePairHashSet&).)
+// This closes the upstream "FIXME: make SharedTimerMac use these SchedulePairs" (PageCocoa.mm).
+static void registerSharedTimerRunLoopMode(NSRunLoop *runLoop, NSString *mode)
+{
+    // The shared timer lives on the main run loop; only wire modes that belong to it. The standard
+    // modes already run as (or within) common modes where the timer fires already, so skip them.
+    if ([runLoop getCFRunLoop] != CFRunLoopGetMain())
+        return;
+    if ([mode isEqualToString:(NSString *)kCFRunLoopCommonModes]
+        || [mode isEqualToString:NSDefaultRunLoopMode]
+        || [mode isEqualToString:NSEventTrackingRunLoopMode]
+        || [mode isEqualToString:NSModalPanelRunLoopMode])
+        return;
+
+    WebCore::MainThreadSharedTimer::addRunLoopMode((CFStringRef)mode);
+}
+
 @implementation WebView (WebPendingPublic)
 
 - (void)scheduleInRunLoop:(NSRunLoop *)runLoop forMode:(NSString *)mode
 {
-    if (runLoop && mode)
+    // MAVERICKS_BACKPORT: brace the schedule body so the run-loop mode is also registered with WebCore's shared timer below.
+    if (runLoop && mode) {
         core(self)->addSchedulePair(SchedulePair::create(runLoop, (CFStringRef)mode));
+        // MAVERICKS_BACKPORT: also fire WebCore's shared timer in this app-registered mode (see registerSharedTimerRunLoopMode).
+        registerSharedTimerRunLoopMode(runLoop, mode);
+    }
 }
 
 - (void)unscheduleFromRunLoop:(NSRunLoop *)runLoop forMode:(NSString *)mode
@@ -7833,6 +8312,21 @@ static NSAppleEventDescriptor* aeDescFromJSValue(JSC::JSGlobalObject* lexicalGlo
 {
     LOG(Bindings, "removeObserver:%p forKeyPath:%@", anObserver, keyPath);
     [super removeObserver:anObserver forKeyPath:keyPath];
+}
+
+// MAVERICKS_BACKPORT: NSKeyValueObservingCustomization — store the KVO observation info in an ivar
+// rather than the global KVO side table. The legacy Safari-7-era WebView provided this override;
+// Xcode 6.2's DVTFoundation KVO-dealloc-assertion setup requires the WebView class to override
+// observationInfo and aborts at launch when it does not (Xcode links WebKit for its help/doc web
+// views, so this runs during every Xcode startup). Restoring the override lets Xcode launch.
+- (void *)observationInfo
+{
+    return _private->observationInfo;
+}
+
+- (void)setObservationInfo:(void *)info
+{
+    _private->observationInfo = info;
 }
 
 @end

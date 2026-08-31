@@ -25,7 +25,14 @@
 
 #import "WebVideoFullscreenController.h"
 
-#if ENABLE(VIDEO) && PLATFORM(MAC)
+// MAVERICKS_BACKPORT: this WK1 AVKit fullscreen controller unconditionally calls
+// PlaybackSessionInterfaceAVKitLegacy::create(), whose class (and PlaybackSessionModel) only exist under
+// ENABLE(VIDEO_PRESENTATION_MODE) on Mac (off on this port). Every consumer of the controller is already
+// ENABLE(VIDEO_PRESENTATION_MODE)-guarded (WebView.mm's _enterVideoFullscreenForVideoElement; WebViewData.h
+// holds only a RetainPtr to the @class-forward-declared type), so gating the whole TU on VPM is safe and
+// matches the dependency the file actually has. Element fullscreen (ENABLE_VIDEO_USES_ELEMENT_FULLSCREEN)
+// serves <video> fullscreen on this port.
+#if ENABLE(VIDEO) && PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE)
 
 #import <AVFoundation/AVPlayer.h>
 #import <WebCore/HTMLVideoElement.h>

@@ -279,6 +279,23 @@ typedef enum {
 
 @interface WebView (WebPrivate)
 
+// MAVERICKS_BACKPORT: legacy Dashboard control regions, consumed by DashboardClient via
+// -webView:dashboardRegionsChanged: and read internally by WebChromeClient. The behavior flags below
+// are the ones DashboardClient declares on a widget's WebView during setup; WebHTMLView reads
+// AlwaysAcceptsFirstMouse through -_dashboardBehavior:.
+- (NSDictionary *)_dashboardRegions;
+
+typedef enum {
+    WebDashboardBehaviorAlwaysSendMouseEventsToAllWindows,
+    WebDashboardBehaviorAlwaysSendActiveNullEventsToPlugIns,
+    WebDashboardBehaviorAlwaysAcceptsFirstMouse,
+    WebDashboardBehaviorAllowWheelScrolling,
+    WebDashboardBehaviorUseBackwardCompatibilityMode
+} WebDashboardBehavior;
+
+- (void)_setDashboardBehavior:(WebDashboardBehavior)behavior to:(BOOL)flag;
+- (BOOL)_dashboardBehavior:(WebDashboardBehavior)behavior;
+
 + (void)_setIconLoadingEnabled:(BOOL)enabled;
 + (BOOL)_isIconLoadingEnabled;
 
@@ -751,6 +768,12 @@ Could be worth adding to the API.
 
 // Removes all allow list entries created with _addOriginAccessAllowListEntryWithSourceOrigin.
 + (void)_resetOriginAccessAllowLists;
+
+// MAVERICKS_BACKPORT: Safari 7-era compatibility aliases (the SPI was renamed "Whitelist" -> "AllowList"). Safari's
+// extension-enable path still calls these names; forward to the AllowList implementations.
++ (void)_addOriginAccessWhitelistEntryWithSourceOrigin:(NSString *)sourceOrigin destinationProtocol:(NSString *)destinationProtocol destinationHost:(NSString *)destinationHost allowDestinationSubdomains:(BOOL)allowDestinationSubdomains;
++ (void)_removeOriginAccessWhitelistEntryWithSourceOrigin:(NSString *)sourceOrigin destinationProtocol:(NSString *)destinationProtocol destinationHost:(NSString *)destinationHost allowDestinationSubdomains:(BOOL)allowDestinationSubdomains;
++ (void)_resetOriginAccessWhitelists;
 
 + (void)_addUserScriptToGroup:(NSString *)groupName world:(WebScriptWorld *)world source:(NSString *)source url:(NSURL *)url includeMatchPatternStrings:(NSArray *)includeMatchPatternStrings excludeMatchPatternStrings:(NSArray *)excludeMatchPatternStrings injectionTime:(WebUserScriptInjectionTime)injectionTime injectedFrames:(WebUserContentInjectedFrames)injectedFrames;
 + (void)_addUserStyleSheetToGroup:(NSString *)groupName world:(WebScriptWorld *)world source:(NSString *)source url:(NSURL *)url includeMatchPatternStrings:(NSArray *)includeMatchPatternStrings excludeMatchPatternStrings:(NSArray *)excludeMatchPatternStrings injectedFrames:(WebUserContentInjectedFrames)injectedFrames;

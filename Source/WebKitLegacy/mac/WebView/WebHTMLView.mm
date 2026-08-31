@@ -1665,6 +1665,15 @@ static NSControlStateValue NODELETE kit(TriState state)
         } else if (wasInPrintingMode)
             [self _web_clearPrintingModeRecursive];
 
+        // MAVERICKS_BACKPORT: 10.9 AppKit drives window display through this method, and layout
+        // can be invalidated after -viewWillDraw has already run: 10.9's Auto Layout machinery
+        // (NSISEngine) sends -setNeedsLayout: to this view while it updates the window's
+        // constraints mid-display. WebCore refuses to paint with a pending layout (it bails out
+        // without drawing at all), which would leave the backing store frozen at its last
+        // painted state. Run the pending layout before drawing, the same protection
+        // -_recursiveDisplayRectIfNeededIgnoringOpacity: has for this situation.
+        if ([self _needsLayout])
+            [self _web_updateLayoutAndStyleIfNeededRecursive];
 
         [self _setAsideSubviews];
     }
@@ -3591,9 +3600,44 @@ static RetainPtr<NSMenuItem> createShareMenuItem(const WebCore::HitTestResult& h
 
 static RetainPtr<NSMutableArray> createMenuItems(const WebCore::HitTestResult& hitTestResult, const Vector<WebCore::ContextMenuItem>& items)
 {
-    return createNSArray(items, [&] (auto& item) {
-        return createMenuItem(hitTestResult, item);
-    });
+    // MAVERICKS_BACKPORT: was
+    // return createNSArray(items, [&] (auto& item) {
+    //     return createMenuItem(hitTestResult, item);
+    // });
+    // createMenuItem() returns nil for an item the platform declines to build -- Share when the hit test
+    // carries nothing shareable -- and createNSArray() drops the nil while the separator WebCore appended
+    // to introduce that item outlives it, which AppKit draws as a blank row. Assemble the items group by
+    // group and close each group as it ends: a separator is dropped only when a member of the group it
+    // introduced was declined and no member of that group survived.
+    RetainPtr menuItems = adoptNS([[NSMutableArray alloc] initWithCapacity:items.size()]);
+
+    std::optional<NSUInteger> groupSeparatorIndex;
+    bool groupHasItem = false;
+    bool groupHadDecline = false;
+
+    auto closeGroup = [&] {
+        if (groupSeparatorIndex && groupHadDecline && !groupHasItem)
+            [menuItems removeObjectAtIndex:*groupSeparatorIndex];
+    };
+
+    for (auto& item : items) {
+        RetainPtr menuItem = createMenuItem(hitTestResult, item);
+        if (!menuItem) {
+            groupHadDecline = true;
+            continue;
+        }
+        if ([menuItem isSeparatorItem]) {
+            closeGroup();
+            groupSeparatorIndex = [menuItems count];
+            groupHasItem = false;
+            groupHadDecline = false;
+        } else
+            groupHasItem = true;
+        [menuItems addObject:menuItem.get()];
+    }
+    closeGroup();
+
+    return menuItems;
 }
 
 static RetainPtr<NSMenuItem> createMenuItem(const WebCore::HitTestResult& hitTestResult, const WebCore::ContextMenuItem& item)
@@ -3827,7 +3871,19 @@ static BOOL currentScrollIsBlit(NSView *clipView)
         if (frame->document() && frame->document()->backForwardCacheState() != WebCore::Document::NotInBackForwardCache)
             return;
         if (auto* view = frame->view())
-            view->setNeedsLayoutAfterViewConfigurationChange();
+        // MAVERICKS_BACKPORT: 10.9's Auto Layout machinery (NSISEngine tryAddingDirectly:)
+        // sends -setNeedsLayout:YES to views it adds constraints for, and WebHTMLView
+        // overrides that NSView selector with the WebKit-document meaning. In a
+        // constraint-based window (Mail compose), setNeedsLayoutAfterViewConfigurationChange()
+        // would also arm a zero-delay layout timer whose full relayout + full-view repaint
+        // re-enters the constraint machinery, so the window never settles: WebCore layout is
+        // dirty at every -drawRect: and LocalFrameView::paintContents refuses to paint
+        // (content frozen at its first paint, pegged CPU). Match the WebKit that shipped with
+        // Safari 7 on this OS: only mark the render tree as needing layout (still honoring the
+        // disable-setNeedsLayout deferral window); the next display pass runs the layout in
+        // -viewWillDraw.
+            // MAVERICKS_BACKPORT: mark layout without arming a timer; a scheduled relayout re-enters 10.9's constraint machinery and wedges display (see note above).
+            view->setNeedsLayoutWithoutScheduling();
     }
 }
 
@@ -4100,6 +4156,15 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     NSView *hitView = [self _hitViewForEvent:event];
     RetainPtr<WebHTMLView> hitHTMLView = dynamic_objc_cast<WebHTMLView>(hitView);
+
+#if ENABLE(DASHBOARD_SUPPORT)
+    // MAVERICKS_BACKPORT: DashboardClient declares a widget's WebView AlwaysAcceptsFirstMouse, which
+    // means every click in the widget belongs to the content. The default rule below accepts only
+    // selection, drag and scrollbar hits, so a click elsewhere is refused, DashboardClient never sees
+    // the mouse-down consumed, and it moves the widget instead.
+    if ([[self _webView] _dashboardBehavior:WebDashboardBehaviorAlwaysAcceptsFirstMouse])
+        return YES;
+#endif
 
     if (hitHTMLView) {
         bool result = false;
