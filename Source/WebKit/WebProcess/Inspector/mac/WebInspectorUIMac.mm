@@ -57,11 +57,7 @@ bool WebInspectorUI::canPickColorFromScreen()
 
 String WebInspectorUI::localizedStringsURL() const
 {
-    // MAVERICKS_BACKPORT: the frontend page is served from the inspector-resource:// scheme and
-    // the classic (Safari 8-era) frontend's CSP only allows 'self' scripts, so the strings file
-    // must come through the same scheme (a file:// URL — upstream's choice — is blocked by that
-    // CSP). The scheme handler resolves bundle subpaths, as it already does for Images/*.
-    return [WKInspectorViewController URLForInspectorResource:@"en.lproj/localizedStrings.js"].absoluteString;
+    return [WKInspectorViewController URLForInspectorResource:@"localizedStrings.js"].absoluteString;
 }
 
 void WebInspectorUI::didEstablishConnection()

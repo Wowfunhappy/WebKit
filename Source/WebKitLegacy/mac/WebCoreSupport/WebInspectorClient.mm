@@ -164,23 +164,19 @@ static NSString * const WebInspectorFrontendGroupName = @"WebInspectorClassicFro
 {
     RetainPtr<NSURL> requestURL = self.request.URL;
     NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
-    // Map inspector-resource:///<path> to <bundle>/Resources/<path> (Main.html/Main.js at the root,
-    // Images/* and *.lproj/localizedStrings.js in subdirs), contained within the resource root.
-    NSString *resourceRoot = bundle.resourcePath.stringByStandardizingPath;
-    NSString *filePath = [[resourceRoot stringByAppendingPathComponent:requestURL.get().relativePath] stringByStandardizingPath];
-    if (![filePath isEqualToString:resourceRoot] && ![filePath hasPrefix:[resourceRoot stringByAppendingString:@"/"]]) {
-        [self.client URLProtocol:self didFailWithError:[NSError errorWithDomain:NSCocoaErrorDomain code:NSURLErrorFileDoesNotExist userInfo:nil]];
-        return;
-    }
+    // Resolve inspector-resource:///<path> against the bundle, as WK2's
+    // WKInspectorResourceURLSchemeHandler does: the lookup stays inside the bundle and picks the
+    // localized copy of a resource that has one.
+    RetainPtr<NSURL> fileURL = [bundle URLForResource:requestURL.get().relativePath withExtension:@""];
 
     NSError *readError = nil;
-    NSData *fileData = [NSData dataWithContentsOfFile:filePath options:0 error:&readError];
+    NSData *fileData = fileURL ? [NSData dataWithContentsOfURL:fileURL.get() options:0 error:&readError] : nil;
     if (!fileData) {
         [self.client URLProtocol:self didFailWithError:(readError ?: [NSError errorWithDomain:NSCocoaErrorDomain code:NSURLErrorFileDoesNotExist userInfo:nil])];
         return;
     }
 
-    RetainPtr<NSString> mimeType = MIMETypeRegistry::mimeTypeForExtension(String(filePath.pathExtension)).createNSString();
+    RetainPtr<NSString> mimeType = MIMETypeRegistry::mimeTypeForExtension(String(fileURL.get().pathExtension)).createNSString();
     if (!mimeType)
         mimeType = @"application/octet-stream";
 
@@ -392,23 +388,21 @@ void WebInspectorFrontendClient::startWindowDrag()
 
 String WebInspectorFrontendClient::localizedStringsURL() const
 {
-    NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
-    if (!bundle)
-        return String();
-
-    NSString *path = [bundle pathForResource:@"localizedStrings" ofType:@"js"];
-    if (!path.length)
-        return String();
-
-    // MAVERICKS_BACKPORT: the classic frontend loads this URL directly, so return it under the same
-    // real-origin inspector-resource:// scheme the frontend page is served from (a file:// URL would
-    // be blocked by the frontend's default-src 'self'). Map the absolute localized bundle path back
-    // to its inspector-resource:///<lproj>/localizedStrings.js form (WebInspectorResourceProtocol
-    // resolves it against the bundle's resource root).
-    NSString *resourceRoot = bundle.resourcePath;
-    if (![path hasPrefix:resourceRoot])
-        return String();
-    return [@"inspector-resource://" stringByAppendingString:[path substringFromIndex:resourceRoot.length]];
+    // MAVERICKS_BACKPORT: upstream's body was:
+    //     NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
+    //     if (!bundle)
+    //         return String();
+    //
+    //     NSString *path = [bundle pathForResource:@"localizedStrings" ofType:@"js"];
+    //     if (!path.length)
+    //         return String();
+    //
+    //     return [NSURL fileURLWithPath:path isDirectory:NO].absoluteString;
+    // The classic frontend loads this URL directly, so it comes from the same real-origin
+    // inspector-resource:// scheme the frontend page is served from, as WK2's
+    // WebInspectorUI::localizedStringsURL() does; WebInspectorResourceProtocol resolves the name
+    // through the bundle, which picks the localized copy.
+    return "inspector-resource:///localizedStrings.js"_s;
 }
 
 void WebInspectorFrontendClient::bringToFront()
@@ -735,14 +729,6 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
 - (NSString *)inspectorTestPagePath
 {
-    // MAVERICKS_BACKPORT: under DumpRenderTree nothing loads WebInspectorUI.framework and the
-    // stock PrivateFrameworks bundle ships no Test.html — probe the build tree's staged modern
-    // frontend relative to the test-driver binary before the loaded-bundle lookup.
-    NSString *executableDirectory = [[[NSBundle mainBundle] executablePath] stringByDeletingLastPathComponent];
-    NSString *builtTestPage = [[executableDirectory stringByAppendingPathComponent:@"../WebInspectorUI/DerivedSources/InspectorResources/WebInspectorUI/Test.html"] stringByStandardizingPath];
-    if ([[NSFileManager defaultManager] fileExistsAtPath:builtTestPage])
-        return builtTestPage;
-
     NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
     if (!bundle)
         return nil;

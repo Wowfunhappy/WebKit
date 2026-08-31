@@ -43,7 +43,7 @@ namespace WebCore {
 // scheme both ports serve it from) is left untouched. Both ports consume this one string so the
 // bridge cannot drift between frameworks.
 //
-// Six parts:
+// Seven parts:
 //  1. Unified titlebar+toolbar chrome (#52/#66/#69). Adds the measured Aqua gradient + a 22px
 //     #wk-titlebar strip as body's first child (stock 56px toolbar untouched below it), the window
 //     title fed from InspectorFrontendHost.inspectedURLChanged, and background mousedowns routed to
@@ -73,7 +73,8 @@ namespace WebCore {
 //     holding mid-session. Two CSS payload shapes
 //     drifted since the classic frontend: CSS.SelectorList.selectors became CSSSelector objects
 //     ({text,specificity}) where the frontend expects strings, and the author stylesheet origin was
-//     renamed "regular" -> "author"; fixSel() flattens the selectors and maps the origin back.
+//     renamed "regular" -> "author"; fixPayload() flattens the selectors and maps the origin back.
+//     It also carries the resource-type rename of part 7.
 //  4. Commented-out (disabled) properties in the Styles editor (github #87). When a rule's body has
 //     more declarations than lines, CSSStyleDeclarationTextEditor stops echoing the author's text
 //     and synthesizes one line per property from CSSProperty.synthesizedText, which predates
@@ -103,6 +104,17 @@ namespace WebCore {
 //     resize both land in the one updateLayout(). So the wrapper measures the element and
 //     re-selects only when the size differs from the last layout's, before the stock updateLayout()
 //     sizes the selection highlight against the revealed tree.
+//  7. Resource type names, translated in fixPayload() alongside the CSS shapes. Page.ResourceType
+//     spells the stylesheet type "StyleSheet" and has split Fetch, EventSource, Ping and Beacon out
+//     of the buckets that carried them; WebInspector.Resource.Type is keyed by the protocol names of
+//     the classic frontend's own era, and a name it does not hold is stored raw as the resource's
+//     type. Such a type has no display name, so the resource gets no type folder and
+//     ResourceSidebarPanel sorts it among the folders with compareResourceTreeElements, which reads
+//     .resource off a folder. Map each name back to the type that protocol version reported: fetches
+//     and event sources were RawResource, hence XHR (InspectorResourceUtilities.cpp still spells
+//     that default), and pings and beacons had no CachedResource at all, hence Other. The rename
+//     lands on the wire so the frontend's own Type table stays stock -- FrameTreeElement's
+//     folder-grouping heuristic counts the resources of every key in it.
 //
 // Every failure path surfaces via console.error (into the frontend page's own console) rather than
 // being swallowed, so a translation bug is diagnosable instead of a silently-dropped message.
@@ -127,14 +139,15 @@ function wrap(ms){var wid=wrapperIdBase++;wrapperIds[wid]=true;return JSON.strin
 function flushQueue(){if(!currentTargetId||!pendingQueue.length)return;var q=pendingQueue;pendingQueue=[];for(var i=0;i<q.length;i++)origSend(wrap(q[i]));}
 var documentRequested=false;
 function requestDocument(){if(documentRequested)return;documentRequested=true;var iid=wrapperIdBase++;bridgeIds[iid]=true;origSend(wrap(JSON.stringify({id:iid,method:'DOM.getDocument'})));}
-function fixSel(o){if(!o||typeof o!=='object')return;var sl=o.selectorList;if(sl&&sl.selectors instanceof Array&&sl.selectors.length&&typeof sl.selectors[0]==='object'){sl.selectors=sl.selectors.map(function(s){return s&&typeof s==='object'?String(s.text||''):s;});}if(o.origin==='author'&&(o.selectorList||o.style||o.styleSheetId))o.origin='regular';for(var k in o){var v=o[k];if(v&&typeof v==='object')fixSel(v);}}
+var wkResourceTypes={StyleSheet:'Stylesheet',Fetch:'XHR',EventSource:'XHR',Ping:'Other',Beacon:'Other'};
+function fixPayload(o){if(!o||typeof o!=='object')return;var sl=o.selectorList;if(sl&&sl.selectors instanceof Array&&sl.selectors.length&&typeof sl.selectors[0]==='object'){sl.selectors=sl.selectors.map(function(s){return s&&typeof s==='object'?String(s.text||''):s;});}if(o.origin==='author'&&(o.selectorList||o.style||o.styleSheetId))o.origin='regular';if(typeof wkResourceTypes[o.type]==='string'&&(typeof o.url==='string'||o.requestId!==undefined))o.type=wkResourceTypes[o.type];for(var k in o){var v=o[k];if(v&&typeof v==='object')fixPayload(v);}}
 IFH.sendMessageToBackend=function(messageStr){
 try{var msg=JSON.parse(messageStr);var dom=msg.method&&msg.method.split('.')[0];
 if(dom==='Target'||dom==='Browser')return origSend(messageStr);
 if(!currentTargetId){pendingQueue.push(messageStr);return;}
 return origSend(wrap(messageStr));
 }catch(e){console.error('[wk-inspector-bridge] sendMessageToBackend failed',e);}return origSend(messageStr);};
-var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;var origDisp=v.dispatch.bind(v);v.dispatch=function(message){try{var obj=(typeof message==='string')?JSON.parse(message):message;if(obj.method==='Target.targetCreated'&&obj.params&&obj.params.targetInfo){currentTargetId=obj.params.targetInfo.targetId;flushQueue();requestDocument();return;}if(obj.id!==undefined&&wrapperIds[obj.id]){delete wrapperIds[obj.id];return;}if(obj.method==='Target.dispatchMessageFromTarget'&&obj.params&&obj.params.message){var im=obj.params.message;if(typeof im==='string'){try{im=JSON.parse(im);}catch(e2){console.error('[wk-inspector-bridge] CSS payload rewrite failed',e2);return origDisp(obj.params.message);}}if(im&&im.id!==undefined&&bridgeIds[im.id]){delete bridgeIds[im.id];return;}fixSel(im);return origDisp(im);}}catch(e){console.error('[wk-inspector-bridge] InspectorBackend.dispatch failed',e);}return origDisp(message);};}}});
+var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;var origDisp=v.dispatch.bind(v);v.dispatch=function(message){try{var obj=(typeof message==='string')?JSON.parse(message):message;if(obj.method==='Target.targetCreated'&&obj.params&&obj.params.targetInfo){currentTargetId=obj.params.targetInfo.targetId;flushQueue();requestDocument();return;}if(obj.id!==undefined&&wrapperIds[obj.id]){delete wrapperIds[obj.id];return;}if(obj.method==='Target.dispatchMessageFromTarget'&&obj.params&&obj.params.message){var im=obj.params.message;if(typeof im==='string'){try{im=JSON.parse(im);}catch(e2){console.error('[wk-inspector-bridge] target message parse failed',e2);return origDisp(obj.params.message);}}if(im&&im.id!==undefined&&bridgeIds[im.id]){delete bridgeIds[im.id];return;}fixPayload(im);return origDisp(im);}}catch(e){console.error('[wk-inspector-bridge] InspectorBackend.dispatch failed',e);}return origDisp(message);};}}});
 })();
 try{var wkTitle='Web Inspector';
 document.addEventListener('DOMContentLoaded',function(){try{
