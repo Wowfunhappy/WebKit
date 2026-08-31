@@ -33,6 +33,10 @@
 #include "CSSBorderRadius.h"
 #include "CSSBoxShadowPropertyValue.h"
 #include "CSSCalcTree+Parser.h"
+// MAVERICKS_BACKPORT: include CSSDashboardRegionValue.h — DASHBOARD_SUPPORT is enabled on 10.9 for the -webkit-dashboard-region parser below.
+#if ENABLE(DASHBOARD_SUPPORT)
+#include "CSSDashboardRegionValue.h"
+#endif
 #include "CSSParserTokenRange.h"
 #include "CSSPrimitiveValue.h"
 #include "CSSPropertyParserConsumer+CSSPrimitiveValueResolver.h"
@@ -509,6 +513,85 @@ RefPtr<CSSValue> consumeWebkitBoxReflect(CSSParserTokenRange& range, CSS::Proper
     }
     return CSSReflectValue::create(*direction, offset.releaseNonNull(), WTF::move(mask));
 }
+
+#if ENABLE(DASHBOARD_SUPPORT)
+
+// MARK: - Dashboard region (non-standard, MAVERICKS_BACKPORT)
+
+// <'-webkit-dashboard-region'> = none | <dashboard-region>+
+//   <dashboard-region> = dashboard-region( <label-ident> [,]? circle | rectangle [,]? [ <length> | auto ]{4}? )
+RefPtr<CSSValue> consumeWebkitDashboardRegion(CSSParserTokenRange& range, CSS::PropertyParserState& state)
+{
+    if (range.atEnd())
+        return nullptr;
+
+    if (range.peek().id() == CSSValueNone)
+        return consumeIdent(range);
+
+    Vector<CSSDashboardRegionValue::Region> regions;
+
+    while (!range.atEnd()) {
+        if (range.peek().functionId() != CSSValueDashboardRegion)
+            return nullptr;
+
+        CSSParserTokenRange rangeCopy = range;
+        CSSParserTokenRange args = consumeFunction(rangeCopy);
+
+        CSSDashboardRegionValue::Region region;
+
+        // First argument is an arbitrary label (e.g. "control").
+        if (args.peek().type() != IdentToken)
+            return nullptr;
+        region.label = args.consumeIncludingWhitespace().value().toString();
+
+        // Comma is optional; remember whether the syntax uses commas.
+        bool requireCommas = consumeCommaIncludingWhitespace(args);
+
+        // Second argument is the geometry type.
+        if (args.peek().type() != IdentToken)
+            return nullptr;
+        auto geometry = args.consumeIncludingWhitespace().value().toString();
+        if (equalLettersIgnoringASCIICase(geometry, "circle"_s))
+            region.geometryType = 1; // StyleDashboardRegion::Circle
+        else if (equalLettersIgnoringASCIICase(geometry, "rectangle"_s))
+            region.geometryType = 2; // StyleDashboardRegion::Rectangle
+        else
+            return nullptr;
+
+        // The four offsets are optional; when omitted the element's own box is used.
+        if (!args.atEnd()) {
+            RefPtr<CSSPrimitiveValue> offsets[4];
+            for (int i = 0; i < 4; ++i) {
+                if (i && requireCommas && !consumeCommaIncludingWhitespace(args))
+                    return nullptr;
+                if (args.atEnd())
+                    return nullptr;
+                if (args.peek().id() == CSSValueAuto)
+                    offsets[i] = consumeIdent<CSSValueAuto>(args);
+                else
+                    offsets[i] = CSSPrimitiveValueResolver<CSS::LengthPercentage<>>::consumeAndResolve(args, state);
+                if (!offsets[i])
+                    return nullptr;
+            }
+            if (!args.atEnd())
+                return nullptr;
+            region.top = WTF::move(offsets[0]);
+            region.right = WTF::move(offsets[1]);
+            region.bottom = WTF::move(offsets[2]);
+            region.left = WTF::move(offsets[3]);
+        }
+
+        regions.append(WTF::move(region));
+        range = rangeCopy;
+    }
+
+    if (regions.isEmpty())
+        return nullptr;
+
+    return CSSDashboardRegionValue::create(WTF::move(regions));
+}
+
+#endif // ENABLE(DASHBOARD_SUPPORT)
 
 } // namespace CSSPropertyParserHelpers
 } // namespace WebCore

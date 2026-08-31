@@ -257,12 +257,20 @@ std::optional<SimpleRange> DictionaryLookup::rangeForSelection(const VisibleSele
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
-    if (!canCreateRevealItems())
-        return std::nullopt;
-
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note just below the block.
+//     if (!canCreateRevealItems())
+//         return std::nullopt;
+//
+// (end MAVERICKS_BACKPORT restored block)
     // Since we already have the range we want, we just need to grab the returned options.
     auto selectionStart = selection.visibleStart();
     auto selectionEnd = selection.visibleEnd();
+
+    // MAVERICKS_BACKPORT: RVItem (used below to widen the lookup range to a sensible unit) lives in
+    // the Reveal framework, which does not exist on 10.9 (ENABLE(REVEAL)=0). Fall back to the
+    // selection's own range so "Look Up" still works — the looked-up text is exactly the selection.
+    if (!canCreateRevealItems())
+        return makeSimpleRange(selectionStart, selectionEnd);
 
     // As context, we are going to use the surrounding paragraphs of text.
     auto paragraphStart = startOfParagraph(selectionStart);
@@ -288,10 +296,13 @@ std::optional<SimpleRange> DictionaryLookup::rangeForSelection(const VisibleSele
 std::optional<SimpleRange> DictionaryLookup::rangeAtHitTestResult(const HitTestResult& hitTestResult)
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
-    
-    if (!canCreateRevealItems())
-        return std::nullopt;
-    
+
+// MAVERICKS_BACKPORT: upstream's Reveal-framework guard. Kept commented, not deleted: RVItem/RVPresenter do not exist on 10.9, so this port takes the pre-Reveal DictionaryLookup path and the guard has nothing to test.
+//
+//     if (!canCreateRevealItems())
+//         return std::nullopt;
+//
+// (end MAVERICKS_BACKPORT restored block)
     RefPtr node = hitTestResult.innerNonSharedNode();
     if (!node || !node->renderer())
         return std::nullopt;
@@ -314,6 +325,21 @@ std::optional<SimpleRange> DictionaryLookup::rangeAtHitTestResult(const HitTestR
         return std::nullopt;
 
     auto selection = focusedOrMainFrame->selection().selection();
+
+    // MAVERICKS_BACKPORT: RVSelection/RVItem (used below to choose the lookup unit around the hit
+    // point) live in the Reveal framework, which does not exist on 10.9 (ENABLE(REVEAL)=0). Classic
+    // fallback: when the tap lands inside the current selection, look up the selection itself;
+    // otherwise look up the word under the point.
+    if (!canCreateRevealItems()) {
+        if (selection.isRange()) {
+            if (auto selectedRange = selection.range(); selectedRange && contains<ComposedTree>(*selectedRange, makeBoundaryPoint(position.deepEquivalent())))
+                return selectedRange;
+        }
+        VisibleSelection wordSelection { position };
+        wordSelection.expandUsingGranularity(TextGranularity::WordGranularity);
+        return wordSelection.range();
+    }
+
     NSRange selectionRange;
     NSUInteger hitIndex;
     std::optional<SimpleRange> fullCharacterRange;
@@ -538,6 +564,15 @@ std::optional<SimpleRange> DictionaryLookup::rangeForSelection(const VisibleSele
 std::optional<SimpleRange> DictionaryLookup::rangeAtHitTestResult(const HitTestResult&)
 {
     return std::nullopt;
+}
+
+#elif PLATFORM(MAC) // PLATFORM(MAC) && !ENABLE(REVEAL)
+
+// MAVERICKS_BACKPORT: build glue — the Reveal framework (the Look Up popover) does not exist (ENABLE(REVEAL)=0),
+// so the REVEAL block above is compiled out. WebViewImpl still links against hidePopup()
+// unconditionally; with no Reveal popup ever shown, hiding it is a no-op.
+void DictionaryLookup::hidePopup()
+{
 }
 
 #endif

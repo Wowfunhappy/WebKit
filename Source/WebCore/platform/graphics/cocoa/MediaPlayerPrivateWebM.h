@@ -190,9 +190,15 @@ private:
     bool supportsAcceleratedRendering() const final { return true; }
     void acceleratedRenderingStateChanged() final;
 
+    // MAVERICKS_BACKPORT: guard to match base MediaPlayerPrivateInterface (MediaPlayerPrivate.h), which
+    // declares these only under ENABLE(VIDEO_PRESENTATION_MODE) (off on this port). An unguarded `final`
+    // override of a compiled-out virtual is "only virtual member functions can be marked 'final'".
+    // setTextTrackRepresentation/syncTextTrackBounds are unguarded in the base, so they stay unguarded here.
+#if ENABLE(VIDEO_PRESENTATION_MODE)
     RetainPtr<PlatformLayer> createVideoFullscreenLayer() final;
     void setVideoFullscreenLayer(PlatformLayer*, Function<void()>&& completionHandler) final;
     void setVideoFullscreenFrame(const FloatRect&) final;
+#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on the fullscreen overrides (see above).
 
     void setTextTrackRepresentation(TextTrackRepresentation*) final;
     void syncTextTrackBounds() final;
@@ -272,7 +278,11 @@ private:
     void applicationDidBecomeActive() final;
 #endif
 
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+    // MAVERICKS_BACKPORT: the override forwards to AudioVideoRenderer::isInFullscreenOrPictureInPictureChanged,
+    // which exists only under VIDEO_PRESENTATION_MODE (off here); guarded out, the base's empty default applies.
     void isInFullscreenOrPictureInPictureChanged(bool) final;
+#endif
 
 #if ENABLE(LINEAR_MEDIA_PLAYER)
     bool supportsLinearMediaPlayer() const final { return true; }

@@ -62,7 +62,10 @@
 #define USE_CA 1
 #endif
 
-#if PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: WebCore's CoreImage filter appliers use the typed CIFilterBuiltins API (macOS 10.15+).
+// Gate USE(CORE_IMAGE) on the deployment target so a 10.9 build falls back to the software filter
+// appliers (CoreImage itself exists on 10.9, but only as the old QuartzCore-based API).
+#if PLATFORM(COCOA) && !defined(USE_CORE_IMAGE) && (!defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101500)
 #define USE_CORE_IMAGE 1
 #endif
 
@@ -99,9 +102,10 @@
 #define USE_APPKIT 1
 #endif
 
-#if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION)
-#define USE_PASSKIT 1
-#endif
+// MAVERICKS_BACKPORT: PassKit 10.12+
+// #if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION)
+// #define USE_PASSKIT 1
+// #endif
 
 #if PLATFORM(MAC)
 #define USE_PLUGIN_HOST_PROCESS 1
@@ -225,15 +229,25 @@
 #endif
 
 #if WTF_DEFAULT_EVENT_LOOP
-#if USE(GLIB)
+/* MAVERICKS_BACKPORT: PLATFORM(COCOA) must take precedence over USE(GLIB). This Mac port enables
+ * USE(GLIB) only for the upstream GStreamer media backend's glib smart-pointer/type helpers — it must
+ * NOT replace the platform run loop with GLib's. Upstream checks USE(GLIB) first (for the GTK port,
+ * where the two never coexist); here they do, so Cocoa is checked first to keep the CF/GCD event loop
+ * (RunLoopCF.cpp). */
+#if PLATFORM(COCOA)
+/* OS X and IOS. Use CoreFoundation & GCD abstraction. */
+#define USE_COCOA_EVENT_LOOP 1
+#elif USE(GLIB)
 /* Use GLib's event loop abstraction. Primarily GTK port uses it. */
 #define USE_GLIB_EVENT_LOOP 1
 #elif OS(WINDOWS)
 /* Use Windows message pump abstraction. */
 #define USE_WINDOWS_EVENT_LOOP 1
-#elif PLATFORM(COCOA)
-/* OS X and IOS. Use CoreFoundation & GCD abstraction. */
-#define USE_COCOA_EVENT_LOOP 1
+// MAVERICKS_BACKPORT: upstream's Cocoa event-loop selection. Kept commented, not deleted: this port selects its event loop earlier in this file, and leaving upstream's #elif in place would override that choice.
+// #elif PLATFORM(COCOA)
+// /* OS X and IOS. Use CoreFoundation & GCD abstraction. */
+// #define USE_COCOA_EVENT_LOOP 1
+// (end MAVERICKS_BACKPORT restored block)
 #else
 #define USE_GENERIC_EVENT_LOOP 1
 #endif

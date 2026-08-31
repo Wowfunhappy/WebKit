@@ -1581,9 +1581,28 @@ static FunctionType constructFragmentsInternal(const CSSSelector& rootSelector, 
             case CSSSelector::PseudoElement::SpellingError:
             case CSSSelector::PseudoElement::TargetText:
             case CSSSelector::PseudoElement::ViewTransition:
+                // MAVERICKS_BACKPORT (#68): these virtual pseudo-elements keep upstream's handling verbatim.
+                // They carry their own copy of it because the UserAgentPart cases below take one extra step.
+                if (fragment->pseudoElementSelector)
+                    return FunctionType::CannotCompile;
+                fragment->pseudoElementSelector = selector;
+                break;
             case CSSSelector::PseudoElement::UserAgentPart:
             case CSSSelector::PseudoElement::UserAgentPartLegacyAlias:
                 if (fragment->pseudoElementSelector)
+                    return FunctionType::CannotCompile;
+                // MAVERICKS_BACKPORT (#68): a UserAgentPart pseudo-element is backed by a REAL element in a
+                // user-agent shadow tree, so — unlike the virtual pseudo-elements above (::selection,
+                // ::spelling-error, …) — it can legitimately have descendants reached by a following
+                // combinator, e.g. the restored classic media controls' shadow-crossing selector
+                // `video::-internal-media-controls-panel button`. Both the parser (via the UA-sheet
+                // exemption) and the SelectorChecker interpreter match such a selector. The JIT cannot, and
+                // PseudoElementMatchingBehavior::NeverMatch otherwise reaches the shared
+                // `CannotMatchAnything` path — an always-false stub that, unlike CannotCompile, does not
+                // fall back to the interpreter, which costs every descendant-of-part rule its match
+                // (buttons keep their native appearance, `.hidden`/`.volume-box` never collapse). Send a
+                // non-rightmost UA-part to the interpreter instead; a rightmost one still JIT-compiles.
+                if (pseudoElementMatchingBehavior == PseudoElementMatchingBehavior::NeverMatch)
                     return FunctionType::CannotCompile;
                 fragment->pseudoElementSelector = selector;
                 break;

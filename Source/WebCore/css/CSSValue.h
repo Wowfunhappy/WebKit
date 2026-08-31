@@ -85,6 +85,9 @@ public:
     bool isCrossfadeValue() const { return m_classType == ClassType::Crossfade; }
     bool isCursorImageValue() const { return m_classType == ClassType::CursorImage; }
     bool isCustomPropertyValue() const { return m_classType == ClassType::CustomProperty; }
+#if ENABLE(DASHBOARD_SUPPORT)
+    bool isDashboardRegionValue() const { return m_classType == ClassType::DashboardRegion; } // MAVERICKS_BACKPORT
+#endif
     bool isDynamicRangeLimitValue() const { return m_classType == ClassType::DynamicRangeLimit; }
     bool isEasingFunctionValue() const { return m_classType == ClassType::EasingFunction; }
     bool isFilterImageValue() const { return m_classType == ClassType::FilterImage; }
@@ -227,6 +230,9 @@ protected:
 #endif
         Counter,
         CustomProperty,
+#if ENABLE(DASHBOARD_SUPPORT)
+        DashboardRegion, // MAVERICKS_BACKPORT
+#endif
         DynamicRangeLimit,
         EasingFunction,
         Filter,

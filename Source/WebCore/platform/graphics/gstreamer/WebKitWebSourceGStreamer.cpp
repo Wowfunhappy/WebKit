@@ -875,7 +875,9 @@ static gboolean webKitWebSrcUnLockStop(GstBaseSrc* baseSrc)
 
 static bool urlHasSupportedProtocol(const URL& url)
 {
-    return url.isValid() && (url.protocolIsInHTTPFamily() || url.protocolIsBlob());
+    // MAVERICKS_BACKPORT: accept "cid" (Content-ID) here too so set_uri does not reject Apple Mail's
+    // inline audio/video attachment URLs — see webKitWebSrcGetProtocols above. (#69)
+    return url.isValid() && (url.protocolIsInHTTPFamily() || url.protocolIsBlob() || url.protocolIs("cid"_s));
 }
 
 // uri handler interface
@@ -887,7 +889,12 @@ static GstURIType webKitWebSrcUriGetType(GType)
 
 const gchar* const* webKitWebSrcGetProtocols(GType)
 {
-    static std::array<const char*, 4> protocols { "http", "https", "blob" };
+    // MAVERICKS_BACKPORT: advertise the "cid" (Content-ID, RFC 2392) scheme in addition to the
+    // upstream http/https/blob set. On this port GStreamer is the sole media engine, and Apple Mail
+    // renders inline audio/video attachments as <video>/<audio src="cid:...">. WebKitWebSrc fetches
+    // through WebCore's CachedResourceLoader (see CachedResourceStreamingClient), the same loader that
+    // already resolves cid: for inline <img>, so playbin can source cid: media the same way. (#69)
+    static std::array<const char*, 5> protocols { "http", "https", "blob", "cid" };
     return protocols.data();
 }
 

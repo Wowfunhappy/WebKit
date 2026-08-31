@@ -168,6 +168,40 @@ bool Quirks::shouldIgnoreInvalidSignal() const
     return needsQuirks();
 }
 
+// MAVERICKS_BACKPORT: Safari 7's Reader script (ReaderJS, compiled into the Safari binary and thus
+// unfixable) drives all programmatic reader scrolling — keyboard scrolling, scroll restoration,
+// ReaderWebProcessController::setScrollTop — through document.body.scrollTop. It was written for
+// the pre-CSSOM-View engine where that aliased the document scroll in standards mode; today the
+// scrolling element of Reader.html is <html>, so every ReaderJS scroll would silently no-op.
+// Element::scrollTop/setScrollTop consult this to alias the body's scroll API to the document
+// scroll for safari-reader: documents (the scheme is served exclusively for Safari's reader page
+// by WebLoaderStrategy). Deliberately NOT gated on needsQuirks(): the reader page must always get
+// this behavior regardless of the site-specific-quirks setting. scrollLeft and
+// scrollHeight/clientHeight are NOT aliased — ReaderJS only scrolls vertically today; if a reader
+// paging or horizontal-scroll bug ever appears, look there first.
+bool Quirks::shouldAliasBodyScrollToDocumentScroll() const
+{
+    return m_document && m_document->url().protocolIs("safari-reader"_s);
+}
+
+// MAVERICKS_BACKPORT: Safari 7's ReaderJS (compiled into the Safari binary and thus unfixable)
+// tells its own smoothScroll-driven scroll events apart from user scrolls with a guard flag
+// (scrollEventIsSmoothScroll) that it sets around each body.scrollTop assignment and clears on a
+// zero-delay setTimeout; any scroll event seen with the flag clear aborts the animation
+// (articleScrolled -> abortSmoothScroll). It targets the legacy engine, whose document event
+// queue dispatched scroll events from a zero-delay timer armed at scroll time — before that
+// setTimeout — so its own events always saw the flag set. The CSSOM-View rendering-update
+// dispatch runs after the setTimeout, so every keyboard/programmatic reader scroll aborts itself
+// after the first animation tick. For safari-reader: documents (served exclusively for Safari's
+// reader page by WebLoaderStrategy), Document::addPendingScrollEventTarget consults this and
+// dispatches the pending scroll events from an immediately-queued event-loop task, matching the
+// legacy ordering. Deliberately NOT gated on needsQuirks(), like
+// shouldAliasBodyScrollToDocumentScroll above.
+bool Quirks::shouldDispatchPendingScrollEventsEagerly() const
+{
+    return m_document && m_document->url().protocolIs("safari-reader"_s);
+}
+
 bool Quirks::shouldDisableBlobFileAccessEnforcement()
 {
     return shouldDisableBlobFileAccessEnforcementInternal();

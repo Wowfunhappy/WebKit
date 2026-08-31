@@ -34,7 +34,10 @@
 #include <wtf/darwin/DispatchOSObject.h>
 #endif
 
-#if USE(GLIB)
+// MAVERICKS_BACKPORT: USE(GLIB) is globally on for the GStreamer media backend, but FileMonitor on
+// Cocoa keeps its dispatch-source (USE(COCOA_EVENT_LOOP)) implementation; gate the GLib include/member
+// out so m_platformMonitor isn't declared twice.
+#if USE(GLIB) && !PLATFORM(COCOA)
 #include <gio/gio.h>
 #include <wtf/glib/GRefPtr.h>
 #endif
@@ -53,7 +56,8 @@ private:
 #if USE(COCOA_EVENT_LOOP)
     OSObjectPtr<dispatch_source_t> m_platformMonitor;
 #endif
-#if USE(GLIB)
+// MAVERICKS_BACKPORT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
+#if USE(GLIB) && !PLATFORM(COCOA)
     static void fileChangedCallback(GFileMonitor*, GFile*, GFile*, GFileMonitorEvent, FileMonitor*);
     void didChange(FileChangeType);
     void cancel();

@@ -4640,6 +4640,27 @@ class GenerateCSSStylePropertiesPropertyNames:
                     lowercase_first=True
                 )
 
+                # MAVERICKS_BACKPORT: Non-standard. Special case properties/aliases starting with
+                # -apple- like is done for -webkit-/-epub-, with the lowercase first flag set. Stock
+                # WebKit exposed this lowercase accessor; macOS 10.9 Dashboard widgets rely on it
+                # (AppleScrollbar.js: scrollbar.style.appleDashboardRegion = "dashboard-region(control rectangle)"
+                # for the scrollbar's control region). Without it the JS assignment is a silent no-op,
+                # the scrollbar never becomes a control region, and dragging it moves the widget
+                # instead of scrolling.
+                # Example: -apple-dashboard-region -> element.style.appleDashboardRegion
+                self._generate_css_style_declaration_property_names_idl_section(
+                    to=writer,
+                    comment="""
+                        // MAVERICKS_BACKPORT: Non-standard. Special case properties starting with -apple-
+                        // like is done for -webkit-/-epub-, with the lowercase first flag set.
+                        // Example: -apple-dashboard-region -> element.style.appleDashboardRegion
+                        """,
+                    names_and_aliases_with_properties=filter(lambda item: item[0].startswith("-apple-"), names_and_aliases_with_properties),
+                    variant="AppleCased",
+                    convert_to_idl_attribute=True,
+                    lowercase_first=True
+                )
+
             self._generate_css_style_declaration_property_names_idl_close_interface(
                 to=writer
             )

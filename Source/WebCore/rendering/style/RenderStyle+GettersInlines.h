@@ -673,7 +673,23 @@ template<BoxSide side> struct UsedBorderWidthsAccessor {
     {
         using namespace CSS::Literals;
 
-        if (!data.edges[side].hasVisibleStyle())
+        // MAVERICKS_BACKPORT: stock 10.9 WebKit honored the specified border widths for the legacy
+        // -webkit-border-image shorthand even with border-style:none, so the image had a border box
+        // to paint into. macOS 10.9 Messages.app's balloons.css relies on exactly this — every
+        // <messagetext> sets border-top/bottom/left/right widths with NO border-style plus a
+        // -webkit-border-image speech-balloon — and modern WebKit's spec-correct "style:none =>
+        // used width 0" collapses the bubble to a thin line. Keep the specified width in that case.
+        //
+        // Gate narrowly on the legacy shorthand to avoid changing layout for the whole web: a plain
+        // standard `border-image` with a border-width but border-style:none must still resolve to 0
+        // (per CSS Backgrounds 3). The -webkit-border-image shorthand is the only thing that forces
+        // the slice fill-default (BorderImageSliceFillDefault::Yes, CSSPropertyParserCustom.h), so a
+        // border-image whose slice carries `fill` is the legacy form. (Do NOT use
+        // overridesBorderWidths() here — it is only set for legacy widths with a /<length> slot, so
+        // it is false for balloons.css's percentage slices and would not fire for Messages.)
+        bool isLegacyWebkitBorderImage = !data.borderImage->borderImage.borderImageSource.isNone()
+            && data.borderImage->borderImage.borderImageSlice.fill.has_value();
+        if (!data.edges[side].hasVisibleStyle() && !isLegacyWebkitBorderImage)
             return 0_css_px;
         if (data.borderImage->borderImage.borderImageWidth.overridesBorderWidths()) {
             if (auto fixedBorderWidthValue = data.borderImage->borderImage.borderImageWidth.values[side].tryFixed())

@@ -40,7 +40,15 @@
 GST_DEBUG_CATEGORY_EXTERN(webkit_media_player_debug);
 #define GST_CAT_DEFAULT webkit_media_player_debug
 
+// MAVERICKS_BACKPORT: explicit include for WTF_MAKE_TZONE_ALLOCATED_IMPL below; under this build's
+// non-unified/no-modules config it is not pulled in transitively.
+#include <wtf/TZoneMallocInlines.h>
+
 namespace WebCore {
+
+// MAVERICKS_BACKPORT: TrackDataHolder declares WTF_MAKE_TZONE_ALLOCATED in its header; this is its
+// out-of-line half, defining s_heapRef and operatorNewSlow under USE(TZONE_MALLOC).
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TrackDataHolder);
 
 static GRefPtr<GstTagList> getAllTags(const GRefPtr<GstPad>& pad)
 {

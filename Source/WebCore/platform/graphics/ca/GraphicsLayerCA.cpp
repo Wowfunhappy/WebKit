@@ -3646,13 +3646,30 @@ void GraphicsLayerCA::updateAnimations()
                 }
             }
 
+            // MAVERICKS_BACKPORT: 10.9 Core Animation concatenates each additive transform animation onto
+            // the right of the value accumulated so far, so a group's array runs in transform-list order:
+            // its first element is the first operation of the list. The array built above is in the
+            // reverse of that order, with any base value for a delayed animation last. Reversed, it
+            // presents the matrix the transform list specifies.
+            caAnimations.reverse();
+
             addAnimationGroup(property, caAnimations);
         };
 
+        // MAVERICKS_BACKPORT: each additive transform animation concatenates onto the right of the value
+        // accumulated so far, so add order is transform-list order: translate, then rotate, then scale,
+        // then the transform property. The non-additive identity base group added above is not a
+        // transform-list operation — it is the reset the additive groups accumulate onto, and stays first.
+        addAnimationsForProperty(translateAnimations, AnimatedProperty::Translate);
+        addAnimationsForProperty(rotateAnimations, AnimatedProperty::Rotate);
+        addAnimationsForProperty(scaleAnimations, AnimatedProperty::Scale);
+        addAnimationsForProperty(transformAnimations, AnimatedProperty::Transform);
+/* MAVERICKS_BACKPORT: upstream's order.
         addAnimationsForProperty(transformAnimations, AnimatedProperty::Transform);
         addAnimationsForProperty(scaleAnimations, AnimatedProperty::Scale);
         addAnimationsForProperty(rotateAnimations, AnimatedProperty::Rotate);
         addAnimationsForProperty(translateAnimations, AnimatedProperty::Translate);
+MAVERICKS_BACKPORT */
     }
 }
 

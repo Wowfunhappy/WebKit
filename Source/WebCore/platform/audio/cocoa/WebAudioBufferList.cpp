@@ -176,7 +176,9 @@ void WebAudioBufferList::reset()
     memcpySpan(span(*m_list), span(*m_canonicalList));
 }
 
-IteratorRange<AudioBuffer*> WebAudioBufferList::buffers() const
+// MAVERICKS_BACKPORT: qualify the CoreAudio AudioBuffer type as ::AudioBuffer to disambiguate it from
+// WebCore::AudioBuffer, which is in scope here on 10.9.
+IteratorRange<::AudioBuffer*> WebAudioBufferList::buffers() const
 {
     auto buffers = span(*m_list);
     return WTF::makeIteratorRange(std::to_address(buffers.begin()), std::to_address(buffers.end()));
@@ -187,7 +189,9 @@ uint32_t WebAudioBufferList::bufferCount() const
     return m_list->mNumberBuffers;
 }
 
-AudioBuffer* WebAudioBufferList::buffer(uint32_t index) const
+// MAVERICKS_BACKPORT: qualify the CoreAudio AudioBuffer type as ::AudioBuffer to disambiguate it from
+// WebCore::AudioBuffer, which is in scope here on 10.9.
+::AudioBuffer* WebAudioBufferList::buffer(uint32_t index) const
 {
     auto buffers = span(*m_list);
     ASSERT(index < buffers.size());

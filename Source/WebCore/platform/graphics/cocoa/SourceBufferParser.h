@@ -57,6 +57,8 @@ public:
     enum class Type : uint8_t {
         AVFObjC,
         WebM,
+        // MAVERICKS_BACKPORT: parser-type tag for the software ISO-BMFF (fragmented-MP4) parser used on 10.9, where AVStreamDataParser is unavailable.
+        ISOBMFF,
     };
     virtual Type type() const = 0;
     enum class AppendFlags : uint8_t {

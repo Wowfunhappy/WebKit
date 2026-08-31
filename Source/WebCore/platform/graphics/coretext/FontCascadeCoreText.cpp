@@ -338,6 +338,15 @@ void FontCascade::drawGlyphs(GraphicsContext& context, const Font& font, std::sp
     UNUSED_VARIABLE(shouldSmoothFonts);
 #else
     bool originalShouldUseFontSmoothing = CGContextGetShouldSmoothFonts(cgContext.get());
+    // MAVERICKS_BACKPORT: FontSmoothingMode::Auto adopts the destination context's font-smoothing
+    // flag instead of forcing it on. On 10.9 CoreGraphics still performs subpixel (LCD) font
+    // smoothing, and CoreAnimation/AppKit seed each backing-store context's flag from layer/window
+    // opacity — forcing it on paints color-fringed glyphs into non-opaque layers, and the fringes
+    // composite as visible color artifacts. Safari-7-era WebKit behaves this way (FontMac.mm
+    // AutoSmoothing: changeFontSmoothing = false); explicit -webkit-font-smoothing values still
+    // override the context.
+    if (smoothingMode == FontSmoothingMode::Auto)
+        shouldSmoothFonts = originalShouldUseFontSmoothing;
     if (shouldSmoothFonts != originalShouldUseFontSmoothing)
         CGContextSetShouldSmoothFonts(cgContext.get(), shouldSmoothFonts);
 #endif

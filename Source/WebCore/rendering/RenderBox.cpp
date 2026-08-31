@@ -2740,7 +2740,9 @@ void RenderBox::computeLogicalWidth(LogicalExtentComputedValues& computedValues)
 
     // The parent box is flexing us, so it has increased or decreased our width. Use the width from the style context.
     // FIXME: Account for block-flow in flexible boxes (webkit.org/b/46418)
-    if (auto logicalWidth = (parent()->isFlexibleBoxIncludingDeprecated() ? this->overridingBorderBoxLogicalWidth() : std::nullopt)) {
+    // MAVERICKS_BACKPORT: -webkit-border-fit:lines (10.9 Messages.app) shrink-wraps the border box to the
+    // text via an overriding logical width set in RenderBlockFlow::fitBorderToLinesIfNeeded(); honor it here.
+    if (auto logicalWidth = ((parent()->isFlexibleBoxIncludingDeprecated() || style().borderFit() == BorderFit::Lines) ? this->overridingBorderBoxLogicalWidth() : std::nullopt)) {
         computedValues.extent = *logicalWidth;
         return;
     }

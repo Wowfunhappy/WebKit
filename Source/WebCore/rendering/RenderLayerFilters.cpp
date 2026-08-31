@@ -182,7 +182,15 @@ GraphicsContext* RenderLayerFilters::beginFilterEffect(RenderElement& renderer, 
             filterRegion.expand(toLayoutBoxExtent(outsets));
     }
 
-    if (filterRegion.isEmpty())
+    // MAVERICKS_BACKPORT: restores the emptiness test on the intersection result. Upstream tested it
+    // twice -- once as `targetBoundingBox` right after intersecting, and again on the expanded region --
+    // until 25bd452 unified the two blocks that compute filterRegion and kept only the second. The first
+    // is not redundant: a filtered layer outside the tile being painted arrives with a dirtyRect disjoint
+    // from filterBoxRect, intersection() reports that as an empty rect at the coordinate-space origin, and
+    // the outset expansion above turns it into a non-empty region anchored at (0, 0). Both tests stand
+    // here because outsets can be negative, so neither region's emptiness implies the other's.
+    // if (filterRegion.isEmpty())
+    if (dirtyFilterRegion.isEmpty() || filterRegion.isEmpty())
         return nullptr;
 
     auto geometryReferenceGeometryChanged = [](auto& existingGeometry, auto& newGeometry) {

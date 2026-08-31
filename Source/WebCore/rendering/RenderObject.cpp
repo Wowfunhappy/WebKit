@@ -3162,6 +3162,52 @@ void printGraphicsLayerTreeForLiveDocuments()
 
 #endif // ENABLE(TREE_DEBUGGING)
 
+#if ENABLE(DASHBOARD_SUPPORT)
+
+// MAVERICKS_BACKPORT: collect -apple-dashboard-region control regions. Each region is the element's border
+// box inset by the declaration's four offsets, clipped to what actually repaints.
+void RenderObject::addAnnotatedRegions(Vector<AnnotatedRegionValue>& regions)
+{
+    if (style().visibility() != Visibility::Visible)
+        return;
+
+    CheckedPtr box = dynamicDowncast<RenderBox>(*this);
+    if (!box)
+        return;
+
+    auto absolutePosition = localToAbsolute();
+    for (auto& styleRegion : style().dashboardRegions().list) {
+        AnnotatedRegionValue region;
+        region.label = styleRegion.label;
+        region.type = styleRegion.type;
+        region.bounds = LayoutRect(LayoutUnit(styleRegion.left), LayoutUnit(styleRegion.top),
+            box->width() - LayoutUnit(styleRegion.left) - LayoutUnit(styleRegion.right),
+            box->height() - LayoutUnit(styleRegion.top) - LayoutUnit(styleRegion.bottom));
+
+        region.clip = computeRects({ region.bounds }, nullptr, visibleRectContextForRepaint()).clippedOverflowRect;
+        if (region.clip.height() < 0) {
+            region.clip.setHeight(0);
+            region.clip.setWidth(0);
+        }
+
+        region.bounds.setX(LayoutUnit(absolutePosition.x() + styleRegion.left));
+        region.bounds.setY(LayoutUnit(absolutePosition.y() + styleRegion.top));
+
+        regions.append(region);
+    }
+}
+
+void RenderObject::collectAnnotatedRegions(Vector<AnnotatedRegionValue>& regions)
+{
+    addAnnotatedRegions(regions);
+    if (CheckedPtr element = dynamicDowncast<RenderElement>(*this)) {
+        for (CheckedPtr current = element->firstChild(); current; current = current->nextSibling())
+            current->collectAnnotatedRegions(regions);
+    }
+}
+
+#endif // ENABLE(DASHBOARD_SUPPORT)
+
 } // namespace WebCore
 
 #if ENABLE(TREE_DEBUGGING)

@@ -233,7 +233,16 @@ void AppendPipeline::configureOptionalDemuxerFromAnyThread()
                 if (!areEncryptedCaps(caps))
                     return GST_PAD_PROBE_OK;
 
-                appendPipeline->removeParserForDemuxerPad(GRefPtr(pad));
+                // MAVERICKS_BACKPORT: taking the pipeline apart is the main thread's work, and it
+                // is reached through the task queue like every other structural change here. This
+                // probe holds the pad's stream lock; the main thread deactivates pads holding the
+                // pipeline's state lock and then takes that same stream lock, so the two are
+                // ordered state-lock-then-stream-lock everywhere. The queue is what stopParser()
+                // aborts before it changes state, so a teardown releases this thread.
+                appendPipeline->m_taskQueue.enqueueTaskAndWait<AbortableTaskQueue::Void>([appendPipeline, pad = GRefPtr(pad)]() {
+                    appendPipeline->removeParserForDemuxerPad(pad);
+                    return AbortableTaskQueue::Void();
+                });
                 return GST_PAD_PROBE_OK;
             }), appendPipeline, nullptr);
         }), this);
@@ -380,6 +389,7 @@ GstPadProbeReturn AppendPipeline::appsrcEndOfAppendCheckerProbe(GstPadProbeInfo*
 
 void AppendPipeline::removeParserForDemuxerPad(const GRefPtr<GstPad>& pad)
 {
+    ASSERT(isMainThread()); // MAVERICKS_BACKPORT: it reaches the pipeline and m_tracks.
     auto peer = adoptGRef(gst_pad_get_peer(pad.get()));
     if (!peer)
         return;
@@ -425,7 +435,16 @@ void AppendPipeline::handleNeedContextSyncMessage(GstMessage* message)
         return;
 
     GRefPtr pad = GST_PAD_CAST(m_demux->srcpads->data);
-    removeParserForDemuxerPad(pad);
+    // MAVERICKS_BACKPORT: a sync-message handler runs on the thread that posted the message, and
+    // the pipeline and m_tracks this reaches are the main thread's.
+    if (isMainThread()) {
+        removeParserForDemuxerPad(pad);
+        return;
+    }
+    m_taskQueue.enqueueTaskAndWait<AbortableTaskQueue::Void>([this, pad]() {
+        removeParserForDemuxerPad(pad);
+        return AbortableTaskQueue::Void();
+    });
 }
 
 std::tuple<GRefPtr<GstCaps>, StreamType, FloatSize> AppendPipeline::parseDemuxerSrcPadCaps(GstCaps* demuxerSrcPadCaps)

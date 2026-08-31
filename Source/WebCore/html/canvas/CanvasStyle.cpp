@@ -85,8 +85,30 @@ static OptionSet<CSS::ColorType> allowedColorTypes(ScriptExecutionContext* scrip
     return { CSS::ColorType::Absolute, CSS::ColorType::Current };
 }
 
-Color parseColor(const String& colorString, CanvasBase& canvasBase)
+// MAVERICKS_BACKPORT: WebKit 537, which the 10.9 clients target, parses a canvas color string as the value
+// of a `color:` declaration, so a trailing `;` is the declaration terminator rather than a syntax error.
+// Mail formats the attachment selection color it assigns to fillStyle as "rgb(%3.0f, %3.0f, %3.0f);".
+static String colorStringWithoutDeclarationTerminators(const String& colorString)
 {
+    unsigned end = colorString.length();
+    unsigned scan = end;
+    while (scan) {
+        if (isASCIIWhitespace(colorString[scan - 1])) {
+            --scan;
+            continue;
+        }
+        if (colorString[scan - 1] != ';')
+            break;
+        end = --scan;
+    }
+    return end == colorString.length() ? colorString : colorString.left(end);
+}
+
+// MAVERICKS_BACKPORT: see colorStringWithoutDeclarationTerminators above.
+Color parseColor(const String& rawColorString, CanvasBase& canvasBase)
+{
+    auto colorString = colorStringWithoutDeclarationTerminators(rawColorString);
+
     using namespace CSSPropertyParserHelpers;
     auto cssParserContext = canvasBase.cssParserContext();
     auto color = parseColorRawSimple(colorString, cssParserContext);
@@ -113,8 +135,11 @@ Color parseColor(const String& colorString, CanvasBase& canvasBase)
     return parseColorRawGeneral(colorString, cssParserContext, *scriptExecutionContext, options, state);
 }
 
-Color parseColor(const String& colorString, ScriptExecutionContext& scriptExecutionContext)
+// MAVERICKS_BACKPORT: see colorStringWithoutDeclarationTerminators above.
+Color parseColor(const String& rawColorString, ScriptExecutionContext& scriptExecutionContext)
 {
+    auto colorString = colorStringWithoutDeclarationTerminators(rawColorString);
+
     // FIXME: Add constructor for CSSParserContext that takes a ScriptExecutionContext to allow preferences to be
     //        checked correctly.
     using namespace CSSPropertyParserHelpers;

@@ -38,7 +38,7 @@ std::optional<uint64_t> PerformanceLogging::physicalFootprint()
     kern_return_t result = task_info(mach_task_self(), TASK_VM_INFO, (task_info_t) &vmInfo, &count);
     if (result != KERN_SUCCESS)
         return std::nullopt;
-    return vmInfo.phys_footprint;
+    return vmInfo.internal + vmInfo.compressed; // MAVERICKS_BACKPORT: a 10.9 kernel TASK_VM_INFO reply ends before phys_footprint; this is the same quantity (see memoryFootprint()).
 }
 
 void PerformanceLogging::getPlatformMemoryUsageStatistics(Vector<std::pair<ASCIILiteral, size_t>>& stats)
@@ -50,7 +50,7 @@ void PerformanceLogging::getPlatformMemoryUsageStatistics(Vector<std::pair<ASCII
         return;
     stats.append(std::pair { "internal_mb"_s, static_cast<size_t>(vmInfo.internal >> 20) });
     stats.append(std::pair { "compressed_mb"_s, static_cast<size_t>(vmInfo.compressed >> 20) });
-    stats.append(std::pair { "phys_footprint_mb"_s, static_cast<size_t>(vmInfo.phys_footprint >> 20) });
+    stats.append(std::pair { "phys_footprint_mb"_s, static_cast<size_t>((vmInfo.internal + vmInfo.compressed) >> 20) }); // MAVERICKS_BACKPORT: see above.
     stats.append(std::pair { "resident_size_mb"_s, static_cast<size_t>(vmInfo.resident_size >> 20) });
     stats.append(std::pair { "virtual_size_mb"_s, static_cast<size_t>(vmInfo.virtual_size >> 20) });
 }

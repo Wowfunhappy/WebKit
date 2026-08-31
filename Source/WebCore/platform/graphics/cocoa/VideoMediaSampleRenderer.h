@@ -90,9 +90,9 @@ public:
     void notifyWhenDecodingErrorOccurred(Function<void(NSError *)>&&);
     void notifyWhenVideoRendererRequiresFlushToResumeDecoding(Function<void()>&&);
 
-#if HAVE(AVSAMPLEBUFFERVIDEORENDERER)
+    // MAVERICKS_BACKPORT: declared unconditionally — AudioVideoRendererAVFObjC::stageVideoRenderer calls this
+    // unguarded, and VideoMediaSampleRenderer.mm now defines it for !HAVE(AVSAMPLEBUFFERVIDEORENDERER) too.
     Ref<GenericPromise> changeRenderer(WebSampleBufferVideoRendering *);
-#endif
 
     void flush();
     void shutdown();

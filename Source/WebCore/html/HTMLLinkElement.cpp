@@ -275,7 +275,17 @@ void HTMLLinkElement::attributeChanged(const QualifiedName& name, const AtomStri
 
 bool HTMLLinkElement::shouldLoadLink()
 {
-    return isConnected();
+    if (!isConnected())
+        return false;
+    // MAVERICKS_BACKPORT: restored-lost-upstream behavior (#62). Cancelable beforeload
+    // event lets Safari 7 extensions block link subresources (uBlock network blocking).
+    Ref<Document> originalDocument = document();
+    if (!dispatchBeforeLoadEvent(getNonEmptyURLAttribute(hrefAttr).string()))
+        return false;
+    // A beforeload handler might have removed us from the document or changed the document.
+    if (!isConnected() || &document() != originalDocument.ptr())
+        return false;
+    return true;
 }
 
 String HTMLLinkElement::crossOrigin() const

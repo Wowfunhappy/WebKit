@@ -37,6 +37,11 @@
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/WorkQueue.h>
 #import <wtf/cocoa/SpanCocoa.h>
+// MAVERICKS_BACKPORT: willSendRequest() uses CompletionHandler<void(String&&)> unconditionally,
+// but upstream only #imports CompletionHandler.h inside the HAVE(WEBCONTENTRESTRICTIONS) /
+// HAVE(WEBCONTENTANALYSIS_FRAMEWORK) blocks (one of which is always defined on supported macOS).
+// On 10.9 neither is defined, so include it here so the template is fully defined.
+#import <wtf/CompletionHandler.h>
 
 #if HAVE(WEBCONTENTRESTRICTIONS)
 #import <WebCore/ParentalControlsURLFilter.h>

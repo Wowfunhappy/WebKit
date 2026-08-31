@@ -485,6 +485,10 @@ private:
 
     void addOverflowFromInlineChildren();
 
+    // MAVERICKS_BACKPORT: non-standard -webkit-border-fit:lines support for 10.9 Messages.app bubbles.
+    void fitBorderToLinesIfNeeded(); // Shrink the box in which the border paints if border-fit is set.
+    void adjustForBorderFit(LayoutUnit x, LayoutUnit& left, LayoutUnit& right) const;
+
     GapRects inlineSelectionGaps(RenderBlock& rootBlock, const LayoutPoint& rootBlockPhysicalPosition, const LayoutSize& offsetFromRootBlock,
         LayoutUnit& lastLogicalTop, LayoutUnit& lastLogicalLeft, LayoutUnit& lastLogicalRight, const LogicalSelectionOffsetCaches&, const PaintInfo*) override;
     

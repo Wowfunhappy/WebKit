@@ -353,7 +353,32 @@ void GradientRendererCG::drawConicGradient(CGContextRef platformContext, CGPoint
             CGContextDrawConicGradient(platformContext, gradient.gradient.get(), center, angle);
         },
         [&] (Shading& shading) {
-            CGContextDrawShading(platformContext, adoptCF(CGShadingCreateConic(shading.colorSpace.get(), center, angle, shading.function.get())).get());
+            // MAVERICKS_BACKPORT: CGShadingCreateConic is macOS 10.12+, and no polyfill can supply it,
+            // because a CGShadingRef cannot be constructed outside CoreGraphics. Resolve the shading's own
+            // function into a ramp instead -- CGShadingCreateAxial evaluates it, so the interpolation is
+            // CoreGraphics' own -- and hand that ramp to the same CGContextDrawConicGradient the gradient
+            // strategy draws through.
+            // CGContextDrawShading(platformContext, adoptCF(CGShadingCreateConic(shading.colorSpace.get(), center, angle, shading.function.get())).get());
+            constexpr size_t sampleCount = 256;
+            uint8_t ramp[sampleCount * 4] { };
+            // A fixed-format 256x1 premultiplied-sRGB buffer either allocates or the process is past saving;
+            // a silent return here would be indistinguishable from a gradient that legitimately paints nothing.
+            auto strip = adoptCF(CGBitmapContextCreate(ramp, sampleCount, 1, 8, sampleCount * 4, sRGBColorSpaceSingleton(), kCGImageAlphaPremultipliedLast));
+            RELEASE_ASSERT(strip);
+            CGContextDrawShading(strip.get(), adoptCF(CGShadingCreateAxial(shading.colorSpace.get(), CGPointMake(0, 0), CGPointMake(sampleCount, 0), shading.function.get(), true, true)).get());
+            CGFloat components[sampleCount * 4];
+            CGFloat locations[sampleCount];
+            for (size_t i = 0; i < sampleCount; ++i) {
+                CGFloat alpha = ramp[i * 4 + 3] / 255.0;
+                for (size_t channel = 0; channel < 3; ++channel) {
+                    CGFloat value = alpha ? (ramp[i * 4 + channel] / 255.0) / alpha : 0;
+                    components[i * 4 + channel] = value > 1 ? 1 : value;
+                }
+                components[i * 4 + 3] = alpha;
+                locations[i] = (i + 0.5) / sampleCount;
+            }
+            auto gradient = adoptCF(CGGradientCreateWithColorComponents(sRGBColorSpaceSingleton(), components, locations, sampleCount));
+            CGContextDrawConicGradient(platformContext, gradient.get(), center, angle);
         }
     );
 }

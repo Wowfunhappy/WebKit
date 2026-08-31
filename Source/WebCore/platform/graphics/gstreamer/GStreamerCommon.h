@@ -112,6 +112,15 @@ inline GstClockTime toGstClockTime(const WTF::MediaTime& mediaTime)
     return static_cast<GstClockTime>(toGstUnsigned64Time(mediaTime));
 }
 
+// MAVERICKS_BACKPORT(upstreamable): GstBuffer timestamps are unsigned, so a negative MediaTime is
+// unrepresentable — toGstClockTime()'s int64→uint64 cast would wrap it to an astronomical value
+// that poisons downstream queue-level and position arithmetic. Use this when stamping GstBuffers
+// from client-controlled timelines that can be negative (MSE timestampOffset, WebCodecs
+// timestamps): it encodes "before the timeline origin" as GST_CLOCK_TIME_NONE. Do NOT use it
+// where the u64 field deliberately round-trips a signed value cast back to int64 on read
+// (e.g. VideoDecoderGStreamer's closed appsrc→decoder→appsink harness).
+GstClockTime toValidGstClockTime(const WTF::MediaTime&);
+
 GstClockTime toGstClockTime(const Seconds&);
 WTF::MediaTime fromGstClockTime(GstClockTime);
 

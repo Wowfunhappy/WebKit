@@ -74,6 +74,21 @@ static void* lib##Library() \
     return dylib; \
 }
 
+// MAVERICKS_BACKPORT: optional variant of SOFT_LINK_SYSTEM_LIBRARY for /usr/lib/system libraries that
+// are genuinely absent on 10.9 (e.g. libsystem_networkextension, 10.10+). Mirrors upstream's own
+// SOFT_LINK_LIBRARY_OPTIONAL: returns nullptr instead of RELEASE_ASSERTing, for a library whose call
+// sites are all SOFT_LINK_OPTIONAL (nullptr-tolerant). Non-optional SOFT_LINK_SYSTEM_LIBRARY keeps its
+// assert so a should-be-present system library that fails to load still crashes loudly.
+#define SOFT_LINK_SYSTEM_LIBRARY_OPTIONAL(lib) \
+static void* lib##Library() \
+{ \
+    static void* dylib = ^{ \
+        void *result = dlopen("/usr/lib/system/" #lib ".dylib", RTLD_NOW); \
+        return result; \
+    }(); \
+    return dylib; \
+}
+
 #define SOFT_LINK_LIBRARY_WITH_PATH(lib, path) \
     static void* lib##Library() \
     { \

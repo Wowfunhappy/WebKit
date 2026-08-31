@@ -227,6 +227,7 @@
     "scroll": { },
     "scrollend": { },
     "securitypolicyviolation": { },
+    "search": { },
     "seeked": { },
     "seeking": { },
     "select": { },
