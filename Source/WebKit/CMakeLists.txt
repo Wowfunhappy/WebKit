@@ -841,7 +841,8 @@ if (PORT STREQUAL GTK OR PORT STREQUAL WPE)
 endif ()
 
 if (WebKit_PUBLIC_FRAMEWORK_HEADERS)
-    WEBKIT_COPY_FILES(WebKit_CopyHeaders
+    # MAVERICKS_BACKPORT: SYMLINK (not copy) so forwarded headers share the source realpath and #pragma once dedups across <WebKit/X.h> and "X.h" in one TU.
+    WEBKIT_SYMLINK_FILES(WebKit_CopyHeaders
         DESTINATION ${WebKit_FRAMEWORK_HEADERS_DIR}/WebKit
         FILES ${WebKit_PUBLIC_FRAMEWORK_HEADERS}
         FLATTENED
@@ -850,7 +851,8 @@ if (WebKit_PUBLIC_FRAMEWORK_HEADERS)
 endif ()
 
 if (WebKit_PRIVATE_FRAMEWORK_HEADERS)
-    WEBKIT_COPY_FILES(WebKit_CopyPrivateHeaders
+    # MAVERICKS_BACKPORT: SYMLINK (not copy) so forwarded private headers share the source realpath and #pragma once dedups across <WebKit/X.h> and "X.h" in one TU.
+    WEBKIT_SYMLINK_FILES(WebKit_CopyPrivateHeaders
         DESTINATION ${WebKit_PRIVATE_FRAMEWORK_HEADERS_DIR}/WebKit
         FILES ${WebKit_PRIVATE_FRAMEWORK_HEADERS}
         FLATTENED
@@ -951,6 +953,10 @@ list(APPEND WebKit_DERIVED_SOURCES
     ${WebKit_DERIVED_SOURCES_DIR}/GeneratedSerializers.${WebKit_GENERATED_SERIALIZERS_SUFFIX}
     ${WebKit_DERIVED_SOURCES_DIR}/SerializedTypeInfo.${WebKit_GENERATED_SERIALIZERS_SUFFIX}
     ${WebKit_DERIVED_SOURCES_DIR}/WebKitPlatformGeneratedSerializers.${WebKit_GENERATED_SERIALIZERS_SUFFIX}
+    # MAVERICKS_BACKPORT: generate-serializers.py also emits GeneratedWebKitSecureCoding (the #if !HAVE(WK_SECURE_CODING_*)
+    # fallback CoreIPC impls), which is the live path here because those HAVE flags are gated to macOS 15.4+. Upstream's
+    # cmake omits it (only its Xcode build compiles it); compile it so the fallback CoreIPC symbols are defined.
+    ${WebKit_DERIVED_SOURCES_DIR}/GeneratedWebKitSecureCoding.${WebKit_GENERATED_SERIALIZERS_SUFFIX}
 )
 
 add_custom_command(
@@ -959,6 +965,8 @@ add_custom_command(
         ${WebKit_DERIVED_SOURCES_DIR}/GeneratedSerializers.${WebKit_GENERATED_SERIALIZERS_SUFFIX}
         ${WebKit_DERIVED_SOURCES_DIR}/SerializedTypeInfo.${WebKit_GENERATED_SERIALIZERS_SUFFIX}
         ${WebKit_DERIVED_SOURCES_DIR}/WebKitPlatformGeneratedSerializers.${WebKit_GENERATED_SERIALIZERS_SUFFIX}
+        # MAVERICKS_BACKPORT: GeneratedWebKitSecureCoding holds the #if !HAVE(WK_SECURE_CODING_*) fallback CoreIPC impls (live on 10.9).
+        ${WebKit_DERIVED_SOURCES_DIR}/GeneratedWebKitSecureCoding.${WebKit_GENERATED_SERIALIZERS_SUFFIX}
     MAIN_DEPENDENCY ${WEBKIT_DIR}/Scripts/generate-serializers.py
     DEPENDS
         ${WEBKIT_DIR}/Scripts/webkit/opaque_ipc_types.py
@@ -1110,6 +1118,8 @@ list(APPEND WebKit_SOURCES ${WebKit_DERIVED_SOURCES})
 
 WEBKIT_COMPUTE_SOURCES(WebKit)
 WEBKIT_FRAMEWORK(WebKit)
+_MAVERICKS_FINALIZE_WEBKIT_TARGET(WebKit) # MAVERICKS_BACKPORT: apply the port's target and polyfill rules.
+
 ADD_WEBKIT_PREFIX_HEADER(WebKit)
 
 list(APPEND WebProcess_PRIVATE_INCLUDE_DIRECTORIES $<TARGET_PROPERTY:WebKit,INCLUDE_DIRECTORIES>)

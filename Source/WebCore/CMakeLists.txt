@@ -3106,6 +3106,7 @@ WEBKIT_FRAMEWORK(WebCore)
 if (APPLE)
     set_target_properties(WebCore PROPERTIES LINK_FLAGS "-weak-lxslt -sub_library libobjc -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy")
 endif ()
+_MAVERICKS_FINALIZE_WEBCORE_TARGET(WebCore) # MAVERICKS_BACKPORT: apply the port's target and resource rules.
 
 # The -ftree-sra optimization (implicit with -O2) causes crashes when
 # allocating large chunks of memory using bmalloc on Intel 32bit.
@@ -3129,8 +3130,10 @@ list(APPEND WebCoreTestSupport_PRIVATE_INCLUDE_DIRECTORIES ${WebCore_PRIVATE_INC
 list(APPEND WebCoreTestSupport_SYSTEM_INCLUDE_DIRECTORIES ${WebCore_SYSTEM_INCLUDE_DIRECTORIES})
 
 WEBKIT_LIBRARY(WebCoreTestSupport)
+_MAVERICKS_FINALIZE_WEBCORE_TEST_SUPPORT(WebCoreTestSupport) # MAVERICKS_BACKPORT: select the port's linker driver.
 
 if (${WebCore_LIBRARY_TYPE} MATCHES "SHARED")
     set_target_properties(WebCore PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR})
+    _MAVERICKS_SET_WEBCORE_FRAMEWORK_VERSION(WebCore) # MAVERICKS_BACKPORT: use the port's framework layout.
     install(TARGETS WebCore DESTINATION "${LIB_INSTALL_DIR}")
 endif ()

@@ -863,3 +863,7 @@ list(APPEND WebCoreTestSupport_IDL_FILES
 if (NOT EXISTS ${CMAKE_BINARY_DIR}/WebCore/WebKitAvailability.h)
     file(COPY platform/cocoa/WebKitAvailability.h DESTINATION ${CMAKE_BINARY_DIR}/WebCore)
 endif ()
+
+# MAVERICKS_BACKPORT: single seam. Every change this port makes to WebCore's Mac CMake configuration
+# lives in the file below, so this one stays byte-upstream and never conflicts on an upstream merge.
+include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WebCorePlatformMavericks.cmake)

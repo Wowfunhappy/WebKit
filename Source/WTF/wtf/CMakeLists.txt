@@ -807,6 +807,10 @@ if (PORT STREQUAL GTK OR PORT STREQUAL WPE)
     )
 endif ()
 
+# MAVERICKS_BACKPORT: single seam -- see MavericksSupport/cmake/WTFPlatformMavericks.cmake, which
+# edits WTF_PUBLIC_HEADERS for the copy below.
+include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WTFPlatformMavericks.cmake)
+
 WEBKIT_COPY_FILES(WTF_CopyHeaders
     DESTINATION ${WTF_FRAMEWORK_HEADERS_DIR}/wtf
     FILES ${WTF_PUBLIC_HEADERS}

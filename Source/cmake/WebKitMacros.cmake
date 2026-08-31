@@ -2,6 +2,8 @@
 # exclusively needed in only one subdirectory of Source (e.g. only needed by
 # WebCore), then put it there instead.
 
+include("${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WebKitBuildRulesMavericks.cmake") # MAVERICKS_BACKPORT: build rules owned by the port.
+
 macro(WEBKIT_COMPUTE_SOURCES _framework)
     set(_derivedSourcesPath ${${_framework}_DERIVED_SOURCES_DIR})
 
@@ -50,6 +52,7 @@ macro(WEBKIT_COMPUTE_SOURCES _framework)
             if (_file MATCHES "\\.c$")
                 list(APPEND ${_framework}_C_SOURCES ${_file})
             else ()
+                _MAVERICKS_SET_ARC_IF_NEEDED("${_file}") # MAVERICKS_BACKPORT: apply the port's ARC source policy.
                 list(APPEND ${_framework}_SOURCES ${_file})
             endif ()
         endforeach ()
@@ -145,6 +148,7 @@ macro(_WEBKIT_TARGET_SETUP _target _logical_name)
         target_compile_options(${_target} PRIVATE ${${_logical_name}_COMPILE_OPTIONS})
     endif ()
 
+    _MAVERICKS_APPLY_TARGET_POLICY(${_target}) # MAVERICKS_BACKPORT: apply the port's per-target link policy.
     if (${_logical_name}_LIBRARIES)
         target_link_libraries(${_target} PUBLIC ${${_logical_name}_LIBRARIES})
     endif ()
@@ -355,6 +359,9 @@ macro(WEBKIT_FRAMEWORK _target)
     _WEBKIT_FRAMEWORK_LINK_FRAMEWORK(${_target})
     _WEBKIT_TARGET(${_target})
     _WEBKIT_TARGET_ANALYZE(${_target})
+    _WEBKIT_FORCE_LOAD_POLYFILL(${_target}) # MAVERICKS_BACKPORT: force-load the port's symbol polyfills.
+
+    _WEBKIT_FORCE_LOAD_WK_MARKER(${_target}) # MAVERICKS_BACKPORT: scope selector rewriting to WebKit images.
 
     if (${_target}_OUTPUT_NAME)
         set_target_properties(${_target} PROPERTIES OUTPUT_NAME ${${_target}_OUTPUT_NAME})
@@ -371,6 +378,7 @@ macro(WEBKIT_FRAMEWORK _target)
 
     if (APPLE AND NOT PORT STREQUAL "GTK" AND NOT ${${_target}_LIBRARY_TYPE} MATCHES STATIC)
         set_target_properties(${_target} PROPERTIES FRAMEWORK TRUE)
+        _MAVERICKS_SET_FRAMEWORK_IDENTIFIER(${_target}) # MAVERICKS_BACKPORT: apply the port's framework bundle identifier.
         install(TARGETS ${_target} FRAMEWORK DESTINATION ${LIB_INSTALL_DIR})
     endif ()
 
