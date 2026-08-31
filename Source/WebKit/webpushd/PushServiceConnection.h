@@ -44,7 +44,18 @@ namespace WebPushD {
 class PushServiceConnection : public RefCountedAndCanMakeWeakPtr<PushServiceConnection> {
     WTF_MAKE_TZONE_ALLOCATED(PushServiceConnection);
 public:
-    using IncomingPushMessageHandler = Function<void(NSString *, NSDictionary *)>;
+    // MAVERICKS_BACKPORT: apsd owns the acknowledgement of everything it delivers, so on
+    // that transport all of this is inert. The Mozilla transport instead keeps a message
+    // in the push service's own store until this client acknowledges it, which makes the
+    // acknowledgement the point where responsibility for the message transfers. A receipt
+    // names one delivery so it can be acknowledged when it actually reaches a client, and
+    // a disposition says what became of it.
+    using PushMessageReceipt = uint64_t;
+    static constexpr PushMessageReceipt noPushMessageReceipt = 0;
+    enum class PushMessageDisposition : uint8_t { Delivered, DecryptionError, NotDelivered };
+    virtual void acknowledgePushMessage(PushMessageReceipt, PushMessageDisposition) { }
+
+    using IncomingPushMessageHandler = Function<void(NSString *, NSDictionary *, PushMessageReceipt)>;
 
     virtual ~PushServiceConnection() = default;
 
@@ -79,7 +90,8 @@ public:
     virtual void setPublicTokenForTesting(Vector<uint8_t>&&);
 
     void startListeningForPushMessages(IncomingPushMessageHandler&&);
-    void didReceivePushMessage(NSString *topic, NSDictionary *userInfo);
+    // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+    void didReceivePushMessage(NSString *topic, NSDictionary *userInfo, PushMessageReceipt = noPushMessageReceipt);
 
 protected:
     PushServiceConnection() = default;
@@ -88,7 +100,13 @@ private:
     Function<void(Vector<uint8_t>&&)> m_publicTokenChangeHandler;
     Vector<uint8_t> m_pendingPublicToken;
     IncomingPushMessageHandler m_incomingPushMessageHandler;
-    Deque<std::pair<RetainPtr<NSString>, RetainPtr<NSDictionary>>> m_pendingPushes;
+    // MAVERICKS_BACKPORT: a push held for a handler that is not listening yet keeps its receipt.
+    struct PendingPush {
+        RetainPtr<NSString> topic;
+        RetainPtr<NSDictionary> userInfo;
+        PushMessageReceipt receipt;
+    };
+    Deque<PendingPush> m_pendingPushes;
 };
 
 } // namespace WebPushD

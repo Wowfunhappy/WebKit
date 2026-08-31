@@ -366,6 +366,13 @@ static void printFrame(WKPageRef page, WKFrameRef frame, const void*)
     WKPageBeginPrinting(page, frame, WKPrintInfo { 1, 21, 29.7f });
 }
 
+// The C UI client's own fallback presents WebKit's Storage Access consent sheet, which no test can
+// answer; grant instead, matching the API::UIClient base default the tests are written against.
+static void requestStorageAccessConfirm(WKPageRef, WKFrameRef, WKStringRef, WKStringRef, WKPageRequestStorageAccessConfirmResultListenerRef listener, const void*)
+{
+    WKPageRequestStorageAccessConfirmResultListenerCall(listener, true);
+}
+
 static bool shouldAllowDeviceOrientationAndMotionAccess(WKPageRef, WKSecurityOriginRef origin, WKFrameInfoRef frame, const void*)
 {
     return TestController::singleton().handleDeviceOrientationAndMotionAccessRequest(origin, frame);
@@ -774,7 +781,7 @@ PlatformWebView* TestController::createOtherPlatformWebView(PlatformWebView* par
         nullptr, // hasVideoInPictureInPictureDidChange
         nullptr, // didExceedBackgroundResourceLimitWhileInForeground
         nullptr, // didResignInputElementStrongPasswordAppearance
-        nullptr, // requestStorageAccessConfirm
+        requestStorageAccessConfirm,
         nullptr, // shouldAllowDeviceOrientationAndMotionAccess
         nullptr, // runWebAuthenticationPanel
         nullptr, // decidePolicyForSpeechRecognitionPermissionRequest
@@ -1254,7 +1261,7 @@ void TestController::createWebViewWithOptions(const TestOptions& options)
         nullptr, // hasVideoInPictureInPictureDidChange
         nullptr, // didExceedBackgroundResourceLimitWhileInForeground
         nullptr, // didResignInputElementStrongPasswordAppearance
-        nullptr, // requestStorageAccessConfirm
+        requestStorageAccessConfirm,
         shouldAllowDeviceOrientationAndMotionAccess,
         runWebAuthenticationPanel,
         nullptr, // decidePolicyForSpeechRecognitionPermissionRequest

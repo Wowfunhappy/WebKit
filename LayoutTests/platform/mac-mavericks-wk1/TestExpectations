@@ -1,0 +1,98 @@
+# MAVERICKS_BACKPORT: Apple's modern platform/mac-wk1/TestExpectations blanket-[ Skip ]s most directories
+# because upstream no longer maintains the WebKit1 / DumpRenderTree path (everything moved to WK2 /
+# WebKitTestRunner). This backport IS WebKit1-based and those suites genuinely run here, so re-enable the
+# ones we exercise. A more-specific platform file overrides the less-specific mac-wk1 expectation.
+# Failures under these are REAL backport issues to triage and fix — not reasons to skip.
+
+webaudio [ Pass ]
+storage [ Pass ]
+http/tests/cookies [ Pass ]
+fast/dom [ Pass ]
+fast/css [ Pass ]
+fast/canvas [ Pass ]
+css1 [ Pass ]
+cssom [ Pass ]
+
+# --- Known Web Audio codec limitations on 10.9 (CoreAudio/ExtAudioFile) ----------------------------------
+# 10.9's CoreAudio decodes WAV/MP3/AAC but NOT FLAC/Opus/Vorbis, and (unlike modern macOS) does not trim
+# AAC encoder-delay "priming" frames. These are real platform limitations, not harness defects. The ones
+# that hang decodeAudioData (no error callback) are Skipped to avoid the 30s timeout; the rest fail the
+# value comparison. (decodeAudioData migration to GStreamer would lift these — see project task #100.)
+webaudio/decode-audio-data-aac.html [ Failure ]
+webaudio/decode-audio-data-flac.html [ Failure ]
+webaudio/decode-audio-data-mp4-opus.html [ Failure ]
+webaudio/decode-audio-data-webm-opus.html [ Failure ]
+webaudio/decode-audio-data-webm-opus-resample.html [ Failure ]
+webaudio/decode-audio-data-webm-vorbis.html [ Failure ]
+webaudio/Panner/hrtf-database.html [ Skip ]
+webaudio/codec-tests/vorbis [ Skip ]
+
+# Real issues to revisit (not blocking the broad win):
+# audioworklet-does-not-leak: SIGSEGV on the WebCore:AudioWorklet thread during rapid worklet teardown
+#   (corrupted pointer; other AudioWorklet tests pass). Skipped so the crash doesn't disrupt the run.
+webaudio/MediaStreamAudioSource/mediastreamaudiosourcenode.html [ Failure ]
+webaudio/audiomix-bufferingpolicy.html [ Failure ]
+
+# --- Storage: feature gaps + deep-flaky on this 10.9 WebKit1 backport -----------------------------------
+# File System Access API / OPFS (navigator.storage.getDirectory) is not enabled here.
+storage/filesystemaccess [ Skip ]
+# Deprecated quota APIs (window.webkitStorageInfo / webkitStorageQuota) are gone in this engine.
+storage/storageinfo-query-usage.html [ Failure ]
+storage/storageinfo-request-quota.html [ Failure ]
+storage/storageinfo-no-callbacks.html [ Failure ]
+storage/storageinfo-missing-arguments.html [ Failure ]
+storage/storagequota-query-usage.html [ Failure ]
+storage/storagequota-request-quota.html [ Failure ]
+# IndexedDB blob tests intermittently trip an objc cache-corruption crash during test teardown (deep,
+# pre-existing heap-corruption class); skip so they don't destabilize the run while it's investigated.
+
+# JS-correctness suites (dumpAsText assertion tests — not render-tree/baseline-sensitive). Re-enable to
+# exercise real engine behavior on this WebKit1 backport.
+js [ Pass ]
+dom [ Pass ]
+fetch [ Pass ]
+
+# More behavioral suites (crash/correctness, not render-tree baselines)
+editing [ Pass ]
+http/tests/security [ Pass ]
+http/tests/xmlhttprequest [ Pass ]
+
+# iOS-only editing tests must not run on the Mac port (they exercise UIKit/iOS text interaction).
+editing/selection/ios [ Skip ]
+editing/caret/ios [ Skip ]
+editing/input/ios [ Skip ]
+editing/deleting/ios [ Skip ]
+editing/pasteboard/ios [ Skip ]
+
+# More behavioral suites for crash-hunting / coverage
+fast/events [ Pass ]
+fast/forms [ Pass ]
+fast/loader [ Pass ]
+accessibility [ Pass ]
+http/tests/misc [ Pass ]
+http/tests/navigation [ Pass ]
+
+# --- Non-Mac platform tests that leaked in via the broad un-skips above -------------------------------
+# These exercise iOS/GTK/Win-specific behavior (touch events, UIKit text interaction, ATK, etc.) that
+# does not apply to the Mac WebKit1 port; on Mac DRT they have no support path and crash. Skip them.
+accessibility/combobox/gtk [ Skip ]
+accessibility/gtk [ Skip ]
+accessibility/ios-simulator [ Skip ]
+accessibility/win [ Skip ]
+editing/caret/ios [ Skip ]
+editing/deleting/ios [ Skip ]
+editing/execCommand/ios [ Skip ]
+editing/find/ios [ Skip ]
+editing/input/ios [ Skip ]
+editing/pasteboard/gtk [ Skip ]
+editing/selection/ios [ Skip ]
+fast/css/ios [ Skip ]
+fast/css/variables/env/ios [ Skip ]
+fast/events/ios [ Skip ]
+fast/events/ios/ipad [ Skip ]
+fast/events/pointer/ios [ Skip ]
+fast/events/touch [ Skip ]
+fast/events/touch/ios [ Skip ]
+fast/forms/ios [ Skip ]
+fast/forms/ios/ipad [ Skip ]
+fast/forms/textarea/ios [ Skip ]

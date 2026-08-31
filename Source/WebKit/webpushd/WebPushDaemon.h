@@ -87,7 +87,8 @@ public:
 
     void startMockPushService();
     void startPushService(const String& incomingPushServiceName, const String& pushDatabasePath, const String& webClipCachePath);
-    void handleIncomingPush(const WebCore::PushSubscriptionSetIdentifier&, WebKit::WebPushMessage&&);
+    // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+    void handleIncomingPush(const WebCore::PushSubscriptionSetIdentifier&, WebKit::WebPushMessage&&, PushServiceConnection::PushMessageReceipt = PushServiceConnection::noPushMessageReceipt);
 
 #if PLATFORM(IOS)
     WebClipCache& ensureWebClipCache() LIFETIME_BOUND;
@@ -133,7 +134,8 @@ private:
     void setPushService(RefPtr<PushService>&&);
     void runAfterStartingPushService(Function<void()>&&);
 
-    void handleIncomingPushImpl(const WebCore::PushSubscriptionSetIdentifier&, WebKit::WebPushMessage&&);
+    // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+    void handleIncomingPushImpl(const WebCore::PushSubscriptionSetIdentifier&, WebKit::WebPushMessage&&, PushServiceConnection::PushMessageReceipt);
     void ensureIncomingPushTransaction();
     void releaseIncomingPushTransaction();
     void incomingPushTransactionTimerFired();
@@ -159,6 +161,9 @@ private:
     struct PendingPushMessage {
         WebCore::PushSubscriptionSetIdentifier identifier;
         WebKit::WebPushMessage message;
+        // MAVERICKS_BACKPORT: acknowledged to the push service once a client takes this
+        // message, which is what lets the service hold its own copy until then.
+        PushServiceConnection::PushMessageReceipt receipt { PushServiceConnection::noPushMessageReceipt };
     };
     Deque<PendingPushMessage> m_pendingPushMessages;
 

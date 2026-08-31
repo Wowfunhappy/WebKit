@@ -101,7 +101,11 @@ NS_REQUIRES_PROPERTY_DEFINITIONS
 
     if (RefPtr customProtocolManager = protect(firstNetworkProcess())->supplement<LegacyCustomProtocolManager>())
         _customProtocolID = customProtocolManager->addCustomProtocol(self);
-    _initializationRunLoop = CFRunLoopGetCurrent();
+    // MAVERICKS_BACKPORT: 10.9's NSURLSession instantiates and drives a custom NSURLProtocol on
+    // short-lived dispatch worker threads, none of which run a CFRunLoop, so a block enqueued on the
+    // creating thread's run loop is never serviced and the load never commits. The network process's
+    // main run loop is always running and NSURLSession's protocol client is thread-safe.
+    _initializationRunLoop = CFRunLoopGetMain();
 
     return self;
 }

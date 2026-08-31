@@ -38,9 +38,15 @@ messages -> DrawingArea {
     DisplayDidRefresh(MonotonicTime start)
 
 #if PLATFORM(COCOA)
-    UpdateGeometry(WebCore::IntSize viewSize, bool flushSynchronously, MachSendRight fencePort) -> ()
+# MAVERICKS_BACKPORT: the reply carries ReplyCanDispatchOutOfOrder so TiledCoreAnimationDrawingAreaProxy::waitForDidUpdateGeometry
+# (which backs the restored Safari-7 WKView SPI -forceAsyncDrawingAreaSizeUpdate:/-waitForAsyncDrawingAreaSizeUpdate) can block on it.
+    UpdateGeometry(WebCore::IntSize viewSize, bool flushSynchronously, MachSendRight fencePort) -> () ReplyCanDispatchOutOfOrder
     SetColorSpace(struct std::optional<WebCore::DestinationColorSpace> colorSpace)
     SetViewExposedRect(std::optional<WebCore::FloatRect> viewExposedRect)
+#if ENABLE(TILED_CA_DRAWING_AREA)
+# MAVERICKS_BACKPORT: WebKit-537 parity — the page's window changed which hosted-context flavor it can display.
+    SetLayerHostingMode(enum:uint8_t WebKit::LayerHostingMode layerHostingMode)
+#endif
 
     AcceleratedAnimationDidStart(WebCore::PlatformLayerIdentifier layerID, String key, MonotonicTime startTime)
     AcceleratedAnimationDidEnd(WebCore::PlatformLayerIdentifier layerID, String key)

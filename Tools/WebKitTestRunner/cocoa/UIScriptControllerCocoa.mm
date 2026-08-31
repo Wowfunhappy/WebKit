@@ -26,6 +26,13 @@
 #import "config.h"
 #import "UIScriptControllerCocoa.h"
 
+// MAVERICKS_BACKPORT: the _WKTextExtraction* configuration/interaction classes and the WKTextExtractionItem
+// tree are implemented in Swift (_WKTextExtraction.swift, WKWebView+TextExtraction.swift), which this
+// clang-only 10.9 build cannot compile, so the feature is unavailable (see WKWebViewInternal.h). Gate
+// WebKitTestRunner's text-extraction support off to match; the three UIScriptController overrides fall back to
+// notImplemented() and the text-extraction layout tests are skipped.
+#define WTR_WK_TEXT_EXTRACTION_AVAILABLE 0
+
 #import "CocoaColorSerialization.h"
 #import "LayoutTestSpellChecker.h"
 #import "PlatformWebView.h"
@@ -33,15 +40,19 @@
 #import "TestController.h"
 #import "TestRunnerWKWebView.h"
 #import "UIScriptContext.h"
+#if WTR_WK_TEXT_EXTRACTION_AVAILABLE
 #import "WKTextExtractionTestingHelpers.h"
 #import "_WKTextExtractionInternal.h"
+#endif
 #import <JavaScriptCore/JavaScriptCore.h>
 #import <WebKit/WKURLCF.h>
 #import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
 #import <WebKit/_WKTargetedElementInfo.h>
 #import <WebKit/_WKTargetedElementRequest.h>
+#if WTR_WK_TEXT_EXTRACTION_AVAILABLE
 #import <WebKit/_WKTextExtraction.h>
+#endif
 #import <wtf/BlockPtr.h>
 #import <wtf/darwin/DispatchExtras.h>
 
@@ -341,6 +352,7 @@ void UIScriptControllerCocoa::setSpellCheckerResults(JSValueRef results)
     [[LayoutTestSpellChecker checker] setResultsFromJSValue:results inContext:m_context->jsContext()];
 }
 
+#if WTR_WK_TEXT_EXTRACTION_AVAILABLE
 static _WKTextExtractionDataDetectorTypes dataDetectorTypes(JSValueRef typesArray, JSContextRef jsContext)
 {
     _WKTextExtractionDataDetectorTypes result = _WKTextExtractionDataDetectorNone;
@@ -555,6 +567,13 @@ void UIScriptControllerCocoa::performTextExtractionInteraction(JSStringRef jsAct
         m_context->asyncTaskComplete(callbackID, { JSValueMakeString(m_context->jsContext(), jsDescription.get()) });
     }];
 }
+#else // !WTR_WK_TEXT_EXTRACTION_AVAILABLE
+// MAVERICKS_BACKPORT: text extraction is Swift-only and unavailable in this build; fall back to the base
+// UIScriptController behavior (notImplemented). The corresponding layout tests are skipped.
+void UIScriptControllerCocoa::requestTextExtraction(JSValueRef, TextExtractionTestOptions*) { notImplemented(); }
+void UIScriptControllerCocoa::requestDebugText(JSValueRef, TextExtractionTestOptions*) { notImplemented(); }
+void UIScriptControllerCocoa::performTextExtractionInteraction(JSStringRef, TextExtractionInteractionOptions*, JSValueRef) { notImplemented(); }
+#endif // WTR_WK_TEXT_EXTRACTION_AVAILABLE
 
 void UIScriptControllerCocoa::requestRenderedTextForFrontmostTarget(int x, int y, JSValueRef callback)
 {

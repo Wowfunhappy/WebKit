@@ -1655,7 +1655,10 @@ static NSView *pluginView(WebFrame *frame, WebPluginPackage *pluginPackage,
 
     [pluginPackage load];
     Class viewFactory = [pluginPackage viewFactory];
-    
+
+    // MAVERICKS_BACKPORT: declare the plug-in view up front; it is created (instead of the
+    // upstream `return nil` stub) below so WebKit-ObjC plug-ins like WebClip.plugin instantiate.
+    NSView *view = nil;
     NSDictionary *arguments = nil;
 
 IGNORE_WARNINGS_BEGIN("undeclared-selector")
@@ -1681,9 +1684,18 @@ IGNORE_WARNINGS_END
         };
         LOG(Plugins, "arguments:\n%@", arguments);
     }
-    (void)arguments;
+    // MAVERICKS_BACKPORT: the upstream `(void)arguments;` discard is dropped here because
+    // arguments is now actually consumed by the plug-in view creation below.
 
-    return nil;
+    // MAVERICKS_BACKPORT: this was stubbed to `return nil` (so WebKit-ObjC plug-ins never
+    // instantiated). Restore the real view creation: WebPluginController creates the plug-in
+    // view from the package + arguments and (via -addPlugin:) runs -webPlugInInitialize, which
+    // is where e.g. WebClip.plugin's WebClipper publishes its scripting object to JS as the
+    // `webClip` global. Without it the plug-in bundle loaded but no instance existed, so
+    // WebClip.js failed with "Can't find variable: webClip".
+    view = [pluginController plugInViewWithArguments:arguments fromPluginPackage:pluginPackage];
+
+    return view;
 }
 
 class PluginWidget : public WebCore::PluginViewBase {
@@ -1700,9 +1712,16 @@ private:
     }
 };
 
-static bool shouldBlockPlugin(WebBasePluginPackage *)
+// MAVERICKS_BACKPORT: take the plug-in package (upstream ignores it) so trusted WebKit-ObjC
+// "application" plug-ins like WebClip.plugin are allowed rather than blanket-blocked.
+static bool shouldBlockPlugin(WebBasePluginPackage *pluginPackage)
 {
-    return true;
+    // MAVERICKS_BACKPORT: this was stubbed to block ALL plug-ins (no third-party / NPAPI plug-ins
+    // are enabled on this build). But WebKit-ObjC "application" plug-ins (WebPluginPackage)
+    // are user-agent-provided and trusted — in particular WebClip.plugin, which renders
+    // Safari Web Clips. Blocking it made the widget show "Blocked Plug-In (Insecure plug-in)".
+    // Allow WebPluginPackage plug-ins; there are no NPAPI plug-ins to block here anyway.
+    return ![pluginPackage isKindOfClass:[WebPluginPackage class]];
 }
 
 RefPtr<WebCore::Widget> WebFrameLoaderClient::createPlugin(WebCore::HTMLPlugInElement& element, const URL& url,
@@ -1991,7 +2010,11 @@ void WebFrameLoaderClient::getLoadDecisionForIcons(const Vector<std::pair<WebCor
     }
 
 #if !PLATFORM(IOS_FAMILY)
-    ASSERT(!m_loadingIcon);
+    // MAVERICKS_BACKPORT: icon loading now starts when the head is parsed as well as at the load
+    // event (#112), so a page that adds an icon to its head afterwards reaches here a second time
+    // while the first icon may still be loading. The loop below already declines every icon offered
+    // in that state, which is this client's one-icon-per-page rule; an assertion that a second call
+    // cannot happen would only be asserting the invariant this deliberately relaxes.
     // WebKit 1, which only supports one icon per page URL, traditionally has preferred the last icon in case of multiple icons listed.
     // To preserve that behavior we walk the list backwards.
     for (auto icon = icons.rbegin(); icon != icons.rend(); ++icon) {

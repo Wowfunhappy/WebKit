@@ -74,20 +74,24 @@ void PushServiceConnection::startListeningForPushMessages(IncomingPushMessageHan
         while (m_pendingPushes.size()) {
             @autoreleasepool {
                 auto message = m_pendingPushes.takeFirst();
-                m_incomingPushMessageHandler(message.first.get(), message.second.get());
+                // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+                m_incomingPushMessageHandler(message.topic.get(), message.userInfo.get(), message.receipt);
             }
         }
     });
 }
 
-void PushServiceConnection::didReceivePushMessage(NSString *topic, NSDictionary *userInfo)
+// MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+void PushServiceConnection::didReceivePushMessage(NSString *topic, NSDictionary *userInfo, PushMessageReceipt receipt)
 {
     if (!m_incomingPushMessageHandler) {
-        m_pendingPushes.append({ topic, userInfo });
+        // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+        m_pendingPushes.append({ topic, userInfo, receipt });
         return;
     }
 
-    m_incomingPushMessageHandler(topic, userInfo);
+    // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+    m_incomingPushMessageHandler(topic, userInfo, receipt);
 }
 
 } // namespace WebPushD

@@ -26,9 +26,16 @@ list(APPEND DumpRenderTree_INCLUDE_DIRECTORIES
     ${DumpRenderTree_DIR}/TestNetscapePlugIn
     ${WEBCORE_DIR}/testing/cocoa
     ${WEBKITLEGACY_DIR}
+    # MAVERICKS_BACKPORT: DumpRenderTree.mm pulls in WebHTMLViewForTestingMac.h (a WebKitLegacy testing SPI
+    # that lives with the WebView sources, not in the forwarded public headers) via a quoted include.
+    ${WEBKITLEGACY_DIR}/mac/WebView
     ${WebKitTestRunner_SHARED_DIR}/cocoa
     ${WebKitTestRunner_SHARED_DIR}/mac
     ${WebKitTestRunner_SHARED_DIR}/spi
+    # MAVERICKS_BACKPORT: DumpRenderTree.mm also uses one WebKit2 C-API header (<WebKit/WKURLRequest.h>).
+    # Add the WebKit (WK2) forwarding-headers root LAST so the WebKit1 umbrella above keeps priority for the
+    # header names the two frameworks share, while WK2-only headers still resolve.
+    ${WebKit_FRAMEWORK_HEADERS_DIR}
 )
 
 # Common ${DumpRenderTree_SOURCES} from CMakeLists.txt are C++ source files.
@@ -80,6 +87,12 @@ list(APPEND DumpRenderTree_ObjCpp_SOURCES
     mac/WorkQueueItemMac.mm
     ${WebKitTestRunner_SHARED_DIR}/cocoa/ClassMethodSwizzler.mm
     ${WebKitTestRunner_SHARED_DIR}/cocoa/LayoutTestSpellChecker.mm
+    # MAVERICKS_BACKPORT: these shared TestRunnerShared cocoa sources are compiled per-consumer (the
+    # TestRunnerShared object library only carries the cross-platform sources); DumpRenderTree references
+    # their symbols (poseAsClass, InstanceMethodSwizzler, ModifierKeys) but did not list them.
+    ${WebKitTestRunner_SHARED_DIR}/cocoa/PoseAsClass.mm
+    ${WebKitTestRunner_SHARED_DIR}/cocoa/InstanceMethodSwizzler.mm
+    ${WebKitTestRunner_SHARED_DIR}/cocoa/ModifierKeys.mm
 )
 
 set(DumpRenderTree_SOURCES
@@ -113,3 +126,33 @@ foreach (_file ${DumpRenderTree_RESOURCES})
         file(COPY ${TOOLS_DIR}/DumpRenderTree/fonts/${_file} DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/DumpRenderTree.resources)
     endif ()
 endforeach ()
+
+# MAVERICKS_BACKPORT: LayoutTestHelper is an Xcode-only target upstream, but run-webkit-tests launches it
+# (start_helper) to pin the display color profile before a test run, so the CMake harness needs it too. It
+# uses only 10.9-available frameworks (AppKit/ApplicationServices/IOKit/ColorSync).
+set(LayoutTestHelper_SOURCES ${DumpRenderTree_DIR}/mac/LayoutTestHelper.m)
+set(LayoutTestHelper_PRIVATE_INCLUDE_DIRECTORIES
+    ${DumpRenderTree_DIR}
+    ${CMAKE_BINARY_DIR}
+    # config.h pulls in wtf/Platform.h and JavaScriptCore export macros — header-only, but the forwarding
+    # dirs must be on the path (this tool does not otherwise link those frameworks).
+    ${WTF_FRAMEWORK_HEADERS_DIR}
+    ${bmalloc_FRAMEWORK_HEADERS_DIR}
+    ${JavaScriptCore_FRAMEWORK_HEADERS_DIR}
+    ${JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS_DIR}
+    ${PAL_FRAMEWORK_HEADERS_DIR}
+    ${WebCore_PRIVATE_FRAMEWORK_HEADERS_DIR})
+set(LayoutTestHelper_LIBRARIES
+    "-framework AppKit"
+    "-framework ApplicationServices"
+    "-framework ColorSync"
+    "-framework CoreFoundation"
+    "-framework CoreGraphics"
+    "-framework IOKit"
+    # The globally force-loaded libpolyfill.a pulls in references to SQLite and Accelerate/vImage that this
+    # tool does not use itself; satisfy them so the link completes.
+    "-framework Accelerate"
+    sqlite3
+)
+WEBKIT_EXECUTABLE_DECLARE(LayoutTestHelper)
+WEBKIT_EXECUTABLE(LayoutTestHelper)

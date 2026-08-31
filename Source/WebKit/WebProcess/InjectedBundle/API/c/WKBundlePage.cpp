@@ -82,6 +82,37 @@ WKTypeID WKBundlePageGetTypeID()
     return WebKit::toAPI(WebKit::WebPage::APIType);
 }
 
+// MAVERICKS_BACKPORT: removed upstream; Safari 7's injected bundle uses the page
+// group to scope extension content scripts (see WKBundleAddUserScript).
+// WKBundlePageGroupCopyIdentifier is also required by the system Mac App Store
+// injected bundle (StoreJavaScript.framework/StoreWebBundle): store-page JS calls
+// into it, the bundle lazily binds this symbol from WebKit2, and a missing export
+// fails the dyld bind -> the App Store's WebProcess crashes on every store page.
+extern "C" WK_EXPORT WKBundlePageGroupRef WKBundlePageGetPageGroup(WKBundlePageRef);
+extern "C" WK_EXPORT WKTypeID WKBundlePageGroupGetTypeID(void);
+extern "C" WK_EXPORT WKStringRef WKBundlePageGroupCopyIdentifier(WKBundlePageGroupRef);
+
+WKBundlePageGroupRef WKBundlePageGetPageGroup(WKBundlePageRef pageRef)
+{
+    auto* page = WebKit::toImpl(pageRef);
+    if (!page)
+        return nullptr;
+    return WebKit::toAPI(&page->pageGroup());
+}
+
+WKTypeID WKBundlePageGroupGetTypeID()
+{
+    return WebKit::toAPI(WebKit::WebPageGroupProxy::APIType);
+}
+
+WKStringRef WKBundlePageGroupCopyIdentifier(WKBundlePageGroupRef pageGroupRef)
+{
+    auto* pageGroup = WebKit::toImpl(pageGroupRef);
+    if (!pageGroup)
+        return nullptr;
+    return WebKit::toCopiedAPI(pageGroup->identifier());
+}
+
 void WKBundlePageSetContextMenuClient(WKBundlePageRef pageRef, WKBundlePageContextMenuClientBase* wkClient)
 {
 #if ENABLE(CONTEXT_MENUS)
@@ -112,8 +143,13 @@ void WKBundlePageSetResourceLoadClient(WKBundlePageRef pageRef, WKBundlePageReso
     protect(WebKit::toImpl(pageRef))->setInjectedBundleResourceLoadClient(makeUnique<WebKit::InjectedBundlePageResourceLoadClient>(wkClient));
 }
 
-void WKBundlePageSetPolicyClient(WKBundlePageRef, WKBundlePagePolicyClientBase*)
+// MAVERICKS_BACKPORT: restored (upstream 9eeab8d gutted this to an empty stub when it removed
+// InjectedBundlePagePolicyClient). Safari 7 installs a policy client here and its UI-process
+// handlers read the userData this client produces.
+void WKBundlePageSetPolicyClient(WKBundlePageRef pageRef, WKBundlePagePolicyClientBase* wkClient)
 {
+    // MAVERICKS_BACKPORT: real body (upstream: empty stub).
+    WebKit::toImpl(pageRef)->initializeInjectedBundlePolicyClient(wkClient);
 }
 
 void WKBundlePageSetUIClient(WKBundlePageRef pageRef, WKBundlePageUIClientBase* wkClient)

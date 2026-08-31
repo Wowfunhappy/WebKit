@@ -30,6 +30,7 @@
 #include "WebContextSupplement.h"
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/NotificationClient.h>
+#include <optional> // MAVERICKS_BACKPORT: for providerPermissionForOrigin's return type.
 #include <pal/SessionID.h>
 #include <wtf/HashMap.h>
 #include <wtf/UUID.h>
@@ -66,8 +67,18 @@ public:
 
     virtual ~WebNotificationManagerProxy();
 
-    void setProvider(std::unique_ptr<API::NotificationProvider>&&);
+    // MAVERICKS_BACKPORT: ShouldNotifyProviderOfManager::No installs a provider without
+    // the addNotificationManager callback. The Safari 7 provider mirrored onto the
+    // service worker singleton (WKNotificationManagerSetProvider) must stay invisible to
+    // the client, which reports each notification event to every manager it knows —
+    // announcing the second manager double-dispatches every notification click.
+    enum class ShouldNotifyProviderOfManager : bool { No, Yes };
+    void setProvider(std::unique_ptr<API::NotificationProvider>&&, ShouldNotifyProviderOfManager = ShouldNotifyProviderOfManager::Yes);
     HashMap<String, bool> notificationPermissions();
+    // MAVERICKS_BACKPORT: the client's answer for one origin, from the copy notificationPermissions()
+    // takes. Safari 7's WKPageUIClient predates the queryPermission callback, so the shim in
+    // WKPageSetPageUIClient reads this instead.
+    std::optional<bool> providerPermissionForOrigin(const String& originString) const;
 
     void show(WebPageProxy*, IPC::Connection&, const WebCore::NotificationData&, RefPtr<WebCore::NotificationResources>&&);
     bool showPersistent(const WebsiteDataStore&, IPC::Connection*, const WebCore::NotificationData&, RefPtr<WebCore::NotificationResources>&&);
@@ -98,6 +109,9 @@ private:
     bool showImpl(WebPageProxy*, Ref<WebNotification>&&, RefPtr<WebCore::NotificationResources>&&);
 
     std::unique_ptr<API::NotificationProvider> m_provider;
+
+    // MAVERICKS_BACKPORT: copy of the provider's permission map; see providerPermissionForOrigin.
+    HashMap<String, bool> m_providerPermissions;
 
     HashMap<WebNotificationIdentifier, WTF::UUID> m_globalNotificationMap;
     HashMap<WTF::UUID, Ref<WebNotification>> m_notifications;

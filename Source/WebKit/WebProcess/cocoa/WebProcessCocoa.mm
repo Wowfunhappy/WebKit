@@ -100,6 +100,11 @@
 #import <WebCore/UTIUtilities.h>
 #import <WebCore/WebMAudioUtilitiesCocoa.h>
 #import <algorithm>
+
+#if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
+#import <WebCore/WidevineCdmLocation.h> // MAVERICKS_BACKPORT: setWidevineCdmModule below.
+#endif
+
 #import <dispatch/dispatch.h>
 #import <mach/mach.h>
 #import <malloc/malloc.h>
@@ -132,6 +137,11 @@
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/cocoa/VectorCocoa.h>
+
+// MAVERICKS_BACKPORT: WebCrypto is backed by libgcrypt on this build; pull in its initialization header.
+#if USE(GCRYPT)
+#include <pal/crypto/gcrypt/Initialization.h>
+#endif
 #import <wtf/darwin/DispatchExtras.h>
 #import <wtf/spi/cocoa/OSLogSPI.h>
 #import <wtf/spi/darwin/SandboxSPI.h>
@@ -373,6 +383,10 @@ static void setVideoDecoderBehaviors(OptionSet<VideoDecoderBehavior> videoDecode
 
 void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& parameters)
 {
+    // MAVERICKS_BACKPORT: keep the UI process's CARemoteLayerServer port for LayerHostingContext
+    // (see compositingRenderServerPort() in the header).
+    m_compositingRenderServerPort = WTF::move(parameters.acceleratedCompositingPort);
+
 #if ENABLE(WEBASSEMBLY_DEBUGGER) && ENABLE(REMOTE_INSPECTOR)
     // Set JSC options early, before any VM creation
     if (parameters.shouldEnableWebAssemblyDebugger) [[unlikely]] {
@@ -966,10 +980,10 @@ void WebProcess::platformInitializeProcess(const AuxiliaryProcessInitializationP
     WebCore::PublicSuffixStore::singleton().enablePublicSuffixCache();
 
 #if PLATFORM(MAC)
-    // Deny the WebContent process access to the WindowServer.
-    // This call will not succeed if there are open WindowServer connections at this point.
-    auto retval = CGSSetDenyWindowServerConnections(true);
-    RELEASE_ASSERT(retval == kCGErrorSuccess);
+    // MAVERICKS_BACKPORT: upstream denies the WebContent process its WindowServer connection here
+    // (CGSSetDenyWindowServerConnections(true), with a RELEASE_ASSERT on success). This port draws
+    // through TiledCoreAnimation in WebContent, which requires that connection, so the call is
+    // omitted. Everything else in this block is upstream.
 #if ENABLE(LAUNCHSERVICES_SANDBOX_EXTENSION_BLOCKING)
     setApplicationIsDaemon();
 #endif
@@ -1034,6 +1048,12 @@ RetainPtr<CFDataRef> WebProcess::sourceApplicationAuditData() const
 void WebProcess::initializeSandbox(const AuxiliaryProcessInitializationParameters& parameters, SandboxInitializationParameters& sandboxParameters)
 {
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+
+#if USE(GCRYPT)
+    // MAVERICKS_BACKPORT: WebCrypto is backed by libgcrypt. Call gcry_check_version
+    // and finish secmem setup before any thread can touch the library.
+    PAL::GCrypt::initialize();
+#endif
 
 #if ENABLE(AUDIO_DECODER_REGISTRATION)
     registerOpusDecoderIfNeeded();
@@ -1513,7 +1533,19 @@ void WebProcess::updatePageScreenProperties()
     }
 
     bool allPagesAreOnHDRScreens = std::ranges::all_of(m_pageMap.values(), [](auto& page) {
-        return page && screenSupportsHighDynamicRange(page->localMainFrameView());
+        // MAVERICKS_BACKPORT: upstream writes `page && ...`, which does not compile here because
+        // WTF::Ref has no operator bool; ptrAllowingHashTableEmptyValue() is WTF's spelling for
+        // reading a Ref that may be a hash-table slot's empty value. (Ref::ptr() is RETURNS_NONNULL,
+        // so a check written against it would be optimised away.)
+        //
+        // The check is load-bearing, not defensive. WebProcess::createWebPage inserts with
+        // m_pageMap.ensure(), which creates the entry BEFORE the lambda constructs its value, and
+        // WebPage's constructor calls this function -- so an entry whose Ref is still empty is
+        // visible right here. window.open() reaches it, which is what WebProcess.cpp:1146 means by
+        // the page being created "both in the synchronous handler and through the normal way".
+        // Without the check, page->localMainFrameView() dereferences null and the WebContent process
+        // dies while creating the popup.
+        return page.ptrAllowingHashTableEmptyValue() && screenSupportsHighDynamicRange(page->localMainFrameView());
     });
     setShouldOverrideScreenSupportsHighDynamicRange(true, allPagesAreOnHDRScreens);
 #endif
@@ -1596,6 +1628,18 @@ void WebProcess::openDirectoryCacheInvalidated(SandboxExtension::Handle&& handle
 
     dispatch_async(globalDispatchQueueSingleton(QOS_CLASS_UTILITY, 0), makeBlockPtr(WTF::move(cacheInvalidationHandler)).get());
 }
+
+#if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
+// MAVERICKS_BACKPORT: the extension is held for the life of the process because the CDM stays
+// mapped once a page has loaded it.
+void WebProcess::setWidevineCdmModule(const String& path, SandboxExtension::Handle&& handle)
+{
+    if (path == WebCore::widevineCdmModulePath())
+        return;
+    SandboxExtension::consumePermanently(handle);
+    WebCore::setWidevineCdmModulePath(path);
+}
+#endif
 #endif
 
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)

@@ -1861,7 +1861,11 @@ static NSURL *computeTestURL(NSString *pathOrURLString, NSString **relativeTestP
 
     if ([pathOrURLString hasPrefix:@"http://"] || [pathOrURLString hasPrefix:@"https://"] || [pathOrURLString hasPrefix:@"file://"]) {
         // Use this instead of [NSURL URLWithString:] to properly handle special characters in the input string.
-        return [NSURL URLWithDataRepresentation:[pathOrURLString dataUsingEncoding:NSUTF8StringEncoding] relativeToURL:nil];
+        // MAVERICKS_BACKPORT: +[NSURL URLWithDataRepresentation:relativeToURL:] is 10.10+; on 10.9 fall back to
+        // +[NSURL URLWithString:] (run-webkit-tests already percent-encodes the URLs it passes).
+        if ([NSURL respondsToSelector:@selector(URLWithDataRepresentation:relativeToURL:)])
+            return [NSURL URLWithDataRepresentation:[pathOrURLString dataUsingEncoding:NSUTF8StringEncoding] relativeToURL:nil];
+        return [NSURL URLWithString:pathOrURLString];
     }
 
     NSString *absolutePath = [[[NSURL fileURLWithPath:pathOrURLString] absoluteURL] path];

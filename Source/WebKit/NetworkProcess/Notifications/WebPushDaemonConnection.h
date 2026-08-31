@@ -77,16 +77,34 @@ class Connection final : public Daemon::ConnectionToMachService<ConnectionTraits
 public:
     static Ref<Connection> create(CString&& machServiceName, WebPushDaemonConnectionConfiguration&&);
 
+#if USE(MOZILLA_PUSH_SERVICE)
+    // MAVERICKS_BACKPORT: webpushd announces pending push messages with an unsolicited
+    // event on this connection (see WebPushDaemonConstants.h); the handler set here
+    // relays that to the UI process, which drains the daemon's queue.
+    void setPushMessagesAvailableHandler(Function<void()>&&);
+#endif
+
 private:
     Connection(CString&& machServiceName, WebPushDaemonConnectionConfiguration&&);
 
     void newConnectionWasInitialized() const final;
 #if PLATFORM(COCOA)
     OSObjectPtr<xpc_object_t> dictionaryFromMessage(MessageType, Daemon::EncodedMessage&&) const final { return nullptr; }
+// MAVERICKS_BACKPORT: upstream ignores unsolicited daemon events; this port has to read them,
+// because the push-messages-available announcement arrives that way. The #else keeps upstream's
+// empty body for every other configuration.
+#if USE(MOZILLA_PUSH_SERVICE)
+    void connectionReceivedEvent(xpc_object_t) final;
+#else
     void connectionReceivedEvent(xpc_object_t) final { }
+#endif // MAVERICKS_BACKPORT: closes the USE(MOZILLA_PUSH_SERVICE) split above.
 #endif
 
     WebPushDaemonConnectionConfiguration m_configuration;
+    // MAVERICKS_BACKPORT: storage for the handler set above; empty when no one is listening.
+#if USE(MOZILLA_PUSH_SERVICE)
+    Function<void()> m_pushMessagesAvailableHandler;
+#endif
 
     // IPC::MessageSender
     IPC::Connection* messageSenderConnection() const final { return nullptr; }

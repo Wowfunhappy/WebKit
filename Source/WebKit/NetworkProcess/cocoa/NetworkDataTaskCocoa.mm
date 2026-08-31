@@ -56,6 +56,9 @@
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #import <wtf/text/Base64.h>
 
+// MAVERICKS_BACKPORT: decoder for the gzip bodies 10.9 CFNetwork withholds (see didReceiveResponse).
+#import <WebCore/CFNetworkSuppressedGzipDecoder.h>
+
 #if HAVE(NW_ACTIVITY)
 #import <pal/spi/cocoa/NSURLConnectionSPI.h>
 #endif
@@ -196,6 +199,8 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
     , m_isForMainResourceNavigationForAnyFrame(!!parameters.mainResourceNavigationDataForAnyFrame)
     , m_sourceOrigin(parameters.sourceOrigin)
     , m_requiredCookiesVersion(parameters.requiredCookiesVersion)
+    // MAVERICKS_BACKPORT: see m_contentEncodingSniffingPolicy in the header.
+    , m_contentEncodingSniffingPolicy(parameters.contentEncodingSniffingPolicy)
 {
     auto request = parameters.request;
     auto url = request.url();
@@ -292,6 +297,16 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
         return;
     }
 
+    // MAVERICKS_BACKPORT: cookie blocking is decided here rather than after the task exists, because
+    // 10.9 can only withhold cookies on the request a task is created FROM -- see
+    // NetworkTaskCocoa::blockCookies. The logging below stays where upstream has it, next to the task
+    // identifier it reports.
+    if (WebCore::NetworkStorageSession::shouldBlockCookies(thirdPartyCookieBlockingDecision)) {
+        RetainPtr<NSMutableURLRequest> requestWithCookiesBlocked = adoptNS([nsRequest.get() mutableCopy]);
+        blockCookies(requestWithCookiesBlocked.get());
+        nsRequest = requestWithCookiesBlocked;
+    }
+
     m_task = [m_sessionWrapper->session dataTaskWithRequest:nsRequest.get()];
 
 #if HAVE(CFNETWORK_HOSTOVERRIDE)
@@ -341,7 +356,8 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
 #else
         LOG(NetworkSession, "%lu Blocking cookies for URL %s", (unsigned long)[m_task taskIdentifier], [nsRequest URL].absoluteString.UTF8String);
 #endif
-        blockCookies();
+        // MAVERICKS_BACKPORT: blockCookies already ran, above, on the request the task was created
+        // from; what remains here is upstream's logging.
     }
 
     if (WebCore::ResourceRequest::resourcePrioritiesEnabled())
@@ -402,6 +418,14 @@ void NetworkDataTaskCocoa::didCompleteWithError(const WebCore::ResourceError& er
 {
     WTFEmitSignpost(m_task.get(), DataTask, "completed with error: %d", !error.isNull());
 
+    // MAVERICKS_BACKPORT: a gzip decode error, or a body that ended partway through a member, fails
+    // the load rather than surfacing truncated.
+    if (m_gzipDecoder && (m_gzipDecoder->failed() || (error.isNull() && m_gzipDecoder->isTruncated()))) {
+        if (RefPtr client = m_client.get())
+            client->didCompleteWithError(WebCore::ResourceError(String(NSURLErrorDomain), NSURLErrorCannotDecodeContentData, firstRequest().url(), "cannot decode gzip response body"_s), networkLoadMetrics);
+        return;
+    }
+
     if (RefPtr client = m_client.get())
         client->didCompleteWithError(error, networkLoadMetrics);
 }
@@ -411,6 +435,21 @@ void NetworkDataTaskCocoa::didReceiveData(const WebCore::SharedBuffer& data)
     WTFEmitSignpost(m_task.get(), DataTask, "received %zd bytes", data.size());
 
     setBytesTransferredOverNetwork([m_task _countOfBytesReceivedEncoded]);
+
+    // MAVERICKS_BACKPORT: decode the gzip body CFNetwork withheld (see didReceiveResponse).
+    if (m_gzipDecoder) {
+        auto decoded = m_gzipDecoder->decode(data.span());
+        if (!decoded) {
+            [m_task cancel]; // didCompleteWithError turns this into a decode error
+            return;
+        }
+        if (!decoded->isEmpty()) {
+            Ref buffer = WebCore::SharedBuffer::create(WTF::move(*decoded));
+            if (RefPtr client = m_client.get())
+                client->didReceiveData(buffer.get());
+        }
+        return;
+    }
 
     if (RefPtr client = m_client.get())
         client->didReceiveData(data);
@@ -427,6 +466,13 @@ void NetworkDataTaskCocoa::didReceiveResponse(WebCore::ResourceResponse&& respon
             session->reportNetworkIssue(*m_webPageProxyID, firstRequest().url());
     }
 #endif
+    // MAVERICKS_BACKPORT: ContentEncodingSniffingPolicy::Disable asks CFNetwork for a decoded body
+    // whatever the response looks like, through a request property 10.9 CFNetwork does not implement,
+    // so inflate the bodies it withholds here instead.
+    if (m_contentEncodingSniffingPolicy == WebCore::ContentEncodingSniffingPolicy::Disable
+        && WebCore::CFNetworkSuppressedGzipDecoder::responseBodyIsStillGzipped(response))
+        m_gzipDecoder = makeUnique<WebCore::CFNetworkSuppressedGzipDecoder>();
+
     NetworkDataTask::didReceiveResponse(WTF::move(response), negotiatedLegacyTLS, privateRelayed, WebCore::IPAddress::fromString(lastRemoteIPAddress(m_task.get())), WTF::move(completionHandler));
 }
 

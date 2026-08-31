@@ -313,6 +313,12 @@ extern NSString *WebPreferencesCacheModelChangedInternalNotification WEBKIT_DEPR
 
 @property (nonatomic) BOOL CSSOMViewScrollingAPIEnabled;
 @property (nonatomic) BOOL hyperlinkAuditingEnabled;
+// MAVERICKS_BACKPORT: restored (removed upstream in 2f0fefe) — Safari 7's WebKit1 preference migration reads it.
+@property (nonatomic) BOOL paginateDuringLayoutEnabled;
+// MAVERICKS_BACKPORT: restored (removed upstream in c7ad1a5) — Safari 7 pushes its hidden QTKit toggle here.
+@property (nonatomic, getter=isQTKitEnabled) BOOL QTKitEnabled;
+// MAVERICKS_BACKPORT: restored (removed upstream with the old multicolumn code) — Safari 7 pushes its hidden toggle here.
+@property (nonatomic) BOOL regionBasedColumnsEnabled;
 @property (nonatomic) BOOL CSSOMViewSmoothScrollingEnabled;
 @property (nonatomic, getter=isDNSPrefetchingEnabled) BOOL DNSPrefetchingEnabled;
 @property (nonatomic) BOOL linkPreloadResponsiveImagesEnabled;
