@@ -1,0 +1,29 @@
+# gst-libav skips every FFmpeg decoder whose name starts with "lib"
+# on the premise that a native GStreamer element covers each such library. This runtime
+# has no native AV1 decoder to cover dav1d: gst-plugins-bad 1.28 carries no dav1d wrapper
+# (dav1ddec lives in gst-plugins-rs, which is not part of this build), its ext/aom needs
+# a libaom this build does not vendor, and FFmpeg's own "av1" decoder is hardware-only
+# (and on the skip list for that reason). The FFmpeg built here links dav1d
+# (--enable-libdav1d), so admitting the libdav1d wrapper registers avdec_libdav1d and
+# gives the runtime a working software AV1 decoder; without it, video/x-av1 has a parser
+# and no decoder, and every AV1 stream wedges undecoded.
+#
+# Applied by build_deps with patch -p1.
+--- a/ext/libav/gstavviddec.c	2026-08-09 23:17:52.000000000 -0400
++++ b/ext/libav/gstavviddec.c	2026-08-09 23:17:54.000000000 -0400
+@@ -3019,8 +3019,13 @@
+ 
+     /* No decoders depending on external libraries (we don't build them, but
+      * people who build against an external ffmpeg might have them.
+-     * We have native gstreamer plugins for all of those libraries anyway. */
+-    if (!strncmp (in_plugin->name, "lib", 3)) {
++     * We have native gstreamer plugins for all of those libraries anyway.
++     * libdav1d is the exception: this FFmpeg links dav1d, and no native
++     * GStreamer AV1 decoder exists in this runtime (gst-plugins-bad 1.28
++     * carries none; dav1ddec lives in gst-plugins-rs, which is not part of
++     * this build), so the wrapper is the AV1 decoder. */
++    if (!strncmp (in_plugin->name, "lib", 3)
++        && strcmp (in_plugin->name, "libdav1d") != 0) {
+       GST_DEBUG
+           ("Not using external library decoder %s. Use the gstreamer-native ones instead.",
+           in_plugin->name);

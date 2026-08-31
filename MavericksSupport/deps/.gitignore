@@ -1,0 +1,7 @@
+# What build_deps.sh produces and every WebKit link reads: the libraries and headers,
+# the gst-inspect/gst-launch debugging tools, and the gap-archive manifests. Artifacts.
+/build/
+
+# What build_deps.sh builds with: source tarballs, the per-package build trees, the install
+# prefix they stage into, and this script's own ccache. Artifacts.
+/work/

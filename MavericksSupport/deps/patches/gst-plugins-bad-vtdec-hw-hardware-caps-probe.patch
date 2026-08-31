@@ -1,0 +1,176 @@
+# vtdec_hw advertises every codec in its sink template whether or not the
+# machine can hardware-decode it. VTDecompressionSessionCreate with
+# kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder answers -8973
+# (kVTCouldNotFindVideoDecoderErr) on a machine with no hardware decoder for the codec -- e.g. any
+# VM, and H.264-only-era Macs asked for HEVC. That failure surfaces only in set_format, once caps
+# flow on the streaming thread. decodebin (decodebin2) recovers: its factory loop runs on the
+# streaming thread, catches the failure and plugs the next factory (avdec_h264). decodebin3 does
+# not: its candidate window closes after a caps-less READY->PAUSED succeeds, so the later
+# GST_ELEMENT_ERROR passes through unfiltered and kills the pipeline. WebKit reaches decodebin3
+# through playbin3 for every MSE, blob and mediastream player, so on hardware-decode-less machines
+# vtdec_hw (rank primary+1, selected over avdec_h264) turns all such video into a fatal error.
+#
+# A status that names the decoder missing settles the question and is cached; one that reports it
+# busy or malfunctioning (kVTVideoDecoderNotAvailableNowErr, kVTVideoDecoderMalfunctionErr, which
+# vtdec's own decode path treats as a session restart) describes this instant rather than the
+# machine, so the codec keeps its caps and the next query asks again.
+#
+# The patch makes getcaps answer honestly, the same way it already gates VP9/AV1 on
+# VTIsHardwareDecodeSupported: for the require_hardware subclass, each sink-template codec is
+# kept only if a RequireHardware decompression session can actually be created for it. A bare
+# CMVideoFormatDescription (no codec data) suffices for that answer -- session creation resolves
+# the decoder from the codec type alone; measured on a hardware-decode-less 10.9 machine, the
+# software session for the same bare description succeeds (noErr) while RequireHardware answers
+# -8973. With the codec stripped from getcaps,
+# decodebin3's accept-caps check fails inside its candidate window and the next factory is tried:
+# the same file that errored out ("VTDecompressionSessionCreate returned -8973", pipeline
+# doesn't want to preroll) plays through avdec_h264 via both decodebin and playbin3. On machines
+# whose VideoToolbox does hardware-decode the codec, the probe succeeds and vtdec_hw keeps its
+# caps, rank and hardware path.
+#
+# Applied by build_deps with patch -p1.
+--- a/sys/applemedia/vtdec.c
++++ b/sys/applemedia/vtdec.c
+@@ -2127,6 +2127,110 @@
+   return av1_supported;
+ }
+ 
++/* 10.9's VideoToolbox reports a missing decoder with a legacy codec-not-found
++ * value as well as the named one. */
++#define GST_VTDEC_COULD_NOT_FIND_VIDEO_DECODER        ((OSStatus) -12906)
++#define GST_VTDEC_COULD_NOT_FIND_VIDEO_DECODER_LEGACY ((OSStatus) -8973)
++
++/* Whether this machine's VideoToolbox can create a hardware-only decompression
++ * session for the codec. A bare format description (no codec data) is enough
++ * for the availability answer: session creation resolves the decoder from the
++ * codec type alone. A machine with no hardware decoder for the codec answers a
++ * codec-not-found status while a software session for the same bare description
++ * succeeds. That answer is cached per codec type; a status reporting the decoder
++ * busy or malfunctioning describes this instant rather than the machine, so it
++ * is neither cached nor treated as absence. */
++static void
++gst_vtdec_hw_probe_output_cb (void *user_data, void *source_frame_ref_con,
++    OSStatus status, VTDecodeInfoFlags info_flags,
++    CVImageBufferRef image_buffer, CMTime pts, CMTime duration)
++{
++}
++
++static gboolean
++gst_vtdec_hw_supports_codec_type (CMVideoCodecType cm_format)
++{
++  static GMutex probe_lock;
++  static GHashTable *probe_results;
++  gpointer cached;
++  gboolean found, supported = FALSE;
++  CMFormatDescriptionRef desc = NULL;
++
++  g_mutex_lock (&probe_lock);
++  if (!probe_results)
++    probe_results = g_hash_table_new (g_direct_hash, g_direct_equal);
++  found = g_hash_table_lookup_extended (probe_results,
++      GINT_TO_POINTER (cm_format), NULL, &cached);
++  g_mutex_unlock (&probe_lock);
++  if (found)
++    return GPOINTER_TO_INT (cached);
++
++  if (CMVideoFormatDescriptionCreate (NULL, cm_format, 1920, 1080, NULL,
++          &desc) == noErr) {
++    CFMutableDictionaryRef spec = CFDictionaryCreateMutable (NULL, 0,
++        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
++    VTDecompressionOutputCallbackRecord callback =
++        { gst_vtdec_hw_probe_output_cb, NULL };
++    VTDecompressionSessionRef session = NULL;
++    OSStatus status;
++
++    gst_vtutil_dict_set_boolean (spec,
++        kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder,
++        TRUE);
++    gst_vtutil_dict_set_boolean (spec,
++        kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder,
++        TRUE);
++    status = VTDecompressionSessionCreate (NULL, desc, spec, NULL, &callback,
++        &session);
++    if (session) {
++      VTDecompressionSessionInvalidate (session);
++      CFRelease (session);
++    }
++    CFRelease (spec);
++    CFRelease (desc);
++
++    if (status != noErr
++        && status != GST_VTDEC_COULD_NOT_FIND_VIDEO_DECODER
++        && status != GST_VTDEC_COULD_NOT_FIND_VIDEO_DECODER_LEGACY) {
++      GST_INFO ("a hardware session for codec type %" G_GINT32_FORMAT
++          " answered %d, which does not report the decoder absent",
++          (gint32) cm_format, (int) status);
++      return TRUE;
++    }
++
++    supported = (status == noErr);
++  }
++
++  g_mutex_lock (&probe_lock);
++  g_hash_table_insert (probe_results, GINT_TO_POINTER (cm_format),
++      GINT_TO_POINTER (supported));
++  g_mutex_unlock (&probe_lock);
++
++  return supported;
++}
++
++/* The codec type to probe hardware availability with for a sink-template
++ * structure. ProRes uses 422 as the representative variant: hardware ProRes is
++ * all-or-nothing per machine. VP9 and AV1 return 0 -- getcaps gates those on
++ * VTIsHardwareDecodeSupported already. */
++static CMVideoCodecType
++gst_vtdec_hw_probe_codec_type (const GstStructure * s)
++{
++  const gchar *name = gst_structure_get_name (s);
++
++  if (!strcmp (name, "video/x-h264"))
++    return kCMVideoCodecType_H264;
++  if (!strcmp (name, "video/x-h265"))
++    return kCMVideoCodecType_HEVC;
++  if (!strcmp (name, "video/mpeg"))
++    return kCMVideoCodecType_MPEG2Video;
++  if (!strcmp (name, "image/jpeg"))
++    return kCMVideoCodecType_JPEG;
++  if (!strcmp (name, "video/x-prores"))
++    return kCMVideoCodecType_AppleProRes422;
++  return 0;
++}
++
+ static GstCaps *
+ gst_vtdec_getcaps (GstVideoDecoder * decoder, GstCaps * filter)
+ {
+@@ -2168,6 +2272,31 @@
+     }
+   }
+ 
++  /* A hardware-only decoder on a machine whose VideoToolbox cannot open a
++   * hardware session for the codec can decode nothing; advertising the codec
++   * anyway makes the auto-plugger select this element over a working software
++   * decoder and fail only once caps flow, after decodebin3's candidate window
++   * has closed -- a fatal pipeline error instead of a fallback. Answer honestly
++   * up front so accept-caps fails inside the candidate window and the next
++   * factory is tried. */
++  if (vtdec->require_hardware) {
++    n = gst_caps_get_size (sinkcaps);
++    for (guint i = 0; i < n;) {
++      GstStructure *s = gst_caps_get_structure (sinkcaps, i);
++      CMVideoCodecType cm_format = gst_vtdec_hw_probe_codec_type (s);
++
++      if (cm_format != 0 && !gst_vtdec_hw_supports_codec_type (cm_format)) {
++        GST_INFO_OBJECT (vtdec,
++            "this machine has no hardware decoder for %s, removing from caps",
++            gst_structure_get_name (s));
++        gst_caps_remove_structure (sinkcaps, i);
++        n--;
++      } else {
++        i++;
++      }
++    }
++  }
++
+   result = gst_video_decoder_proxy_getcaps (decoder, sinkcaps, filter);
+   gst_caps_unref (sinkcaps);
+ 

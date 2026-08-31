@@ -1,0 +1,40 @@
+# vtdec's static sink template advertises VP9, AV1 and HEVC, and the
+# template is what the registry serves to capability queries -- WebKit's
+# GStreamerRegistryScanner answers MediaSource.isTypeSupported, canPlayType and
+# MediaCapabilities from it, and reports powerEfficient from the matched factory's
+# "Hardware" klass. 10.9's VideoToolbox decodes none of the three on any hardware: the
+# supplemental-decoder mechanism vtdec gates VP9 and AV1 on is macOS 11+, HEVC decode
+# arrived in 10.13, and VTIsHardwareDecodeSupported itself is 10.13+ (the gap-archive
+# definition probes a RequireHardware session, so it answers false on every 10.9
+# machine). Measured here, a VideoToolbox HEVC session fails outright:
+# VTDecompressionSessionCreate returns -12906, and vtdec's own getcaps strips VP9 and
+# AV1 before negotiation. With the template claiming what the machine then denies, the
+# scanner reports decoders that can never instantiate and calls their software
+# fallback power-efficient: sites offered AV1 or HEVC on the strength of that answer
+# stream video that decodes in software, or not at all. Removing the three entries
+# makes the registry agree with the machine. H.264/MPEG-2/JPEG/ProRes stay: those go
+# through the per-codec RequireHardware session probe
+# (gst-plugins-bad-vtdec-hw-hardware-caps-probe.patch) or plain vtdec's software
+# session, which 10.9's VideoToolbox does provide. avdec_h265 decodes HEVC.
+#
+# Applied by build_deps with patch -p1.
+--- a/sys/applemedia/vtdec.c
++++ b/sys/applemedia/vtdec.c
+@@ -219,16 +219,10 @@
+     GST_PAD_ALWAYS,
+     GST_STATIC_CAPS ("video/x-h264, stream-format=avc, alignment=au,"
+         " width=(int)[8, MAX], height=(int)[8, MAX];"
+-        "video/x-h265, stream-format=(string){ hev1, hvc1 }, alignment=au,"
+-        " width=(int)[16, MAX], height=(int)[16, MAX];"
+-        "video/x-av1, stream-format=obu-stream, alignment=(string){ tu, frame }, "
+-        "width=(int)[64, MAX], height=(int)[64, MAX];"
+         "video/mpeg, mpegversion=2, systemstream=false, parsed=true;"
+         "image/jpeg;"
+         "video/x-prores, variant = { (string)standard, (string)hq, (string)lt,"
+-        " (string)proxy, (string)4444, (string)4444xq };"
+-        "video/x-vp9, profile=(string){ 0, 2 }, "
+-        " width=(int)[64, MAX], height=(int)[64, MAX];")
++        " (string)proxy, (string)4444, (string)4444xq };")
+     );
+ 
+ static SupplementalSupport gst_vtdec_codec_support = NoneSupported;
