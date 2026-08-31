@@ -204,7 +204,8 @@ bool ProtectionSpace::receivesCredentialSecurely() const
 
 bool ProtectionSpace::encodingRequiresPlatformData(NSURLProtectionSpace *space)
 {
-    return space.distinguishedNames || space.serverTrust;
+    // MAVERICKS_BACKPORT: `|| space.serverTrust` dropped — see the note above.
+    return space.distinguishedNames;
 }
 
 std::optional<ProtectionSpace::PlatformData> ProtectionSpace::getPlatformDataToSerialize() const
