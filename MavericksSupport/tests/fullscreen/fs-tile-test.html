@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Full-screen Mission Control tile test</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  body { font: 28px -apple-system, "Helvetica Neue", sans-serif; }
+  /* Big, unambiguous blocks: at Mission Control tile scale these are still readable as colour. */
+  #grid { display: block; height: 100%; }
+  .row { height: 25%; display: block; }
+  .c { display: inline-block; width: 24.5%; height: 100%; vertical-align: top; }
+  button { font-size: 22px; padding: 10px 16px; position: fixed; left: 20px; top: 20px; z-index: 10; }
+</style>
+<div id="grid">
+  <div class="row"><span class="c" style="background:#e02020"></span><span class="c" style="background:#f5a623"></span><span class="c" style="background:#f8e71c"></span><span class="c" style="background:#7ed321"></span></div>
+  <div class="row"><span class="c" style="background:#417505"></span><span class="c" style="background:#50e3c2"></span><span class="c" style="background:#4a90d9"></span><span class="c" style="background:#0033aa"></span></div>
+  <div class="row"><span class="c" style="background:#9013fe"></span><span class="c" style="background:#bd10e0"></span><span class="c" style="background:#ff2d9b"></span><span class="c" style="background:#111111"></span></div>
+  <div class="row"><span class="c" style="background:#ffffff"></span><span class="c" style="background:#888888"></span><span class="c" style="background:#000000"></span><span class="c" style="background:#e02020"></span></div>
+</div>
+<button id="go">Enter full screen</button>
+<script>
+document.getElementById('go').addEventListener('click', function () {
+  var e = document.documentElement;
+  (e.requestFullscreen || e.webkitRequestFullscreen).call(e);
+});
+</script>

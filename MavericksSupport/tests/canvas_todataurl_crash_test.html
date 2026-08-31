@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Canvas toDataURL sink-crash test</title>
+<style>
+  body { font-family: -apple-system, Helvetica, sans-serif; margin: 20px; }
+  #status { font-size: 20px; font-weight: bold; margin: 10px 0; }
+  #detail { font-size: 13px; color: #444; white-space: pre; }
+  canvas { border: 1px solid #999; }
+</style>
+</head>
+<body>
+<h2>Canvas toDataURL() destructive-sink crash test</h2>
+<div id="status">starting…</div>
+<div id="detail"></div>
+<canvas id="c" width="320" height="240"></canvas>
+<script>
+// This exercises the exact crash sequence from the report:
+//   1. draw to an accelerated 2D canvas  (queues deferred ops + display prep)
+//   2. call toDataURL()                  (pre-fix: destructively sinks the shared IOSurface backend)
+//   3. the rendering update then flushes the (pre-fix: null-surface) buffer -> WebContent SIGSEGV
+// Post-fix: toDataURL takes a non-destructive copy; the canvas survives and animates forever.
+var c = document.getElementById('c');
+var ctx = c.getContext('2d');           // NOT willReadFrequently -> stays accelerated (IOSurface backend)
+var status = document.getElementById('status');
+var detail = document.getElementById('detail');
+var frame = 0;
+var lastLen = 0;
+var startedAt = Date.now();
+
+function tick() {
+  frame++;
+  // 1. draw something new every frame
+  var x = (frame * 3) % 320;
+  ctx.fillStyle = 'hsl(' + (frame % 360) + ',80%,55%)';
+  ctx.fillRect(0, 0, 320, 240);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(x, 100, 40, 40);
+  ctx.fillStyle = '#fff';
+  ctx.font = '20px sans-serif';
+  ctx.fillText('frame ' + frame, 10, 30);
+
+  // 2. read it back as a data URL every single frame (the sink)
+  var url = c.toDataURL('image/png');
+  lastLen = url.length;
+
+  // report
+  var secs = ((Date.now() - startedAt) / 1000).toFixed(1);
+  status.textContent = 'RUNNING — frame ' + frame + ' (' + secs + 's), still alive';
+  detail.textContent =
+      'toDataURL length: ' + lastLen + ' bytes\n' +
+      'data URL ok:      ' + (url.indexOf('data:image/png;base64,') === 0 && lastLen > 100) + '\n' +
+      'accelerated hint: canvas kept drawing after toDataURL (no null-surface crash)';
+
+  if (frame < 100000)
+    requestAnimationFrame(tick);
+  else
+    status.textContent = 'DONE — survived ' + frame + ' frames';
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

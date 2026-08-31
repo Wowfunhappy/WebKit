@@ -1,0 +1,8 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>hls test</title></head><body>
+<video id="v" controls muted autoplay playsinline style="width:640px;height:360px"></video>
+<pre id="log"></pre>
+<script>
+var v=document.getElementById('v');var src=decodeURIComponent(location.search.slice(1));
+v.src=src;v.play();
+['error','waiting','playing','seeked','ratechange','stalled'].forEach(function(e){v.addEventListener(e,function(){document.getElementById('log').textContent+=e+' t='+v.currentTime.toFixed(1)+'\n';});});
+</script></body></html>

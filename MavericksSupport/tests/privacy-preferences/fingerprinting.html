@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>fingerprinting: measuring…</title>
+<style>body{font:13px -apple-system,sans-serif;margin:2em} td{padding:2px 12px 2px 0} .v{font-weight:bold}</style>
+<h1>Screen fingerprinting protections</h1>
+<p id="verdict"></p>
+<table id="t"></table>
+<script>
+const rows = [
+    ['screen.width', screen.width],
+    ['screen.height', screen.height],
+    ['screen.availWidth', screen.availWidth],
+    ['screen.availHeight', screen.availHeight],
+    ['screen.availLeft', screen.availLeft],
+    ['screen.availTop', screen.availTop],
+    ['window.outerWidth', window.outerWidth],
+    ['window.outerHeight', window.outerHeight],
+    ['window.screenX', window.screenX],
+    ['window.screenY', window.screenY],
+    ['innerWidth x innerHeight', window.innerWidth + ' x ' + window.innerHeight],
+];
+document.getElementById('t').innerHTML = rows.map(r => `<tr><td>${r[0]}</td><td class="v">${r[1]}</td></tr>`).join('');
+
+// With FingerprintingProtections on, availLeft/availTop read 0 and the reported screen is the
+// content area rather than the display.
+const protectedNow = screen.availLeft === 0 && screen.availTop === 0
+    && Math.abs(screen.availWidth - window.innerWidth) < 40
+    && Math.abs(screen.availHeight - window.innerHeight) < 60;
+const verdict = protectedNow ? 'PROTECTED' : 'UNPROTECTED';
+document.getElementById('verdict').textContent = verdict + ' (screen reads ' + screen.availWidth + 'x' + screen.availHeight
+    + ', content is ' + window.innerWidth + 'x' + window.innerHeight + ')';
+document.title = 'fingerprinting: ' + verdict;
+</script>

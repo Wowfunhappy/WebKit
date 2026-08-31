@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Widevine key-system access</title>
+<style>body{font:13px -apple-system,sans-serif;margin:20px} #log{white-space:pre;font-family:Menlo,monospace}</style>
+<h1>Widevine key-system access</h1>
+<div id="log">running…</div>
+<script>
+const out = [];
+function say(s) { out.push(s); document.getElementById('log').textContent = out.join('\n'); window.emeResult = out.join('\n'); }
+
+const config = [{
+    initDataTypes: ['cenc', 'webm'],
+    videoCapabilities: [{ contentType: 'video/mp4; codecs="avc1.42E01E"' }],
+    audioCapabilities: [{ contentType: 'audio/mp4; codecs="mp4a.40.2"' }],
+}];
+
+async function run(keySystem) {
+    try {
+        const access = await navigator.requestMediaKeySystemAccess(keySystem, config);
+        say('ok: ' + keySystem + ' access, keySystem=' + access.keySystem);
+        const keys = await access.createMediaKeys();
+        say('ok: ' + keySystem + ' MediaKeys created');
+        const session = keys.createSession('temporary');
+        say('ok: ' + keySystem + ' session created');
+        session.closed.catch(() => {});
+        return true;
+    } catch (e) {
+        say('FAIL: ' + keySystem + ': ' + e.name + ': ' + e.message);
+        return false;
+    }
+}
+
+(async () => {
+    const clearKey = await run('org.w3.clearkey');
+    const widevine = await run('com.widevine.alpha');
+    say(clearKey && widevine ? 'PASS' : 'FAIL');
+})();
+</script>

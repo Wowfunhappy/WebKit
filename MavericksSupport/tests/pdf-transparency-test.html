@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>PDF transparency-layer text</title>
+<style>
+  body { font: 28px/1.5 Helvetica, sans-serif; margin: 40px; }
+  h2 { font-size: 15px; color: #666; margin: 26px 0 4px; text-transform: uppercase; letter-spacing: .08em; }
+  .case { padding: 6px 0; }
+  /* Each of these forces CGContextBeginTransparencyLayer on the PDF context. */
+  .opacity   { opacity: .99; }
+  .blend     { mix-blend-mode: multiply; }
+  .mask      { -webkit-mask-image: linear-gradient(to right, #000 85%, rgba(0,0,0,.6)); }
+  .clipround { border-radius: 14px; background: #eef; overflow: hidden; padding: 4px 10px; }
+  .shadowed  { text-shadow: 1px 1px 0 #bbb; opacity: .99; }
+  /* Stroke-only text: the old Fill-only predicate dropped this entirely. */
+  .strokeonly { -webkit-text-stroke: 1px #000; color: transparent; opacity: .99; }
+  .control   { color: #060; }
+</style>
+
+<h2>Control &mdash; no transparency layer</h2>
+<div class="case control">CONTROL: this text must always print.</div>
+
+<h2>opacity</h2>
+<div class="case opacity">OPACITY: fill text inside an opacity layer.</div>
+
+<h2>mix-blend-mode</h2>
+<div class="case blend">BLEND: fill text inside a blend layer.</div>
+
+<h2>mask</h2>
+<div class="case mask">MASK: fill text inside a mask layer.</div>
+
+<h2>mask + text with print-color-adjust: exact (is the mask image itself skipped as a background?)</h2>
+<div class="case mask" style="-webkit-print-color-adjust:exact;print-color-adjust:exact">MASKEXACT: masked text with color-adjust exact.</div>
+
+<h2>solid box, NO layer at all (baseline: does a background box print?)</h2>
+<div class="case"><span style="display:inline-block;width:320px;height:34px;background:#090"></span></div>
+
+<h2>same box with -webkit-print-color-adjust: exact (forces background printing)</h2>
+<div class="case"><span style="display:inline-block;width:320px;height:34px;background:#090;-webkit-print-color-adjust:exact;print-color-adjust:exact"></span></div>
+
+<h2>opacity layer + box with print-color-adjust: exact</h2>
+<div class="case opacity"><span style="display:inline-block;width:320px;height:34px;background:#06c;-webkit-print-color-adjust:exact;print-color-adjust:exact"></span></div>
+
+<h2>mask over a solid box, no text (isolates mask compositing from glyphs)</h2>
+<div class="case mask"><span style="display:inline-block;width:320px;height:34px;background:#c00"></span></div>
+
+<h2>opacity over a solid box, no text (control for the row above)</h2>
+<div class="case opacity"><span style="display:inline-block;width:320px;height:34px;background:#06c"></span></div>
+
+<h2>rounded clip</h2>
+<div class="case clipround">CLIP: fill text inside a rounded clip.</div>
+
+<h2>text-shadow + opacity</h2>
+<div class="case shadowed">SHADOW: shadowed text inside an opacity layer.</div>
+
+<h2>stroke-only (regression case for the old Fill-only predicate)</h2>
+<div class="case strokeonly">STROKE: outlined text, no fill, inside an opacity layer.</div>
+
+<h2>color glyphs (must survive: they have no outline)</h2>
+<div class="case opacity">EMOJI in a layer: &#x1F600; &#x1F680; &#x1F4C4; &mdash; and text beside them.</div>
+<div class="case">EMOJI control, no layer: &#x1F600; &#x1F680; &#x1F4C4;</div>
+
+<hr>
+<p style="font-size:14px;color:#444">
+  Print this page to PDF (File &rsaquo; Print &rsaquo; PDF &rsaquo; Save as PDF).
+  Every line above must appear in the saved PDF. Any missing line is the
+  CGPDFContext transparency-layer text drop.
+</p>

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Appearance controls</title>
+<style>
+  body { font: 13px -apple-system, "Helvetica Neue", sans-serif; margin: 24px; background: #fff; }
+  section { margin-bottom: 22px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #666;
+       margin: 0 0 8px; font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-bottom: 8px; }
+  .zoom { zoom: 4; margin: 6px 0; }
+  label { color: #444; }
+  progress { width: 220px; }
+</style>
+
+<section>
+  <h2>Progress — determinate (track should read CONCAVE: shadow along the top inner edge)</h2>
+  <div class="row">
+    <progress value="0.35" max="1"></progress>
+    <progress value="0.7" max="1"></progress>
+    <progress value="1" max="1"></progress>
+  </div>
+  <div class="zoom"><progress value="0.35" max="1"></progress></div>
+</section>
+
+<section>
+  <h2>Progress — indeterminate (barber-pole stripes)</h2>
+  <div class="row"><progress></progress></div>
+  <div class="zoom"><progress></progress></div>
+</section>
+
+<section>
+  <h2>Number spinners — up arrow on TOP, down arrow on BOTTOM</h2>
+  <div class="row">
+    <input type="number" value="42">
+    <input type="number" value="7" disabled>
+  </div>
+  <div class="zoom"><input type="number" value="42"></div>
+</section>
+
+<section>
+  <h2>Switch (10.9 CoreUI has no switch widget — drawn by the polyfill)</h2>
+  <div class="row">
+    <label><input type="checkbox" switch> off</label>
+    <label><input type="checkbox" switch checked> on</label>
+    <label><input type="checkbox" switch disabled> off disabled</label>
+    <label><input type="checkbox" switch checked disabled> on disabled</label>
+  </div>
+  <div class="zoom">
+    <input type="checkbox" switch>
+    <input type="checkbox" switch checked>
+  </div>
+</section>
+
+<section>
+  <h2>Other controls (regression check)</h2>
+  <div class="row">
+    <input type="range" value="40">
+    <input type="checkbox" checked> <input type="radio" checked>
+    <button>Button</button>
+    <select><option>Popup</option></select>
+    <input type="search" placeholder="search">
+    <meter value="0.6"></meter>
+  </div>
+</section>
+
+<section>
+  <h2>Scrollable (scroll corner)</h2>
+  <div style="width:220px;height:90px;overflow:scroll;background:#eee">
+    <div style="width:600px;height:400px;background:linear-gradient(135deg,#cfe,#fcd)"></div>
+  </div>
+</section>

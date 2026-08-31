@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head><title>variable font test</title>
+<style>
+/* Amstelvar's fvar defaults are wght=400 wdth=100, and its axes move the advance widths a long
+   way, so measured advances say directly whether the instance CoreText realized is the one CSS
+   asked for or the default master. Loaded from the layout tests rather than the network so the
+   test works offline; open this file from the checkout. */
+@font-face {
+    font-family: 'AmstelvarVF';
+    src: url('../../LayoutTests/fast/text/variations/resources/Amstelvar/Amstelvar-Roman-VF104.ttf') format('truetype');
+}
+body { font-family: -apple-system, Helvetica, sans-serif; margin: 20px; }
+.probe { font-family: 'AmstelvarVF'; font-size: 100px; position: absolute; visibility: hidden; white-space: pre; }
+table { border-collapse: collapse; margin-top: 12px; }
+td, th { border: 1px solid #ccc; padding: 3px 10px; text-align: left; font-size: 13px; }
+.pass { color: #0a0; font-weight: bold; }
+.fail { color: #c00; font-weight: bold; }
+.sample { font-family: 'AmstelvarVF'; font-size: 34px; margin: 2px 0; }
+#verdict { font-size: 20px; font-weight: bold; margin-top: 14px; }
+</style>
+</head>
+<body>
+<h3>Variable web font instancing</h3>
+<p>Each row asks for one point on an axis and measures the rendered advance width of "HHHHH" at
+100px. On a system that cannot instance the font every row measures identically — every weight and
+width renders as the same master — and that is the failure this checks for. (Absolute widths are
+not asserted: CSS also pins Amstelvar's <code>opsz</code> axis to the font size, so they are not
+the raw fvar-default advances.)</p>
+
+<div id="samples"></div>
+<div id="results"></div>
+<div id="verdict">measuring…</div>
+
+<script>
+var cases = [
+    { label: 'default (no variation)',      css: '' },
+    { label: "font-variation-settings 'wght' 100", css: "font-variation-settings: 'wght' 100" },
+    { label: "font-variation-settings 'wght' 200", css: "font-variation-settings: 'wght' 200" },
+    { label: "font-variation-settings 'wght' 400", css: "font-variation-settings: 'wght' 400" },
+    { label: "font-variation-settings 'wght' 700", css: "font-variation-settings: 'wght' 700" },
+    { label: "font-variation-settings 'wght' 900", css: "font-variation-settings: 'wght' 900" },
+    { label: "font-variation-settings 'wdth' 50",  css: "font-variation-settings: 'wdth' 50" },
+    { label: "font-variation-settings 'wdth' 125", css: "font-variation-settings: 'wdth' 125" },
+    { label: 'font-weight: 100',            css: 'font-weight: 100' },
+    { label: 'font-weight: 900',            css: 'font-weight: 900' }
+];
+
+function measure(css) {
+    var span = document.createElement('span');
+    span.className = 'probe';
+    span.style.cssText += ';' + css;
+    span.textContent = 'HHHHH';
+    document.body.appendChild(span);
+    var width = span.getBoundingClientRect().width;
+    document.body.removeChild(span);
+    return width;
+}
+
+// document.fonts.ready alone is not enough: an @font-face nothing has used yet is not pending, so
+// ready resolves before the font is fetched and every probe would measure the fallback. Ask for
+// the face explicitly first.
+document.fonts.load('100px AmstelvarVF').then(function () {
+    var samples = document.getElementById('samples');
+    cases.forEach(function (testCase) {
+        var div = document.createElement('div');
+        div.className = 'sample';
+        div.style.cssText += ';' + testCase.css;
+        div.textContent = testCase.label + ' — Hamburgefonstiv';
+        samples.appendChild(div);
+    });
+
+    var rows = cases.map(function (testCase) {
+        return { label: testCase.label, width: measure(testCase.css) };
+    });
+    var base = rows[0].width;
+
+    var table = '<table><tr><th>request</th><th>advance of HHHHH @100px</th><th>vs default</th></tr>';
+    rows.forEach(function (row) {
+        var delta = (row.width - base).toFixed(2);
+        table += '<tr><td>' + row.label + '</td><td>' + row.width.toFixed(2) + '</td><td>' + delta + '</td></tr>';
+    });
+    table += '</table>';
+    document.getElementById('results').innerHTML = table;
+
+    // The font must actually be the web font: a fallback would make every row identical too, so
+    // "all rows equal" has to be distinguishable from "the font never loaded".
+    var fallbackWidth = measure('font-family: Helvetica');
+    var loaded = base > 0 && Math.abs(base - fallbackWidth) > 1;
+    var distinct = {};
+    rows.forEach(function (row) { distinct[row.width.toFixed(2)] = 1; });
+    // wght 400 -> 700 -> 900 widens. (Amstelvar's advances are NOT monotonic in wght at the
+    // bottom of the range once opsz is pinned to the font size, which CSS does: 100 is a shade
+    // wider than 400. So the light end is only checked for being a different instance.)
+    var heavierIsWider = rows[5].width > rows[4].width && rows[4].width > rows[3].width
+        && rows[1].width !== rows[3].width && rows[2].width !== rows[3].width;
+    var widthAxisWorks = rows[6].width < base && rows[7].width > base;
+    var weightKeywordWorks = rows[9].width > rows[8].width;
+
+    var checks = [
+        ['web font loaded', loaded],
+        ['wght 400 &lt; 700 &lt; 900, and 100/200 are their own instances', heavierIsWider],
+        ['wdth 50 narrower than default, wdth 125 wider', widthAxisWorks],
+        ['font-weight:900 wider than font-weight:100', weightKeywordWorks],
+        ['at least 6 distinct advances', Object.keys(distinct).length >= 6]
+    ];
+    var failed = checks.filter(function (check) { return !check[1]; });
+    var detail = checks.map(function (check) {
+        return '<div class="' + (check[1] ? 'pass' : 'fail') + '">' + (check[1] ? 'PASS' : 'FAIL') + ': ' + check[0] + '</div>';
+    }).join('');
+    document.getElementById('verdict').innerHTML = detail
+        + '<div class="' + (failed.length ? 'fail' : 'pass') + '">' + (failed.length ? 'FAILED' : 'ALL PASS') + '</div>';
+    document.title = failed.length ? 'variable font FAIL' : 'variable font PASS';
+});
+</script>
+</body>
+</html>

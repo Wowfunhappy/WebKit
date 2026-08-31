@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Popover scroll test</title>
+<style>
+  body { font-family: -apple-system, sans-serif; padding: 20px; }
+  #pop {
+    width: 260px; height: 300px; overflow-y: auto; overflow-x: hidden;
+    border: 2px solid #333; padding: 0; margin: 0;
+    position: fixed; top: 60px; left: 40px;
+  }
+  .row { padding: 14px 12px; border-bottom: 1px solid #ccc; }
+  .row:nth-child(odd) { background: #eef; }
+  .row:nth-child(even) { background: #fff; }
+  #log { position: fixed; right: 20px; top: 20px; width: 320px; font: 12px monospace; white-space: pre-wrap; }
+  .scroller2 { width:260px; height:200px; overflow:auto; border:2px solid green; margin-top:20px;}
+</style>
+</head>
+<body>
+  <h3>Popover scroll test</h3>
+  <button id="open">Open popover</button>
+  <button id="opendlg">Open &lt;dialog&gt;</button>
+
+  <!-- HTML popover with internal scroll -->
+  <div id="pop" popover="manual">
+  </div>
+
+  <!-- control: a normal (non-top-layer) scroller -->
+  <div class="scroller2" id="ctl"></div>
+
+  <div id="log"></div>
+<script>
+  function fill(el){
+    for(var i=1;i<=40;i++){
+      var d=document.createElement('div');
+      d.className='row';
+      d.textContent='Item '+i;
+      d.dataset.n=i;
+      d.onclick=function(){ log('clicked Item '+this.dataset.n); };
+      el.appendChild(d);
+    }
+  }
+  function log(m){ var l=document.getElementById('log'); l.textContent = (m+'\n'+l.textContent).slice(0,1200); }
+  var pop=document.getElementById('pop'); fill(pop);
+  var ctl=document.getElementById('ctl'); fill(ctl);
+  document.getElementById('open').onclick=function(){ try{pop.showPopover();}catch(e){log('showPopover err '+e);} };
+  pop.addEventListener('scroll', function(){ log('pop scrollTop='+pop.scrollTop); });
+  ctl.addEventListener('scroll', function(){ log('ctl scrollTop='+ctl.scrollTop); });
+
+  // dialog variant
+  var dlg=document.createElement('dialog');
+  dlg.id='dlg';
+  dlg.style.cssText='width:260px;height:300px;overflow:auto;';
+  fill(dlg);
+  document.body.appendChild(dlg);
+  document.getElementById('opendlg').onclick=function(){ dlg.showModal(); };
+  dlg.addEventListener('scroll', function(){ log('dlg scrollTop='+dlg.scrollTop); });
+  log('ready. popover supported='+(typeof pop.showPopover==='function'));
+</script>
+</body>
+</html>

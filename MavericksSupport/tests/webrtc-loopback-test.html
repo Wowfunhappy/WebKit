@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>WebRTC Loopback Test</title>
+<style>
+  body { font-family: -apple-system, Helvetica, sans-serif; margin: 24px; background:#fff; }
+  #verdict { font-size: 42px; font-weight: bold; padding: 16px; border-radius: 8px; }
+  .pass { background:#d6f5d6; color:#0a7a0a; }
+  .fail { background:#f8d6d6; color:#a00; }
+  .pending { background:#f0f0f0; color:#555; }
+  #log { font-family: Menlo, monospace; font-size: 13px; white-space: pre-wrap;
+         border:1px solid #ccc; padding:10px; margin-top:16px; height:340px; overflow:auto; }
+  .ok{color:#0a7a0a} .err{color:#a00} .info{color:#444}
+</style>
+</head>
+<body>
+<div id="verdict" class="pending">RUNNING…</div>
+<div id="log"></div>
+<script>
+const logEl = document.getElementById('log');
+const verdict = document.getElementById('verdict');
+function log(msg, cls){ const d=document.createElement('div'); if(cls)d.className=cls; d.textContent=msg; logEl.appendChild(d); logEl.scrollTop=logEl.scrollHeight; }
+function pass(m){ verdict.className='pass'; verdict.textContent='PASS — '+m; log('PASS: '+m,'ok'); }
+function fail(m){ verdict.className='fail'; verdict.textContent='FAIL — '+m; log('FAIL: '+m,'err'); }
+
+log('navigator.mediaDevices: ' + (!!navigator.mediaDevices), 'info');
+log('RTCPeerConnection: ' + (typeof RTCPeerConnection), 'info');
+log('RTCDataChannel support: ' + (typeof RTCDataChannel !== 'undefined' ? 'yes' : 'via channel obj'), 'info');
+
+if (typeof RTCPeerConnection === 'undefined') { fail('RTCPeerConnection is undefined — WebRTC not enabled'); }
+else { runLoopback(); }
+
+async function runLoopback() {
+  try {
+    const cfg = { iceServers: [] };               // host candidates only — pure loopback
+    const pc1 = new RTCPeerConnection(cfg);
+    const pc2 = new RTCPeerConnection(cfg);
+    let gotMessage = false, timedOut = false;
+
+    pc1.oniceconnectionstatechange = ()=>log('pc1 ICE: '+pc1.iceConnectionState,'info');
+    pc2.oniceconnectionstatechange = ()=>log('pc2 ICE: '+pc2.iceConnectionState,'info');
+    pc1.onicecandidate = e => { if (e.candidate) pc2.addIceCandidate(e.candidate).catch(err=>log('pc2 addIce err '+err,'err')); };
+    pc2.onicecandidate = e => { if (e.candidate) pc1.addIceCandidate(e.candidate).catch(err=>log('pc1 addIce err '+err,'err')); };
+
+    const dc = pc1.createDataChannel('test');
+    dc.onopen = ()=>{ log('pc1 data channel OPEN — sending ping','ok'); dc.send('ping-from-pc1'); };
+    dc.onmessage = e => { log('pc1 received: '+e.data,'ok');
+      if (e.data === 'pong-from-pc2') { gotMessage = true; if(!timedOut) pass('data channel round-trip over libwebrtc (DTLS+SCTP+ICE)'); } };
+
+    pc2.ondatachannel = ev => {
+      const ch = ev.channel;
+      log('pc2 ondatachannel: '+ch.label,'info');
+      ch.onmessage = e => { log('pc2 received: '+e.data,'ok'); if (e.data==='ping-from-pc1') ch.send('pong-from-pc2'); };
+    };
+
+    const offer = await pc1.createOffer();
+    await pc1.setLocalDescription(offer);
+    await pc2.setRemoteDescription(offer);
+    const answer = await pc2.createAnswer();
+    await pc2.setLocalDescription(answer);
+    await pc1.setRemoteDescription(answer);
+    log('offer/answer exchanged','info');
+
+    setTimeout(()=>{ if(!gotMessage){ timedOut=true; fail('no data-channel round-trip within 15s (pc1='+pc1.iceConnectionState+' pc2='+pc2.iceConnectionState+')'); } }, 15000);
+  } catch (err) {
+    fail('exception: ' + (err && err.message ? err.message : err));
+    log(String(err && err.stack || err),'err');
+  }
+}
+</script>
+</body>
+</html>

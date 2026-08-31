@@ -1,0 +1,24 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>issue87g — braces that are not nested rules</title>
+<style>
+.e1 {
+    --mixin: { color: red };
+    color: blue;
+    &.inner { font-weight: bold; }
+}
+.f1 {
+    background: url(a{b}.png);
+    color: blue;
+    &.inner { font-weight: bold; }
+}
+.g1 {
+    content: "{";
+    color: blue;
+    &.inner { font-weight: bold; }
+}
+</style></head>
+<body>
+<p class="e1 inner">e1 — custom property whose value is a top-level brace block</p>
+<p class="f1 inner">f1 — unquoted url token containing braces</p>
+<p class="g1 inner">g1 — brace inside a quoted string</p>
+</body></html>

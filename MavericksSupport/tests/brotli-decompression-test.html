@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Brotli DecompressionStream test</title>
+<style>
+  body { font-family: -apple-system, Helvetica, sans-serif; font-size: 20px; padding: 36px; }
+  #status { margin-top: 20px; padding: 22px; font-size: 26px; border-radius: 8px; background:#eee; }
+  b, pre { font-family: Menlo, monospace; }
+  pre { white-space: pre-wrap; font-size: 15px; background:#f6f6f6; padding:12px; border-radius:6px; }
+</style>
+</head>
+<body>
+<h1>Brotli <code>DecompressionStream('brotli')</code> test</h1>
+<div>typeof DecompressionStream: <b id="ctor">?</b></div>
+<div id="status">testing&hellip;</div>
+<div>decoded output:</div>
+<pre id="out"></pre>
+<script>
+(function () {
+  var statusEl = document.getElementById('status');
+  document.getElementById('ctor').textContent = typeof DecompressionStream;
+  function fin(msg, ok) {
+    statusEl.textContent = msg;
+    statusEl.style.background = ok ? '#b6f2b6' : '#f2b6b6';
+    document.title = (ok ? 'PASS' : 'FAIL') + ' - Brotli';
+  }
+  // 219-byte original, brotli-compressed to 112 bytes (base64 below).
+  var expected =
+    "The quick brown fox jumps over the lazy dog. " +
+    "SharedWorker and Gamepad and Brotli all work on Mavericks now. " +
+    "The quick brown fox jumps over the lazy dog. " +
+    "0123456789 0123456789 0123456789 0123456789 abcdefghij abcdefghij.";
+  var b64 = "G9oAoORyW6of0g7RSqdZngqiOjlwuF0PQXbhlJvHdMltTHA6vthoGmlSZUNYiRbxhQh1gMF0+P+ARYk+ET7WuFu+Aw7sGHEnzJQOezydBuwc9Nl7xDef5r4DQnwQWD3M8qKs6qbteoaYUMaFVNqACA==";
+  var compressed = Uint8Array.from(atob(b64), function (c) { return c.charCodeAt(0); });
+
+  if (typeof DecompressionStream !== 'function') {
+    fin('FAIL: DecompressionStream is undefined', false); return;
+  }
+  var ds;
+  try { ds = new DecompressionStream('brotli'); }
+  catch (e) { fin('FAIL: constructing DecompressionStream("brotli") threw: ' + e, false); return; }
+
+  var writer = ds.writable.getWriter();
+  var reader = ds.readable.getReader();
+  var chunks = [], total = 0;
+  writer.write(compressed);
+  writer.close();
+
+  function pump() {
+    reader.read().then(function (r) {
+      if (!r.done) {
+        chunks.push(r.value); total += r.value.length;
+        pump(); return;
+      }
+      var out = new Uint8Array(total), off = 0;
+      chunks.forEach(function (c) { out.set(c, off); off += c.length; });
+      var text = new TextDecoder().decode(out);
+      document.getElementById('out').textContent = text;
+      if (text === expected)
+        fin('PASS: brotli-compressed ' + compressed.length + ' bytes decoded to the exact ' + text.length + '-byte original.', true);
+      else
+        fin('FAIL: decoded ' + text.length + ' bytes but content mismatch.', false);
+    }).catch(function (e) {
+      // Before the fix, the brotli transform errors here ("Initialization Failed" / unsupported).
+      fin('FAIL: decode stream errored: ' + e, false);
+    });
+  }
+  pump();
+})();
+</script>
+</body>
+</html>

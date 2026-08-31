@@ -1,0 +1,62 @@
+<!DOCTYPE html><html>
+<!-- Expected on a correct build: a/b/c/d/si/ap w=0.000 h=0.000 (a broken build shows a-d 85.391/93.719 and si/ap 100.781);
+     controls e w=7.125 h=1.000 and f w=113.844 h=18.000; inlineBlockGap=0.000; btn iconDx=0.000 iconW=24.000 equal to btnref
+     (a broken build shows iconDx -20.656); RESULT: PASS. -->
+<head><meta charset="utf-8"><title>zerofont</title>
+<style>
+body{background:#fff;color:#000;font:16px Helvetica;margin:8px}
+.box{display:inline-block;outline:1px solid red;vertical-align:top}
+/* SoundCloud .skipControl shape: 24px border-box button, 12px side padding, 24px icon child
+   whose own 24px content keeps min-width:auto from letting it shrink. */
+button.skip{display:flex;align-items:center;justify-content:center;box-sizing:border-box;
+  width:24px;height:32px;padding:6px 12px;border:0;background:#eee;margin:0 8px}
+button.skip > div{width:24px;height:24px}
+button.skip > div > i{display:block;width:24px;height:24px;background:#39c}
+.ir{font:0px/0px a}
+#out{white-space:pre;font:13px monospace;margin-top:12px}
+</style></head><body>
+<div>
+<button class="skip ir" id="btn"><div><i></i></div>Skip to previous</button>
+<button class="skip ir" id="btnref"><div><i></i></div></button>
+</div>
+<span class=box id=a style="font:0px/0px a">Skip to previous</span>
+<span class=box id=b style="font:0px/0px a">Skip to next</span>
+<span class=box id=c style="font-size:0px;font-family:Helvetica">Skip to previous</span>
+<span class=box id=d style="font-size:0px;font-family:'Lucida Grande'">Skip to previous</span>
+<!-- system-ui at font-size:0 realizes a 13pt CTFont (CTFontCreateUIFontForLanguage maps size 0 to
+     the UI-type default), but FontPlatformData carries the CSS size 0, Font::platformWidthForGlyph
+     zeroes every advance behind its platformData().size() guard, and "Skip to previous" substitutes
+     no glyphs, so shaping's in/out advances stay zero: the row measures 0.000 like the others. -->
+<span class=box id=si style="font-size:0px;font-family:system-ui">Skip to previous</span>
+<span class=box id=ap style="font-size:0px;font-family:-apple-system">Skip to previous</span>
+<span class=box id=e style="font-size:1px;font-family:Helvetica">Skip to previous</span>
+<span class=box id=f style="font-size:16px;font-family:Helvetica">Skip to previous</span>
+<div id="wsrow" style="font-size:0;background:#eee;width:400px">
+  <span style="display:inline-block;width:100px;height:20px;background:#c93"></span>
+  <span style="display:inline-block;width:100px;height:20px;background:#3c9"></span>
+</div>
+<div id=out></div>
+<script>
+function w(id){var e=document.getElementById(id);var r=e.getBoundingClientRect();
+  return id+': w='+r.width.toFixed(3)+' h='+r.height.toFixed(3);}
+var L=[], fail=0;
+['a','b','c','d','si','ap'].forEach(function(x){
+  var v=document.getElementById(x).getBoundingClientRect();
+  if(v.width>0.001||v.height>0.001) fail++;
+  L.push(w(x)+(v.width>0.001||v.height>0.001?'   <-- FAIL (must be 0)':'   ok'));
+});
+['e','f'].forEach(function(x){L.push(w(x)+'   (control, must not move: 7.125 / 113.844)');});
+function icon(id){var b=document.getElementById(id);var br=b.getBoundingClientRect();
+  var cr=b.firstElementChild.getBoundingClientRect();
+  return id+': iconDx='+(cr.left-br.left).toFixed(3)+' iconW='+cr.width.toFixed(3);}
+var ws=document.getElementById('wsrow').children;
+L.push('inlineBlockGap='+(ws[1].getBoundingClientRect().left-ws[0].getBoundingClientRect().right).toFixed(3)+' (must be 0)');
+var bd=Math.abs(parseFloat(icon('btn').split('iconDx=')[1])-parseFloat(icon('btnref').split('iconDx=')[1]));
+if(bd>0.001) fail++;
+L.push(icon('btn')); L.push(icon('btnref')+'  <- btn must equal btnref');
+L.push('');
+L.push(fail===0?'RESULT: PASS':'RESULT: FAIL - '+fail);
+document.getElementById('out').textContent=L.join('\n');
+document.title='ZF '+L.join(' | ');
+</script>
+</body></html>
