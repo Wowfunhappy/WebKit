@@ -43,7 +43,7 @@ namespace WebCore {
 // scheme both ports serve it from) is left untouched. Both ports consume this one string so the
 // bridge cannot drift between frameworks.
 //
-// Five parts:
+// Six parts:
 //  1. Unified titlebar+toolbar chrome (#52/#66/#69). Adds the measured Aqua gradient + a 22px
 //     #wk-titlebar strip as body's first child (stock 56px toolbar untouched below it), the window
 //     title fed from InspectorFrontendHost.inspectedURLChanged, and background mousedowns routed to
@@ -92,6 +92,17 @@ namespace WebCore {
 //     in inspectNodeObject() and set again when the main frame navigates (DOMTreeContentView.js
 //     _restoreSelectedNodeAfterUpdate); give the classic DOMTreeManager the same flag and have
 //     _rootDOMNodeAvailable install the root without the restore while it is clear.
+//  6. Revealing the selected DOM node once the tree has a size. FrameContentView.showDOMTree()
+//     selects and reveals the node while the DOM tree content view is still detached from the
+//     frontend document -- ContentBrowser.showContentView() attaches it only afterwards -- so
+//     DOMTreeElement.onreveal()'s scrollIntoViewIfNeeded() measures a zero-height element and
+//     Inspect Element lands with the clicked node scrolled out of sight. Today's frontend re-selects
+//     the selected node from DOMTreeContentView.sizeDidChange() (upstream a85158d), which View.js
+//     runs on the initial layout and on resizes, ahead of layout(). The classic frontend has no
+//     layout reasons: ContentViewContainer._prepareContentViewToShow() and every content browser
+//     resize both land in the one updateLayout(). So the wrapper measures the element and
+//     re-selects only when the size differs from the last layout's, before the stock updateLayout()
+//     sizes the selection highlight against the revealed tree.
 //
 // Every failure path surfaces via console.error (into the frontend page's own console) rather than
 // being swallowed, so a translation bug is diagnosable instead of a silently-dropped message.
@@ -182,6 +193,18 @@ return origRootDOMNodeAvailable.call(this,rootDOMNode);};
 W.Frame.addEventListener(W.Frame.Event.MainResourceDidChange,function(event){
 if(event.target.isMainFrame()&&W.domTreeManager)W.domTreeManager._restoreSelectedNodeIsAllowed=true;});
 }catch(e){console.error('[wk-inspector-bridge] selected-node restore patch failed',e);}});}catch(e){console.error('[wk-inspector-bridge] selected-node restore hook failed',e);}
+try{document.addEventListener('DOMContentLoaded',function(){try{
+var W=(typeof WebInspector!=='undefined')?WebInspector:null;if(!W)return;
+var DTV=W.DOMTreeContentView&&W.DOMTreeContentView.prototype;
+if(!DTV||typeof DTV.updateLayout!=='function')return;
+var origUpdateLayout=DTV.updateLayout;
+DTV.updateLayout=function(){
+var size=this._lastLaidOutSize,width=this.element.offsetWidth,height=this.element.offsetHeight;
+if(!size||size.width!==width||size.height!==height){
+this._lastLaidOutSize={width:width,height:height};
+this._domTreeOutline.selectDOMNode(this._domTreeOutline.selectedDOMNode());}
+return origUpdateLayout.call(this);};
+}catch(e){console.error('[wk-inspector-bridge] dom tree reveal patch failed',e);}});}catch(e){console.error('[wk-inspector-bridge] dom tree reveal hook failed',e);}
 })();)WKIB";
 }
 
