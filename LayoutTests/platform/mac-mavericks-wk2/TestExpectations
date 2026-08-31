@@ -1,0 +1,53 @@
+# MAVERICKS_BACKPORT: WebKit2 (WebKitTestRunner) expectations for the macOS 10.9 backport.
+# Failures under re-enabled suites are REAL backport issues to triage and fix — not reasons to skip.
+
+# --- Feature gaps on 10.9 ---------------------------------------------------------------------
+# Display-P3 canvas color space needs kCGColorSpaceDisplayP3 (macOS 10.11+); getImageData with
+# { colorSpace: "display-p3" } throws TypeError here.
+storage/indexeddb/structured-clone-image-data-display-p3.html [ Failure ]
+fast/canvas/canvas-color-space-display-p3.html [ Skip ]
+fast/canvas/canvas-color-space-display-p3-ImageData.html [ Skip ]
+fast/canvas/canvas-line-no-change-display-p3-stroke.html [ Skip ]
+fast/canvas/gradient-into-p3-canvas.html [ Skip ]
+fast/canvas/CanvasRenderingContext2DSettings-colorSpace-enabled.html [ Skip ]
+
+# WebGPU is OFF at the upstream CMake-port default (WebKitFeatures.cmake) and 10.9 has no Metal
+# to back it; every test dies on navigator.gpu === null + notifyDone timeout.
+fast/webgpu [ Skip ]
+
+# Sampled page top color: upstream skips this dir globally and re-enables it in platform/mac-wk2.
+# The sampling result is embedder-gated (SampledPageTopColorMaxDifference defaults to 0) and the
+# consuming Safari SPI does not exist on 10.9; internals reads null for every color. Re-skip.
+fast/page-color-sampling [ Skip ]
+
+# <attachment> element: ENABLE_ATTACHMENT_ELEMENT is OFF for the backport — it needs newer
+# NSTextAttachment/QuickLookThumbnailing SPI absent on 10.9 (see OptionsMac.cmake).
+fast/attachment [ Skip ]
+
+# The "Look Up" image context-menu item is gated on ENABLE(IMAGE_ANALYSIS) +
+# supportsLookUpInImages() (ContextMenuController) — VisionKit Live Text, macOS 12+;
+# neither exists on 10.9, so the item never materializes.
+fast/events/contextmenu-lookup-action-for-image.html [ Skip ]
+
+# AVIF / HEICS / MP4-as-animated-image are undecodable by 10.9 ImageIO and there is no
+# CoreMedia-based ImageDecoderAVFObjC path here (WebP is vendored; AVIF/HEIC/JXL are not).
+fast/images/animated-avif.html [ Skip ]
+fast/images/avif-as-image.html [ Skip ]
+fast/images/avif-heif-container-as-image.html [ Skip ]
+fast/images/avif-image-decoding.html [ Skip ]
+fast/images/avif-image-document.html [ Skip ]
+fast/images/animated-heics-draw.html [ Skip ]
+fast/images/animated-heics-verify.html [ Skip ]
+fast/images/animated-image-mp4.html [ Skip ]
+
+# NOT an IDB hang: this fuzzer-derived test touches navigator.mediaSession mid-script, and
+# ENABLE_MEDIA_SESSION is OFF in the upstream CMake Mac port config (WebKitFeatures.cmake
+# default, no OptionsMac override — matches upstream). The TypeError rejects the async test
+# body before notifyDone, so it times out by construction. The IDB abort-while-committing
+# path itself is fine (its sibling ThreadTimers-family bug, fast/frames/layout-after-
+# destruction.html, passes since the shared-heap timer fix).
+storage/indexeddb/abort-while-committing-crash.html [ Skip ]
+
+# HiDPI iframe pixel tests are flaky at 2x on the VM (no real Retina hardware).
+fast/frames/hidpi-position-iframe-on-device-pixel.html [ Pass ImageOnlyFailure ]
+fast/frames/iframe-translucent-background.html [ Pass ImageOnlyFailure ]
