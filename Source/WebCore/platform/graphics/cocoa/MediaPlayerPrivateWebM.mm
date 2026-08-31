@@ -911,6 +911,9 @@ void MediaPlayerPrivateWebM::acceleratedRenderingStateChanged()
     m_renderer->renderingCanBeAcceleratedChanged(player ? player->renderingCanBeAccelerated() : false);
 }
 
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+// MAVERICKS_BACKPORT: these match decls guarded by ENABLE(VIDEO_PRESENTATION_MODE) in the header (off on
+// this port) and call base AudioVideoRenderer members that only exist under the same guard.
 RetainPtr<PlatformLayer> MediaPlayerPrivateWebM::createVideoFullscreenLayer()
 {
     return adoptNS([[CALayer alloc] init]);
@@ -925,6 +928,7 @@ void MediaPlayerPrivateWebM::setVideoFullscreenFrame(const FloatRect& frame)
 {
     m_renderer->setVideoFullscreenFrame(frame);
 }
+#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on the fullscreen-layer defs (see above).
 
 void MediaPlayerPrivateWebM::syncTextTrackBounds()
 {
@@ -1583,10 +1587,14 @@ void MediaPlayerPrivateWebM::applicationDidBecomeActive()
 }
 #endif
 
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+// MAVERICKS_BACKPORT: guarded to match the header decl and the base AudioVideoRenderer member, both
+// ENABLE(VIDEO_PRESENTATION_MODE)-only (off on this port).
 void MediaPlayerPrivateWebM::isInFullscreenOrPictureInPictureChanged(bool isInFullscreenOrPictureInPicture)
 {
     m_renderer->isInFullscreenOrPictureInPictureChanged(isInFullscreenOrPictureInPicture);
 }
+#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on isInFullscreenOrPictureInPictureChanged (see above).
 
 AudioVideoRenderer::TrackIdentifier MediaPlayerPrivateWebM::trackIdentifierFor(TrackID trackID) const
 {

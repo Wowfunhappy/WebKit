@@ -848,8 +848,131 @@ RefPtr<AudioBus> AudioFileReader::createBus(float sampleRate, bool mixToMono)
 
 RefPtr<AudioBus> createBusFromInMemoryAudioFile(std::span<const uint8_t> data, bool mixToMono, float sampleRate)
 {
-    AudioFileReader reader(data);
-    return reader.createBus(sampleRate, mixToMono);
+    // MAVERICKS_BACKPORT: decode with ExtAudioFile rather than the AudioFileReader/AVAssetReader path
+    // above. Upstream's demuxAVFData builds an in-memory AVURLAsset over a custom URL scheme and reads
+    // it back through AVAssetReader; on 10.9 that decodes to full-scale NOISE (the decoded PCM — and
+    // the waveform drawn from it — are static), because 10.9's AVFoundation cannot demux/decode that
+    // custom-scheme in-memory asset. ExtAudioFile is the classic AudioFileReaderMac approach WebKit
+    // used on Mac before the AVFoundation rewrite; 10.9's AudioToolbox handles it correctly, doing the
+    // demux, decode and (if requested) sample-rate conversion straight to canonical deinterleaved
+    // Float32. The AudioFileReader class above is left byte-identical to upstream but is not reached on
+    // this port. (ExtAudioFile does not decode WebM/Opus/Vorbis, but neither does 10.9's AudioConverter,
+    // so that content was never decodable here regardless — it returns nullptr, as upstream would.)
+    std::span<const uint8_t> dataSpan = data;
+
+    AudioFileID audioFileID { nullptr };
+    if (PAL::AudioFileOpenWithCallbacks(&dataSpan, readProc, 0, getSizeProc, 0, 0, &audioFileID) != noErr)
+        return nullptr;
+
+    ExtAudioFileRef extAudioFile { nullptr };
+    if (PAL::ExtAudioFileWrapAudioFileID(audioFileID, false, &extAudioFile) != noErr || !extAudioFile) {
+        PAL::AudioFileClose(audioFileID);
+        return nullptr;
+    }
+    auto cleanup = makeScopeExit([&] {
+        PAL::ExtAudioFileDispose(extAudioFile);
+        PAL::AudioFileClose(audioFileID);
+    });
+
+    // File (source) format.
+    AudioStreamBasicDescription fileFormat { };
+    UInt32 propertySize = sizeof(fileFormat);
+    if (PAL::ExtAudioFileGetProperty(extAudioFile, kExtAudioFileProperty_FileDataFormat, &propertySize, &fileFormat) != noErr)
+        return nullptr;
+
+    size_t numberOfChannels = fileFormat.mChannelsPerFrame;
+    double fileSampleRate = fileFormat.mSampleRate;
+    if (!numberOfChannels || fileSampleRate <= 0)
+        return nullptr;
+
+    // Total number of frames in the file.
+    SInt64 numberOfFramesIn64 { 0 };
+    propertySize = sizeof(numberOfFramesIn64);
+    if (PAL::ExtAudioFileGetProperty(extAudioFile, kExtAudioFileProperty_FileLengthFrames, &propertySize, &numberOfFramesIn64) != noErr || numberOfFramesIn64 <= 0)
+        return nullptr;
+
+    double targetSampleRate = sampleRate > 0 ? sampleRate : fileSampleRate;
+
+    // Client (output) format: canonical deinterleaved Float32 at the target sample rate. ExtAudioFile
+    // performs the decode and, if the rates differ, the sample-rate conversion into this format.
+    AudioStreamBasicDescription clientFormat { };
+    const int bytesPerFloat = sizeof(Float32);
+    clientFormat.mFormatID = kAudioFormatLinearPCM;
+    clientFormat.mFormatFlags = static_cast<AudioFormatFlags>(kAudioFormatFlagsNativeFloatPacked) | static_cast<AudioFormatFlags>(kAudioFormatFlagIsNonInterleaved);
+    clientFormat.mBytesPerPacket = bytesPerFloat;
+    clientFormat.mFramesPerPacket = 1;
+    clientFormat.mBytesPerFrame = bytesPerFloat;
+    clientFormat.mChannelsPerFrame = numberOfChannels;
+    clientFormat.mBitsPerChannel = 8 * bytesPerFloat;
+    clientFormat.mSampleRate = targetSampleRate;
+    if (PAL::ExtAudioFileSetProperty(extAudioFile, kExtAudioFileProperty_ClientDataFormat, sizeof(clientFormat), &clientFormat) != noErr)
+        return nullptr;
+
+    // Frame count after any sample-rate conversion.
+    size_t numberOfFrames = static_cast<size_t>(numberOfFramesIn64 * (targetSampleRate / fileSampleRate));
+    if (!numberOfFrames)
+        return nullptr;
+
+    size_t busChannelCount = mixToMono ? 1 : numberOfChannels;
+    RefPtr<AudioBus> audioBus = AudioBus::create(busChannelCount, numberOfFrames);
+    audioBus->setSampleRate(narrowPrecisionToFloat(targetSampleRate));
+
+    // Read straight into the bus channel storage (deinterleaved). For mix-to-mono over a stereo file,
+    // read the two channels into scratch buffers and mix afterwards.
+    AudioFloatArray leftChannel;
+    AudioFloatArray rightChannel;
+    const bool downmixStereo = mixToMono && numberOfChannels == 2;
+    if (downmixStereo) {
+        leftChannel.resize(numberOfFrames);
+        rightChannel.resize(numberOfFrames);
+    } else {
+        // Same invariant upstream's createBus() asserts: the only mix-to-mono case handled without
+        // scratch buffers is an already-mono file. A >2-channel mix-to-mono request would write past
+        // the 1-channel bus below, so trap rather than corrupt memory (no live caller hits this —
+        // every createBusFromInMemoryAudioFile caller passes mixToMono=false).
+        RELEASE_ASSERT(!mixToMono || numberOfChannels == 1);
+        for (size_t i = 0; i < numberOfChannels; ++i)
+            audioBus->channel(i)->zero();
+    }
+
+    auto channelBase = [&](size_t i) -> float* {
+        if (downmixStereo)
+            return i ? rightChannel.data() : leftChannel.data();
+        return audioBus->channel(i)->mutableData();
+    };
+
+    AudioBufferListHolder bufferList(numberOfChannels);
+    if (!bufferList)
+        return nullptr;
+    auto buffers = PAL::span(*bufferList);
+
+    size_t framesRead = 0;
+    while (framesRead < numberOfFrames) {
+        UInt32 framesToRead = static_cast<UInt32>(std::min<size_t>(numberOfFrames - framesRead, 32768));
+        for (size_t i = 0; i < numberOfChannels; ++i) {
+            buffers[i].mNumberChannels = 1;
+            buffers[i].mDataByteSize = framesToRead * bytesPerFloat;
+            buffers[i].mData = channelBase(i) + framesRead;
+        }
+
+        UInt32 framesThisRead = framesToRead;
+        if (PAL::ExtAudioFileRead(extAudioFile, &framesThisRead, bufferList) != noErr)
+            return nullptr;
+        if (!framesThisRead)
+            break;
+        framesRead += framesThisRead;
+    }
+
+    // Actual decoded length can be slightly under the estimate (SRC rounding); never over.
+    audioBus->setLength(framesRead);
+
+    if (downmixStereo) {
+        auto destL = audioBus->channel(0)->mutableSpan();
+        for (size_t i = 0; i < framesRead; ++i)
+            destL[i] = 0.5f * (leftChannel[i] + rightChannel[i]);
+    }
+
+    return audioBus;
 }
 
 #if !RELEASE_LOG_DISABLED

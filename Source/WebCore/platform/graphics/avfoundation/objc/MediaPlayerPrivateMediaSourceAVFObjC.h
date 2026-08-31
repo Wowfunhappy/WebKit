@@ -140,7 +140,13 @@ public:
     void waitingForKeyChanged();
 #endif
 
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)
+// MAVERICKS_BACKPORT: LEGACY only. keyNeeded forwards to MediaPlayer::keyNeeded, which exists only under
+// ENABLE(LEGACY_ENCRYPTED_MEDIA), as does its sole caller
+// (SourceBufferPrivateAVFObjC::didProvideContentKeyRequestInitializationDataForTrackID). Upstream's
+// ENABLE(ENCRYPTED_MEDIA) half compiles only because its Cocoa ports build both features together; this
+// port has modern EME on and legacy EME off (OptionsMacMavericks.cmake explains why).
+// #if ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
     void keyNeeded(const SharedBuffer&);
 #endif
 
@@ -302,7 +308,10 @@ private:
     void updateSpatialTrackingLabel();
 #endif
 
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+    // MAVERICKS_BACKPORT: base VideoFullscreenInterface declares this only under VIDEO_PRESENTATION_MODE (off here).
     void isInFullscreenOrPictureInPictureChanged(bool) final;
+#endif
 
     void readyStateFromMediaSourceChanged() final;
     void updateStateFromReadyState();

@@ -320,6 +320,11 @@ static void buildMediaEnginesVector() WTF_REQUIRES_LOCK(mediaEngineVectorLock)
 #endif
 
     if (DeprecatedGlobalSettings::isAVFoundationEnabled()) {
+    // MAVERICKS_BACKPORT: the AVFoundation playback engines (AVPlayer, MSE, WebM) are gated out; GStreamer,
+    // registered below, plays <video>/<audio> and MSE. The MediaStream engine stays: it renders through
+    // AVSampleBufferDisplayLayer and AudioMediaStreamTrackRendererUnit, the sinks the Cocoa WebRTC and
+    // capture sources feed, and it registers ahead of GStreamer so it wins the MediaStream engine pick.
+#if !USE(GSTREAMER)
         if (registerRemoteEngine)
             registerRemoteEngine(addMediaEngine, MediaPlayerEnums::MediaEngineIdentifier::AVFoundation);
         else
@@ -341,6 +346,8 @@ static void buildMediaEnginesVector() WTF_REQUIRES_LOCK(mediaEngineVectorLock)
                 MediaPlayerPrivateWebM::registerMediaEngine(addMediaEngine);
         }
 #endif
+
+#endif // MAVERICKS_BACKPORT: closes the !USE(GSTREAMER) guard around the playback engines.
 
 #if ENABLE(MEDIA_STREAM)
         MediaPlayerPrivateMediaStreamAVFObjC::registerMediaEngine(addMediaEngine);

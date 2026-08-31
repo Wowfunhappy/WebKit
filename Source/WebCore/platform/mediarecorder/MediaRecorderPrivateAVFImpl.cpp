@@ -57,6 +57,9 @@ bool MediaRecorderPrivateAVFImpl::isTypeSupported(Document& document, ContentTyp
         return true;
 
     if (equalLettersIgnoringASCIICase(containerType, "audio/mp4"_s) || equalLettersIgnoringASCIICase(containerType, "video/mp4"_s)) {
+#if !HAVE(AVASSETWRITER_DELEGATE) // MAVERICKS_BACKPORT: no MP4 writer without the segment-emitting AVAssetWriter.
+        return false;
+#endif
         for (auto& codec : mimeType.codecs()) {
             // FIXME: We should further validate parameters.
             if (!startsWithLettersIgnoringASCIICase(codec, "avc1"_s)
@@ -109,7 +112,11 @@ std::unique_ptr<MediaRecorderPrivateAVFImpl> MediaRecorderPrivateAVFImpl::create
 
     auto options = originalOptions;
     if (options.mimeType.isEmpty())
+#if HAVE(AVASSETWRITER_DELEGATE) // MAVERICKS_BACKPORT: guards the MP4 default below.
         options.mimeType = !!selectedTracks.videoTrack ? "video/mp4"_s : "audio/mp4"_s;
+#else // MAVERICKS_BACKPORT: no MP4 writer; the WebM writer is the platform's recorder.
+        options.mimeType = !!selectedTracks.videoTrack ? "video/webm"_s : "audio/webm"_s;
+#endif
     RefPtr writer = MediaRecorderPrivateEncoder::create(!!selectedTracks.audioTrack, !!selectedTracks.videoTrack, options);
     if (!writer)
         return nullptr;

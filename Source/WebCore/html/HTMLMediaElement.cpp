@@ -1794,7 +1794,8 @@ void HTMLMediaElement::selectMediaResource()
             }
 
             auto absoluteURL = element.document().completeURL(srcValue);
-            if (!element.isSafeToLoadURL(absoluteURL, InvalidURLAction::Complain)) {
+            // MAVERICKS_BACKPORT: behavior fix (#62 Safari-7 extension cancelable beforeload on media URLs).
+            if (!element.isSafeToLoadURL(absoluteURL, InvalidURLAction::Complain) || !element.dispatchBeforeLoadEvent(absoluteURL.string())) {
                 element.mediaLoadingFailed(MediaPlayer::NetworkState::FormatError);
                 return;
             }
@@ -5751,7 +5752,8 @@ URL HTMLMediaElement::selectNextSourceChild(ContentType* contentType, InvalidURL
 
         // 4. If urlString was not obtained successfully, then end the synchronous section,
         // and jump down to the failed with elements step below.
-        if (!isSafeToLoadURL(mediaURL, actionIfInvalid))
+        // MAVERICKS_BACKPORT: behavior fix (#62 Safari-7 extension cancelable beforeload on media URLs).
+        if (!isSafeToLoadURL(mediaURL, actionIfInvalid) || !dispatchBeforeLoadEvent(mediaURL.string()))
             goto CheckAgain;
 
         // 5. If candidate has a type attribute whose value, when parsed as a

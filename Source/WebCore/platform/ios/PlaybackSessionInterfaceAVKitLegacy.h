@@ -26,7 +26,9 @@
 #pragma once
 
 #include <wtf/Platform.h>
-#if PLATFORM(COCOA) && HAVE(AVKIT)
+// MAVERICKS_BACKPORT: derives from the VPM-gated PlaybackSessionInterfaceIOS/PlaybackSessionModel; match the
+// model's availability guard so this header is empty on this Mac/VPM-off port (see PlaybackSessionInterfaceIOS.h).
+#if (PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))) && HAVE(AVKIT)
 
 #include <WebCore/PlaybackSessionInterfaceIOS.h>
 #include <wtf/TZoneMalloc.h>

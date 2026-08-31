@@ -116,7 +116,12 @@ public:
 
     void NODELETE initializeCharacteristics(MediaTime presentationTime, bool isMirrored, Rotation);
 
-    RefPtr<NativeImage> copyNativeImage() const;
+    // MAVERICKS_BACKPORT: virtual so a GStreamer-backed frame can convert its own GstSample. On the
+    // Cocoa+GStreamer hybrid build VideoFrameCV (capture/WebRTC) and VideoFrameGStreamer (media) frames
+    // coexist; the base definition (VideoFrameCV.mm, CVPixelBuffer path) returns null for a GStreamer
+    // frame, so VideoFrameGStreamer overrides this. Upstream Cocoa has a single CV backing, hence the
+    // original non-virtual single definition.
+    virtual RefPtr<NativeImage> copyNativeImage() const;
     const PlatformVideoColorSpace& colorSpace() const LIFETIME_BOUND { return m_colorSpace; }
 
     bool hasNoTransformation() const { return m_rotation == VideoFrameRotation::None && !m_isMirrored; }

@@ -992,7 +992,9 @@ void MediaPlayerPrivateMediaSourceAVFObjC::keyAdded()
 
 #endif // ENABLE(LEGACY_ENCRYPTED_MEDIA)
 
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)
+// MAVERICKS_BACKPORT: LEGACY only, matching the declaration in MediaPlayerPrivateMediaSourceAVFObjC.h.
+// #if ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
 void MediaPlayerPrivateMediaSourceAVFObjC::keyNeeded(const SharedBuffer& initData)
 {
     if (RefPtr player = m_player.get())
@@ -1153,6 +1155,9 @@ void MediaPlayerPrivateMediaSourceAVFObjC::characteristicsFromMediaSourceChanged
         player->characteristicChanged();
 }
 
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+// MAVERICKS_BACKPORT: these definitions match decls guarded by ENABLE(VIDEO_PRESENTATION_MODE) in the header
+// (off on this port), and call base AudioVideoRenderer members that only exist under the same guard.
 RetainPtr<PlatformLayer> MediaPlayerPrivateMediaSourceAVFObjC::createVideoFullscreenLayer()
 {
     return adoptNS([[CALayer alloc] init]);
@@ -1167,6 +1172,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::setVideoFullscreenFrame(const FloatRe
 {
     m_renderer->setVideoFullscreenFrame(frame);
 }
+#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on the fullscreen-layer defs (see above).
 
 void MediaPlayerPrivateMediaSourceAVFObjC::syncTextTrackBounds()
 {
@@ -1400,10 +1406,14 @@ bool MediaPlayerPrivateMediaSourceAVFObjC::supportsLimitedMatroska() const
     return m_loadOptions.supportsLimitedMatroska;
 }
 
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+// MAVERICKS_BACKPORT: guarded to match the header decl and the base AudioVideoRenderer member, both
+// ENABLE(VIDEO_PRESENTATION_MODE)-only (off on this port).
 void MediaPlayerPrivateMediaSourceAVFObjC::isInFullscreenOrPictureInPictureChanged(bool isInFullscreenOrPictureInPicture)
 {
     m_renderer->isInFullscreenOrPictureInPictureChanged(isInFullscreenOrPictureInPicture);
 }
+#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on isInFullscreenOrPictureInPictureChanged (see above).
 
 WebCore::HostingContext MediaPlayerPrivateMediaSourceAVFObjC::hostingContext() const
 {
