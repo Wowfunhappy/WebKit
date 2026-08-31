@@ -296,6 +296,20 @@ void SWServer::removeRegistration(ServiceWorkerRegistrationIdentifier registrati
         m_scopeToRegistrationMap.remove(it);
         if (!SecurityOrigin::isLocalHostOrLoopbackIPAddress(registration->key().topOrigin().host()))
             m_uniqueRegistrationCount--;
+
+        // MAVERICKS_BACKPORT(upstreamable): context data queued for a domain with no context connection
+        // yet outlives the registration it belongs to. When the connection finally arrives,
+        // contextConnectionCreated() installs it and installContextData() dereferences the
+        // m_scopeToRegistrationMap entry that was dropped just above. Drop the queued data with the
+        // registration that owns it.
+        auto pending = m_pendingContextDatas.find(Site { registration->key().topOrigin() }.domain());
+        if (pending != m_pendingContextDatas.end()) {
+            pending->value.removeAllMatching([&](auto& data) {
+                return data.registration.key == registration->key();
+            });
+            if (pending->value.isEmpty())
+                m_pendingContextDatas.remove(pending);
+        }
     }
 
     m_originStore->remove(registration->key().topOrigin());

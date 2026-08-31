@@ -494,6 +494,19 @@ void LocalFrameViewLayoutContext::setNeedsLayoutAfterViewConfigurationChange()
     }
 }
 
+// MAVERICKS_BACKPORT: see the header comment — deferral-honoring mark without scheduleLayout(),
+// for Legacy WebKit's -[WebHTMLView setNeedsLayout:].
+void LocalFrameViewLayoutContext::setNeedsLayoutWithoutScheduling()
+{
+    if (m_disableSetNeedsLayoutCount) {
+        m_setNeedsLayoutWasDeferred = true;
+        return;
+    }
+
+    if (CheckedPtr renderView = this->renderView())
+        renderView->setNeedsLayout();
+}
+
 void LocalFrameViewLayoutContext::enableSetNeedsLayout()
 {
     ASSERT(m_disableSetNeedsLayoutCount);

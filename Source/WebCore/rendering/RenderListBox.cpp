@@ -1181,6 +1181,8 @@ void RenderListBox::setHasScrollbar(ScrollbarOrientation orientation)
     destroyScrollbar();
     m_scrollbar = createScrollbar(orientation);
     m_scrollbar->styleChanged();
+
+    document().invalidateScrollbarDependentRegions(); // MAVERICKS_BACKPORT
 }
 
 float RenderListBox::deviceScaleFactor() const

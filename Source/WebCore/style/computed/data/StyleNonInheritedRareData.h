@@ -81,6 +81,10 @@
 #include <WebCore/StyleWebKitLineClamp.h>
 #include <WebCore/StyleWillChange.h>
 #include <WebCore/StyleZoom.h>
+// MAVERICKS_BACKPORT: StyleDashboardRegions.h for the DASHBOARD_SUPPORT dashboardRegions member below.
+#if ENABLE(DASHBOARD_SUPPORT)
+#include <WebCore/StyleDashboardRegions.h>
+#endif
 #include <wtf/DataRef.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
@@ -146,6 +150,10 @@ public:
     WillChange willChange;
 
     WebkitBoxReflect boxReflect;
+
+#if ENABLE(DASHBOARD_SUPPORT)
+    DashboardRegions dashboardRegions; // MAVERICKS_BACKPORT
+#endif
 
     PageSize pageSize;
 

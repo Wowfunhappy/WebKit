@@ -156,6 +156,16 @@ TextStream& operator<<(TextStream& ts, BorderCollapse collapse)
     return ts;
 }
 
+// MAVERICKS_BACKPORT: non-standard -webkit-border-fit, restored for macOS 10.9 Messages.app.
+TextStream& operator<<(TextStream& ts, BorderFit borderFit)
+{
+    switch (borderFit) {
+    case BorderFit::Border: ts << "border"_s; break;
+    case BorderFit::Lines: ts << "lines"_s; break;
+    }
+    return ts;
+}
+
 TextStream& operator<<(TextStream& ts, BorderStyle borderStyle)
 {
     switch (borderStyle) {

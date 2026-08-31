@@ -109,6 +109,26 @@ enum class StyleColorOptions : uint8_t;
 
 typedef const void* WrappedImagePtr;
 
+#if ENABLE(DASHBOARD_SUPPORT)
+// MAVERICKS_BACKPORT: an absolute-coordinate control region collected from -apple-dashboard-region styles
+// and reported to DashboardClient via -webView:dashboardRegionsChanged:.
+struct AnnotatedRegionValue {
+    bool operator==(const AnnotatedRegionValue& o) const
+    {
+        return type == o.type && bounds == o.bounds && clip == o.clip && label == o.label;
+    }
+    bool operator!=(const AnnotatedRegionValue& o) const
+    {
+        return !(*this == o);
+    }
+
+    LayoutRect bounds;
+    String label;
+    LayoutRect clip;
+    int type { 0 };
+};
+#endif
+
 // Base class for all rendering tree objects.
 class RenderObject : public CanMakeSingleThreadWeakPtr<RenderObject>, public CanMakeCheckedPtr<RenderObject> {
     WTF_MAKE_PREFERABLY_COMPACT_TZONE_ALLOCATED(RenderObject);
@@ -838,6 +858,12 @@ public:
 
     WEBCORE_EXPORT IntRect absoluteBoundingBoxRect(bool useTransform = true, bool* wasFixed = nullptr) const;
     IntRect absoluteBoundingBoxRectIgnoringTransforms() const { return absoluteBoundingBoxRect(false); }
+
+#if ENABLE(DASHBOARD_SUPPORT)
+    // MAVERICKS_BACKPORT: collect -apple-dashboard-region control regions in absolute coordinates.
+    virtual void addAnnotatedRegions(Vector<AnnotatedRegionValue>&);
+    void collectAnnotatedRegions(Vector<AnnotatedRegionValue>&);
+#endif
 
     // Build an array of quads in absolute coords for line boxes
     virtual void absoluteQuads(Vector<FloatQuad>&, bool* /*wasFixed*/ = nullptr) const { }

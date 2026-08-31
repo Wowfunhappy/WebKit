@@ -59,10 +59,18 @@ sub applyPreprocessor
     }
 
     if ($Config::Config{"osname"} eq "darwin") {
-        (my $arch, @_) = split(" ", $ENV{ARCHS});
+        # MAVERICKS_BACKPORT: build glue — robustify $ENV{ARCHS}/-target handling for
+        # this Xcode env (single arch, possibly-unset triple vars); only pass -target
+        # when arch/vendor/os are all present rather than splitting a multi-arch ARCHS.
+        my $arch = $ENV{ARCHS};
         my $vendor = $ENV{LLVM_TARGET_TRIPLE_VENDOR};
-        my $os = $ENV{LLVM_TARGET_TRIPLE_OS_VERSION} . ($ENV{LLVM_TARGET_TRIPLE_SUFFIX} // "");
-        push(@args, "-target", "$arch-$vendor-$os");
+        # MAVERICKS_BACKPORT: take the raw OS-version var (suffix appended below only when the
+        # full triple is present); avoids forming a bad -target from unset vars in this Xcode env.
+        my $os = $ENV{LLVM_TARGET_TRIPLE_OS_VERSION};
+        if ($arch && $vendor && $os) {
+            $os .= ($ENV{LLVM_TARGET_TRIPLE_SUFFIX} // "");
+            push(@args, "-target", "$arch-$vendor-$os");
+        }
         push(@args, "-I" . $ENV{BUILT_PRODUCTS_DIR} . "/usr/local/include") if $ENV{BUILT_PRODUCTS_DIR};
         push(@args, "-isysroot", $ENV{SDKROOT}) if $ENV{SDKROOT};
     }

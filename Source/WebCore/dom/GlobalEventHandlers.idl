@@ -90,6 +90,10 @@ interface mixin GlobalEventHandlers {
     attribute EventHandler onscroll;
     [EnabledBySetting=ScrollendEventEnabled] attribute EventHandler onscrollend;
     attribute EventHandler onsecuritypolicyviolation;
+    // MAVERICKS_BACKPORT: the non-standard `search` event for <input type=search> was removed upstream
+    // (webkit.org/b/278309), but legacy Dashboard widgets (e.g. the Dictionary widget) and other 10.9-era
+    // content register an `onsearch` handler that must fire on Enter. Restore the handler attribute.
+    [NotEnumerable] attribute EventHandler onsearch;
     attribute EventHandler onseeked;
     attribute EventHandler onseeking;
     attribute EventHandler onselect;

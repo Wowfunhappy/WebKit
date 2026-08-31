@@ -294,6 +294,9 @@ class DOMTimerHoldingTank;
 class DocumentImmersive;
 #endif
 
+#if ENABLE(DASHBOARD_SUPPORT)
+struct AnnotatedRegionValue; // MAVERICKS_BACKPORT
+#endif
 struct ApplicationManifest;
 struct AriaNotifyOptions;
 struct BoundaryPoint;
@@ -1110,6 +1113,9 @@ public:
         FocusIn = 1 << 11,
         FocusOut = 1 << 12,
         CSSAnimation = 1 << 13,
+        // MAVERICKS_BACKPORT: ListenerType for the restored cancelable beforeload event
+        // (Safari 7 extension content blocking, #62; deleted upstream in bug 234804).
+        BeforeLoad = 1 << 14,
     };
 
     bool hasListenerType(ListenerType listenerType) const { return m_listenerTypes.contains(listenerType); }
@@ -1403,8 +1409,24 @@ public:
     void updateAccessibilityObjectRegions();
     void updateEventRegions();
 
-    void invalidateRenderingDependentRegions();
+    // MAVERICKS_BACKPORT: the AnnotationsAction argument and the two entry points below it carry the
+    // Dashboard half of these region bottlenecks.
+    enum class AnnotationsAction : bool { Invalidate, Update };
+    void invalidateRenderingDependentRegions(AnnotationsAction = AnnotationsAction::Invalidate);
+    void invalidateScrollbarDependentRegions();
+    void updateZOrderDependentRegions();
     void invalidateEventRegionsForFrame(HTMLFrameOwnerElement&);
+
+#if ENABLE(DASHBOARD_SUPPORT)
+    // MAVERICKS_BACKPORT: legacy Dashboard widget -apple-dashboard-region control regions.
+    void setHasAnnotatedRegions(bool f) { m_hasAnnotatedRegions = f; }
+    bool hasAnnotatedRegions() const { return m_hasAnnotatedRegions; }
+    void setAnnotatedRegionsDirty(bool f = true) { m_annotatedRegionsDirty = f; }
+    bool annotatedRegionsDirty() const { return m_annotatedRegionsDirty; }
+    const Vector<AnnotatedRegionValue>& annotatedRegions() const { return m_annotatedRegions; }
+    void setAnnotatedRegions(const Vector<AnnotatedRegionValue>&);
+    void updateAnnotatedRegions();
+#endif
 
     void invalidateEventListenerRegions();
 
@@ -2833,6 +2855,12 @@ private:
     mutable WeakPtr<AXObjectCache> m_topAXObjectCache;
 #endif
     RefPtr<FrameMemoryMonitor> m_frameMemoryMonitor;
+
+#if ENABLE(DASHBOARD_SUPPORT)
+    Vector<AnnotatedRegionValue> m_annotatedRegions; // MAVERICKS_BACKPORT
+    bool m_hasAnnotatedRegions { false };
+    bool m_annotatedRegionsDirty { false };
+#endif
 
 #if ENABLE(CONTENT_EXTENSIONS)
     RefPtr<ResourceMonitor> m_resourceMonitor;

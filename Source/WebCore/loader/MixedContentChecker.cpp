@@ -73,10 +73,28 @@ static bool isDataContextSecure(const Frame& frame)
     return false;
 }
 
+// MAVERICKS_BACKPORT: Mixed content is, by definition, content fetched over an insecure *network*
+// transport. Locally-served resources are not: file: URLs, and custom schemes serviced in-process
+// by an app's NSURLProtocol (WebKitLegacy) or WKURLSchemeHandler (WebKit) never touch the network,
+// so a network attacker cannot tamper with them and they are not mixed content. Upstream's
+// `!SecurityOrigin::isSecure(url)` is too broad: because such custom/local schemes are not on the
+// secure-scheme list, every one of their subresources is flagged as mixed content and hard-blocked.
+// This breaks any app (e.g. NetNewsWire, and other readers/Help viewers built the same way) that
+// composes a document with -[WebFrame loadHTMLString:baseURL:] using an https permalink as the base
+// URL and then pulls its stylesheet/images/icons from a private scheme — every such subresource is
+// blocked, leaving the content completely unstyled. Vanilla WebKit on Mavericks loaded these; gate
+// the check on schemes actually carried over an insecure network transport so we match that
+// behavior generically, while still blocking genuine http/ws/ftp mixed content on ordinary pages.
+static bool isInsecureNetworkScheme(const URL& url)
+{
+    return url.protocolIs("http"_s) || url.protocolIs("ws"_s) || url.protocolIs("ftp"_s);
+}
+
 static bool isMixedContent(const Frame& frame, const URL& url)
 {
     if (isDocumentSecure(frame) || (frame.frameURLProtocol() == "data"_s && isDataContextSecure(frame)))
-        return !SecurityOrigin::isSecure(url);
+        // MAVERICKS_BACKPORT: gate on isInsecureNetworkScheme so only http/ws/ftp network subresources count as mixed content; file:/in-process custom schemes never cross the network (see above).
+        return !SecurityOrigin::isSecure(url) && isInsecureNetworkScheme(url);
 
     return false;
 }

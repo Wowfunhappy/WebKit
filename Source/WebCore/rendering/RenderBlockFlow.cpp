@@ -674,6 +674,10 @@ void RenderBlockFlow::layoutBlock(RelayoutChildren relayoutChildren, LayoutUnit 
         addOverflowFromOutOfFlowBoxes();
     }
 
+    // MAVERICKS_BACKPORT: shrink the border-paint box to hug the text for -webkit-border-fit:lines
+    // (10.9 Messages.app speech bubbles). No-op unless border-fit is set, so general layout is unaffected.
+    fitBorderToLinesIfNeeded();
+
     auto* state = view().frameView().layoutContext().layoutState();
     if (state && state->pageLogicalHeight())
         setPageLogicalOffset(state->pageLogicalOffset(this, logicalTop()));
@@ -3331,6 +3335,75 @@ void RenderBlockFlow::addOverflowFromInlineChildren()
     
     if (svgTextLayout())
         svgTextLayout()->addOverflowFromInlineChildren();
+}
+
+// MAVERICKS_BACKPORT: restored support for the non-standard -webkit-border-fit:lines property,
+// which macOS 10.9 Messages.app relies on (balloons.css) to shrink-wrap each chat speech bubble's
+// border/border-image box to the text lines it contains. Without it the bubble does not hug the
+// text and the balloon border-image collapses. Both methods are no-ops unless border-fit is set.
+void RenderBlockFlow::adjustForBorderFit(LayoutUnit x, LayoutUnit& left, LayoutUnit& right) const
+{
+    if (style().usedVisibility() != Visibility::Visible)
+        return;
+
+    // We don't deal with relative positioning. Our assumption is that you shrink to fit the lines without accounting
+    // for either overflow or translations via relative positioning.
+    if (childrenInline()) {
+        for (auto line = InlineIterator::firstLineBoxFor(*this); line; line.traverseNext()) {
+            left = std::min(left, x + LayoutUnit(line->contentLogicalLeft()));
+            right = std::max(right, x + LayoutUnit(ceilf(line->contentLogicalRight())));
+        }
+    } else {
+        for (RenderBox* obj = firstChildBox(); obj; obj = obj->nextSiblingBox()) {
+            if (!obj->isFloatingOrOutOfFlowPositioned()) {
+                if (CheckedPtr blockFlow = dynamicDowncast<RenderBlockFlow>(*obj); blockFlow && !obj->hasNonVisibleOverflow())
+                    blockFlow->adjustForBorderFit(x + obj->x(), left, right);
+                else if (obj->style().usedVisibility() == Visibility::Visible) {
+                    // We are a replaced element or some kind of non-block-flow object.
+                    left = std::min(left, x + obj->x());
+                    right = std::max(right, x + obj->x() + obj->width());
+                }
+            }
+        }
+    }
+
+    if (m_floatingObjects) {
+        const FloatingObjectSet& floatingObjectSet = m_floatingObjects->set();
+        for (auto& floatingObject : floatingObjectSet) {
+            if (floatingObject->paintsFloat()) {
+                LayoutUnit floatLeft = floatingObject->translationOffsetToAncestor().width();
+                LayoutUnit floatRight = floatLeft + floatingObject->renderer()->width();
+                left = std::min(left, floatLeft);
+                right = std::max(right, floatRight);
+            }
+        }
+    }
+}
+
+void RenderBlockFlow::fitBorderToLinesIfNeeded()
+{
+    if (style().borderFit() == BorderFit::Border || overridingBorderBoxLogicalWidth())
+        return;
+
+    // Walk any normal flow lines to snugly fit.
+    LayoutUnit left = LayoutUnit::max();
+    LayoutUnit right = LayoutUnit::min();
+    LayoutUnit oldWidth = contentBoxWidth();
+    adjustForBorderFit(0, left, right);
+
+    // Clamp to our existing edges. We can never grow. We only shrink.
+    LayoutUnit leftEdge = borderLeft() + paddingLeft();
+    LayoutUnit rightEdge = leftEdge + oldWidth;
+    left = std::min(rightEdge, std::max(leftEdge, left));
+    right = std::max(leftEdge, std::min(rightEdge, right));
+
+    LayoutUnit newContentWidth = right - left;
+    if (newContentWidth == oldWidth)
+        return;
+
+    setOverridingBorderBoxLogicalWidth(newContentWidth + borderAndPaddingLogicalWidth());
+    layoutBlock(RelayoutChildren::No);
+    clearOverridingBorderBoxLogicalWidth();
 }
 
 void RenderBlockFlow::addOverflowFromInFlowChildren(OptionSet<ComputeOverflowOptions> options)

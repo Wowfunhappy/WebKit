@@ -371,6 +371,18 @@ bool ScriptElement::requestClassicScript(const String& sourceURL)
     Ref element = this->element();
     ASSERT(element->isConnected());
     ASSERT(!m_loadableScript);
+
+    // MAVERICKS_BACKPORT: restored-lost-upstream behavior (#62). Cancelable beforeload
+    // event lets Safari 7 extensions block this script subresource (uBlock network blocking).
+    {
+        Ref<Document> originalDocument = element->document();
+        if (!element->dispatchBeforeLoadEvent(sourceURL))
+            return false;
+        bool didEventListenerDisconnectThisElement = !element->isConnected() || &element->document() != originalDocument.ptr();
+        if (didEventListenerDisconnectThisElement)
+            return false;
+    }
+
     Ref document = element->document();
     if (!StringView(sourceURL).containsOnly<isASCIIWhitespace<char16_t>>()) {
         auto script = LoadableClassicScript::create(element->nonce(), element->attributeWithoutSynchronization(HTMLNames::integrityAttr), referrerPolicy(), fetchPriority(),
@@ -415,6 +427,17 @@ bool ScriptElement::requestModuleScript(const String& sourceText, const TextPosi
         if (StringView(sourceURL).containsOnly<isASCIIWhitespace<char16_t>>()) {
             dispatchErrorEvent();
             return false;
+        }
+
+        // MAVERICKS_BACKPORT: restored-lost-upstream behavior (#62). Cancelable beforeload
+        // event lets Safari 7 extensions block this module-script subresource (uBlock network blocking).
+        {
+            Ref<Document> originalDocument = element->document();
+            if (!element->dispatchBeforeLoadEvent(sourceURL))
+                return false;
+            bool didEventListenerDisconnectThisElement = !element->isConnected() || &element->document() != originalDocument.ptr();
+            if (didEventListenerDisconnectThisElement)
+                return false;
         }
 
         auto moduleScriptRootURL = document->completeURL(sourceURL);

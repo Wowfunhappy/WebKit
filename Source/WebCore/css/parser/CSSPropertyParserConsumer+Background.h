@@ -103,6 +103,11 @@ RefPtr<CSSValue> consumeWebkitBoxShadow(CSSParserTokenRange&, CSS::PropertyParse
 // Non-standard addition.
 RefPtr<CSSValue> consumeWebkitBoxReflect(CSSParserTokenRange&, CSS::PropertyParserState&);
 
+#if ENABLE(DASHBOARD_SUPPORT)
+// MAVERICKS_BACKPORT: legacy Dashboard widget control regions (-apple-dashboard-region).
+RefPtr<CSSValue> consumeWebkitDashboardRegion(CSSParserTokenRange&, CSS::PropertyParserState&);
+#endif
+
 // MARK: Utilities for filling in rects / quads in the "margin" form.
 
 // - if only 1 value, `a`, is provided, set top, bottom, right & left to `a`.

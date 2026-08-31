@@ -394,8 +394,18 @@ StyleAppearance RenderTheme::autoAppearanceForElement(RenderStyle& style, const 
     Ref element = *elementPtr;
 
     if (RefPtr input = dynamicDowncast<HTMLInputElement>(element)) {
-        if (input->isTextButton())
+        if (input->isTextButton()) {
+#if PLATFORM(MAC)
+            // MAVERICKS_BACKPORT: 10.9 draws submit/reset/button inputs as Aqua push buttons --
+            // the bezel owns the border and the control size dictates the font
+            // (RenderThemeMac::adjustButtonStyle) -- while <button> keeps author styling under
+            // the plain Button appearance. Returning Button for both loses that split and the
+            // Aqua metrics with it.
+            return StyleAppearance::PushButton;
+#else
             return StyleAppearance::Button;
+#endif // MAVERICKS_BACKPORT
+        }
 
         if (input->isSwitch())
             return StyleAppearance::Switch;

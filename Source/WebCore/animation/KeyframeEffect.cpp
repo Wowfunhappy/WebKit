@@ -1696,6 +1696,18 @@ bool KeyframeEffect::isCurrentlyAffectingProperty(CSSPropertyID property, Accele
     if (m_pseudoElementIdentifier && m_pseudoElementIdentifier->type == PseudoElementType::Marker && !Style::isValidMarkerStyleProperty(property))
         return false;
 
+    // MAVERICKS_BACKPORT: also count non-accelerated queries for effects filling in their after
+    // phase (fill: forwards/both). The Accelerated::No callers reachable here are the
+    // RenderLayerCompositor compositing-requirement queries (via KeyframeEffectStack), and
+    // Safari-7-era WebKit keeps layers composited while a finished animation fills
+    // (AnimationBase::FillingFowards in requiresCompositingForAnimation). Decomposing at animation
+    // end repaints the content into the page tiled backing, where (10.9-only) text picks up
+    // subpixel smoothing it did not have in the composited layer, visibly changing rendering the
+    // moment the animation finishes. Accelerated::Yes queries (getComputedStyle's animated-style
+    // sourcing in StyleExtractor) keep upstream behavior.
+    if (accelerated == Accelerated::No && m_phaseAtLastApplication == AnimationEffectPhase::After && (fill() == FillMode::Forwards || fill() == FillMode::Both))
+        return true;
+
     return m_phaseAtLastApplication == AnimationEffectPhase::Active;
 }
 

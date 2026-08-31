@@ -32,6 +32,10 @@
 #include <WebCore/AttributedString.h>
 #include <wtf/RetainPtr.h>
 OBJC_CLASS NSDictionary;
+#elif PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: the classic definition panel renders the looked-up text itself over the
+// page, so the popup info must carry the range's real font attributes (see the struct below).
+#include <WebCore/AttributedString.h>
 #endif
 
 namespace WebCore {
@@ -50,6 +54,13 @@ struct DictionaryPopupInfo {
     DictionaryPopupInfoCocoa platformData;
 #else
     String text;
+#if PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: font-scaled attributed string of the looked-up range, so the classic
+    // -[NSView showDefinitionForAttributedString:atPoint:] panel on 10.9 draws its text overlay
+    // at the same size/position as the page text. Upstream computes this string in
+    // WebPage::dictionaryPopupInfoForRange but only ships it when ENABLE(LEGACY_PDFKIT_PLUGIN).
+    AttributedString attributedString;
+#endif
 #endif
 };
 

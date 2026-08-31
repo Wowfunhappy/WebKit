@@ -1205,12 +1205,24 @@ void ContextMenuController::populate()
             appendItem(TogglePictureInPicture, m_contextMenu.get());
             appendItem(ToggleVideoViewer, m_contextMenu.get());
 #endif
-            if (m_context.hitTestResult().isDownloadableMedia() && loader->client().canHandleRequest(ResourceRequest(WTF::move(mediaURL)))) {
-                appendItem(*separatorItem(), m_contextMenu.get());
-                appendItem(CopyMediaLinkItem, m_contextMenu.get());
-                appendItem(OpenMediaInNewWindowItem, m_contextMenu.get());
-                appendItem(DownloadMediaItem, m_contextMenu.get());
-            }
+            // MAVERICKS_BACKPORT: 537.78's populate() proposed CopyMediaLink and OpenMediaInNewWindow for
+            // every media URL, and DownloadMedia whenever the loader could handle the request. Upstream
+            // 27424aa (bug 138530, Nov 2014) put the whole group behind isDownloadableMedia(), which is
+            // false for MSE/blob-backed video. Safari 7 predates that change and relies on the older
+            // contract: BrowserPageContextMenuClient::getContextMenuFromProposedMenu looks the
+            // OpenMediaInNewWindow and DownloadMediaToDisk items up by tag and re-creates its own items
+            // from their title() and enabled() WITHOUT checking that the lookup found anything, so a
+            // proposal that omits them leaves two empty, unclickable rows in the menu (issue #107; seen on
+            // YouTube and any other site whose <video> is fed by Media Source). Keep proposing the group and
+            // carry upstream's condition in the items' enabled state instead — Safari copies that verbatim,
+            // so media that cannot be saved shows the three items greyed out rather than blank.
+            // checkOrEnableIfNeeded() applies the condition.
+            // if (m_context.hitTestResult().isDownloadableMedia() && loader->client().canHandleRequest(ResourceRequest(WTF::move(mediaURL)))) {
+            appendItem(*separatorItem(), m_contextMenu.get());
+            appendItem(CopyMediaLinkItem, m_contextMenu.get());
+            appendItem(OpenMediaInNewWindowItem, m_contextMenu.get());
+            appendItem(DownloadMediaItem, m_contextMenu.get());
+            // }
         }
 
         auto selectedRange = frame->selection().selection().range();
@@ -1555,6 +1567,16 @@ bool ContextMenuController::shouldEnableCopyLinkWithHighlight() const
     return false;
 }
 
+// MAVERICKS_BACKPORT: upstream leaves the Copy/Open/Download media items out of the proposed menu when
+// this predicate is false (27424aa, bug 138530). Safari 7 needs them proposed either way — see the
+// comment in populate() — so the predicate drives their enabled state instead.
+static bool mediaCanBeSaved(const HitTestResult& hitTestResult, LocalFrame& frame)
+{
+    if (!hitTestResult.isDownloadableMedia())
+        return false;
+    return frame.loader().client().canHandleRequest(ResourceRequest(hitTestResult.absoluteMediaURL()));
+}
+
 void ContextMenuController::checkOrEnableIfNeeded(ContextMenuItem& item) const
 {
     if (item.type() == ContextMenuItemType::Separator)
@@ -1785,6 +1807,10 @@ void ContextMenuController::checkOrEnableIfNeeded(ContextMenuItem& item) const
                 item.setTitle(contextMenuItemTagOpenVideoInNewWindow());
             else
                 item.setTitle(contextMenuItemTagOpenAudioInNewWindow());
+            // MAVERICKS_BACKPORT: upstream omits this item when the media cannot be saved; this port
+            // proposes it disabled instead. See mediaCanBeSaved() and populate().
+            if (!mediaCanBeSaved(m_context.hitTestResult(), *frame))
+                shouldEnable = false;
             break;
         case ContextMenuItemTagDownloadMediaToDisk:
             if (m_context.hitTestResult().mediaIsVideo())
@@ -1793,12 +1819,20 @@ void ContextMenuController::checkOrEnableIfNeeded(ContextMenuItem& item) const
                 item.setTitle(contextMenuItemTagDownloadAudioToDisk());
             if (m_context.hitTestResult().absoluteImageURL().protocolIsFile())
                 shouldEnable = false;
+            // MAVERICKS_BACKPORT: upstream omits this item when the media cannot be saved; this port
+            // proposes it disabled instead. See mediaCanBeSaved() and populate().
+            if (!mediaCanBeSaved(m_context.hitTestResult(), *frame))
+                shouldEnable = false;
             break;
         case ContextMenuItemTagCopyMediaLinkToClipboard:
             if (m_context.hitTestResult().mediaIsVideo())
                 item.setTitle(contextMenuItemTagCopyVideoLinkToClipboard());
             else
                 item.setTitle(contextMenuItemTagCopyAudioLinkToClipboard());
+            // MAVERICKS_BACKPORT: upstream omits this item when the media cannot be saved; this port
+            // proposes it disabled instead. See mediaCanBeSaved() and populate().
+            if (!mediaCanBeSaved(m_context.hitTestResult(), *frame))
+                shouldEnable = false;
             break;
         case ContextMenuItemTagPlayAllAnimations:
 #if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)

@@ -213,6 +213,11 @@ bool SecurityOriginData::shouldTreatAsOpaqueOrigin(const URL& url)
 #if PLATFORM(COCOA)
         || !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::NullOriginForNonSpecialSchemedURLs)
         || url.protocolIs("applewebdata"_s)
+        // MAVERICKS_BACKPORT: behavior fix #14 — Safari 7 legacy extensions live at safari-extension://<bundle-id>/… and
+        // rely on same-origin access between their pages (popup ↔ global/background page). Give the
+        // scheme a real host-based origin instead of an opaque "null" one (which broke cross-page
+        // access — uBlock's vapi-background threw SecurityError and the popup went inert).
+        || url.protocolIs("safari-extension"_s)
         || url.protocolIs("x-apple-ql-id"_s)
         || url.protocolIs("x-apple-ql-id2"_s)
         || url.protocolIs("x-apple-ql-magic"_s)
