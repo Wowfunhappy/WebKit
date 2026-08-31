@@ -20,6 +20,7 @@ click, a key press, or a hardware/manual step.
 | `canvas-capture-colorspace-test.html` | canvas `captureStream()` -> VideoFrame colour-space constants soft-linked from CoreMedia; PASS = "SURVIVED 60 captured frames", no WebContent crash | banner | — |
 | `canvas-text-test.html` | canvas `fillText`/`measureText`: baseline placement, alignment and metrics across generic families and sizes | title + banner | — |
 | `canvas_todataurl_crash_test.html` | accelerated 2D canvas `toDataURL()` does not sink the IOSurface backend (WebContent survives the next rendering update) | banner | — |
+| `cookie-accept-policy/` | Safari's Privacy > "Block cookies and other website data" decides a real load: "Always" blocks a first-party `Set-Cookie`, the other two settings store it (`-[NSHTTPCookieStorage _overrideSessionCookieAcceptPolicy]`) | manual, banner | `python …/server.py`, then http://127.0.0.1:8731/, and the Privacy radio set from the UI; see the dir's README |
 | `datalist-test.html` | `<input list>` suggestion dropdown appears and a pick fires `change` | manual, banner | — |
 | `dnd-test.html` | HTML5 drag-and-drop events and `dropEffect` between two elements | manual, banner | — |
 | `find-many-test.html` | Cmd-F over many matches ("target" in every paragraph): highlight count and scroll-to-match | manual, visual | — |

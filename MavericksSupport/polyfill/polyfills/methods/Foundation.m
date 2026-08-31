@@ -1281,12 +1281,12 @@ WK_POLYFILL_ADD_METHODS_ON(NSURLRequest, "NSURLRequest", "NSMutableURLRequest")
 // policy is ignored. A policy set on the request itself pre-empts that stamp, so the flag is recorded
 // here and applied to the request by the task creators further down.
 //
-// Keyed on the CFHTTPCookieStorageRef rather than on the NSHTTPCookieStorage that carries it, for the
-// same reason the cookie-change watcher above is: NetworkStorageSession::nsCookieStorage() wraps the same
-// CF storage in a fresh NSHTTPCookieStorage on every call for a non-default session, so the wrapper is
-// not an identity.
-static pthread_mutex_t wk_cookieAcceptPolicyOverrideLock = PTHREAD_MUTEX_INITIALIZER;
-static CFMutableSetRef wk_cookieAcceptPolicyOverrideStores;
+// The flag rides on the CFHTTPCookieStorageRef rather than on the NSHTTPCookieStorage that carries it,
+// for the same reason the cookie-change watcher above does: NetworkStorageSession::nsCookieStorage()
+// wraps the same CF storage in a fresh NSHTTPCookieStorage on every call for a non-default session, so
+// the wrapper is not an identity. A CF storage is a real Objective-C object, so it holds the flag as an
+// associated object, which the runtime drops when the storage is deallocated.
+static const void *const wk_cookieAcceptPolicyOverrideKey = &wk_cookieAcceptPolicyOverrideKey;
 
 static CFHTTPCookieStorageRef wk_cfCookieStorageOf(id storage)
 {
@@ -1300,29 +1300,14 @@ static void wk_setCookieStorageOverridesSessionCookieAcceptPolicy(id storage, BO
     CFHTTPCookieStorageRef store = wk_cfCookieStorageOf(storage);
     if (!store)
         return;
-    pthread_mutex_lock(&wk_cookieAcceptPolicyOverrideLock);
-    if (!wk_cookieAcceptPolicyOverrideStores)
-        // Membership only, with no callbacks: retaining here would keep an ephemeral session's cookie jar
-        // alive in this process after the private-browsing session that owned it is gone. Membership is
-        // only ever tested with a CF ref read from a live configuration's storage, so a reused address
-        // answers yes for a storage that is live and gets stamped with its own current policy.
-        wk_cookieAcceptPolicyOverrideStores = CFSetCreateMutable(NULL, 0, NULL);
-    if (overrides)
-        CFSetAddValue(wk_cookieAcceptPolicyOverrideStores, store);
-    else
-        CFSetRemoveValue(wk_cookieAcceptPolicyOverrideStores, store);
-    pthread_mutex_unlock(&wk_cookieAcceptPolicyOverrideLock);
+    objc_setAssociatedObject((id)store, wk_cookieAcceptPolicyOverrideKey, overrides ? @YES : nil,
+        OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 static BOOL wk_cookieStorageOverridesSessionCookieAcceptPolicy(id storage)
 {
     CFHTTPCookieStorageRef store = wk_cfCookieStorageOf(storage);
-    if (!store)
-        return NO;
-    pthread_mutex_lock(&wk_cookieAcceptPolicyOverrideLock);
-    BOOL overrides = wk_cookieAcceptPolicyOverrideStores && CFSetContainsValue(wk_cookieAcceptPolicyOverrideStores, store);
-    pthread_mutex_unlock(&wk_cookieAcceptPolicyOverrideLock);
-    return overrides;
+    return store && objc_getAssociatedObject((id)store, wk_cookieAcceptPolicyOverrideKey) != nil;
 }
 
 WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
