@@ -49,7 +49,11 @@ OBJC_CLASS NSString;
 typedef RetainPtr<NSDictionary> TargetListing;
 #endif
 
-#if USE(GLIB)
+// MAVERICKS_BACKPORT: this Mac port enables USE(GLIB) for the GStreamer media backend, but the remote
+// inspector here must stay on the Cocoa (XPC) transport, exactly like an upstream Cocoa build (which
+// never defines (USE(GLIB) && !PLATFORM(COCOA))). The glib socket transport (SocketConnection.h, GVariant TargetListing) is
+// not built on Cocoa and conflicts with the PLATFORM(COCOA) block. So treat USE(GLIB) as off here.
+#if (USE(GLIB) && !PLATFORM(COCOA))
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/SocketConnection.h>
 typedef GRefPtr<GVariant> TargetListing;
@@ -90,7 +94,8 @@ public:
 
         struct SessionCapabilities {
             bool acceptInsecureCertificates { false };
-#if USE(GLIB) || USE(INSPECTOR_SOCKET_SERVER)
+// MAVERICKS_BACKPORT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
+#if (USE(GLIB) && !PLATFORM(COCOA)) || USE(INSPECTOR_SOCKET_SERVER)
             Vector<std::pair<String, String>> certificates;
             struct Proxy {
                 String type;
@@ -118,7 +123,8 @@ public:
         virtual String browserVersion() const { return { }; }
         virtual void requestAutomationSession(const String& sessionIdentifier, const SessionCapabilities&) = 0;
         virtual void requestedDebuggablesToWakeUp() { };
-#if USE(INSPECTOR_SOCKET_SERVER) || USE(GLIB)
+// MAVERICKS_BACKPORT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
+#if USE(INSPECTOR_SOCKET_SERVER) || (USE(GLIB) && !PLATFORM(COCOA))
         virtual void closeAutomationSession() = 0;
 #endif
     };
@@ -126,7 +132,8 @@ public:
 #if PLATFORM(COCOA)
     JS_EXPORT_PRIVATE static void setNeedMachSandboxExtension(bool needExtension);
 #endif
-#if USE(GLIB)
+// MAVERICKS_BACKPORT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
+#if (USE(GLIB) && !PLATFORM(COCOA))
     JS_EXPORT_PRIVATE static void setInspectorServerAddress(CString&&);
     JS_EXPORT_PRIVATE static const CString& inspectorServerAddress();
 #endif
@@ -171,11 +178,13 @@ public:
 
     void updateTargetListing(TargetID);
 
-#if USE(GLIB)
+// MAVERICKS_BACKPORT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
+#if (USE(GLIB) && !PLATFORM(COCOA))
     void requestAutomationSession(const char* sessionID, const Client::SessionCapabilities&);
     void automationConnectionDidClose();
 #endif
-#if USE(GLIB) || USE(INSPECTOR_SOCKET_SERVER)
+// MAVERICKS_BACKPORT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
+#if (USE(GLIB) && !PLATFORM(COCOA)) || USE(INSPECTOR_SOCKET_SERVER)
     void setup(TargetID);
     void sendMessageToTarget(TargetID, const char* message);
 #endif
@@ -202,7 +211,8 @@ private:
     void setupXPCConnectionIfNeeded();
     void updateFromGlobalNotifyState() WTF_REQUIRES_LOCK(m_mutex);
 #endif
-#if USE(GLIB)
+// MAVERICKS_BACKPORT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
+#if (USE(GLIB) && !PLATFORM(COCOA))
     void setupConnection(Ref<SocketConnection>&&);
     static const SocketConnection::MessageHandlers& messageHandlers();
 
@@ -267,7 +277,8 @@ private:
 #if PLATFORM(COCOA)
     static std::atomic<bool> needMachSandboxExtension;
 #endif
-#if USE(GLIB)
+// MAVERICKS_BACKPORT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
+#if (USE(GLIB) && !PLATFORM(COCOA))
     static CString s_inspectorServerAddress;
 #endif
 
@@ -287,7 +298,8 @@ private:
 
     bool m_pendingMainThreadInitialization WTF_GUARDED_BY_LOCK(m_mutex) { false };
 #endif
-#if USE(GLIB)
+// MAVERICKS_BACKPORT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
+#if (USE(GLIB) && !PLATFORM(COCOA))
     RefPtr<SocketConnection> m_socketConnection;
     GRefPtr<GCancellable> m_cancellable;
 #endif
