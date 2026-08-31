@@ -99,6 +99,47 @@ ImageDrawResult GraphicsContext::drawMultiRepresentationHEIC(Image& image, const
 
 #endif
 
+#if USE(APPKIT)
+// MAVERICKS_BACKPORT: CoreAnimation's asynchronous drawing hands -drawInContext: a deferred recording
+// context (CGContextGetType answers kCGContextTypeUnknown and CGBitmapContextGetData is null), and this
+// OS's CoreGraphics does not carry a CGStyle through that recording: ordinary drawing and
+// CGContextSetShadowWithColor replay from it, a focus ring is dropped. WK2 tile layers take
+// drawsAsynchronously from AcceleratedDrawingEnabled, which WebKit turns on, so the two focus-ring call
+// sites run their upstream drawing through here: it hands `draw` a bitmap-backed stand-in for the part
+// of `destination` its clip can show, and composites those pixels back one for one.
+void wkDrawInBitmapBackedContext(CGContextRef destination, void (^draw)(CGContextRef))
+{
+    CGRect clip = CGContextGetClipBoundingBox(destination);
+    if (CGRectIsEmpty(clip))
+        return;
+    CGAffineTransform deviceFromUser = CGContextGetUserSpaceToDeviceSpaceTransform(destination);
+    CGRect deviceRect = CGRectIntegral(CGRectApplyAffineTransform(clip, deviceFromUser));
+    size_t width = static_cast<size_t>(deviceRect.size.width);
+    size_t height = static_cast<size_t>(deviceRect.size.height);
+    if (!width || !height)
+        return;
+
+    RetainPtr colorSpace = adoptCF(CGColorSpaceCreateDeviceRGB());
+    RetainPtr scratch = adoptCF(CGBitmapContextCreate(nullptr, width, height, 8, 0, colorSpace.get(),
+        static_cast<uint32_t>(kCGImageAlphaPremultipliedFirst) | static_cast<uint32_t>(kCGBitmapByteOrder32Host)));
+    if (!scratch)
+        return;
+
+    // The scratch's pixels are the destination's device space with deviceRect's origin at the bitmap's
+    // origin, so `draw` works in the destination's user space and lands on the destination's pixel grid.
+    CGContextTranslateCTM(scratch.get(), -deviceRect.origin.x, -deviceRect.origin.y);
+    CGContextConcatCTM(scratch.get(), deviceFromUser);
+    draw(scratch.get());
+
+    RetainPtr image = adoptCF(CGBitmapContextCreateImage(scratch.get()));
+    if (!image)
+        return;
+    CGContextStateSaver stateSaver(destination);
+    CGContextConcatCTM(destination, CGAffineTransformInvert(deviceFromUser));
+    CGContextDrawImage(destination, deviceRect, image.get());
+}
+#endif
+
 void GraphicsContextCG::drawFocusRing(const Path& path, float, const Color& color)
 {
     if (path.isEmpty())
@@ -124,8 +165,8 @@ void GraphicsContextCG::drawFocusRing(const Path& path, float, const Color& colo
     focusRingStyle.accumulate = -1;
     auto style = adoptCF(CGStyleCreateFocusRingWithColor(&focusRingStyle, cachedCGColor(color).get()));
 
-    CGContextRef platformContext = this->platformContext();
-
+    // MAVERICKS_BACKPORT: rasterize upstream's own ring where CoreGraphics honours a CGStyle on this OS.
+    wkDrawInBitmapBackedContext(this->platformContext(), ^(CGContextRef platformContext) {
     CGContextStateSaver stateSaver(platformContext);
 
     CGContextSetStyle(platformContext, style.get());
@@ -133,6 +174,7 @@ void GraphicsContextCG::drawFocusRing(const Path& path, float, const Color& colo
     CGContextAddPath(platformContext, path.platformPath());
 
     CGContextFillPath(platformContext);
+    }); // MAVERICKS_BACKPORT: closes the bitmap-backed drawing block opened above.
 }
 
 void GraphicsContextCG::drawFocusRing(const Vector<FloatRect>& rects, float outlineOffset, float outlineWidth, const Color& color)

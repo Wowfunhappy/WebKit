@@ -51,7 +51,10 @@
 #include "AcceleratedEffectStack.h"
 #endif
 
-#if PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: GraphicsLayer.cpp is built in a plain-C++ unified-source bundle (.cpp, no
+// -x objective-c++). Under the 26.1 SDK <QuartzCore/CALayer.h> is an Objective-C header that does
+// not compile in a non-ObjC translation unit, so additionally gate the include on __OBJC__.
+#if PLATFORM(COCOA) && defined(__OBJC__)
 #include <QuartzCore/CALayer.h>
 #endif
 

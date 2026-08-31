@@ -314,9 +314,17 @@ void ControlMac::drawCellFocusRingInternal(GraphicsContext& context, const Float
     drawCellFocusRingInView(context, rect, cell, view.get());
 }
 
+// MAVERICKS_BACKPORT: defined in GraphicsContextCocoa.mm -- runs the drawing against a bitmap-backed
+// stand-in for the destination, because this OS's CoreGraphics drops a CGStyle from CoreAnimation's
+// asynchronous drawing context.
+void wkDrawInBitmapBackedContext(CGContextRef, void (^)(CGContextRef));
+
 void ControlMac::drawCellFocusRing(GraphicsContext& context, const FloatRect& rect, float deviceScaleFactor, const ControlStyle& style, NSCell *cell)
 {
-    RetainPtr cgContext = context.platformContext();
+    // MAVERICKS_BACKPORT: rasterize upstream's own ring where CoreGraphics honours a CGStyle on this OS.
+    wkDrawInBitmapBackedContext(context.platformContext(), ^(CGContextRef scratch) {
+    GraphicsContextCG scratchContext(scratch);
+    RetainPtr cgContext = scratchContext.platformContext();
     CGContextStateSaver stateSaver(cgContext.get());
 
     CGFocusRingStyle focusRingStyle;
@@ -335,8 +343,9 @@ void ControlMac::drawCellFocusRing(GraphicsContext& context, const FloatRect& re
     CGContextSetStyle(cgContext.get(), cgStyle.get());
 
     CGContextBeginTransparencyLayerWithRect(cgContext.get(), rect, nullptr);
-    drawCellFocusRingInternal(context, rect, deviceScaleFactor, style, cell);
+    drawCellFocusRingInternal(scratchContext, rect, deviceScaleFactor, style, cell); // MAVERICKS_BACKPORT: the cell mask draws into the stand-in opened above.
     CGContextEndTransparencyLayer(cgContext.get());
+    }); // MAVERICKS_BACKPORT: closes the bitmap-backed drawing block opened above.
 }
 
 void ControlMac::drawCellOrFocusRing(GraphicsContext& context, const FloatRect& rect, float deviceScaleFactor, const ControlStyle& style, NSCell *cell, bool drawCell)
@@ -385,9 +394,15 @@ void ControlMac::drawListButton(GraphicsContext& context, const FloatRect& rect,
     // We can't paint an NSComboBoxCell since they are not height-resizable.
 
     const FloatSize comboBoxSize { 40, 19 };
-    const FloatSize comboBoxButtonSize { 16, 16 };
-    const FloatPoint comboBoxButtonInset { 5, 1 };
-    constexpr auto comboBoxButtonCornerRadii = 4;
+
+    // MAVERICKS_BACKPORT: this OS's CoreUI draws kCUIWidgetButtonComboBox as the WHOLE combo box — text
+    // well on the left, a 19x19 arrow button (borders included, down-triangle centered on it) filling the
+    // right end of the 40x19 art — where the modern art upstream's crop constants describe keeps a 16x16
+    // button at inset (5,1) of the mirrored image. Cropping the modern region out of the 10.9 art
+    // produces a mis-cropped, 180°-turned arrow (#115); crop the measured 10.9 button region upright
+    // instead, rounded-clipped and scaled into the same 12x12 slot upstream lays out.
+    const FloatRect comboBoxButtonSourceRect { 19, 0, 19, 19 };
+    constexpr auto comboBoxButtonCornerRadii = 5;
 
     const FloatSize desiredComboBoxButtonSize { 12, 12 };
     constexpr auto desiredComboBoxInset = 2;
@@ -416,10 +431,22 @@ void ControlMac::drawListButton(GraphicsContext& context, const FloatRect& rect,
 
     auto& comboBoxButtonContext = comboBoxButtonImageBuffer->context();
 
+    // MAVERICKS_BACKPORT: map the 19x19 source button onto the 12x12 slot and draw the art upright — the
+    // modern path's OriginBottomRight orientation and (5,1) inset describe the modern art's mirrored
+    // layout, not this one's (see the constants above).
+    comboBoxButtonContext.scale(desiredComboBoxButtonSize.width() / comboBoxButtonSourceRect.width());
+    comboBoxButtonContext.clipRoundedRect(FloatRoundedRect(FloatRect(FloatPoint::zero(), comboBoxButtonSourceRect.size()), CornerRadii(comboBoxButtonCornerRadii)));
+    comboBoxButtonContext.translate(-comboBoxButtonSourceRect.x(), -comboBoxButtonSourceRect.y());
+    comboBoxButtonContext.drawConsumingImageBuffer(WTF::move(comboBoxImageBuffer), FloatPoint::zero());
+/* MAVERICKS_BACKPORT: upstream crop kept commented so upstream merges see the original text; not built on this 10.9 backport (tuned to the modern combo-box art — see above).
+    const FloatSize comboBoxButtonSize { 16, 16 };
+    const FloatPoint comboBoxButtonInset { 5, 1 };
+    constexpr auto comboBoxButtonCornerRadii = 4;
     comboBoxButtonContext.scale(desiredComboBoxButtonSize.width() / comboBoxButtonSize.width());
     comboBoxButtonContext.clipRoundedRect(FloatRoundedRect(FloatRect(FloatPoint::zero(), comboBoxButtonSize), CornerRadii(comboBoxButtonCornerRadii)));
     comboBoxButtonContext.translate(comboBoxButtonInset.scaled(-1));
     comboBoxButtonContext.drawConsumingImageBuffer(WTF::move(comboBoxImageBuffer), FloatPoint::zero(), ImagePaintingOptions { ImageOrientation::Orientation::OriginBottomRight });
+MAVERICKS_BACKPORT */
 
     auto isVerticalWritingMode = style.states.contains(ControlStyle::State::VerticalWritingMode);
 

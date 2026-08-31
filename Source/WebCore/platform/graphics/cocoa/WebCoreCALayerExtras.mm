@@ -195,6 +195,31 @@ void collectDescendantLayersAtPoint(Vector<LayerAndPoint, 16>& layersAtPoint, CA
 Vector<LayerAndPoint, 16> layersAtPointToCheckForScrolling(std::function<bool(CALayer*, CGPoint)> layerEventRegionContainsPoint, std::function<std::optional<ScrollingNodeID>(CALayer*)> scrollingNodeIDForLayer, CALayer* layer, const FloatPoint& point, bool& hasAnyNonInteractiveScrollingLayers)
 {
     Vector<LayerAndPoint, 16> layersAtPoint;
+    // MAVERICKS_BACKPORT: own the transaction this traversal would otherwise orphan.
+    // -[CALayer presentationLayer] (read below for animating layers) is the one CALayer accessor that
+    // lazily BEGINS an implicit CATransaction. 10.9's CA commits a thread's implicit transaction from an
+    // observer it installs on that thread's run loop, so a thread that never runs one never commits:
+    // this hit-test runs on the EventDispatcher thread (a WorkQueue worker, CFRunLoopCopyCurrentMode ==
+    // NULL), which leaves the transaction open until the thread is torn down -- logged by CA as
+    // "deleted thread with uncommitted CATransaction" and observed as an intermittent scroll freeze over
+    // animating content.
+    //
+    // An explicit transaction around the WHOLE traversal is the fix rather than a flush inside the read:
+    // committing between reads detaches the presentation snapshots, after which
+    // -convertPoint:fromLayer: returns unconverted points and the hit-test silently changes results
+    // (measured). Bracketing instead keeps every snapshot attached for the traversal, and ends the
+    // transaction deterministically at a point this code controls, on any thread.
+    // Only when this thread has no run loop. CA installs its commit observer on any thread that RUNS one
+    // and commits that thread's implicit transaction from it, so on such a thread ending the transaction
+    // is CA's job and committing here would race its observer. That includes the UI-process main thread,
+    // which reaches this same hit-test through RemoteScrollingCoordinatorProxy::handleWheelEvent ->
+    // RemoteScrollingTreeMac::scrollingNodeForPoint inside AppKit event handling. The orphan only happens
+    // on a thread with NO run loop — the EventDispatcher WorkQueue worker, where
+    // CFRunLoopCopyCurrentMode() is NULL — so that is the only thread this brackets.
+    RetainPtr<CFStringRef> runLoopMode = adoptCF(CFRunLoopCopyCurrentMode(CFRunLoopGetCurrent()));
+    bool ownTransaction = !runLoopMode;
+    if (ownTransaction)
+        [CATransaction begin];
     collectDescendantLayersAtPoint(layersAtPoint, layer, point, [&] (auto layer, auto point) {
         if (layerEventRegionContainsPoint(layer, point))
             return true;
@@ -204,6 +229,10 @@ Vector<LayerAndPoint, 16> layersAtPointToCheckForScrolling(std::function<bool(CA
         }
         return false;
     });
+    // MAVERICKS_BACKPORT: closes the transaction opened above, ending it on this thread rather than
+    // leaving it for a run-loop observer that a WorkQueue worker never reaches.
+    if (ownTransaction)
+        [CATransaction commit];
     // Hit-test front to back.
     layersAtPoint.reverse();
     return layersAtPoint;

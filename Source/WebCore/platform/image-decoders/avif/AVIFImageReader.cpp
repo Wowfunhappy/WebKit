@@ -36,8 +36,13 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(AVIFImageReader);
 
+// MAVERICKS_BACKPORT: non-owning back-pointer; see AVIFImageReader.h.
+AVIFImageReader::AVIFImageReader(AVIFImageDecoder* decoder)
+    : m_decoder(decoder)
+/* MAVERICKS_BACKPORT: upstream's constructor.
 AVIFImageReader::AVIFImageReader(RefPtr<AVIFImageDecoder>&& decoder)
     : m_decoder(WTF::move(decoder))
+MAVERICKS_BACKPORT */
     , m_avifDecoder(avifDecoderCreate())
 {
     // Allow the PixelInformationProperty ('pixi') to be missing in AV1 image
@@ -63,7 +68,14 @@ bool AVIFImageReader::parseHeader(const SharedBuffer& data, bool allDataReceived
         m_dataParsed = true;
 
     const avifImage* firstImage = m_avifDecoder->image;
+    // MAVERICKS_BACKPORT: setSize() rejects a size ImageBackingStore cannot hold by calling setFailed(),
+    // and AVIFImageDecoder::setFailed() destroys this reader. Report the failure so tryDecodeSize() stops
+    // before it reads imageCount() through the pointer it just cleared, as JPEGImageReader does.
+    if (!m_decoder->setSize(IntSize(firstImage->width, firstImage->height)))
+        return false;
+/* MAVERICKS_BACKPORT: upstream's unchecked call.
     m_decoder->setSize(IntSize(firstImage->width, firstImage->height));
+MAVERICKS_BACKPORT */
     return true;
 }
 

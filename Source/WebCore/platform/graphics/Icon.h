@@ -67,7 +67,10 @@ public:
     static Ref<Icon> create(HICON hIcon) { return adoptRef(*new Icon(hIcon)); }
 #endif
 
-#if USE(GLIB)
+// MAVERICKS_BACKPORT: USE(GLIB) is on for the GStreamer media backend, but on Cocoa the Icon is
+// NSImage-backed (the PLATFORM(COCOA) API below + m_image member); the GLib GIcon API must stay off,
+// matching an upstream Cocoa build (which never defines USE(GLIB)).
+#if USE(GLIB) && !PLATFORM(COCOA)
     WEBCORE_EXPORT static RefPtr<Icon> create(GRefPtr<GIcon>&&);
 
     GIcon* icon() const { return m_icon.get(); };

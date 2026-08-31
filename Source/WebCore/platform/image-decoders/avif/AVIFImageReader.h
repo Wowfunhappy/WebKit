@@ -37,7 +37,13 @@ class ScalableImageDecoderFrame;
 class AVIFImageReader {
     WTF_MAKE_TZONE_ALLOCATED(AVIFImageReader);
 public:
+    // MAVERICKS_BACKPORT: the reader is a unique_ptr member of the decoder that constructs it, so it
+    // cannot outlive its owner and the back-pointer does not own, as JPEGImageReader and
+    // PNGImageReader hold theirs.
+    AVIFImageReader(AVIFImageDecoder*);
+/* MAVERICKS_BACKPORT: upstream's declaration.
     AVIFImageReader(RefPtr<AVIFImageDecoder>&&);
+MAVERICKS_BACKPORT */
     ~AVIFImageReader();
 
     bool parseHeader(const SharedBuffer&, bool allDataReceived);
@@ -45,7 +51,10 @@ public:
     size_t imageCount() const;
 
 private:
+    AVIFImageDecoder* m_decoder; // MAVERICKS_BACKPORT: non-owning; see the constructor above.
+/* MAVERICKS_BACKPORT: upstream's member.
     RefPtr<WebCore::AVIFImageDecoder> m_decoder;
+MAVERICKS_BACKPORT */
     AVIFUniquePtr<avifDecoder> m_avifDecoder;
 
     bool m_dataParsed { false };
