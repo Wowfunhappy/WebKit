@@ -16,7 +16,14 @@
 #include <stdio.h>
 #include <string.h>
 
+extern const CFStringRef kCTFontUIFontDesignTrait;
+extern const CFStringRef kCTFontUIFontDesignDefault;
+extern const CFStringRef kCTFontUIFontDesignMonospaced;
+extern const CGFloat kCTFontWeightThin;
+extern const CGFloat kCTFontWeightLight;
 extern const CGFloat kCTFontWeightRegular;
+extern const CGFloat kCTFontWeightMedium;
+extern const CGFloat kCTFontWeightSemibold;
 extern const CGFloat kCTFontWeightBold;
 
 static int failures;
@@ -69,6 +76,55 @@ static CTFontRef copyAtWeight(CTFontRef font, CGFloat weight, CFStringRef namedF
     CFRelease(traits);
     CFRelease(number);
     return copy;
+}
+
+// The descriptor SystemFontDatabaseCoreText::createFontByApplyingWeightWidthItalicsAndFallbackBehavior
+// writes: a traits dictionary carrying a weight, a width, a slant and the UI design token, over the
+// family or face the caller names, or over nothing at all -- which is the ui-serif / ui-monospace /
+// ui-rounded shape, since createSystemDesignFont has no font to copy from. 10.9 fails the whole match
+// on any of the three trait values it cannot satisfy and falls back to the system UI font, family name
+// and all, so every one of these shapes goes through the layer's own selection.
+static CTFontRef fontFromUpstreamDescriptor(CGFloat weight, CGFloat width, bool italic, CFStringRef design,
+                                            CFStringRef family, CFStringRef face)
+{
+    const float slantValue = italic ? 0.07f : 0.0f;
+    CFNumberRef weightNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberCGFloatType, &weight);
+    CFNumberRef widthNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberCGFloatType, &width);
+    CFNumberRef slantNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloatType, &slantValue);
+    CFTypeRef traitKeys[] = { kCTFontWeightTrait, kCTFontWidthTrait, kCTFontSlantTrait, kCTFontUIFontDesignTrait };
+    CFTypeRef traitValues[] = { weightNumber, widthNumber, slantNumber, design };
+    CFDictionaryRef traits = CFDictionaryCreate(kCFAllocatorDefault, traitKeys, traitValues, 4,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFMutableDictionaryRef attributes = CFDictionaryCreateMutable(kCFAllocatorDefault, 0,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFDictionarySetValue(attributes, kCTFontTraitsAttribute, traits);
+    if (family)
+        CFDictionarySetValue(attributes, kCTFontFamilyNameAttribute, family);
+    if (face)
+        CFDictionarySetValue(attributes, kCTFontNameAttribute, face);
+    CTFontDescriptorRef descriptor = CTFontDescriptorCreateWithAttributes(attributes);
+    CTFontRef font = descriptor ? CTFontCreateWithFontDescriptor(descriptor, 19.8, NULL) : NULL;
+    if (descriptor)
+        CFRelease(descriptor);
+    CFRelease(attributes);
+    CFRelease(traits);
+    CFRelease(slantNumber);
+    CFRelease(widthNumber);
+    CFRelease(weightNumber);
+    return font;
+}
+
+static void familyName(CTFontRef font, char *out, size_t size)
+{
+    strncpy(out, "(null)", size);
+    out[size - 1] = 0;
+    if (!font)
+        return;
+    CFStringRef name = CTFontCopyFamilyName(font);
+    if (name) {
+        CFStringGetCString(name, out, size, kCFStringEncodingUTF8);
+        CFRelease(name);
+    }
 }
 
 // The attribute sets WebKit realizes a font through that ask for no face at all: an empty
@@ -127,27 +183,62 @@ static void checkFaceSurvivesAttributesNamingNoFace(CTFontRef font, const char *
     }
 }
 
+// Every weight a family answers, checked against the face CSS font matching names for it: the
+// searched side of the request first (lighter at or below 500, heavier above), nearest on that side.
+typedef struct { CGFloat weight; const char *face; } wk_weight_expectation;
+
+static void checkWeights(CFStringRef family, const wk_weight_expectation *expectations, unsigned count)
+{
+    char familyLabel[128];
+    CFStringGetCString(family, familyLabel, sizeof familyLabel, kCFStringEncodingUTF8);
+    CTFontRef font = CTFontCreateWithName(family, 19.8, NULL);
+    char what[256];
+    snprintf(what, sizeof what, "%s realizes", familyLabel);
+    check(font != NULL, what);
+    if (!font)
+        return;
+    for (unsigned i = 0; i < count; ++i) {
+        CTFontRef selected = copyAtWeight(font, expectations[i].weight, NULL);
+        char name[128];
+        postScriptName(selected, name, sizeof name);
+        snprintf(what, sizeof what, "weight %.2f over %s selects %s (got %s)",
+                 (double)expectations[i].weight, familyLabel, expectations[i].face, name);
+        check(!strcmp(name, expectations[i].face), what);
+        if (selected)
+            CFRelease(selected);
+    }
+    CFRelease(font);
+}
+
 int main(void)
 {
     char name[128];
 
-    // An enumerable family: the bold member is a candidate the family's own enumeration offers.
+    // A family with faces on both sides of regular, and one with a face at every landmark this port
+    // can be asked for: the weights that have to reach a lighter face and the weights that have to
+    // reach a heavier one, over the same enumeration.
+    const wk_weight_expectation helveticaWeights[] = {
+        { kCTFontWeightLight, "Helvetica-Light" },
+        { kCTFontWeightRegular, "Helvetica" },
+        { kCTFontWeightMedium, "Helvetica" },
+        { kCTFontWeightSemibold, "Helvetica-Bold" },
+        { kCTFontWeightBold, "Helvetica-Bold" },
+    };
+    checkWeights(CFSTR("Helvetica"), helveticaWeights, sizeof helveticaWeights / sizeof helveticaWeights[0]);
+
+    const wk_weight_expectation helveticaNeueWeights[] = {
+        { kCTFontWeightThin, "HelveticaNeue-Thin" },
+        { kCTFontWeightLight, "HelveticaNeue-Light" },
+        { kCTFontWeightRegular, "HelveticaNeue" },
+        { kCTFontWeightMedium, "HelveticaNeue-Medium" },
+        { kCTFontWeightSemibold, "HelveticaNeue-Bold" },
+        { kCTFontWeightBold, "HelveticaNeue-Bold" },
+    };
+    checkWeights(CFSTR("Helvetica Neue"), helveticaNeueWeights, sizeof helveticaNeueWeights / sizeof helveticaNeueWeights[0]);
+
+    // A named face is the caller's choice, whatever weight sits beside it.
     CTFontRef helvetica = CTFontCreateWithName(CFSTR("Helvetica"), 19.8, NULL);
-    check(helvetica != NULL, "Helvetica realizes");
     if (helvetica) {
-        CTFontRef bold = copyAtWeight(helvetica, kCTFontWeightBold, NULL);
-        postScriptName(bold, name, sizeof name);
-        check(!strcmp(name, "Helvetica-Bold"), "a bold weight over Helvetica selects Helvetica-Bold");
-        if (bold)
-            CFRelease(bold);
-
-        CTFontRef regular = copyAtWeight(helvetica, kCTFontWeightRegular, NULL);
-        postScriptName(regular, name, sizeof name);
-        check(!strcmp(name, "Helvetica"), "a regular weight over Helvetica stays on Helvetica");
-        if (regular)
-            CFRelease(regular);
-
-        // A named face is the caller's choice, whatever weight sits beside it.
         CTFontRef named = copyAtWeight(helvetica, kCTFontWeightBold, CFSTR("Helvetica-Light"));
         postScriptName(named, name, sizeof name);
         check(!strcmp(name, "Helvetica-Light"), "a named face wins over a weight beside it");
@@ -177,7 +268,101 @@ int main(void)
         check(!strcmp(name, regularName), "a regular weight over the system UI font stays on it");
         if (regular)
             CFRelease(regular);
+
+        CTFontRef medium = copyAtWeight(system, kCTFontWeightMedium, NULL);
+        postScriptName(medium, name, sizeof name);
+        check(!strcmp(name, regularName), "a medium weight over the system UI font stays on it");
+        if (medium)
+            CFRelease(medium);
+
+        CTFontRef semibold = copyAtWeight(system, kCTFontWeightSemibold, NULL);
+        postScriptName(semibold, name, sizeof name);
+        check(semibold && (CTFontGetSymbolicTraits(semibold) & kCTFontTraitBold) != 0,
+              "a semibold weight over the system UI font selects a bold face");
+        if (semibold)
+            CFRelease(semibold);
         CFRelease(system);
+    }
+
+    // The descriptor route over a family: the weight, the slant, and the two together have to reach a
+    // face of the family the descriptor names, not the system UI font 10.9 falls back to.
+    struct { CGFloat weight; bool italic; const char *face; } neueDescriptors[] = {
+        { kCTFontWeightRegular, false, "HelveticaNeue" },
+        { kCTFontWeightMedium, false, "HelveticaNeue-Medium" },
+        { kCTFontWeightBold, false, "HelveticaNeue-Bold" },
+        { kCTFontWeightRegular, true, "HelveticaNeue-Italic" },
+        { kCTFontWeightBold, true, "HelveticaNeue-BoldItalic" },
+    };
+    for (unsigned i = 0; i < sizeof(neueDescriptors) / sizeof(neueDescriptors[0]); ++i) {
+        CTFontRef font = fontFromUpstreamDescriptor(neueDescriptors[i].weight, 0.0, neueDescriptors[i].italic,
+                                                    kCTFontUIFontDesignDefault, CFSTR("Helvetica Neue"), NULL);
+        char what[256];
+        postScriptName(font, name, sizeof name);
+        snprintf(what, sizeof what, "a descriptor over Helvetica Neue at weight %.2f%s realizes %s (got %s)",
+                 (double)neueDescriptors[i].weight, neueDescriptors[i].italic ? " italic" : "",
+                 neueDescriptors[i].face, name);
+        check(!strcmp(name, neueDescriptors[i].face), what);
+        if (font)
+            CFRelease(font);
+    }
+
+    // The same descriptor naming no font at all, which is what ui-serif and ui-rounded realize
+    // through: the system UI font, at the face the weight asks for.
+    struct { CGFloat weight; int bold; const char *label; } designWeights[] = {
+        { kCTFontWeightRegular, 0, "regular" },
+        { kCTFontWeightMedium, 0, "medium" },
+        { kCTFontWeightSemibold, 1, "semibold" },
+        { kCTFontWeightBold, 1, "bold" },
+    };
+    char systemFamily[128];
+    CTFontRef systemUI = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 19.8, NULL);
+    familyName(systemUI, systemFamily, sizeof systemFamily);
+    if (systemUI)
+        CFRelease(systemUI);
+    for (unsigned i = 0; i < sizeof(designWeights) / sizeof(designWeights[0]); ++i) {
+        CTFontRef font = fontFromUpstreamDescriptor(designWeights[i].weight, 0.0, false,
+                                                    kCTFontUIFontDesignDefault, NULL, NULL);
+        char what[256], family[128];
+        familyName(font, family, sizeof family);
+        snprintf(what, sizeof what, "a %s weight on a descriptor naming no font realizes a %s face of %s (got %s)",
+                 designWeights[i].label, designWeights[i].bold ? "bold" : "regular", systemFamily, family);
+        check(font && !strcmp(family, systemFamily)
+              && !!(CTFontGetSymbolicTraits(font) & kCTFontTraitBold) == !!designWeights[i].bold, what);
+        if (font)
+            CFRelease(font);
+    }
+
+    // ui-monospace: the monospaced design token names Menlo, which carries the weight and the slant
+    // the same descriptor asks for beside it.
+    struct { CGFloat weight; bool italic; const char *face; } monospaced[] = {
+        { kCTFontWeightRegular, false, "Menlo-Regular" },
+        { kCTFontWeightBold, false, "Menlo-Bold" },
+        { kCTFontWeightRegular, true, "Menlo-Italic" },
+        { kCTFontWeightBold, true, "Menlo-BoldItalic" },
+    };
+    for (unsigned i = 0; i < sizeof(monospaced) / sizeof(monospaced[0]); ++i) {
+        CTFontRef font = fontFromUpstreamDescriptor(monospaced[i].weight, 0.0, monospaced[i].italic,
+                                                    kCTFontUIFontDesignMonospaced, NULL, NULL);
+        char what[256];
+        postScriptName(font, name, sizeof name);
+        snprintf(what, sizeof what, "the monospaced design token at weight %.2f%s realizes %s (got %s)",
+                 (double)monospaced[i].weight, monospaced[i].italic ? " italic" : "", monospaced[i].face, name);
+        check(!strcmp(name, monospaced[i].face), what);
+        check(font && (CTFontGetSymbolicTraits(font) & kCTFontTraitMonoSpace) != 0,
+              "the monospaced design token realizes a monospaced face");
+        if (font)
+            CFRelease(font);
+    }
+
+    // A face the descriptor names is the caller's choice here too -- and the face selection this
+    // route runs realizes its own answer through this same entry point, so the name has to stop it.
+    {
+        CTFontRef font = fontFromUpstreamDescriptor(kCTFontWeightBold, 0.0, false,
+                                                    kCTFontUIFontDesignDefault, NULL, CFSTR("Helvetica-Light"));
+        postScriptName(font, name, sizeof name);
+        check(!strcmp(name, "Helvetica-Light"), "a named face on a descriptor wins over the weight beside it");
+        if (font)
+            CFRelease(font);
     }
 
     // Bold faces asked for nothing stay bold. These are the sources a page's every bold run realizes

@@ -435,6 +435,50 @@ static CTFontRef wk_inheritFontRequest(CTFontRef font, CTFontRef source)
     return font;
 }
 
+// The UI font type a font was created for. A realized font carries no attribute naming it on this
+// OS, and CTFontCreateUIFontForLanguage is where the caller says it, so the type is recorded there
+// and CTFontGetUIFontType reads it back. A font derived from a UI font -- the bold face a weight
+// request selects, say -- is a different font and carries no record, which is what keeps it out of
+// the system-UI serialization branch that would rebuild it from a type carrying the wrong weight.
+static const void *wk_uiFontTypeKey(void)
+{
+    return (const void *)sel_registerName("wk_uiFontType");
+}
+
+static CTFontRef wk_recordUIFontType(CTFontRef font, uint32_t type)
+{
+    if (!font)
+        return font;
+    int32_t value = (int32_t)type;
+    CFNumberRef record = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &value);
+    if (!record)
+        return font;
+    objc_setAssociatedObject((id)(void *)font, wk_uiFontTypeKey(), (id)record, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    CFRelease(record);
+    return font;
+}
+
+static bool wk_recordedUIFontType(CTFontRef font, uint32_t *type)
+{
+    if (!font)
+        return false;
+    CFNumberRef record = (CFNumberRef)objc_getAssociatedObject((id)(void *)font, wk_uiFontTypeKey());
+    int32_t value = 0;
+    if (!record || CFGetTypeID(record) != CFNumberGetTypeID()
+        || !CFNumberGetValue(record, kCFNumberSInt32Type, &value))
+        return false;
+    *type = (uint32_t)value;
+    return true;
+}
+
+WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateUIFontForLanguage,
+                     (CTFontUIFontType uiType, CGFloat size, CFStringRef language))
+{
+    CTFontRef font = WK_ORIGINAL(CTFontCreateUIFontForLanguage)
+        ? WK_ORIGINAL(CTFontCreateUIFontForLanguage)(uiType, size, language) : NULL;
+    return wk_recordUIFontType(font, (uint32_t)uiType);
+}
+
 WK_POLYFILL_REPLACES("CoreText", CGAffineTransform, CTFontGetMatrix, (CTFontRef font))
 {
     wk_font_request request;
@@ -763,10 +807,81 @@ static const CGAffineTransform *wk_fontMatrixForRequest(bool sourceScalesToNothi
     return NULL;
 }
 
+// The face a descriptor's weight, width and slant traits select, applied below with the
+// trait-selection machinery this shares with CTFontCreateCopyWithAttributes.
+static CTFontRef wkApplyTraitsToFace(CTFontRef copy, CTFontDescriptorRef attributes);
+
+// The descriptor 10.9 can realize, out of the one the caller wrote, or NULL when they are the same.
+//
+// Two things in a descriptor 10.9 cannot use. A kCTFontWeightTrait, kCTFontWidthTrait or
+// kCTFontSlantTrait whose value is not the default face's fails the WHOLE match and takes the rest of
+// the descriptor down with it -- measured on this host, {family "Helvetica Neue", weight 0.4}
+// realizes .LucidaGrandeUI, the family name gone along with the weight -- so the three come out here
+// and reach a face through wkApplyTraitsToFace instead. And the UI design token names a font family
+// rather than a face: kCTFontUIFontDesignMonospaced names Menlo, the one monospaced family 10.9 ships
+// that carries the weight and the slant the same descriptor asks for beside the token (Regular, Bold,
+// Italic and BoldItalic, in /System/Library/Fonts/Menlo.ttc), while serif and rounded have no 10.9
+// system design and name nothing, leaving the descriptor to realize the system UI font it already
+// does. A descriptor that names a font of its own keeps it; the token answers only the ui-serif /
+// ui-monospace / ui-rounded shape SystemFontDatabaseCoreText::createSystemDesignFont writes, which
+// names none.
+static CTFontDescriptorRef wk_realizableDescriptor(CTFontDescriptorRef descriptor)
+{
+    if (!descriptor || !WK_ORIGINAL(CTFontDescriptorCopyAttributes))
+        return NULL;
+    CFDictionaryRef attributes = WK_ORIGINAL(CTFontDescriptorCopyAttributes)(descriptor);
+    if (!attributes)
+        return NULL;
+
+    CFDictionaryRef traits = (CFDictionaryRef)CFDictionaryGetValue(attributes, kCTFontTraitsAttribute);
+    if (traits && CFGetTypeID(traits) != CFDictionaryGetTypeID())
+        traits = NULL;
+    bool namesAFont = CFDictionaryContainsKey(attributes, kCTFontNameAttribute)
+        || CFDictionaryContainsKey(attributes, kCTFontFamilyNameAttribute);
+    CFTypeRef design = traits ? CFDictionaryGetValue(traits, kCTFontUIFontDesignTrait) : NULL;
+    bool wantsMonospaced = !namesAFont && design && CFGetTypeID(design) == CFStringGetTypeID()
+        && CFEqual(design, kCTFontUIFontDesignMonospaced);
+    bool hasMatchingTraits = traits && (CFDictionaryContainsKey(traits, kCTFontWeightTrait)
+        || CFDictionaryContainsKey(traits, kCTFontWidthTrait)
+        || CFDictionaryContainsKey(traits, kCTFontSlantTrait));
+    if (!wantsMonospaced && !hasMatchingTraits) {
+        CFRelease(attributes);
+        return NULL;
+    }
+
+    CFMutableDictionaryRef realizable = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, attributes);
+    CFMutableDictionaryRef reducedTraits = traits
+        ? CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, traits) : NULL;
+    CFRelease(attributes);
+    CTFontDescriptorRef realized = NULL;
+    if (realizable && (reducedTraits || !traits)) {
+        if (reducedTraits) {
+            CFDictionaryRemoveValue(reducedTraits, kCTFontWeightTrait);
+            CFDictionaryRemoveValue(reducedTraits, kCTFontWidthTrait);
+            CFDictionaryRemoveValue(reducedTraits, kCTFontSlantTrait);
+            if (CFDictionaryGetCount(reducedTraits))
+                CFDictionarySetValue(realizable, kCTFontTraitsAttribute, reducedTraits);
+            else
+                CFDictionaryRemoveValue(realizable, kCTFontTraitsAttribute);
+        }
+        if (wantsMonospaced)
+            CFDictionarySetValue(realizable, kCTFontFamilyNameAttribute, CFSTR("Menlo"));
+        realized = CTFontDescriptorCreateWithAttributes(realizable);
+    }
+    if (reducedTraits)
+        CFRelease(reducedTraits);
+    if (realizable)
+        CFRelease(realizable);
+    return realized;
+}
+
 // CTFontCreateWithFontDescriptor / ...AndOptions — DELIBERATE REPLACEMENTS of present-but-broken
 // 10.9 functions: they are where a descriptor's kCTFontVariationAttribute is meant to take effect
-// and where 10.9 instead drops it (see the block comment above), and where a size names the scale
-// of the realized font. Every other request realizes through 10.9's own implementation, unchanged.
+// and where 10.9 instead drops it (see the block comment above), where its weight and width traits
+// are meant to select a face and 10.9 hands back the default one -- the route ui-serif, ui-monospace
+// and ui-rounded reach their weight through, since SystemFontDatabaseCoreText::createSystemDesignFont
+// names no font to copy from -- and where a size names the scale of the realized font. Every other
+// request realizes through 10.9's own implementation, unchanged.
 WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithFontDescriptor,
                      (CTFontDescriptorRef descriptor, CGFloat size, const CGAffineTransform *matrix))
 {
@@ -780,8 +895,12 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithFontDescriptor,
     matrix = wk_fontMatrixForRequest(wk_descriptorScalesToNothing(descriptor), descriptor, size, matrix, NULL, &composed);
     CTFontRef instance = wk_realizeVariableFontInstance(descriptor, size, matrix);
     if (!instance) {
+        CTFontDescriptorRef realizable = wk_realizableDescriptor(descriptor);
         instance = WK_ORIGINAL(CTFontCreateWithFontDescriptor)
-            ? WK_ORIGINAL(CTFontCreateWithFontDescriptor)(descriptor, size, matrix) : NULL;
+            ? WK_ORIGINAL(CTFontCreateWithFontDescriptor)(realizable ? realizable : descriptor, size, matrix) : NULL;
+        if (realizable)
+            CFRelease(realizable);
+        instance = wkApplyTraitsToFace(instance, descriptor);
     }
     if (resolved)
         CFRelease(resolved);
@@ -803,8 +922,12 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithFontDescriptorAndOpt
     matrix = wk_fontMatrixForRequest(wk_descriptorScalesToNothing(descriptor), descriptor, size, matrix, NULL, &composed);
     CTFontRef instance = wk_realizeVariableFontInstance(descriptor, size, matrix);
     if (!instance) {
+        CTFontDescriptorRef realizable = wk_realizableDescriptor(descriptor);
         instance = WK_ORIGINAL(CTFontCreateWithFontDescriptorAndOptions)
-            ? WK_ORIGINAL(CTFontCreateWithFontDescriptorAndOptions)(descriptor, size, matrix, options) : NULL;
+            ? WK_ORIGINAL(CTFontCreateWithFontDescriptorAndOptions)(realizable ? realizable : descriptor, size, matrix, options) : NULL;
+        if (realizable)
+            CFRelease(realizable);
+        instance = wkApplyTraitsToFace(instance, descriptor);
     }
     if (resolved)
         CFRelease(resolved);
@@ -844,6 +967,8 @@ typedef struct {
     CGFloat weight;
     bool haveWidth;
     CGFloat width;
+    bool haveSlant;
+    CGFloat slant;
     uint32_t symbolic;
 } wk_font_traits;
 
@@ -864,6 +989,7 @@ static bool wkTraitsFromDictionary(CFTypeRef traits, wk_font_traits *out)
         CFDictionaryRef dictionary = (CFDictionaryRef)traits;
         out->haveWeight = wkNumberValue(dictionary, kCTFontWeightTrait, &out->weight);
         out->haveWidth = wkNumberValue(dictionary, kCTFontWidthTrait, &out->width);
+        out->haveSlant = wkNumberValue(dictionary, kCTFontSlantTrait, &out->slant);
         int32_t bits = 0;
         CFNumberRef symbolicNumber = (CFNumberRef)CFDictionaryGetValue(dictionary, kCTFontSymbolicTrait);
         if (symbolicNumber && CFGetTypeID(symbolicNumber) == CFNumberGetTypeID()
@@ -889,31 +1015,88 @@ static bool wkRequestedTraits(CTFontDescriptorRef descriptor, wk_font_traits *ou
     return wkTraitsFromDictionary(wk_carriedAttribute(descriptor, kCTFontTraitsAttribute), out);
 }
 
-// |a - b| for two points on a normalized trait scale.
-static CGFloat wkTraitDistance(CGFloat a, CGFloat b)
+// The CSS weight a kCTFontWeightTrait value stands for. The axis is the nine weights CoreText names
+// and the interpolation between them, so the CSS weight each landmark carries is the scale a
+// difference of two weights is a distance on: kCTFontWeightMedium is one step from regular and two
+// from bold, which |0.23 - 0.0| > |0.23 - 0.4| does not say.
+static CGFloat wkCSSWeight(CGFloat weight)
 {
-    return a > b ? a - b : b - a;
+    // A traits dictionary carries its weight as a single-precision number, so the landmarks are
+    // compared at that precision: a face sitting on one has to land on its CSS weight exactly, not
+    // a rounding step past it and onto the wrong side of the request.
+    const struct { float ct; CGFloat css; } ladder[] = {
+        { (float)kCTFontWeightUltraLight, 100 }, { (float)kCTFontWeightThin, 200 }, { (float)kCTFontWeightLight, 300 },
+        { (float)kCTFontWeightRegular, 400 }, { (float)kCTFontWeightMedium, 500 }, { (float)kCTFontWeightSemibold, 600 },
+        { (float)kCTFontWeightBold, 700 }, { (float)kCTFontWeightHeavy, 800 }, { (float)kCTFontWeightBlack, 900 },
+    };
+    size_t count = sizeof(ladder) / sizeof(ladder[0]);
+    float value = (float)weight;
+    if (value <= ladder[0].ct)
+        return ladder[0].css;
+    for (size_t i = 0; i + 1 < count; ++i) {
+        if (value <= ladder[i + 1].ct) {
+            CGFloat ratio = (CGFloat)(value - ladder[i].ct) / (CGFloat)(ladder[i + 1].ct - ladder[i].ct);
+            return ladder[i].css + ratio * (ladder[i + 1].css - ladder[i].css);
+        }
+    }
+    return ladder[count - 1].css;
 }
 
-// How near a family member sits to the requested traits. Font matching resolves width before weight, so
-// the two distances are ranked in that order rather than combined; kCTFontNameAttribute breaks an exact
-// tie in favour of the face the request started from, and the heavier face otherwise.
+// The CSS stretch percentage a kCTFontWidthTrait value stands for: -1..1 onto 50%..200%, in the two
+// segments that meet at standard width.
+static CGFloat wkCSSWidth(CGFloat width)
+{
+    float value = (float)width;
+    return value < 0 ? 100.0 + value * 50.0 : 100.0 + value * 100.0;
+}
+
+// How a candidate ranks against a request on one axis. Matching searches one side of the request
+// first -- the narrower widths at or below standard and the wider above it, the lighter weights at or
+// below 500 and the heavier above -- so a candidate on the searched side beats every candidate off
+// it, however far off, and distance orders only the candidates that share a side.
 typedef struct {
-    CGFloat widthDistance;
-    CGFloat weightDistance;
-    CGFloat weight;
+    bool offSide;
+    CGFloat distance;
+} wk_axis_rank;
+
+static wk_axis_rank wkAxisRank(CGFloat candidate, CGFloat target, CGFloat pivot)
+{
+    wk_axis_rank rank;
+    rank.offSide = target <= pivot ? candidate > target : candidate < target;
+    rank.distance = candidate > target ? candidate - target : target - candidate;
+    return rank;
+}
+
+// How near a family member sits to the requested traits. Font matching resolves width before weight,
+// so the two axes are ranked in that order rather than combined; kCTFontNameAttribute breaks a tie in
+// favour of the face the request started from.
+typedef struct {
+    wk_axis_rank width;
+    wk_axis_rank weight;
     bool isSourceFace;
 } wk_face_rank;
 
+static wk_face_rank wkRankFace(CGFloat width, CGFloat weight, CGFloat targetWidth, CGFloat targetWeight,
+                               bool isSourceFace)
+{
+    wk_face_rank rank;
+    rank.width = wkAxisRank(wkCSSWidth(width), wkCSSWidth(targetWidth), 100.0);
+    rank.weight = wkAxisRank(wkCSSWeight(weight), wkCSSWeight(targetWeight), 500.0);
+    rank.isSourceFace = isSourceFace;
+    return rank;
+}
+
 static bool wkRankIsNearer(const wk_face_rank *candidate, const wk_face_rank *best)
 {
-    if (candidate->widthDistance != best->widthDistance)
-        return candidate->widthDistance < best->widthDistance;
-    if (candidate->weightDistance != best->weightDistance)
-        return candidate->weightDistance < best->weightDistance;
-    if (candidate->isSourceFace != best->isSourceFace)
-        return candidate->isSourceFace;
-    return candidate->weight > best->weight;
+    if (candidate->width.offSide != best->width.offSide)
+        return !candidate->width.offSide;
+    if (candidate->width.distance != best->width.distance)
+        return candidate->width.distance < best->width.distance;
+    if (candidate->weight.offSide != best->weight.offSide)
+        return !candidate->weight.offSide;
+    if (candidate->weight.distance != best->weight.distance)
+        return candidate->weight.distance < best->weight.distance;
+    return candidate->isSourceFace && !best->isSourceFace;
 }
 
 // Realize a family member by name onto the copy's OWN descriptor, so every other attribute the copy
@@ -943,11 +1126,14 @@ static CTFontRef wkFontWithFaceName(CTFontRef copy, CFStringRef name)
 }
 
 // The member of the copy's family nearest the requested width and weight, out of the family's
-// enumeration. Slant is the one axis a width or weight request says nothing about, so a member whose
-// italic bit differs from the source's is a different style and not a candidate at all; width and
-// weight are ranked, not filtered, because every family member is a legitimate answer to them. NULL
-// when fewer than two members share the source's slant.
-static CTFontRef wkNearestEnumeratedFamilyMember(CTFontRef copy, CGFloat targetWidth, CGFloat targetWeight)
+// enumeration. Slant filters rather than ranks -- an upright face and an italic one are different
+// styles, not two distances along an axis -- so the candidates are the members carrying the slant
+// asked for, and the members carrying the source's when the family holds no face with it: an upright
+// family answers an italic request with its upright face, which WebCore obliques itself
+// (FontFamilySpecificationCoreText::fontRanges passes the synthetic oblique it computes). Width and
+// weight are ranked, because every family member is a legitimate answer to them.
+static CTFontRef wkNearestEnumeratedFamilyMember(CTFontRef copy, CGFloat targetWidth, CGFloat targetWeight,
+                                                 uint32_t wantedSlant)
 {
     CFStringRef family = CTFontCopyFamilyName(copy);
     if (!family)
@@ -971,40 +1157,62 @@ static CTFontRef wkNearestEnumeratedFamilyMember(CTFontRef copy, CGFloat targetW
     if (!members)
         return NULL;
 
-    uint32_t sourceSlant = CTFontGetSymbolicTraits(copy) & kCTFontTraitItalic;
+    uint32_t slants[2] = { wantedSlant, CTFontGetSymbolicTraits(copy) & kCTFontTraitItalic };
     CFStringRef sourceName = CTFontCopyPostScriptName(copy);
+
+    // A font whose family name is one an installed family also carries, without its own face being in
+    // that family -- a CGFont-backed face, a @font-face whose internal family reads "Helvetica Neue"
+    // -- is not a member and has no member to be moved to.
+    bool sourceIsMember = false;
+    for (CFIndex i = 0, count = CFArrayGetCount(members); sourceName && !sourceIsMember && i < count; ++i) {
+        CFStringRef memberName = (CFStringRef)CTFontDescriptorCopyAttribute(
+            (CTFontDescriptorRef)CFArrayGetValueAtIndex(members, i), kCTFontNameAttribute);
+        sourceIsMember = memberName && CFEqual(memberName, sourceName);
+        if (memberName)
+            CFRelease(memberName);
+    }
+    if (!sourceIsMember) {
+        if (sourceName)
+            CFRelease(sourceName);
+        CFRelease(members);
+        return NULL;
+    }
 
     CTFontDescriptorRef best = NULL;
     wk_face_rank bestRank;
     CFIndex candidates = 0;
-    for (CFIndex i = 0, count = CFArrayGetCount(members); i < count; ++i) {
-        CTFontDescriptorRef member = (CTFontDescriptorRef)CFArrayGetValueAtIndex(members, i);
-        wk_font_traits traits;
-        if (!wkDescriptorTraits(member, &traits) || !traits.haveWeight)
-            continue;
-        if ((traits.symbolic & kCTFontTraitItalic) != sourceSlant)
-            continue;
-        ++candidates;
+    for (unsigned pass = 0; pass < 2 && !candidates; ++pass) {
+        if (pass && slants[1] == slants[0])
+            break;
+        for (CFIndex i = 0, count = CFArrayGetCount(members); i < count; ++i) {
+            CTFontDescriptorRef member = (CTFontDescriptorRef)CFArrayGetValueAtIndex(members, i);
+            wk_font_traits traits;
+            if (!wkDescriptorTraits(member, &traits) || !traits.haveWeight)
+                continue;
+            if ((traits.symbolic & kCTFontTraitItalic) != slants[pass])
+                continue;
+            ++candidates;
 
-        CFStringRef memberName = (CFStringRef)CTFontDescriptorCopyAttribute(member, kCTFontNameAttribute);
-        wk_face_rank rank;
-        rank.widthDistance = wkTraitDistance(traits.haveWidth ? traits.width : 0.0, targetWidth);
-        rank.weightDistance = wkTraitDistance(traits.weight, targetWeight);
-        rank.weight = traits.weight;
-        rank.isSourceFace = memberName && sourceName && CFEqual(memberName, sourceName);
-        if (memberName)
-            CFRelease(memberName);
+            CFStringRef memberName = (CFStringRef)CTFontDescriptorCopyAttribute(member, kCTFontNameAttribute);
+            wk_face_rank rank = wkRankFace(traits.haveWidth ? traits.width : 0.0, traits.weight,
+                                           targetWidth, targetWeight,
+                                           memberName && sourceName && CFEqual(memberName, sourceName));
+            if (memberName)
+                CFRelease(memberName);
 
-        if (!best || wkRankIsNearer(&rank, &bestRank)) {
-            best = member;
-            bestRank = rank;
+            if (!best || wkRankIsNearer(&rank, &bestRank)) {
+                best = member;
+                bestRank = rank;
+            }
         }
     }
     if (sourceName)
         CFRelease(sourceName);
 
+    // One candidate is the family's only face for this style: an answer when it is not the face the
+    // request started from, and nothing to say when it is.
     CTFontRef selected = NULL;
-    if (best && candidates > 1) {
+    if (best && (candidates > 1 || !bestRank.isSourceFace)) {
         CFStringRef name = (CFStringRef)CTFontDescriptorCopyAttribute(best, kCTFontNameAttribute);
         if (name) {
             selected = wkFontWithFaceName(copy, name);
@@ -1050,9 +1258,9 @@ static CTFontRef wkNearestSymbolicTraitFace(CTFontRef copy, CGFloat targetWeight
                     CFRelease(descriptor);
             }
             if (haveWeights) {
-                int pick = wkTraitDistance(weights[1], targetWeight) < wkTraitDistance(weights[0], targetWeight)
-                    || (wkTraitDistance(weights[1], targetWeight) == wkTraitDistance(weights[0], targetWeight) && weights[1] > weights[0]) ? 1 : 0;
-                chosen = faces[pick];
+                wk_face_rank lighter = wkRankFace(0.0, weights[0], 0.0, targetWeight, false);
+                wk_face_rank heavier = wkRankFace(0.0, weights[1], 0.0, targetWeight, false);
+                chosen = faces[wkRankIsNearer(&heavier, &lighter) ? 1 : 0];
                 CFRetain(chosen);
             }
         }
@@ -1085,7 +1293,8 @@ static CTFontRef wkApplyTraitsToFace(CTFontRef copy, CTFontDescriptorRef attribu
     }
 
     wk_font_traits requested;
-    if (!wkRequestedTraits(attributes, &requested) || (!requested.haveWeight && !requested.haveWidth))
+    if (!wkRequestedTraits(attributes, &requested)
+        || (!requested.haveWeight && !requested.haveWidth && !requested.haveSlant))
         return copy;
 
     wk_font_traits own;
@@ -1098,7 +1307,10 @@ static CTFontRef wkApplyTraitsToFace(CTFontRef copy, CTFontDescriptorRef attribu
     CGFloat targetWidth = requested.haveWidth ? requested.width : (own.haveWidth ? own.width : 0.0);
     CGFloat targetWeight = requested.haveWeight ? requested.weight : (own.haveWeight ? own.weight : 0.0);
 
-    CTFontRef selected = wkNearestEnumeratedFamilyMember(copy, targetWidth, targetWeight);
+    uint32_t wantedSlant = requested.haveSlant ? (requested.slant > 0 ? (uint32_t)kCTFontTraitItalic : 0u)
+                                              : (CTFontGetSymbolicTraits(copy) & kCTFontTraitItalic);
+
+    CTFontRef selected = wkNearestEnumeratedFamilyMember(copy, targetWidth, targetWeight, wantedSlant);
     if (!selected && requested.haveWeight)
         selected = wkNearestSymbolicTraitFace(copy, targetWeight);
     if (!selected)
@@ -1222,8 +1434,7 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontDescriptorCopyAttribute,
     bool have = false;
     CFNumberRef traitNumber = (CFNumberRef)CFDictionaryGetValue(traits, wantWeight ? kCTFontWeightTrait : kCTFontWidthTrait);
     if (traitNumber && CFNumberGetValue(traitNumber, kCFNumberFloatType, &trait)) {
-        css = wantWeight ? wk_normalize_ct_weight(trait)
-                         : (trait < 0 ? 100.0f + trait * 50.0f : 100.0f + trait * 100.0f);
+        css = wantWeight ? wk_normalize_ct_weight(trait) : (float)wkCSSWidth(trait);
         have = true;
     } else if (wantWeight && (symbolic & kCTFontTraitBold)) {
         css = 700;
@@ -2774,11 +2985,12 @@ WK_POLYFILL_ABSENT("CoreText", CTFontSymbolicTraits, CTFontGetPhysicalSymbolicTr
     return CTFontGetSymbolicTraits(font);
 }
 
-// UI-font-type classification (newer). 10.9 cannot classify an arbitrary font; report "no type".
+// UI-font-type classification (newer): the type the font was created for, recorded above by
+// CTFontCreateUIFontForLanguage. A font created any other way has no type.
 WK_POLYFILL_ABSENT("CoreText", uint32_t, CTFontGetUIFontType, (CTFontRef font))
 {
-    (void)font;
-    return (uint32_t)-1; /* kCTFontNoFontType */
+    uint32_t type = 0;
+    return wk_recordedUIFontType(font, &type) ? type : (uint32_t)-1 /* kCTFontNoFontType */;
 }
 
 // Is this the Apple Color Emoji font? Compare the PostScript name (the emoji font ships on 10.9).
