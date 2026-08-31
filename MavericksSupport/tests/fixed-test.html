@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head><title>fixed-position test</title>
+<style>
+body { margin: 0; height: 4000px; background: linear-gradient(red, blue); }
+#fixedbox { position: fixed; top: 20px; right: 20px; width: 180px; height: 80px;
+            background: yellow; border: 3px solid black; z-index: 100; font: 16px sans-serif; }
+#offright { position: fixed; bottom: 14px; right: -186px; width: 256px; height: 60px;
+            background: orange; transition: right .3s; }
+#marker { position: absolute; top: 1000px; left: 10px; font: 20px sans-serif; }
+</style>
+</head>
+<body>
+<div id="fixedbox">FIXED BOX (should stay pinned top-right while scrolling)</div>
+<div id="offright">badge</div>
+<div id="marker">scroll marker at y=1000</div>
+<script>
+setInterval(function () {
+    document.title = 'sw=' + document.documentElement.scrollWidth + ' y=' + scrollY +
+        ' pos=' + getComputedStyle(document.getElementById('fixedbox')).position;
+}, 400);
+</script>
+</body>
+</html>

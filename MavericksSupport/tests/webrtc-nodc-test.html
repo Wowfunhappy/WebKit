@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>WebRTC no-datachannel test</title>
+<style>body{font-family:-apple-system,Helvetica;margin:24px}#v{font-size:38px;font-weight:bold;padding:14px;border-radius:8px}.p{background:#d6f5d6;color:#0a7a0a}.f{background:#f8d6d6;color:#a00}.r{background:#eee;color:#555}#log{font-family:Menlo;font-size:13px;white-space:pre-wrap;border:1px solid #ccc;padding:8px;margin-top:14px;height:340px;overflow:auto}</style>
+</head><body>
+<div id="v" class="r">RUNNING…</div><div id="log"></div>
+<script>
+const L=document.getElementById('log'),V=document.getElementById('v');
+function log(m){const d=document.createElement('div');d.textContent=m;L.appendChild(d);L.scrollTop=L.scrollHeight;}
+function pass(m){V.className='p';V.textContent='PASS — '+m;log('PASS '+m);}
+function fail(m){V.className='f';V.textContent='FAIL — '+m;log('FAIL '+m);}
+// Same loopback handshake as the data-channel test, but with an AUDIO transceiver
+// instead of a data channel — so SCTP is never set up. If this crashes too, the bug
+// is in the transport/ICE/DTLS path, not the data-channel/SCTP path.
+async function run(){
+  try{
+    const pc1=new RTCPeerConnection({iceServers:[]}), pc2=new RTCPeerConnection({iceServers:[]});
+    let done=false;
+    pc1.onicecandidate=e=>{if(e.candidate)pc2.addIceCandidate(e.candidate).catch(()=>{});};
+    pc2.onicecandidate=e=>{if(e.candidate)pc1.addIceCandidate(e.candidate).catch(()=>{});};
+    pc1.oniceconnectionstatechange=()=>{log('pc1 ICE: '+pc1.iceConnectionState);
+      if((pc1.iceConnectionState==='connected'||pc1.iceConnectionState==='completed')&&!done){done=true;pass('PeerConnection (audio transceiver, NO data channel) — ICE connected, no crash');}};
+    pc2.oniceconnectionstatechange=()=>log('pc2 ICE: '+pc2.iceConnectionState);
+    pc1.addTransceiver('audio',{direction:'sendrecv'});
+    const offer=await pc1.createOffer();await pc1.setLocalDescription(offer);
+    await pc2.setRemoteDescription(offer);const ans=await pc2.createAnswer();await pc2.setLocalDescription(ans);await pc1.setRemoteDescription(ans);
+    log('offer/answer exchanged (audio m-line, no SCTP)');
+    setTimeout(()=>{if(!done)fail('no ICE connect in 15s (pc1='+pc1.iceConnectionState+')');},15000);
+  }catch(e){fail('exception: '+(e&&e.message||e));}
+}
+if(typeof RTCPeerConnection==='undefined')fail('no RTCPeerConnection');else run();
+</script></body></html>

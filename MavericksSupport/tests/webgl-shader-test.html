@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>WebGL shader compile and draw</title>
+<style>body{font:13px -apple-system,sans-serif;margin:20px} #log{white-space:pre;font-family:Menlo,monospace} canvas{border:1px solid #ccc}</style>
+<h1>WebGL shader compile and draw</h1>
+<canvas id="c" width="240" height="160"></canvas>
+<div id="log">running…</div>
+<script>
+const out = [];
+function say(s) { out.push(s); document.getElementById('log').textContent = out.join('\n'); }
+
+const gl = document.getElementById('c').getContext('webgl') || document.getElementById('c').getContext('experimental-webgl');
+if (!gl) {
+    say('FAIL: no WebGL context');
+} else {
+    say('context: ' + gl.getParameter(gl.VERSION));
+    say('renderer: ' + gl.getParameter(gl.RENDERER));
+    say('shading language: ' + gl.getParameter(gl.SHADING_LANGUAGE_VERSION));
+
+    // A shader with a loop, a short-circuiting condition and a matrix, so the Apple GLSL
+    // tree operations (UnfoldShortCircuitAST, AddAndTrueToLoopCondition, RewriteRowMajorMatrices)
+    // are the ones translating it.
+    const vsSource = `
+        attribute vec2 aPosition;
+        uniform mat4 uTransform;
+        varying vec2 vUV;
+        void main() {
+            vUV = aPosition * 0.5 + 0.5;
+            gl_Position = uTransform * vec4(aPosition, 0.0, 1.0);
+        }`;
+    const fsSource = `
+        precision mediump float;
+        varying vec2 vUV;
+        uniform float uCount;
+        void main() {
+            float acc = 0.0;
+            for (int i = 0; i < 8; ++i) {
+                if (float(i) < uCount && vUV.x > 0.0)
+                    acc += 0.1;
+            }
+            gl_FragColor = vec4(vUV.x, vUV.y, acc, 1.0);
+        }`;
+
+    function compile(type, source, name) {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, source);
+        gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+            say('FAIL: ' + name + ' did not compile: ' + gl.getShaderInfoLog(s));
+            return null;
+        }
+        say('ok: ' + name + ' compiled');
+        return s;
+    }
+
+    const vs = compile(gl.VERTEX_SHADER, vsSource, 'vertex shader');
+    const fs = compile(gl.FRAGMENT_SHADER, fsSource, 'fragment shader');
+    if (vs && fs) {
+        const p = gl.createProgram();
+        gl.attachShader(p, vs);
+        gl.attachShader(p, fs);
+        gl.linkProgram(p);
+        if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+            say('FAIL: program did not link: ' + gl.getProgramInfoLog(p));
+        } else {
+            say('ok: program linked');
+            gl.useProgram(p);
+            const buf = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+            const loc = gl.getAttribLocation(p, 'aPosition');
+            gl.enableVertexAttribArray(loc);
+            gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+            gl.uniformMatrix4fv(gl.getUniformLocation(p, 'uTransform'), false,
+                new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]));
+            gl.uniform1f(gl.getUniformLocation(p, 'uCount'), 4.0);
+            gl.clearColor(0, 0, 0, 1);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.drawArrays(gl.TRIANGLES, 0, 3);
+            const px = new Uint8Array(4);
+            gl.readPixels(120, 80, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+            say('centre pixel: ' + px[0] + ',' + px[1] + ',' + px[2] + ',' + px[3]);
+            const err = gl.getError();
+            say('gl.getError(): ' + err);
+            const drew = px[3] === 255 && (px[0] || px[1] || px[2]);
+            say(drew && !err ? 'PASS' : 'FAIL: nothing was drawn');
+        }
+    }
+}
+window.webglResult = out.join('\n');
+</script>

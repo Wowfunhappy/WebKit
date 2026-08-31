@@ -1,0 +1,33 @@
+<meta charset="utf-8">
+<title>Web Share file test</title>
+<style>
+  body { font: 15px -apple-system, "Helvetica Neue", sans-serif; margin: 40px; }
+  button { font-size: 16px; padding: 8px 16px; }
+  #log { white-space: pre-wrap; margin-top: 20px; font-family: Menlo, monospace; font-size: 13px; }
+</style>
+<h1>Web Share file test</h1>
+<p>Exercises WKShareSheet's <code>writeFileToShareableURL:</code>, which calls
+<code>setQuarantineInformationForFilePath:</code> &rarr; <code>-[NSURL setResourceValue:forKey:error:]</code>
+with <code>NSURLQuarantinePropertiesKey</code>. On 10.9 that key is polyfilled and routed to
+<code>LSSetItemAttribute</code>.</p>
+<button id="go">Share a file</button>
+<div id="log"></div>
+<script>
+const log = (m) => { document.getElementById('log').textContent += m + '\n'; };
+
+log('navigator.share    : ' + (typeof navigator.share));
+log('navigator.canShare : ' + (typeof navigator.canShare));
+
+document.getElementById('go').addEventListener('click', async () => {
+  try {
+    const file = new File([new Blob(['quarantine probe\n'], {type: 'text/plain'})],
+                          'wk-quarantine-probe.txt', {type: 'text/plain'});
+    if (navigator.canShare)
+      log('canShare({files}) : ' + navigator.canShare({files: [file]}));
+    await navigator.share({files: [file], title: 'probe'});
+    log('share(): RESOLVED — the share sheet accepted the file');
+  } catch (e) {
+    log('share(): ' + e.name + ': ' + e.message);
+  }
+});
+</script>

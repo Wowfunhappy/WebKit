@@ -1,0 +1,12 @@
+<!doctype html><html><head><meta charset=utf-8><title>forms</title>
+<style>.sc{width:200px;height:120px;overflow:scroll;border:1px solid #888}
+.big{width:600px;height:600px;background:linear-gradient(45deg,#ace,#eca)}</style></head>
+<body><h1>Form controls + scroll corner</h1>
+<p><input type=text placeholder=text> <input type=checkbox checked> <input type=radio checked>
+<select><option>one<option>two</select> <input type=date> <input type=color>
+<input type=range> <progress value=0.5></progress> <button>Button</button>
+<meter value=0.6></meter> <input type=search placeholder=search></p>
+<!-- this scrollable div has BOTH scrollbars -> the scroll-corner is drawn (ScrollbarTrackCornerSystemImageMac) -->
+<div class=sc><div class=big>scroll me both ways</div></div>
+<textarea rows=3>textarea</textarea>
+</body></html>

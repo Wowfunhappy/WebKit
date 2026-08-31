@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Multi-video GStreamer stress</title>
+<style>
+  body { font-family: -apple-system, Helvetica, sans-serif; margin: 12px; background:#111; color:#eee; }
+  #grid { display: flex; flex-wrap: wrap; gap: 6px; }
+  video { width: 240px; height: 135px; background:#000; }
+  #status { font-family: Menlo, monospace; font-size: 12px; padding: 6px 0; }
+</style>
+</head>
+<body>
+<div id="status">starting…</div>
+<div id="grid"></div>
+<script>
+// Drives N simultaneous GStreamer video pipelines, each with its own streaming thread pushing
+// decoded frames at the compositing layer, and churns play/pause/seek so the per-player
+// RunLoop::Timers are started and stopped from those streaming threads while the main thread is
+// also touching them. Reproduction harness for the main-RunLoop heap corruption seen in Meet calls.
+const N = 6;
+const grid = document.getElementById('grid');
+const status = document.getElementById('status');
+const vids = [];
+for (let i = 0; i < N; ++i) {
+  const v = document.createElement('video');
+  v.src = '../../LayoutTests/media/content/test.mp4';
+  v.loop = true;
+  v.muted = true;
+  v.autoplay = true;
+  v.playsInline = true;
+  grid.appendChild(v);
+  vids.push(v);
+  v.play().catch(() => {});
+}
+
+let ticks = 0;
+setInterval(() => {
+  ++ticks;
+  // Churn: seek and pause/resume at staggered offsets so pipelines keep re-prerolling.
+  const v = vids[ticks % N];
+  if (ticks % 3 === 0) {
+    v.currentTime = Math.random() * Math.max(1, v.duration || 5);
+  } else if (ticks % 3 === 1) {
+    v.pause();
+  } else {
+    v.play().catch(() => {});
+  }
+  const playing = vids.filter(x => !x.paused).length;
+  status.textContent = `tick ${ticks} — ${playing}/${N} playing — elapsed ${Math.round(performance.now()/1000)}s`;
+}, 400);
+</script>
+</body>
+</html>

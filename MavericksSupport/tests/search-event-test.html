@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<html><head><title>SEARCH-EVENT-TEST</title></head>
+<body style="font:24px sans-serif;padding:40px">
+<h2>type a word, press Enter</h2>
+<input id="s" type="search" incremental
+       onsearch="document.getElementById('out').textContent='onsearch FIRED: '+this.value; document.title='FIRED:'+this.value;"
+       style="font-size:24px;width:300px">
+<p id="out" style="color:green">onsearch NOT yet fired</p>
+</body></html>

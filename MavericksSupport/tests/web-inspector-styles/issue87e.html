@@ -1,0 +1,21 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>issue87e — nested rules</title>
+<style>
+.card {
+    color: red;
+    padding: 4px;
+
+    @media (min-width: 0px) {
+        &.inner {
+            color: blue;
+        }
+
+        font-weight: bold;
+    }
+}
+.tight { color: green; margin: 3px; @media (min-width: 0px) { &.inner { color: teal; } font-style: italic; } }
+</style></head>
+<body>
+<p class="card inner">card inner — nested, multi-line</p>
+<p class="tight inner">tight inner — nested, single-line</p>
+</body></html>

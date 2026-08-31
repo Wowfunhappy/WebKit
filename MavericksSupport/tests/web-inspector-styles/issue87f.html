@@ -1,0 +1,30 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>issue87f — declaration after a nested rule</title>
+<style>
+.a1 {
+    color: red;
+    &.inner { font-weight: bold; }
+    background: aliceblue;
+}
+.b1 {
+    color: green;
+    background: beige;
+    &.inner { font-weight: bold; }
+}
+.c1 {
+    color: teal;
+    @media (min-width: 0px) { &.inner { font-style: italic; } }
+    background: cornsilk;
+}
+.d1 {
+    color: navy;
+    background: lavender;
+    @media (min-width: 0px) { &.inner { font-style: italic; } }
+}
+</style></head>
+<body>
+<p class="a1 inner">a1 — declaration AFTER a nested style rule</p>
+<p class="b1 inner">b1 — declaration BEFORE a nested style rule</p>
+<p class="c1 inner">c1 — declaration AFTER a nested @media</p>
+<p class="d1 inner">d1 — declaration BEFORE a nested @media</p>
+</body></html>
