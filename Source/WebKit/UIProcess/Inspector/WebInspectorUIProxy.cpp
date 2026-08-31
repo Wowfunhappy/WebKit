@@ -853,11 +853,13 @@ void WebInspectorUIProxy::save(Vector<InspectorFrontendClient::SaveData>&& saveD
 void WebInspectorUIProxy::load(const String& path, CompletionHandler<void(const String&)>&& completionHandler)
 {
     if (!protect(protect(inspectedPage())->preferences())->developerExtrasEnabled())
-        return;
+    // MAVERICKS_BACKPORT: invoke the CompletionHandler on the early-return path so it isn't destroyed unrun (asserts).
+        return completionHandler({ });
 
     ASSERT(!path.isEmpty());
     if (path.isEmpty())
-        return;
+        // MAVERICKS_BACKPORT: invoke the CompletionHandler on the early-return path so it isn't destroyed unrun (asserts).
+        return completionHandler({ });
 
     platformLoad(path, WTF::move(completionHandler));
 }

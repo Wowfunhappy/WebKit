@@ -1481,6 +1481,37 @@ static inline bool NODELETE isNotSpaceOrTab(char16_t character)
     return character != ' ' && character != '\t';
 }
 
+// MAVERICKS_BACKPORT: true when `text` is a whole rule body rather than the declaration list
+// CSS.setStyleText asks for, i.e. it carries nested rules of its own. Answered by parsing `text`
+// as a style rule body and asking the same source-data machinery the inspector uses everywhere else,
+// because only the parser knows what is a nested rule: a brace is not the tell. A custom property's
+// value may legally BE a top-level brace block (CSSVariableParser counts them: `--mixin: { … };`),
+// and an unquoted url token may contain braces (`url(a{b}.png)`) — a scanner that took either for a
+// nested rule would conclude the client sent the whole body and drop the rule's real nested rules.
+static bool declarationTextContainsNestedRules(const String& text, Document* document)
+{
+    if (text.isEmpty())
+        return false;
+
+    // A declaration list only admits nested rules inside a style rule, so parse it as one.
+    auto wrappedText = makeString("*{"_s, text, '}');
+
+    auto styleSheet = StyleSheetContents::create();
+    RuleSourceDataList sourceData;
+    StyleSheetHandler handler(wrappedText, document, &sourceData);
+    CSSParser::parseStyleSheetForInspector(wrappedText, parserContextForDocument(document), styleSheet, handler);
+
+    if (sourceData.isEmpty())
+        return false;
+
+    for (auto& childRuleSourceData : sourceData.first()->childRules) {
+        if (!childRuleSourceData->isImplicitlyNested)
+            return true;
+    }
+
+    return false;
+}
+
 // A CSS rule's body can contain a mix of property declarations and nested child rules.
 // This function formats a rule's body text by putting the `ruleStyleDeclarationText`
 // at the start, followed by the nested child rules scraped from the full `styleSheetText`,
@@ -1488,7 +1519,9 @@ static inline bool NODELETE isNotSpaceOrTab(char16_t character)
 //
 // Canonicalizing is useful for generating the new style sheet text after some style edit;
 // it'd be hard to compute the replacement text if property declarations were scattered.
-static String computeCanonicalRuleText(const String& styleSheetText, const String& ruleStyleDeclarationText, const CSSRuleSourceData& logicalContainingRuleSourceData)
+// MAVERICKS_BACKPORT: `clientSuppliedWholeBody` is computed by the caller, which has the document the
+// parse needs; see declarationTextContainsNestedRules() above and the note at its use below.
+static String computeCanonicalRuleText(const String& styleSheetText, const String& ruleStyleDeclarationText, const CSSRuleSourceData& logicalContainingRuleSourceData, bool clientSuppliedWholeBody)
 {
     auto indentation = emptyString();
     auto startOfSecondLine = ruleStyleDeclarationText.find('\n');
@@ -1502,7 +1535,22 @@ static String computeCanonicalRuleText(const String& styleSheetText, const Strin
     StringBuilder canonicalRuleText;
     canonicalRuleText.append(ruleStyleDeclarationText);
 
+    // MAVERICKS_BACKPORT: the closing-indentation re-append below only has anything to restore once a
+    // child rule has been written after the declaration text; see the note there (github #87).
+    bool appendedChildRuleText = false;
+
     for (auto& childRuleSourceData : logicalContainingRuleSourceData.childRules) {
+        // MAVERICKS_BACKPORT: scraping the child rules in is right only while the client sent the
+        // declaration list this command asks for. `cssText` and the property ranges the client reads
+        // back are the whole rule body in body-relative coordinates, so a read-modify-write client
+        // necessarily echoes the child rules along with the declarations -- the Safari 8-era frontend
+        // this backport ships does exactly that, because it predates CSS nesting and takes a style
+        // rule's body to BE its declarations. Appending scraped copies on top of them grew another
+        // copy of every nested rule per commit (github #87). When the client already supplied them,
+        // its text is the finished body.
+        if (clientSuppliedWholeBody)
+            break;
+
         if (childRuleSourceData->isImplicitlyNested)
             continue;
 
@@ -1519,10 +1567,24 @@ static String computeCanonicalRuleText(const String& styleSheetText, const Strin
 
         canonicalRuleText.appendSubstring(styleSheetText, childStart, childEnd - childStart);
         canonicalRuleText.append("}\n"_s);
+        appendedChildRuleText = true; // MAVERICKS_BACKPORT: see the closing-indentation note below (github #87).
     }
 
     auto closingIndentationLineStart = ruleStyleDeclarationText.reverseFind('\n');
-    if (closingIndentationLineStart != notFound)
+    // MAVERICKS_BACKPORT: this re-append exists to put back the indentation the closing "}" sits on
+    // after a child rule has been written over it, so it is correct only when a child rule was in fact
+    // written AND the trailing line is the whitespace that indentation is made of. Unconditionally it
+    // duplicates bytes `canonicalRuleText` already holds: with no child rule the builder is still
+    // exactly `ruleStyleDeclarationText`, so it re-appends the final line for nothing, and nothing
+    // obliges a protocol client to end its declaration text with a newline. The Safari 8-era frontend
+    // this backport ships ends it without one whenever CSSStyleDeclarationTextEditor synthesizes the
+    // body from the property list instead of echoing the author's text; its last line is then a real
+    // declaration, and re-appending it wrote that declaration into the style sheet twice, so every
+    // property checkbox toggle grew another copy of the property (github #87). When the frontend does
+    // echo the author's text, the stray trailing newline was instead read back and re-committed, so
+    // the rule body grew one blank line per commit.
+    // if (closingIndentationLineStart != notFound)
+    if (appendedChildRuleText && closingIndentationLineStart != notFound && ruleStyleDeclarationText.find(isNotSpaceOrTab, closingIndentationLineStart + 1) == notFound)
         canonicalRuleText.appendSubstring(ruleStyleDeclarationText, closingIndentationLineStart);
 
     return canonicalRuleText.toString();
@@ -1568,8 +1630,14 @@ ExceptionOr<void> InspectorStyleSheet::setRuleStyleText(const InspectorCSSId& id
 
     cssStyleDeclaration->setCssText(newStyleDeclarationText);
 
+    // MAVERICKS_BACKPORT: decided here because the parse needs the document; see
+    // declarationTextContainsNestedRules() and the note at its use in computeCanonicalRuleText().
+    bool clientSuppliedWholeBody = declarationTextContainsNestedRules(newStyleDeclarationText, m_pageStyleSheet->ownerDocument());
+
     // Don't canonicalize the rule text if a `newRuleText` is provided, to allow for faithful undoing.
-    String replacementBodyText = newRuleText ? *newRuleText : computeCanonicalRuleText(styleSheetText, newStyleDeclarationText, *logicalContainingRuleSourceData);
+    // MAVERICKS_BACKPORT: `clientSuppliedWholeBody` argument added (github #87).
+    // String replacementBodyText = newRuleText ? *newRuleText : computeCanonicalRuleText(styleSheetText, newStyleDeclarationText, *logicalContainingRuleSourceData);
+    String replacementBodyText = newRuleText ? *newRuleText : computeCanonicalRuleText(styleSheetText, newStyleDeclarationText, *logicalContainingRuleSourceData, clientSuppliedWholeBody);
 
     m_parsedStyleSheet->setText(makeStringByReplacing(styleSheetText, bodyStart, bodyEnd - bodyStart, replacementBodyText));
     fireStyleSheetChanged();
