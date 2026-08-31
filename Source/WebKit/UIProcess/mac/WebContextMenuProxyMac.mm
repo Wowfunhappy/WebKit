@@ -41,6 +41,7 @@
 #import "WKSharingServicePickerDelegate.h"
 #import "WebContextMenuItem.h"
 #import "WebContextMenuItemData.h"
+#import "WebMouseEvent.h" // MAVERICKS_BACKPORT: complete WebMouseEventInputSource type (relied on bundle-transitive include before SourcesCocoa reshuffle).
 #import "WebPageProxy.h"
 #import "WebPreferences.h"
 #import "_WKCaptionStyleMenuController.h"
@@ -528,7 +529,14 @@ RetainPtr<NSMenuItem> WebContextMenuProxyMac::createShareMenuItem(ShareMenuItemT
     if (!shareMenuItem)
         return nil;
 
-    if (usePlaceholder) {
+    // MAVERICKS_BACKPORT: was `if (usePlaceholder)`. 10.9 presents Share as an inline SUBMENU of services
+    // (Email/Messages/…) — TextEdit's context menu is the reference, and the polyfill that stands in for
+    // the absent 10.10 constructor builds that native form. Flattening it into a placeholder whose action
+    // opens a share POPOVER, as upstream does, throws the submenu away and gives this OS an affordance it
+    // has nowhere else; Jonathan rejected that look outright ("looks bad, match Mavericks"). Keep an item
+    // that already carries its services as a submenu, and let the placeholder path handle the flat items
+    // the real 10.10 API returns.
+    if (usePlaceholder && ![shareMenuItem submenu]) {
         RetainPtr placeholder = adoptNS([[NSMenuItem alloc] initWithTitle:retainPtr([shareMenuItem title]).get() action:@selector(performShare:) keyEquivalent:@""]);
         [placeholder setTarget:[WKMenuTarget sharedMenuTarget]];
 #if ENABLE(CONTEXT_MENU_IMAGES_ON_MAC)
@@ -846,7 +854,36 @@ void WebContextMenuProxyMac::getContextMenuFromItems(const Vector<WebContextMenu
         if (--itemsRemaining)
             return;
 
-        [menu setItemArray:[sparseMenuItems allObjects]];
+        // MAVERICKS_BACKPORT: was `[menu setItemArray:[sparseMenuItems allObjects]]`. A slot the
+        // converter declined stays null here, and the separator WebCore appended to introduce that item
+        // would outlive it and draw as a blank row. Assemble the items group by group and close each
+        // group as it ends: a separator is dropped only when a member of the group it introduced was
+        // declined and no member of that group survived.
+        RetainPtr menuItems = adoptNS([[NSMutableArray alloc] initWithCapacity:[sparseMenuItems count]]);
+        std::optional<NSUInteger> groupSeparatorIndex;
+        bool groupHasItem = false;
+        bool groupHadDecline = false;
+        auto closeGroup = [&] {
+            if (groupSeparatorIndex && groupHadDecline && !groupHasItem)
+                [menuItems removeObjectAtIndex:*groupSeparatorIndex];
+        };
+        for (NSUInteger slot = 0; slot < [sparseMenuItems count]; ++slot) {
+            RetainPtr<NSMenuItem> slotItem = (__bridge NSMenuItem *)[sparseMenuItems pointerAtIndex:slot];
+            if (!slotItem) {
+                groupHadDecline = true;
+                continue;
+            }
+            if ([slotItem isSeparatorItem]) {
+                closeGroup();
+                groupSeparatorIndex = [menuItems count];
+                groupHasItem = false;
+                groupHadDecline = false;
+            } else
+                groupHasItem = true;
+            [menuItems addObject:slotItem.get()];
+        }
+        closeGroup();
+        [menu setItemArray:menuItems.get()];
 
         RefPtr page = weakPage.get();
         if (page && imageBitmap) {

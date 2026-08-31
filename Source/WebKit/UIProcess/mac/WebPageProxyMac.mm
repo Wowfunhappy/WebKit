@@ -36,6 +36,7 @@
 #import "ImageAnalysisUtilities.h"
 #import "InsertTextOptions.h"
 #import "MenuUtilities.h"
+#import "MediaKeySystemPermissionRequestProxy.h" // MAVERICKS_BACKPORT: allowMediaKeySystemRequestWithWidevineCdm below.
 #import "MessageSenderInlines.h"
 #import "NativeWebKeyboardEvent.h"
 #import "NetworkProcessMessages.h"
@@ -46,6 +47,7 @@
 #import "PlatformWritingToolsUtilities.h"
 #import "RemoteLayerTreeHost.h"
 #import "RemoteLayerTreeNode.h"
+#import "SandboxExtension.h" // MAVERICKS_BACKPORT: the extension for the installed Widevine CDM, made below.
 #import "TextChecker.h"
 #import "WKQuickLookPreviewController.h"
 #import "WKSharingServicePickerDelegate.h"
@@ -54,6 +56,7 @@
 #import "WebPageProxyInternals.h"
 #import "WebPageProxyMessages.h"
 #import "WebPreferencesKeys.h"
+#import "WebProcessMessages.h" // MAVERICKS_BACKPORT: SetWidevineCdmModule, sent below.
 #import "WebProcessProxy.h"
 #import <WebCore/AXObjectCache.h>
 #import <WebCore/AttributedString.h>
@@ -71,6 +74,7 @@
 #import <WebCore/UniversalAccessZoom.h>
 #import <WebCore/UserAgent.h>
 #import <WebCore/ValidationBubble.h>
+#import <WebCore/WidevineCdmInstaller.h> // MAVERICKS_BACKPORT: the runtime installation of Google's Widevine CDM.
 #import <mach-o/dyld.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/cocoa/WritingToolsSPI.h>
@@ -555,6 +559,8 @@ int WebPageProxy::footerBannerHeight() const
     return 0;
 }
 
+// MAVERICKS_BACKPORT: PDF-save-and-open path is ENABLE(PDF_PLUGIN)-only (PDFs download on 10.9).
+#if ENABLE(PDF_PLUGIN)
 static NSString *temporaryPDFDirectoryPath()
 {
     static NeverDestroyed path = [] {
@@ -630,6 +636,8 @@ void WebPageProxy::savePDFToTemporaryFolderAndOpenWithNativeApplication(const St
         [[NSWorkspace sharedWorkspace] openURL:pdfFileURL.createNSURL().get()];
     });
 }
+// MAVERICKS_BACKPORT: close the PDF_PLUGIN guard around the save-and-open path (PDFs download on 10.9).
+#endif // ENABLE(PDF_PLUGIN)
 
 #if ENABLE(PDF_PLUGIN)
 void WebPageProxy::showPDFContextMenu(const WebKit::PDFContextMenu& contextMenu, PDFPluginIdentifier identifier, WebCore::FrameIdentifier frameID, CompletionHandler<void(std::optional<int32_t>&&)>&& completionHandler)
@@ -1135,6 +1143,43 @@ void WebPageProxy::platformUnlockPointer()
     CGDisplayShowCursor(CGMainDisplayID());
 }
 
+#endif
+
+// MAVERICKS_BACKPORT: the QuickTime Player hand-off for an HLS playlist, called from
+// decidePolicyForResponseShared. LaunchServices delivers the URL as the GetURL Apple event
+// QuickTime Player's Internet suite handles, and answers whether the hand-off was made.
+bool WebPageProxy::openMediaPlaylistInQuickTimePlayer(const URL& url)
+{
+    if (!url.protocolIsInHTTPFamily())
+        return false;
+
+    return [[NSWorkspace sharedWorkspace] openURLs:@[url.createNSURL().get()] withAppBundleIdentifier:@"com.apple.QuickTimePlayerX" options:NSWorkspaceLaunchAsync additionalEventParamDescriptor:nil launchIdentifiers:nullptr];
+}
+
+#if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
+// MAVERICKS_BACKPORT: the page asked for com.widevine.alpha and the client allowed it. Google's
+// CDM is not redistributable, so it is installed at runtime the first time a page needs it; the
+// web process is told where it landed before the request is allowed, because what answers
+// requestMediaKeySystemAccess() next is whether that process can load it.
+void WebPageProxy::allowMediaKeySystemRequestWithWidevineCdm(Ref<MediaKeySystemPermissionRequestProxy>&& request)
+{
+    WebCore::WidevineCdmInstaller::singleton().ensureModule([weakThis = WeakPtr { *this }, request = WTF::move(request)](const std::optional<WebCore::WidevineCdmModule>& module) mutable {
+        RefPtr protectedThis = weakThis.get();
+        std::optional<SandboxExtension::Handle> handle;
+        if (module) {
+            // The extension covers the module's whole directory, which is what the gap library
+            // beside it needs too.
+            handle = SandboxExtension::createHandleWithoutResolvingPath(module->directory, SandboxExtension::Type::ReadOnly);
+        }
+        if (!protectedThis || !handle) {
+            request->deny();
+            return;
+        }
+
+        protect(protectedThis->legacyMainFrameProcess())->send(Messages::WebProcess::SetWidevineCdmModule(module->path, WTF::move(*handle)), 0);
+        request->allow();
+    });
+}
 #endif
 
 } // namespace WebKit

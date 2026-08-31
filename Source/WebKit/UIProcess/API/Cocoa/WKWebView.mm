@@ -1329,11 +1329,15 @@ static bool validateArgument(id argument)
     });
 
 #if ENABLE(FULLSCREEN_API)
+    // MAVERICKS_BACKPORT: WebPageProxy::videoPresentationManager() is ENABLE(VIDEO_PRESENTATION_MODE)-only
+    // (off on this port); upstream reaches it under FULLSCREEN_API because their Mac ships VPM on.
+#if ENABLE(VIDEO_PRESENTATION_MODE)
     if (RefPtr videoPresentationManager = _page->videoPresentationManager()) {
         videoPresentationManager->forEachSession([callbackAggregator] (auto& model, auto& interface) mutable {
             model.requestCloseAllMediaPresentations(false, [callbackAggregator] { });
         });
     }
+#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on videoPresentationManager() (see above).
 
     if (RefPtr fullScreenManager = _page->fullScreenManager(); fullScreenManager && fullScreenManager->isFullScreen())
         fullScreenManager->closeWithCallback([callbackAggregator] { });
@@ -1679,6 +1683,41 @@ static WKMediaPlaybackState NODELETE toWKMediaPlaybackState(WebKit::MediaPlaybac
     });
 #endif
 }
+
+#if PLATFORM(MAC)
+// MAVERICKS_BACKPORT: re-provide the macOS -_snapshotRect:intoImageOfWidth:completionHandler: SPI that upstream keeps iOS-only, so Safari 9 Top Sites / Webpage Previews capture works on 10.9.
+// 10.9 Top Sites backport: Safari 9 captures Top Sites / "Webpage Previews" via the
+// legacy -[WKWebView _snapshotRect:intoImageOfWidth:completionHandler:] SPI. Upstream
+// retained this entry point only on iOS (see WKWebViewIOS.mm), so on macOS the selector
+// is unrecognized — Safari guards with respondsToSelector: and silently skips capture,
+// leaving the previews directory empty (#299). Re-provide the macOS implementation,
+// modeled on the macOS branch of -takeSnapshotWithConfiguration:completionHandler: above.
+// imageWidth is the desired output width in device pixels; the result is exactly that wide.
+- (void)_snapshotRect:(CGRect)rectInViewCoordinates intoImageOfWidth:(CGFloat)imageWidth completionHandler:(void(^)(CGImageRef))completionHandler
+{
+    THROW_IF_SUSPENDED;
+    tracePoint(TakeSnapshotStart);
+
+    auto handler = makeBlockPtr(completionHandler);
+
+    if (CGRectIsEmpty(rectInViewCoordinates) || imageWidth <= 0) {
+        RunLoop::mainSingleton().dispatch([handler = WTF::move(handler)] {
+            handler(nullptr);
+        });
+        return;
+    }
+
+    CGFloat imageScale = imageWidth / rectInViewCoordinates.size.width;
+    CGFloat imageHeight = imageScale * rectInViewCoordinates.size.height;
+    WebCore::IntSize bitmapSize(imageWidth, imageHeight);
+
+    WebKit::SnapshotOptions snapshotOptions = WebKit::SnapshotOption::InViewCoordinates;
+    _page->takeSnapshot(WebCore::enclosingIntRect(rectInViewCoordinates), bitmapSize, snapshotOptions, [handler](CGImageRef cgImage) {
+        tracePoint(TakeSnapshotEnd, !!cgImage);
+        handler(cgImage);
+    });
+}
+#endif // PLATFORM(MAC)
 
 - (void)setAllowsBackForwardNavigationGestures:(BOOL)allowsBackForwardNavigationGestures
 {
@@ -4423,7 +4462,12 @@ static RetainPtr<NSArray> wkTextManipulationErrors(NSArray<_WKTextManipulationIt
 
 - (BOOL)_canEnterFullscreen
 {
+    // MAVERICKS_BACKPORT: WebPageProxy::canEnterFullscreen() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off here).
+#if ENABLE(VIDEO_PRESENTATION_MODE)
     return _page->canEnterFullscreen();
+#else
+    return NO;
+#endif
 }
 
 - (BOOL)_isPictureInPictureActive
@@ -4556,8 +4600,11 @@ static RetainPtr<NSArray> wkTextManipulationErrors(NSArray<_WKTextManipulationIt
 
 - (void)_enterFullscreen
 {
+    // MAVERICKS_BACKPORT: WebPageProxy::enterFullscreen() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off here).
+#if ENABLE(VIDEO_PRESENTATION_MODE)
     if (RefPtr page = _page)
         page->enterFullscreen();
+#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on enterFullscreen() (see above).
 }
 
 #if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
@@ -5393,10 +5440,14 @@ static void convertAndAddHighlight(Vector<Ref<WebCore::SharedMemory>>& buffers, 
 {
 #if ENABLE(FULLSCREEN_API)
     bool hasOpenMediaPresentations = false;
+    // MAVERICKS_BACKPORT: WebPageProxy::videoPresentationManager() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off
+    // here); with it absent there are no open video presentations, so hasOpenMediaPresentations stays false.
+#if ENABLE(VIDEO_PRESENTATION_MODE)
     if (RefPtr videoPresentationManager = _page->videoPresentationManager()) {
         hasOpenMediaPresentations = videoPresentationManager->hasMode(WebCore::HTMLMediaElementEnums::VideoFullscreenModePictureInPicture)
             || videoPresentationManager->hasMode(WebCore::HTMLMediaElementEnums::VideoFullscreenModeStandard);
     }
+#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on videoPresentationManager() (see above).
 
     if (!hasOpenMediaPresentations) {
         RefPtr fullScreenManager = _page->fullScreenManager();
@@ -6532,9 +6583,9 @@ static Vector<Ref<API::TargetedElementInfo>> elementsFromWKElements(NSArray<_WKT
     if (!self._isValid)
         return completionHandler(NO);
 
-    _page->playPredominantOrNowPlayingMediaSession([completionHandler = makeBlockPtr(completionHandler)](bool success) {
-        completionHandler(static_cast<BOOL>(success));
-    });
+    // MAVERICKS_BACKPORT: WebPageProxy::playPredominantOrNowPlayingMediaSession() is part of the media-session support absent on 10.9; report failure instead of calling it.
+    // playPredominantOrNowPlayingMediaSession not available without media session support
+    completionHandler(NO);
 }
 
 - (void)_pauseNowPlayingMediaSession:(void(^)(BOOL))completionHandler
@@ -6542,9 +6593,9 @@ static Vector<Ref<API::TargetedElementInfo>> elementsFromWKElements(NSArray<_WKT
     if (!self._isValid)
         return completionHandler(NO);
 
-    _page->pauseNowPlayingMediaSession([completionHandler = makeBlockPtr(completionHandler)](bool success) {
-        completionHandler(static_cast<BOOL>(success));
-    });
+    // MAVERICKS_BACKPORT: WebPageProxy::pauseNowPlayingMediaSession() is part of the media-session support absent on 10.9; report failure instead of calling it.
+    // pauseNowPlayingMediaSession not available without media session support
+    completionHandler(NO);
 }
 
 - (void)_simulateClickOverFirstMatchingTextInViewportWithUserInteraction:(NSString *)targetText completionHandler:(void(^)(BOOL))completionHandler

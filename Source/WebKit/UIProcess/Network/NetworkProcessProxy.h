@@ -313,6 +313,11 @@ public:
 
     void getPendingPushMessage(PAL::SessionID, CompletionHandler<void(const std::optional<WebPushMessage>&)>&&);
     void getPendingPushMessages(PAL::SessionID, CompletionHandler<void(const Vector<WebPushMessage>&)>&&);
+    // MAVERICKS_BACKPORT: receives the NetworkProcess's announcement that webpushd is holding push
+    // messages, and drains them. Safari 7 has no x-webkit-app-launch pump to ask for them itself.
+#if USE(MOZILLA_PUSH_SERVICE)
+    void webPushMessagesBecameAvailable(PAL::SessionID);
+#endif
     void processPushMessage(PAL::SessionID, const WebPushMessage&, CompletionHandler<void(bool wasProcessed, std::optional<WebCore::NotificationPayload>&&)>&&);
     void processNotificationEvent(const WebCore::NotificationData&, WebCore::NotificationEventType, CompletionHandler<void(bool wasProcessed)>&&);
 

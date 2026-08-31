@@ -128,6 +128,7 @@ class WebAutomationSession;
 class WebBackForwardCache;
 class WebCompiledContentRuleList;
 class WebContextSupplement;
+class WebIconDatabase; // MAVERICKS_BACKPORT: revived legacy WK2 icon database for Safari 7 favicons (#49)
 class WebPageGroup;
 class WebPageProxy;
 class WebProcessCache;
@@ -231,6 +232,12 @@ public:
 
     void processDidFinishLaunching(WebProcessProxy&);
 
+    // MAVERICKS_BACKPORT: per-pool observer fired from processDidFinishLaunching(). The legacy
+    // ObjC WKProcessGroup uses it to emulate the removed WKContextConnectionClient, whose
+    // didCreateConnection fired when a web process's injected bundle connected back to the UI
+    // process (embedders like iBooks sequence their bundle messaging on that callback).
+    void setWebProcessDidFinishLaunchingHandler(Function<void()>&& handler) { m_webProcessDidFinishLaunchingHandler = WTF::move(handler); }
+
     WebProcessCache& webProcessCache() { return m_webProcessCache.get(); }
 
     // Disconnect the process from the context.
@@ -299,6 +306,24 @@ public:
     void registerURLSchemeAsCanDisplayOnlyIfCanRequest(const String&);
 
     VisitedLinkStore& visitedLinkStore() { return m_visitedLinkStore.get(); }
+
+    // MAVERICKS_BACKPORT: revived legacy WK2 icon database that Safari 7 drives through the C API (#49).
+    WebIconDatabase& iconDatabase();
+    void setIconDatabasePath(const WTF::String&);
+    // MAVERICKS_BACKPORT: called at every main-frame commit — fetches the origin's /favicon.ico as a
+    // low-rank guess so a page abandoned before its head arrives still gets a history icon (#112).
+    // The page URL is passed in because at the call site the commit is still inside a PageLoadState
+    // transaction: pageLoadState().url() holds the PREVIOUS page until that transaction closes.
+    void fetchGuessedIconForPage(WebPageProxy&, const WTF::URL& pageURL);
+    // MAVERICKS_BACKPORT: give the committed page's icon to the URL its load started from, as the
+    // pre-deletion IconController::commitToDatabase did with its second row (#112).
+    void carryIconToInitialRequestURL(WebPageProxy&, const WTF::URL& pageURL);
+    // MAVERICKS_BACKPORT: called at every main-frame same-document navigation — a pushState-driven
+    // site (every click on github.com) makes history entries for URLs no load ever commits, so
+    // neither the declared-icon offer nor the commit-time guess above can reach them. The document is
+    // unchanged, so its icon claim under the URL it navigated from carries to the URL it now shows
+    // under (#112). Both URLs travel explicitly for the same transaction reason as above.
+    void carryIconForSameDocumentNavigation(WebPageProxy&, const WTF::String& fromPageURL, const WTF::URL& toURL);
 
     void setCacheModel(CacheModel);
     void setCacheModelSynchronouslyForTesting(CacheModel);
@@ -813,6 +838,13 @@ private:
 
     const Ref<VisitedLinkStore> m_visitedLinkStore;
     bool m_visitedLinksPopulated { false };
+
+    // MAVERICKS_BACKPORT: see setWebProcessDidFinishLaunchingHandler().
+    Function<void()> m_webProcessDidFinishLaunchingHandler;
+
+    // MAVERICKS_BACKPORT: revived legacy WK2 icon database for Safari 7 favicons (#49).
+    RefPtr<WebIconDatabase> m_iconDatabase;
+    bool m_iconDatabaseEnabled { false };
 
     HashSet<String> m_schemesToRegisterAsEmptyDocument;
     HashSet<String> m_schemesToSetDomainRelaxationForbiddenFor;

@@ -27,45 +27,122 @@
 #include "WKCookieManager.h"
 
 #include "APIArray.h"
+// MAVERICKS_BACKPORT: the restored bodies below run on API::HTTPCookieStore.
+#include "APIHTTPCookieStore.h"
+#include "APIString.h"
 #include "WKAPICast.h"
+#include "WebsiteDataStore.h" // MAVERICKS_BACKPORT: since-date deletion runs on WebsiteDataStore::removeData.
+#include <WebCore/Cookie.h> // MAVERICKS_BACKPORT: the restored hostname collection walks WebCore::Cookie.
+#include <wtf/HashSet.h>
+#include <wtf/WallTime.h> // MAVERICKS_BACKPORT: closes the since-date include set above.
 
 using namespace WebKit;
 
-WKTypeID WKCookieManagerGetTypeID()
+// MAVERICKS_BACKPORT: upstream gutted every body in this file to a no-op when it replaced the legacy
+// cookie manager with the per-data-store WKHTTPCookieStore API. Safari 7 has only this one, and imports
+// WKCookieManagerSetClient, ...GetHostnamesWithCookies, ...DeleteCookiesForHostname, ...DeleteAllCookies
+// and ...StartObservingCookieChanges -- so with the no-ops in place its Privacy pane lists nothing and
+// "Remove All Website Data" removes nothing. Restored over API::HTTPCookieStore, which is the same
+// machinery the modern API uses; a WKCookieManagerRef is that store.
+WKTypeID WKCookieManagerGetTypeID() // MAVERICKS_BACKPORT: a WKCookieManagerRef is an API::HTTPCookieStore.
 {
-    return 0;
+    return WebKit::toAPI(API::HTTPCookieStore::APIType);
 }
 
+// MAVERICKS_BACKPORT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID).
 void WKCookieManagerSetClient(WKCookieManagerRef, const WKCookieManagerClientBase*)
 {
+    // Cookie-change notifications are delivered through the observer registered by
+    // WKCookieManagerStartObservingCookieChanges; this client carries no other callback Safari uses.
 }
 
-void WKCookieManagerGetHostnamesWithCookies(WKCookieManagerRef, void*, WKCookieManagerGetCookieHostnamesFunction)
+// MAVERICKS_BACKPORT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID).
+void WKCookieManagerGetHostnamesWithCookies(WKCookieManagerRef cookieManagerRef, void* context, WKCookieManagerGetCookieHostnamesFunction callback)
 {
+    if (!cookieManagerRef || !callback)
+        return;
+    protect(WebKit::toImpl(cookieManagerRef))->cookies([context, callback] (Vector<WebCore::Cookie>&& cookies) {
+        HashSet<String> hostnames;
+        for (auto& cookie : cookies)
+            hostnames.add(cookie.domain);
+        auto hostnameStrings = WTF::map(hostnames, [] (auto& hostname) -> RefPtr<API::Object> {
+            return API::String::create(hostname);
+        });
+        callback(WebKit::toAPI(API::Array::create(WTF::move(hostnameStrings)).ptr()), nullptr, context);
+    });
 }
 
-void WKCookieManagerDeleteCookiesForHostname(WKCookieManagerRef, WKStringRef)
+// MAVERICKS_BACKPORT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID).
+void WKCookieManagerDeleteCookiesForHostname(WKCookieManagerRef cookieManagerRef, WKStringRef hostname)
 {
+    if (!cookieManagerRef)
+        return;
+    protect(WebKit::toImpl(cookieManagerRef))->deleteCookiesForHostnames({ WebKit::toWTFString(hostname) }, [] { });
 }
 
-void WKCookieManagerDeleteAllCookies(WKCookieManagerRef)
+// MAVERICKS_BACKPORT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID).
+void WKCookieManagerDeleteAllCookies(WKCookieManagerRef cookieManagerRef)
 {
+    if (!cookieManagerRef)
+        return;
+    protect(WebKit::toImpl(cookieManagerRef))->deleteAllCookies([] { });
 }
 
-void WKCookieManagerDeleteAllCookiesModifiedAfterDate(WKCookieManagerRef, double)
+// MAVERICKS_BACKPORT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID).
+void WKCookieManagerDeleteAllCookiesModifiedAfterDate(WKCookieManagerRef cookieManagerRef, double date)
 {
+    if (!cookieManagerRef)
+        return;
+    RefPtr dataStore = protect(WebKit::toImpl(cookieManagerRef))->owningDataStore();
+    if (!dataStore)
+        return;
+    // Seconds since the Unix epoch: this API's original implementation handed the value straight to
+    // +[NSDate dateWithTimeIntervalSince1970:], which is what WallTime counts from.
+    dataStore->removeData(WebKit::WebsiteDataType::Cookies, WallTime::fromRawSeconds(date), [] { });
 }
 
-void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef, WKHTTPCookieAcceptPolicy, void*, WKCookieManagerSetHTTPCookieAcceptPolicyFunction)
+// MAVERICKS_BACKPORT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID),
+// with Safari 7's 2-argument ABI. -[Safari::WK::CookieManager setHTTPCookieAcceptPolicy:] tail-jumps
+// here having set only %rdi and %esi, so the context and callback upstream added in the 4-argument form
+// are whatever the caller left in %rdx and %rcx: a non-null garbage %rcx gets called as the completion
+// handler, from the reply handler for WebCookieManager::SetHTTPCookieAcceptPolicy. The legacy contract
+// reports nothing back -- Safari drives the preference one way and reads it with
+// WKCookieManagerGetHTTPCookieAcceptPolicy.
+void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRef, WKHTTPCookieAcceptPolicy policy)
 {
-}
-
-void WKCookieManagerGetHTTPCookieAcceptPolicy(WKCookieManagerRef, void*, WKCookieManagerGetHTTPCookieAcceptPolicyFunction)
+    if (!cookieManagerRef)
+        return;
+    protect(WebKit::toImpl(cookieManagerRef))->setHTTPCookieAcceptPolicy(WebKit::toHTTPCookieAcceptPolicy(policy), [] { });
+/* MAVERICKS_BACKPORT: upstream's 4-argument body kept here so upstream merges see the original text; not built on this backport (see above).
+void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRef, WKHTTPCookieAcceptPolicy policy, void* context, WKCookieManagerSetHTTPCookieAcceptPolicyFunction callback)
 {
+    if (!cookieManagerRef) {
+        if (callback)
+            callback(nullptr, context);
+        return;
+    }
+    protect(WebKit::toImpl(cookieManagerRef))->setHTTPCookieAcceptPolicy(WebKit::toHTTPCookieAcceptPolicy(policy), [context, callback] {
+        if (callback)
+            callback(nullptr, context);
+    });
+MAVERICKS_BACKPORT */
 }
 
+// MAVERICKS_BACKPORT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID).
+void WKCookieManagerGetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRef, void* context, WKCookieManagerGetHTTPCookieAcceptPolicyFunction callback)
+{
+    if (!cookieManagerRef || !callback)
+        return;
+    protect(WebKit::toImpl(cookieManagerRef))->getHTTPCookieAcceptPolicy([context, callback] (const WebCore::HTTPCookieAcceptPolicy& policy) {
+        callback(WebKit::toAPI(policy), nullptr, context);
+    });
+}
+
+// MAVERICKS_BACKPORT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID).
 void WKCookieManagerStartObservingCookieChanges(WKCookieManagerRef)
 {
+    // API::HTTPCookieStore starts observing when an observer registers; Safari's client carries no
+    // cookiesDidChange callback, so there is nothing further to wire up.
 }
 
 void WKCookieManagerStopObservingCookieChanges(WKCookieManagerRef)

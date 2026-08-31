@@ -525,6 +525,12 @@ WK_EXPORT bool WKPreferencesGetPrimaryPlugInSnapshotDetectionEnabled(WKPreferenc
 WK_EXPORT void WKPreferencesSetHighlightAPIEnabled(WKPreferencesRef preferencesRef, bool) WK_C_API_DEPRECATED;
 WK_EXPORT bool WKPreferencesGetHighlightAPIEnabled(WKPreferencesRef preferencesRef) WK_C_API_DEPRECATED;
 
+// MAVERICKS_BACKPORT: declarations for the InspectorUsesWebKitUserInterface preference accessors,
+// removed in modern WebKit but still referenced by Safari 7, restored so it links on 10.9.
+// Removed in modern WebKit; preserved as an empty stub so Safari 7 still links.
+WK_EXPORT void WKPreferencesSetInspectorUsesWebKitUserInterface(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
+WK_EXPORT bool WKPreferencesGetInspectorUsesWebKitUserInterface(WKPreferencesRef) WK_C_API_DEPRECATED;
+
 #ifdef __cplusplus
 }
 #endif

@@ -139,6 +139,35 @@ static void setDebugUInt32ValueIfInUserDefaults(const String& identifier, const 
 void WebPreferences::platformInitializeStore()
 {
     @autoreleasepool {
+        // MAVERICKS_BACKPORT: Safari 9's legacy WKPreferences surface predates requestIdleCallback and never
+        // sets its key, so the store falls to the WebKit yaml default (false) and window.requestIdleCallback
+        // stays undefined. This port's contract is to present a modern browser, and a modern embedder would
+        // enable it; set it here at the UIProcess legacy-preference boundary — the same place upstream sets
+        // initial store values that the declarative default cannot express — so the WebProcess sees it as an
+        // ordinary store value (no engine-side force in WebPage::updatePreferences). requestIdleCallback rides
+        // the WindowEventLoop idle-timer path, verified stable on 10.9 after the SharedTimer/RunLoop::TimerBase
+        // fixes (200 callbacks, correct deadlines, no runaway, no crashes). A client that explicitly sets the
+        // key still wins (this only supplies the initial value the legacy client omits).
+        m_store.setBoolValueForKey(WebPreferencesKey::requestIdleCallbackEnabledKey(), true);
+
+        // MAVERICKS_BACKPORT: this product ships EnhancedSecurity off, a maintainer decision: the heuristic
+        // promotes every plain-http, non-loopback main-frame navigation into a separate
+        // WebContent.EnhancedSecurity process, and plain http is still ordinary on the web this port serves.
+        // The yaml default (true on Cocoa) describes Apple's product. Seeded at the UIProcess
+        // legacy-preference boundary, before the FOR_EACH_DEFAULT_OVERRIDABLE loop below, so an explicit
+        // NSUserDefaults override still wins. The variant service ships regardless
+        // (MavericksSupport/scripts/framework-layout.sh), so the paths that request it by name — an
+        // embedder's website policy, ForceEnhancedSecurity — launch a real process.
+        m_store.setBoolValueForKey(WebPreferencesKey::enhancedSecurityHeuristicsEnabledKey(), false);
+
+        // MAVERICKS_BACKPORT: HTTPS-first upgrades a plain-http main-frame navigation to https and falls
+        // back to http on its own when that fails (CachedResourceLoader::shouldPerformHTTPSUpgrade and
+        // WebPageProxy::didFailProvisionalLoadForFrameShared both read this key). Safari 7's legacy
+        // WKPreferences surface predates it, so the store falls to the WebKit yaml default (false).
+        // Seeded here at the UIProcess legacy-preference boundary, as the store's initial value; a
+        // client that sets the key itself still wins.
+        m_store.setBoolValueForKey(WebPreferencesKey::httpSByDefaultEnabledKey(), true);
+
 #if ENABLE(MEDIA_STREAM)
         // NOTE: This is set here, and does not setting the default using the 'defaultValue' mechanism, because the
         // 'defaultValue' must be the same in both the UIProcess and WebProcess, which may not be true for audio

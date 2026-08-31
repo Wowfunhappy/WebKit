@@ -883,6 +883,8 @@ private:
     void performOrDeferImageAnalysisOverlayViewHierarchyTask(std::function<void()>&&);
     void fulfillDeferredImageAnalysisOverlayViewHierarchyTask();
 #endif
+    // MAVERICKS_BACKPORT: close the HAVE(TOUCH_BAR) gate here so the scroll/titlebar members below are lifted out of it.
+#endif // HAVE(TOUCH_BAR)
 
     bool pageIsScrolledToTop() const { return m_lastPageScrollPosition.y() <= 0; }
     void pageScrollingHysteresisFired(PAL::HysteresisState);
@@ -892,6 +894,8 @@ private:
     void suppressContentRelativeChildViews();
     void restoreContentRelativeChildViews();
 
+    // MAVERICKS_BACKPORT: reopen HAVE(TOUCH_BAR) for the touch-bar members below (matching HEAD's structure).
+#if HAVE(TOUCH_BAR)
     bool m_clientWantsMediaPlaybackControlsView { false };
     bool m_canCreateTouchBars { false };
     bool m_startedListeningToCustomizationEvents { false };

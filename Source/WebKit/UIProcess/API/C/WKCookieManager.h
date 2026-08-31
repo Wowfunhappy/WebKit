@@ -70,7 +70,8 @@ WK_EXPORT void WKCookieManagerDeleteAllCookies(WKCookieManagerRef cookieManager)
 WK_EXPORT void WKCookieManagerDeleteAllCookiesModifiedAfterDate(WKCookieManagerRef cookieManager, double) WK_C_API_DEPRECATED;
 
 typedef void (*WKCookieManagerSetHTTPCookieAcceptPolicyFunction)(WKErrorRef, void*);
-WK_EXPORT void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManager, WKHTTPCookieAcceptPolicy policy, void* context, WKCookieManagerSetHTTPCookieAcceptPolicyFunction callback) WK_C_API_DEPRECATED_WITH_REPLACEMENT(WKHTTPCookieStoreSetHTTPCookieAcceptPolicy);
+// MAVERICKS_BACKPORT: Safari 7's ABI for this function takes only the manager and the policy (see WKCookieManager.cpp).
+WK_EXPORT void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManager, WKHTTPCookieAcceptPolicy policy) WK_C_API_DEPRECATED_WITH_REPLACEMENT(WKHTTPCookieStoreSetHTTPCookieAcceptPolicy);
 typedef void (*WKCookieManagerGetHTTPCookieAcceptPolicyFunction)(WKHTTPCookieAcceptPolicy, WKErrorRef, void*);
 WK_EXPORT void WKCookieManagerGetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManager, void* context, WKCookieManagerGetHTTPCookieAcceptPolicyFunction callback) WK_C_API_DEPRECATED;
 

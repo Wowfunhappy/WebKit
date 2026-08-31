@@ -1199,6 +1199,17 @@ void WebAuthenticatorCoordinatorProxy::performRequestLegacy(RetainPtr<ASCCredent
     }
     m_proxy = adoptNS([allocASCAgentProxyInstance() init]);
 
+    // MAVERICKS_BACKPORT: ASCAgentProxy comes from AuthenticationServices, which is soft-linked and
+    // absent on 10.9, so allocASCAgentProxyInstance() returns nil — there is no authorization agent to
+    // service a passkey request. Every path below messages m_proxy and relies on its completion block to
+    // invoke handler; messaging nil silently drops the handler and hangs the navigator.credentials
+    // promise forever. Reject up front so the site cleanly falls back to another sign-in method.
+    if (!m_proxy) {
+        handler({ }, (AuthenticatorAttachment)0, ExceptionData { ExceptionCode::NotAllowedError, "No authenticator available."_s });
+        RELEASE_LOG_ERROR(WebAuthn, "No ASCAgentProxy available (AuthenticationServices absent); rejecting request.");
+        return;
+    }
+
     if (requestContext.get().requestStyle == ASCredentialRequestStyleSilent) {
         [m_proxy performSilentAuthorizationRequestsForContext:requestContext.get() withCompletionHandler:makeBlockPtr([weakThis = WeakPtr { *this }, handler = WTF::move(handler)](id<ASCCredentialProtocol> credential, NSError *error) mutable {
             ensureOnMainRunLoop([weakThis, handler = WTF::move(handler), credential = retainPtr(credential), error = retainPtr(error)] () mutable {

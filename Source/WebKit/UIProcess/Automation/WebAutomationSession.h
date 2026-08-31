@@ -281,7 +281,12 @@ public:
     Inspector::CommandResult<void> setVirtualAuthenticatorUserVerified(const String& browsingContextHandle, const String& authenticatorId, bool isUserVerified) override;
     Inspector::CommandResult<void> generateTestReport(const String& browsingContextHandle, const String& message, const String& group) override;
 
-#if ENABLE(WK_WEB_EXTENSIONS_IN_WEBDRIVER)
+// MAVERICKS_BACKPORT: the generated Automation backend dispatcher declares these two commands as
+// pure-virtual for all of PLATFORM(MAC) (their Automation.json condition), but upstream gates the
+// overrides on ENABLE(WK_WEB_EXTENSIONS_IN_WEBDRIVER) -- which is off here because WK_WEB_EXTENSIONS
+// is compiled out for the classic-.safariextz Safari 7 port. Declaring the overrides on PLATFORM(MAC)
+// keeps WebAutomationSession concrete; the bodies fall back to NotImplemented when the API is absent.
+#if PLATFORM(MAC)
     void loadWebExtension(const Inspector::Protocol::Automation::WebExtensionResourceOptions, const String& resource, Inspector::CommandCallback<String>&&) override;
     void unloadWebExtension(const String& identifier, Inspector::CommandCallback<void>&&) override;
 #endif

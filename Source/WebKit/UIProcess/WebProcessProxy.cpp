@@ -28,6 +28,8 @@
 
 #include "APIFrameHandle.h"
 #include "APIPageConfiguration.h"
+// MAVERICKS_BACKPORT: page groups travel as handles (Safari 7); needs the PageGroupHandle API type.
+#include "APIPageGroupHandle.h"
 #include "APIPageHandle.h"
 #include "APIUIClient.h"
 #include "AuthenticatorManager.h"
@@ -1818,6 +1820,10 @@ RefPtr<API::Object> WebProcessProxy::transformHandlesToObjects(API::Object* obje
             case API::Object::Type::PageHandle:
                 return downcast<const API::PageHandle>(object).isAutoconverting();
 
+            // MAVERICKS_BACKPORT: page groups travel as handles (Safari 7).
+            case API::Object::Type::PageGroupHandle:
+                return true;
+
             default:
                 return false;
             }
@@ -1834,6 +1840,10 @@ RefPtr<API::Object> WebProcessProxy::transformHandlesToObjects(API::Object* obje
             case API::Object::Type::PageHandle:
                 ASSERT(downcast<API::PageHandle>(object).isAutoconverting());
                 return protect(process())->webPage(downcast<API::PageHandle>(object).pageProxyID());
+
+            // MAVERICKS_BACKPORT: page groups travel as handles (Safari 7); resolve back to the WebPageGroup.
+            case API::Object::Type::PageGroupHandle:
+                return WebPageGroup::get(downcast<API::PageGroupHandle>(object).pageGroupData().pageGroupID);
 
             default:
                 return &object;
@@ -1872,6 +1882,13 @@ RefPtr<API::Object> WebProcessProxy::transformObjectsToHandles(API::Object* obje
 
             case API::Object::Type::Page:
                 return API::PageHandle::createAutoconverting(downcast<WebPageProxy>(object).identifier(), downcast<WebPageProxy>(object).webPageIDInMainFrameProcess());
+
+            // MAVERICKS_BACKPORT: Safari 7 puts its WKPageGroup in the bundle
+            // initialization user data; carry it as a PageGroupHandle (the
+            // API::Object encoder has no case for the raw UI-type object and
+            // would corrupt the stream).
+            case API::Object::Type::PageGroup:
+                return API::PageGroupHandle::create(WebKit::WebPageGroupData { downcast<WebPageGroup>(object).data() });
 
             default:
                 return &object;
@@ -2816,7 +2833,10 @@ void WebProcessProxy::markProcessAsRecentlyUsed()
     liveProcessesLRU().moveToLastIfPresent(*this);
 }
 
-#if !USE(GLIB)
+// MAVERICKS_BACKPORT: also compile on Cocoa. This port forces USE(GLIB) on for the GStreamer helper
+// layer but does NOT provide the GLib WebProcessProxy override, so the Cocoa PAL::systemBeep() impl
+// must still be built (PAL::systemBeep works on macOS).
+#if !USE(GLIB) || PLATFORM(COCOA)
 void WebProcessProxy::systemBeep()
 {
     PAL::systemBeep();

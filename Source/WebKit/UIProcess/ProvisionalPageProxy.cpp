@@ -535,13 +535,14 @@ void ProvisionalPageProxy::decidePolicyForNavigationActionAsync(IPC::Connection&
         completionHandler({ });
 }
 
-void ProvisionalPageProxy::decidePolicyForResponse(FrameInfoData&& frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, const WebCore::ResourceResponse& response, const WebCore::ResourceRequest& request, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, CompletionHandler<void(PolicyDecision&&)>&& completionHandler)
+void ProvisionalPageProxy::decidePolicyForResponse(FrameInfoData&& frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, const WebCore::ResourceResponse& response, const WebCore::ResourceRequest& request, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, /* MAVERICKS_BACKPORT: bundlePolicyUserData carries the injected-bundle policy client's userData. */ const UserData& bundlePolicyUserData, CompletionHandler<void(PolicyDecision&&)>&& completionHandler)
 {
     if (!validateInput(frameInfo.frameID, navigationID))
         return completionHandler({ });
 
     if (RefPtr page = m_page.get())
-        page->decidePolicyForResponseShared(protect(process()), m_webPageID, WTF::move(frameInfo), navigationID, response, request, canShowMIMEType, WTF::move(downloadAttribute), isShowingInitialAboutBlank, activeDocumentCOOPValue, WTF::move(completionHandler));
+        // MAVERICKS_BACKPORT: forward bundlePolicyUserData (injected-bundle policy client userData).
+        page->decidePolicyForResponseShared(protect(process()), m_webPageID, WTF::move(frameInfo), navigationID, response, request, canShowMIMEType, WTF::move(downloadAttribute), isShowingInitialAboutBlank, activeDocumentCOOPValue, bundlePolicyUserData, WTF::move(completionHandler));
     else
         completionHandler({ });
 }

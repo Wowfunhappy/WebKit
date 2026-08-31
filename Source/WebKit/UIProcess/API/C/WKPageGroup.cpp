@@ -26,42 +26,138 @@
 #include "config.h"
 #include "WKPageGroup.h"
 
+#include "APIArray.h"
+#include "APIContentWorld.h"
+#include "APIUserScript.h"
+#include "APIUserStyleSheet.h"
+#include "InjectUserScriptImmediately.h"
+#include "WKAPICast.h"
+#include "WebPageGroup.h"
+#include "WebPageProxy.h"
+#include "WebPreferences.h"
+#include "WebProcessPool.h"
+#include "WebProcessProxy.h"
+#include "WebUserContentControllerProxy.h"
+#include <WebCore/UserScript.h>
+#include <WebCore/UserStyleSheet.h>
+
+// MAVERICKS_BACKPORT: these were gutted to null upstream, but Safari 7 creates its
+// browsing page group with WKPageGroupCreateWithIdentifier, attaches its
+// WKPreferences to it, and passes the group to WKView — and the injected
+// bundle later scopes extension content scripts by this group's identifier.
+
+// MAVERICKS_BACKPORT: restored real body (was gutted to return 0 upstream).
 WKTypeID WKPageGroupGetTypeID()
 {
-    return 0;
+    return WebKit::toAPI(WebKit::WebPageGroup::APIType);
 }
 
-WKPageGroupRef WKPageGroupCreateWithIdentifier(WKStringRef)
+// MAVERICKS_BACKPORT: restored real body (was gutted to return nullptr upstream).
+WKPageGroupRef WKPageGroupCreateWithIdentifier(WKStringRef identifierRef)
 {
-    return nullptr;
+    return WebKit::toAPILeakingRef(WebKit::WebPageGroup::create(WebKit::toWTFString(identifierRef)));
 }
 
-void WKPageGroupSetPreferences(WKPageGroupRef, WKPreferencesRef)
+// MAVERICKS_BACKPORT: restored real body (was gutted to an empty no-op upstream).
+void WKPageGroupSetPreferences(WKPageGroupRef pageGroupRef, WKPreferencesRef preferencesRef)
 {
+    auto* pageGroup = WebKit::toImpl(pageGroupRef);
+    auto* preferences = WebKit::toImpl(preferencesRef);
+    if (!pageGroup || !preferences)
+        return;
+    pageGroup->setPreferences(*preferences);
+    // MAVERICKS_BACKPORT: a page copies its group's preferences when it is created, and Safari 7 hands the group its
+    // WKPreferences after the WKView exists, so the pages already in this group keep reading the
+    // object the group no longer uses. Hand them the new one, which is what a page group meant when
+    // WebPageProxy::preferences() still read straight through to it.
+    for (Ref processPool : WebKit::WebProcessPool::allProcessPools()) {
+        for (Ref webProcess : processPool->processes()) {
+            for (Ref page : webProcess->pages()) {
+                if (&page->pageGroup() == pageGroup)
+                    page->setPreferences(*preferences);
+            }
+        }
+    }
 }
 
-WKPreferencesRef WKPageGroupGetPreferences(WKPageGroupRef)
+// MAVERICKS_BACKPORT: restored real body (was gutted to return nullptr upstream).
+WKPreferencesRef WKPageGroupGetPreferences(WKPageGroupRef pageGroupRef)
 {
-    return nullptr;
+    auto* pageGroup = WebKit::toImpl(pageGroupRef);
+    if (!pageGroup)
+        return nullptr;
+    return WebKit::toAPI(&pageGroup->preferences());
 }
 
 WKUserContentControllerRef WKPageGroupGetUserContentController(WKPageGroupRef pageGroupRef)
 {
-    return nullptr;
+// MAVERICKS_BACKPORT: restore the page-group user-content C SPI (gutted upstream with
+// the page-group user-content model). The page group owns a WebUserContentControllerProxy
+// (WebPageGroup::userContentController); pages created in the group share it (WKView seeds
+// the page configuration with it), so scripts and style sheets added here are injected.
+// Safari 7-era clients drive this through WKBrowsingContextGroup — e.g. Mail's
+// -[MUIWebDocumentViewGroup _refreshUserStyleSheet]/_refreshUserScripts install the
+// message-view style sheet and scripts. Faithful to the pre-removal implementation.
+    // MAVERICKS_BACKPORT: restored real body (was gutted to return nullptr upstream).
+    return WebKit::toAPI(&WebKit::toImpl(pageGroupRef)->userContentController());
 }
 
-void WKPageGroupAddUserStyleSheet(WKPageGroupRef, WKStringRef, WKURLRef, WKArrayRef, WKArrayRef, WKUserContentInjectedFrames)
+// MAVERICKS_BACKPORT: restored page-group user-content SPI body (was gutted to a no-op upstream).
+void WKPageGroupAddUserStyleSheet(WKPageGroupRef pageGroupRef, WKStringRef sourceRef, WKURLRef baseURLRef, WKArrayRef allowedURLPatterns, WKArrayRef blockedURLPatterns, WKUserContentInjectedFrames injectedFrames)
 {
+    // MAVERICKS_BACKPORT: restored implementation builds a real API::UserStyleSheet and injects it.
+    auto source = WebKit::toWTFString(sourceRef);
+    if (source.isEmpty())
+        return;
+
+    auto baseURLString = WebKit::toWTFString(baseURLRef);
+    auto* allowlist = WebKit::toImpl(allowedURLPatterns);
+    auto* blocklist = WebKit::toImpl(blockedURLPatterns);
+
+    Ref<API::UserStyleSheet> userStyleSheet = API::UserStyleSheet::create(WebCore::UserStyleSheet {
+        source,
+        baseURLString.isEmpty() ? aboutBlankURL() : URL { baseURLString },
+        allowlist ? allowlist->toStringVector() : Vector<String>(),
+        blocklist ? blocklist->toStringVector() : Vector<String>(),
+        WebKit::toUserContentInjectedFrames(injectedFrames)
+    }, API::ContentWorld::pageContentWorldSingleton());
+
+    WebKit::toImpl(pageGroupRef)->userContentController().addUserStyleSheet(userStyleSheet.get());
 }
 
-void WKPageGroupRemoveAllUserStyleSheets(WKPageGroupRef)
+// MAVERICKS_BACKPORT: restored page-group user-content SPI body (was gutted to a no-op upstream).
+void WKPageGroupRemoveAllUserStyleSheets(WKPageGroupRef pageGroupRef)
 {
+    WebKit::toImpl(pageGroupRef)->userContentController().removeAllUserStyleSheets();
 }
 
-void WKPageGroupAddUserScript(WKPageGroupRef, WKStringRef, WKURLRef, WKArrayRef, WKArrayRef, WKUserContentInjectedFrames, _WKUserScriptInjectionTime)
+// MAVERICKS_BACKPORT: restored page-group user-content SPI body (was gutted to a no-op upstream).
+void WKPageGroupAddUserScript(WKPageGroupRef pageGroupRef, WKStringRef sourceRef, WKURLRef baseURLRef, WKArrayRef allowedURLPatterns, WKArrayRef blockedURLPatterns, WKUserContentInjectedFrames injectedFrames, _WKUserScriptInjectionTime injectionTime)
 {
+    // MAVERICKS_BACKPORT: restored implementation builds a real API::UserScript and injects it.
+    auto source = WebKit::toWTFString(sourceRef);
+    if (source.isEmpty())
+        return;
+
+    auto baseURLString = WebKit::toWTFString(baseURLRef);
+    auto* allowlist = WebKit::toImpl(allowedURLPatterns);
+    auto* blocklist = WebKit::toImpl(blockedURLPatterns);
+
+    auto url = baseURLString.isEmpty() ? aboutBlankURL() : URL { baseURLString };
+    Ref<API::UserScript> userScript = API::UserScript::create(WebCore::UserScript {
+        WTF::move(source),
+        WTF::move(url),
+        allowlist ? allowlist->toStringVector() : Vector<String>(),
+        blocklist ? blocklist->toStringVector() : Vector<String>(),
+        WebKit::toUserScriptInjectionTime(injectionTime),
+        WebKit::toUserContentInjectedFrames(injectedFrames)
+    }, API::ContentWorld::pageContentWorldSingleton());
+
+    WebKit::toImpl(pageGroupRef)->userContentController().addUserScript(userScript.get(), WebKit::InjectUserScriptImmediately::No);
 }
 
-void WKPageGroupRemoveAllUserScripts(WKPageGroupRef)
+// MAVERICKS_BACKPORT: restored page-group user-content SPI body (was gutted to a no-op upstream).
+void WKPageGroupRemoveAllUserScripts(WKPageGroupRef pageGroupRef)
 {
+    WebKit::toImpl(pageGroupRef)->userContentController().removeAllUserScripts();
 }

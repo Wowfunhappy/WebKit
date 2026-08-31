@@ -84,6 +84,14 @@ void TiledCoreAnimationDrawingAreaProxy::colorSpaceDidChange()
         send(Messages::DrawingArea::SetColorSpace(page->colorSpace()));
 }
 
+// MAVERICKS_BACKPORT: WebKit-537 parity — tell the web process to recreate its hosted context in
+// the flavor the page's current window can display (see LayerHostingMode in DrawingAreaInfo.h).
+void TiledCoreAnimationDrawingAreaProxy::layerHostingModeDidChange()
+{
+    if (RefPtr page = this->page())
+        send(Messages::DrawingArea::SetLayerHostingMode(page->layerHostingMode()));
+}
+
 void TiledCoreAnimationDrawingAreaProxy::minimumSizeForAutoLayoutDidChange()
 {
     RefPtr page = this->page();
@@ -135,6 +143,8 @@ void TiledCoreAnimationDrawingAreaProxy::didUpdateGeometry()
     ASSERT(m_isWaitingForDidUpdateGeometry);
 
     m_isWaitingForDidUpdateGeometry = false;
+    // MAVERICKS_BACKPORT: the in-flight UpdateGeometry has been answered; there is no reply for waitForDidUpdateGeometry to block on.
+    m_pendingUpdateGeometryReplyID = std::nullopt;
 
     RefPtr page = this->page();
     if (!page)
@@ -157,6 +167,22 @@ void TiledCoreAnimationDrawingAreaProxy::waitForDidUpdateActivityState(ActivityS
 
     Seconds activityStateUpdateTimeout = Seconds::fromMilliseconds(250);
     protect(webProcessProxy().connection())->waitForAndDispatchImmediately<Messages::WebPageProxy::DidUpdateActivityState>(page->webPageIDInMainFrameProcess(), activityStateUpdateTimeout, IPC::WaitForOption::InterruptWaitingIfSyncMessageArrives);
+}
+
+// MAVERICKS_BACKPORT: bounded synchronous wait for the in-flight UpdateGeometry reply, backing the
+// restored Safari-7 WKView SPI: -forceAsyncDrawingAreaSizeUpdate: polls with a zero timeout so an
+// already-answered update dispatches (and a queued resize goes out immediately), and
+// -waitForAsyncDrawingAreaSizeUpdate blocks until the web process has laid out at the new size.
+// Mirrors waitForDidUpdateActivityState above; UpdateGeometry's reply is declared
+// ReplyCanDispatchOutOfOrder in DrawingArea.messages.in so it can be dispatched from inside this wait
+// ahead of other queued messages, which is the modern shape of the Safari-537-era
+// DrawingAreaProxy::waitForPossibleGeometryUpdate.
+void TiledCoreAnimationDrawingAreaProxy::waitForDidUpdateGeometry(Seconds timeout)
+{
+    if (!m_isWaitingForDidUpdateGeometry || !m_pendingUpdateGeometryReplyID)
+        return;
+
+    protect(webProcessProxy().connection())->waitForAsyncReplyAndDispatchImmediately<Messages::DrawingArea::UpdateGeometry>(*m_pendingUpdateGeometryReplyID, timeout);
 }
 
 void TiledCoreAnimationDrawingAreaProxy::willSendUpdateGeometry()
@@ -214,7 +240,8 @@ void TiledCoreAnimationDrawingAreaProxy::sendUpdateGeometry()
     ASSERT(!m_isWaitingForDidUpdateGeometry);
 
     willSendUpdateGeometry();
-    sendWithAsyncReply(Messages::DrawingArea::UpdateGeometry(size(), true /* flushSynchronously */, createFence()), [weakThis = WeakPtr { *this }] {
+    // MAVERICKS_BACKPORT: the async-reply ID is recorded so waitForDidUpdateGeometry can block on the in-flight update.
+    m_pendingUpdateGeometryReplyID = sendWithAsyncReply(Messages::DrawingArea::UpdateGeometry(size(), true /* flushSynchronously */, createFence()), [weakThis = WeakPtr { *this }] {
         if (!weakThis)
             return;
         weakThis->didUpdateGeometry();

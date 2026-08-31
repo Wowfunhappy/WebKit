@@ -214,6 +214,27 @@ void WebDataListSuggestionsDropdownMac::close()
     return self;
 }
 
+#if !HAVE(NSVIEW_IMPLICIT_LAYOUT_PASS)
+// MAVERICKS_BACKPORT: this class is written to the 10.10+ contract where marking a view needsLayout
+// guarantees -layout before the next draw, because AppKit runs pending layout passes as part of every
+// window's display cycle. 10.9 runs that pass only for a window whose autolayout engine is engaged
+// (measured on 10.9.5: needsLayout + display runs -layout with a constraint present and never without
+// one), so -setValue:label: and -setShouldShowBottomDivider: below would mark the view and nothing would
+// ever act on it -- the text fields stay at their initial zero frames and the dropdown shows empty rows.
+//
+// -viewWillDraw is where 10.9 itself puts "just before this view and its subviews draw": AppKit sends it
+// top-down during the display cycle, so running the pending pass here is synchronous with drawing and
+// coalesced to one pass per cycle, which is what the modern contract amounts to. Deliberately NOT an
+// asynchronous kick: dispatch_async would deliver the pass in a later run-loop turn, possibly after the
+// draw it is supposed to precede, once per call of an idempotent marker, and would retain the receiver
+// past its owner.
+- (void)viewWillDraw
+{
+    [self layoutSubtreeIfNeeded];
+    [super viewWillDraw];
+}
+#endif
+
 - (void)layout
 {
     [super layout];
@@ -273,6 +294,18 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 @end
 
 @implementation WKDataListSuggestionTableRowView
+
+// MAVERICKS_BACKPORT: upstream forces the emphasized (key-window blue) selection appearance only at draw
+// time, in drawSelectionInRect below. That suffices on modern AppKit, but this OS propagates the row's
+// interiorBackgroundStyle to its cell views when the SELECTION CHANGES — before drawSelectionInRect has
+// had its say — so a draw-time-only emphasize styles the selected cell for a non-emphasized selection
+// and its value text draws dark on the emphasized blue row (#115). This row view is always drawn
+// emphasized; saying so from the start lets 10.9's earlier propagation style the selected cell for the
+// blue row.
+- (BOOL)isEmphasized
+{
+    return YES;
+}
 
 - (void)drawSelectionInRect:(NSRect)dirtyRect
 {
@@ -360,6 +393,11 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
 
     _scrollView = adoptNS([[NSScrollView alloc] initWithFrame:[_enclosingWindow contentView].bounds]);
     [_scrollView setHasVerticalScroller:YES];
+    // MAVERICKS_BACKPORT: with legacy scrollers — the norm on this OS, where a mouse is attached — a
+    // non-autohiding scroller draws its full-height track down the dropdown even when every suggestion
+    // fits (#115). Overlay scrollers, upstream's default environment, auto-hide on their own, which is
+    // why upstream never needs to say this.
+    [_scrollView setAutohidesScrollers:YES];
     [_scrollView setVerticalScrollElasticity:NSScrollElasticityAllowed];
     [_scrollView setHorizontalScrollElasticity:NSScrollElasticityNone];
     [_scrollView setDocumentView:_table.get()];
