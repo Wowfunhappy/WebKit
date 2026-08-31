@@ -46,7 +46,7 @@
 #include <wtf/WorkQueue.h>
 #include <wtf/posix/SocketPOSIX.h>
 
-#if PLATFORM(COCOA)
+#if HAVE(NETWORK_FRAMEWORK) // MAVERICKS_BACKPORT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
 #include <pal/spi/cocoa/NetworkSPI.h>
 #include <wtf/BlockPtr.h>
 #include <wtf/darwin/DispatchExtras.h>

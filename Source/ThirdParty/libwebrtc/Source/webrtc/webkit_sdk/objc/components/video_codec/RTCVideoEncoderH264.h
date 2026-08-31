@@ -19,6 +19,9 @@ __attribute__((objc_runtime_name("WK_RTCVideoEncoderH264")))
 @interface RTCVideoEncoderH264 : NSObject <RTCVideoEncoder>
 
 - (instancetype)initWithCodecInfo:(RTCVideoCodecInfo *)codecInfo;
+// MAVERICKS_BACKPORT: whether this machine's VideoToolbox can encode the profile-level-id, asked by
+// creating the session this class would create for it. See +canEncodeProfileLevelId:.
++ (BOOL)canEncodeProfileLevelId:(NSString *)profileLevelId;
 - (void)setH264LowLatencyEncoderEnabled:(bool)enabled;
 - (void)setUseAnnexB:(bool)useAnnexB;
 - (void)setDescriptionCallback:(RTCVideoEncoderDescriptionCallback)callback;

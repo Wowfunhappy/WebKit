@@ -62,6 +62,9 @@ void UserMediaPermissionRequestProxyMac::invalidate()
 void UserMediaPermissionRequestProxyMac::promptForGetDisplayMedia(UserMediaDisplayCapturePromptType promptType)
 {
 #if ENABLE(MEDIA_STREAM)
+// MAVERICKS_BACKPORT: split on the picker's availability so the ScreenCaptureKit path below stays
+// upstream's and only its absence is adapted.
+#if HAVE(SCREEN_CAPTURE_KIT)
     if (!manager())
         return;
 
@@ -83,6 +86,12 @@ void UserMediaPermissionRequestProxyMac::promptForGetDisplayMedia(UserMediaDispl
         protectedThis->allow(String(), device.value().persistentId());
     });
 #else
+    // MAVERICKS_BACKPORT: without ScreenCaptureKit there is no system picker to prompt with, so this
+    // runs the base class's alertForPermission consent sheet, which grants the first eligible screen
+    // device.
+    UserMediaPermissionRequestProxy::promptForGetDisplayMedia(promptType);
+#endif
+#else
     ASSERT_NOT_REACHED();
 #endif
 }
@@ -90,11 +99,20 @@ void UserMediaPermissionRequestProxyMac::promptForGetDisplayMedia(UserMediaDispl
 bool UserMediaPermissionRequestProxyMac::canRequestDisplayCapturePermission()
 {
 #if ENABLE(MEDIA_STREAM)
+// MAVERICKS_BACKPORT: split on the picker's availability so the ScreenCaptureKit answer below stays
+// upstream's and only its absence is adapted.
+#if HAVE(SCREEN_CAPTURE_KIT)
 
     if (!DisplayCaptureSessionManager::singleton().overrideCanRequestDisplayCapturePermissionForTesting())
         return false;
 
     return DisplayCaptureSessionManager::singleton().canRequestDisplayCapturePermission();
+#else
+    // MAVERICKS_BACKPORT: DisplayCaptureSessionManager answers for the ScreenCaptureKit picker and so
+    // reports false without it. The base class answers for the alertForPermission consent sheet this
+    // port prompts with instead.
+    return UserMediaPermissionRequestProxy::canRequestDisplayCapturePermission();
+#endif
 #else
     return false;
 #endif
