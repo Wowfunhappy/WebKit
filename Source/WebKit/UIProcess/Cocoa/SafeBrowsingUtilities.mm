@@ -26,6 +26,8 @@
 #if HAVE(SAFE_BROWSING)
 
 #import "config.h"
+// MAVERICKS_BACKPORT: explicit RunLoop.h import so RunLoop::mainSingleton() (used below) is declared; it isn't pulled in transitively in this build.
+#import <wtf/RunLoop.h>
 #import "SafeBrowsingUtilities.h"
 
 #import "SafeBrowsingSPI.h"

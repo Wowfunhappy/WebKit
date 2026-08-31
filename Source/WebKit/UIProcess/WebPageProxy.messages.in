@@ -34,7 +34,8 @@ messages -> WebPageProxy {
     RunJavaScriptAlert(WebCore::FrameIdentifier frameID, struct WebKit::FrameInfoData frameInfo, String message) -> () Synchronous
     RunJavaScriptConfirm(WebCore::FrameIdentifier frameID, struct WebKit::FrameInfoData frameInfo, String message) -> (bool result) Synchronous
     RunJavaScriptPrompt(WebCore::FrameIdentifier frameID, struct WebKit::FrameInfoData frameInfo, String message, String defaultValue) -> (String result) Synchronous
-    MouseDidMoveOverElement(struct WebKit::WebHitTestResultData hitTestResultData, OptionSet<WebKit::WebEventModifier> modifiers)
+    # MAVERICKS_BACKPORT: trailing UserData carries the injected-bundle hovered-URL for Safari 7's status bar (#58).
+    MouseDidMoveOverElement(struct WebKit::WebHitTestResultData hitTestResultData, OptionSet<WebKit::WebEventModifier> modifiers, WebKit::UserData userData)
 
     DidReceiveEventIPC(enum:uint32_t WebKit::WebEventType eventType, bool handled, struct std::optional<WebCore::RemoteUserInputEventData> remoteUserInputEventData)
     SetCursor(WebCore::Cursor cursor)
@@ -129,7 +130,10 @@ messages -> WebPageProxy {
     [EnabledBy=InputTypeDateEnabled || InputTypeDateTimeLocalEnabled || InputTypeMonthEnabled || InputTypeTimeEnabled || InputTypeWeekEnabled] EndDateTimePicker();
 
     # Policy messages
-    DecidePolicyForResponse(struct WebKit::FrameInfoData frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, WebCore::ResourceResponse response, WebCore::ResourceRequest request, bool canShowMIMEType, String downloadAttribute, bool isShowingInitialAboutBlank, enum:uint8_t WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue) -> (struct WebKit::PolicyDecision PolicyDecision)
+    # MAVERICKS_BACKPORT: bundlePolicyUserData carries the injected-bundle policy client's userData (restored with InjectedBundlePagePolicyClient).
+    DecidePolicyForResponse(struct WebKit::FrameInfoData frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, WebCore::ResourceResponse response, WebCore::ResourceRequest request, bool canShowMIMEType, String downloadAttribute, bool isShowingInitialAboutBlank, enum:uint8_t WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, WebKit::UserData bundlePolicyUserData) -> (struct WebKit::PolicyDecision PolicyDecision)
+    # MAVERICKS_BACKPORT: restored with InjectedBundlePagePolicyClient (upstream 9eeab8d removed it); drives the legacy WKPagePolicyClient.unableToImplementPolicy callback Safari registers.
+    UnableToImplementPolicy(WebCore::FrameIdentifier frameID, WebCore::ResourceError error, WebKit::UserData userData)
     DecidePolicyForNavigationActionAsync(struct WebKit::NavigationActionData data) -> (struct WebKit::PolicyDecision PolicyDecision)
     DecidePolicyForNavigationActionSync(struct WebKit::NavigationActionData data) -> (struct WebKit::PolicyDecision PolicyDecision) Synchronous
     DecidePolicyForNewWindowAction(struct WebKit::NavigationActionData navigationActionData, String frameName) -> (struct WebKit::PolicyDecision PolicyDecision)

@@ -32,6 +32,9 @@
 #include "WebPreferences.h"
 #include <WebCore/Settings.h>
 #include <wtf/RefPtr.h>
+#if PLATFORM(COCOA)
+#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h> // MAVERICKS_BACKPORT: isSafari() gate in WKPreferencesSetPrivateBrowsingEnabled (#55/#122).
+#endif
 
 using namespace WebKit;
 
@@ -1881,13 +1884,25 @@ bool WKPreferencesGetStorageAccessAPIEnabled(WKPreferencesRef)
     return true;
 }
 
-void WKPreferencesSetPrivateBrowsingEnabled(WKPreferencesRef, bool)
+// MAVERICKS_BACKPORT: params are named (the upstream stub ignored them) because the toggle now wires through to a real preference flag (#55).
+void WKPreferencesSetPrivateBrowsingEnabled(WKPreferencesRef preferencesRef, bool enabled)
 {
+    // MAVERICKS_BACKPORT: Safari 7's global Private Browsing toggle. Backed by a real flag that drives each
+    // page onto a shared ephemeral WebsiteDataStore (#55). Honored for the frozen Safari host ONLY —
+    // every other C-API embedder keeps upstream's behavior of ignoring the call. QuickLook's
+    // Web2.qldisplay sets this on every web preview, and an ephemeral store there puts previews on an
+    // empty cookie jar, logged out of every site the user is logged into in Safari (#122).
+#if PLATFORM(COCOA)
+    if (!WTF::MacApplication::isSafari())
+        return;
+#endif
+    protect(toImpl(preferencesRef))->setPrivateBrowsingEnabled(enabled);
 }
 
-bool WKPreferencesGetPrivateBrowsingEnabled(WKPreferencesRef)
+// MAVERICKS_BACKPORT: named param + real return value (the upstream stub returned false); reports Safari 7's Private Browsing flag (#55).
+bool WKPreferencesGetPrivateBrowsingEnabled(WKPreferencesRef preferencesRef)
 {
-    return false;
+    return toImpl(preferencesRef)->privateBrowsingEnabled();
 }
 
 void WKPreferencesSetIgnoreViewportScalingConstraints(WKPreferencesRef, bool)
@@ -2113,4 +2128,16 @@ void WKPreferencesSetMediaStreamEnabled(WKPreferencesRef preferencesRef, bool en
 bool WKPreferencesGetMediaStreamEnabled(WKPreferencesRef preferencesRef)
 {
     return true;
+}
+
+// MAVERICKS_BACKPORT: empty implementations of the InspectorUsesWebKitUserInterface preference
+// accessors, removed in modern WebKit but still referenced by Safari 7, restored so it links on 10.9.
+// Legacy stub: removed from modern WebKit but still referenced by Safari 7.
+void WKPreferencesSetInspectorUsesWebKitUserInterface(WKPreferencesRef, bool)
+{
+}
+
+bool WKPreferencesGetInspectorUsesWebKitUserInterface(WKPreferencesRef)
+{
+    return false;
 }

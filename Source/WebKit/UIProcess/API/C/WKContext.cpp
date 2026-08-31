@@ -27,6 +27,7 @@
 #include "WKContextPrivate.h"
 
 #include "APIArray.h"
+#include "APICertificateInfo.h" // MAVERICKS_BACKPORT: WKContextAllowSpecificHTTPSCertificateForHost has a real body here
 #include "APIClient.h"
 #include "APIDownloadClient.h"
 #include "APILegacyContextHistoryClient.h"
@@ -37,6 +38,8 @@
 #include "DownloadProxy.h"
 #include "GPUProcessProxy.h"
 #include "LegacyGlobalSettings.h"
+// MAVERICKS_BACKPORT: WKContextGetCookieManager hands back the data store's cookie store.
+#include "APIHTTPCookieStore.h"
 #include "WKAPICast.h"
 #include "WKArray.h"
 #include "WKContextConfigurationRef.h"
@@ -45,8 +48,10 @@
 #include "WKWebsiteDataStoreRef.h"
 #include "WebContextInjectedBundleClient.h"
 #include "WebFrameProxy.h"
+#include "WebIconDatabase.h" // MAVERICKS_BACKPORT: revived legacy WK2 icon database for Safari 7 favicons (#49)
 #include "WebPageProxy.h"
 #include "WebProcessPool.h"
+#include "WebsiteDataStore.h" // MAVERICKS_BACKPORT: WKContextAllowSpecificHTTPSCertificateForHost has a real body here
 #include <WebCore/GamepadProvider.h>
 #include <wtf/RefPtr.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -402,9 +407,10 @@ WKGeolocationManagerRef WKContextGetGeolocationManager(WKContextRef contextRef)
     return WebKit::toAPI(protect(protect(WebKit::toImpl(contextRef))->supplement<WebKit::WebGeolocationManagerProxy>()).get());
 }
 
-WKIconDatabaseRef WKContextGetIconDatabase(WKContextRef)
+// MAVERICKS_BACKPORT: hand Safari 7 the revived per-pool icon database (#49).
+WKIconDatabaseRef WKContextGetIconDatabase(WKContextRef contextRef)
 {
-    return nullptr;
+    return WebKit::toAPI(&WebKit::toImpl(contextRef)->iconDatabase());
 }
 
 WKKeyValueStorageManagerRef WKContextGetKeyValueStorageManager(WKContextRef context)
@@ -422,6 +428,33 @@ WKResourceCacheManagerRef WKContextGetResourceCacheManager(WKContextRef context)
     return reinterpret_cast<WKResourceCacheManagerRef>(WKWebsiteDataStoreGetDefaultDataStore());
 }
 
+// MAVERICKS_BACKPORT: restored legacy WK2 C API symbol absent at base. Safari 7's TrackingDataController
+// and its Privacy pane drive cookies through this manager; hand back the data store's cookie store, which
+// is what the modern WKHTTPCookieStore API wraps too (see WKCookieManager.cpp).
+WKCookieManagerRef WKContextGetCookieManager(WKContextRef contextRef)
+{
+    if (!WebKit::toImpl(contextRef))
+        return nullptr;
+    // API::HTTPCookieStore names WKHTTPCookieStoreRef as its one API type, so reach the other opaque
+    // pointer over the same object directly; toImpl unwraps either spelling the same way.
+    return reinterpret_cast<WKCookieManagerRef>(WebKit::toAPI(&WebKit::WebsiteDataStore::defaultDataStore().cookieStore()));
+}
+
+// MAVERICKS_BACKPORT: restored legacy WK2 C API symbol absent at base; Safari 7's
+// AppController applicationDidFinishLaunching: queries this. Modern WebKit dropped
+// per-context process suppression in favour of per-page activity throttling —
+// return false (suppression off).
+bool WKContextGetProcessSuppressionEnabled(WKContextRef)
+{
+    return false;
+}
+
+// MAVERICKS_BACKPORT: restored legacy WK2 C API symbol absent at base; Safari 7
+// toggles this around windowed/background tabs. Modern WebKit ignores it.
+void WKContextSetProcessSuppressionEnabled(WKContextRef, bool)
+{
+}
+
 void WKContextStartMemorySampler(WKContextRef contextRef, WKDoubleRef interval)
 {
     protect(WebKit::toImpl(contextRef))->startMemorySampler(WebKit::toImpl(interval)->value());
@@ -432,12 +465,30 @@ void WKContextStopMemorySampler(WKContextRef contextRef)
     protect(WebKit::toImpl(contextRef))->stopMemorySampler();
 }
 
-void WKContextSetIconDatabasePath(WKContextRef, WKStringRef)
+// MAVERICKS_BACKPORT: enabling the icon database is what makes the pool attach a real
+// icon-loading client to its pages, so favicons actually load for Safari 7 (#49).
+void WKContextSetIconDatabasePath(WKContextRef contextRef, WKStringRef pathRef)
 {
+    WebKit::toImpl(contextRef)->setIconDatabasePath(WebKit::toWTFString(pathRef)); // MAVERICKS_BACKPORT: real body (was an empty stub upstream) enabling Safari 7 favicons (#49)
 }
 
-void WKContextAllowSpecificHTTPSCertificateForHost(WKContextRef, WKCertificateInfoRef, WKStringRef)
+// MAVERICKS_BACKPORT: real body (upstream left this empty when it dropped the Cocoa half of the
+// mechanism). This is the whole of Safari 7's "Continue" button on the invalid-certificate sheet:
+// Safari calls it with the certificate the user accepted and then reloads. With an empty body the
+// reload gets the same challenge and the sheet reappears forever, which is what happens for every
+// invalid certificate when connections are made directly instead of through a proxy. The rest of the
+// mechanism is upstream's and still here — WebsiteDataStore and the NetworkProcess message — and the
+// certificates are kept by the network process itself, which every data store shares, so the store
+// this goes through does not matter: see NetworkProcess::allowSpecificHTTPSCertificateForHost and
+// NetworkProcess::allowedHTTPSCertificateForHost, which NetworkSessionCocoa reads when a challenge
+// arrives.
+void WKContextAllowSpecificHTTPSCertificateForHost(WKContextRef, WKCertificateInfoRef certificateRef, WKStringRef hostRef)
 {
+    // MAVERICKS_BACKPORT: real body (upstream ignores every argument) — see the note above.
+    RefPtr certificateInfo = WebKit::toImpl(certificateRef);
+    if (!certificateInfo)
+        return;
+    WebKit::WebsiteDataStore::defaultDataStore().allowSpecificHTTPSCertificateForHost(certificateInfo->certificateInfo(), WebKit::toWTFString(hostRef));
 }
 
 void WKContextDisableProcessTermination(WKContextRef contextRef)

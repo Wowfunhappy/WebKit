@@ -87,6 +87,11 @@ public:
 
     bool NODELETE isOptInCookiePartitioningEnabled() const;
 
+    // MAVERICKS_BACKPORT: since-date cookie deletion belongs to WebsiteDataStore::removeData rather than to
+    // the cookie store; WKCookieManagerDeleteAllCookiesModifiedAfterDate reaches it from here. Defined out
+    // of line: WebsiteDataStore is only forward-declared in this header, and WeakPtr::get() needs it whole.
+    WebKit::WebsiteDataStore* owningDataStore() const;
+
 #if USE(SOUP)
     void replaceCookies(Vector<WebCore::Cookie>&&, CompletionHandler<void()>&&);
     void getAllCookies(CompletionHandler<void(const Vector<WebCore::Cookie>&)>&&);

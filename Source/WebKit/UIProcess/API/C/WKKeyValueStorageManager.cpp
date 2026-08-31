@@ -26,38 +26,94 @@
 #include "config.h"
 #include "WKKeyValueStorageManager.h"
 
+// MAVERICKS_BACKPORT: real bodies for the legacy local-storage manager (the base ships
+// return-0/null/no-op stubs). Safari 7's Privacy pane drives it through
+// TrackingDataController::populateWebsiteTrackingData and waits on the callback, so a body
+// that never calls back leaves the pane's website list unpopulated forever. The manager
+// handle WKContextGetKeyValueStorageManager returns is the default WKWebsiteDataStore, so
+// these route to WebsiteDataStore, which is where local storage lives now.
+#include "APIArray.h"
+#include "APIDictionary.h"
+#include "APISecurityOrigin.h"
+#include "WKAPICast.h"
+#include "WKMutableArray.h"
+#include "WKSharedAPICast.h"
+#include "WebsiteDataRecord.h"
+#include "WebsiteDataStore.h"
+#include <wtf/WallTime.h>
+
+// MAVERICKS_BACKPORT: the manager handle is a WKWebsiteDataStoreRef (see WKContextGetKeyValueStorageManager).
+static WebKit::WebsiteDataStore& wk109StoreForManager(WKKeyValueStorageManagerRef manager)
+{
+    return *WebKit::toImpl(reinterpret_cast<WKWebsiteDataStoreRef>(manager));
+}
+
 WKTypeID WKKeyValueStorageManagerGetTypeID()
 {
-    return 0;
+    return WebKit::toAPI(WebKit::WebsiteDataStore::APIType); // MAVERICKS_BACKPORT: real type (base returns 0).
 }
 
 WKStringRef WKKeyValueStorageManagerGetOriginKey()
 {
-    return nullptr;
+    return WebKit::toCopiedAPI("WebKeyValueStorageManagerStorageDetailsOriginKey"_s); // MAVERICKS_BACKPORT: real key (base returns null).
 }
 
 WKStringRef WKKeyValueStorageManagerGetCreationTimeKey()
 {
-    return nullptr;
+    return WebKit::toCopiedAPI("WebKeyValueStorageManagerStorageDetailsCreationTimeKey"_s); // MAVERICKS_BACKPORT: real key (base returns null).
 }
 
 WKStringRef WKKeyValueStorageManagerGetModificationTimeKey()
 {
-    return nullptr;
+    return WebKit::toCopiedAPI("WebKeyValueStorageManagerStorageDetailsModificationTimeKey"_s); // MAVERICKS_BACKPORT: real key (base returns null).
 }
 
-void WKKeyValueStorageManagerGetKeyValueStorageOrigins(WKKeyValueStorageManagerRef, void*, WKKeyValueStorageManagerGetKeyValueStorageOriginsFunction)
+// MAVERICKS_BACKPORT: real body (base is an empty stub that never calls back).
+void WKKeyValueStorageManagerGetKeyValueStorageOrigins(WKKeyValueStorageManagerRef manager, void* context, WKKeyValueStorageManagerGetKeyValueStorageOriginsFunction callback)
 {
+    if (!callback)
+        return;
+    wk109StoreForManager(manager).fetchData(WebKit::WebsiteDataType::LocalStorage, { }, [context, callback](Vector<WebKit::WebsiteDataRecord> records) {
+        Vector<RefPtr<API::Object>> origins;
+        for (auto& record : records) {
+            for (auto& origin : record.origins)
+                origins.append(API::SecurityOrigin::create(origin));
+        }
+        callback(WebKit::toAPI(API::Array::create(WTF::move(origins)).ptr()), nullptr, context);
+    });
 }
 
-void WKKeyValueStorageManagerGetStorageDetailsByOrigin(WKKeyValueStorageManagerRef, void*, WKKeyValueStorageManagerGetStorageDetailsByOriginFunction)
+// MAVERICKS_BACKPORT: real body (base is an empty stub that never calls back).
+void WKKeyValueStorageManagerGetStorageDetailsByOrigin(WKKeyValueStorageManagerRef manager, void* context, WKKeyValueStorageManagerGetStorageDetailsByOriginFunction callback)
 {
+    // MAVERICKS_BACKPORT: the per-origin creation and modification times the legacy details
+    // dictionary carried are not tracked by WebsiteDataStore, so each entry reports the origin
+    // alone under the origin key above.
+    if (!callback)
+        return;
+    wk109StoreForManager(manager).fetchData(WebKit::WebsiteDataType::LocalStorage, { }, [context, callback](Vector<WebKit::WebsiteDataRecord> records) {
+        Vector<RefPtr<API::Object>> details;
+        for (auto& record : records) {
+            for (auto& origin : record.origins) {
+                API::Dictionary::MapType map;
+                map.set("WebKeyValueStorageManagerStorageDetailsOriginKey"_s, API::SecurityOrigin::create(origin));
+                details.append(API::Dictionary::create(WTF::move(map)));
+            }
+        }
+        callback(WebKit::toAPI(API::Array::create(WTF::move(details)).ptr()), nullptr, context);
+    });
 }
 
-void WKKeyValueStorageManagerDeleteEntriesForOrigin(WKKeyValueStorageManagerRef, WKSecurityOriginRef)
+// MAVERICKS_BACKPORT: real body (base is an empty stub).
+void WKKeyValueStorageManagerDeleteEntriesForOrigin(WKKeyValueStorageManagerRef manager, WKSecurityOriginRef originRef)
 {
+    WebKit::WebsiteDataRecord record;
+    record.add(WebKit::WebsiteDataType::LocalStorage, WebKit::toImpl(originRef)->securityOrigin());
+    wk109StoreForManager(manager).removeData(WebKit::WebsiteDataType::LocalStorage, { record }, [] { });
 }
 
-void WKKeyValueStorageManagerDeleteAllEntries(WKKeyValueStorageManagerRef)
+// MAVERICKS_BACKPORT: real body (base is an empty stub).
+void WKKeyValueStorageManagerDeleteAllEntries(WKKeyValueStorageManagerRef manager)
 {
+    wk109StoreForManager(manager).removeData(WebKit::WebsiteDataType::LocalStorage, WallTime::fromRawSeconds(0), [] { });
 }

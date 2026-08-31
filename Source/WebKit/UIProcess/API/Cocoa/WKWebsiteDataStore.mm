@@ -402,7 +402,14 @@ private:
 #endif
 
 @implementation WKWebsiteDataStore {
+    // MAVERICKS_BACKPORT: HAVE(NW_PROXY_CONFIG) is 0 on the 10.9 deployment target (the Network
+    // proxy-config runtime is macOS 14+), so the -proxyConfigurations accessors below are compiled
+    // out. The -proxyConfigurations @property is always declared, so guard this explicit backing
+    // ivar too; otherwise the auto-synthesized property would bind to it and the RetainPtr<NSArray>
+    // type would not match the property's NSArray<nw_proxy_config_t> * type.
+#if HAVE(NW_PROXY_CONFIG)
     RetainPtr<NSArray> _proxyConfigurations;
+#endif // HAVE(NW_PROXY_CONFIG) — MAVERICKS_BACKPORT: NW proxy-config runtime is macOS 14+, so this backing ivar is guarded out on 10.9
 }
 
 WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;

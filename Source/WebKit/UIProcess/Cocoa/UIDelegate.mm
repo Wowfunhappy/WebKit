@@ -326,7 +326,8 @@ id<WKUIDelegatePrivate> UIDelegate::UIClient::uiDelegatePrivate()
 }
 
 #if PLATFORM(MAC) || HAVE(UIKIT_WITH_MOUSE_SUPPORT)
-void UIDelegate::UIClient::mouseDidMoveOverElement(WebPageProxy& page, const WebHitTestResultData& data, OptionSet<WebEventModifier> modifiers)
+// MAVERICKS_BACKPORT: trailing userData param synced to the API::UIClient signature (#58); Cocoa doesn't use it.
+void UIDelegate::UIClient::mouseDidMoveOverElement(WebPageProxy& page, const WebHitTestResultData& data, OptionSet<WebEventModifier> modifiers, API::Object*)
 {
     RefPtr uiDelegate = m_uiDelegate.get();
     if (!uiDelegate)
@@ -544,27 +545,36 @@ void UIDelegate::UIClient::requestStorageAccessConfirm(WebPageProxy& webPageProx
         }
     }
 
-    if (organizationStorageAccessPromptQuirk) {
-#if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
-        presentStorageAccessAlertSSOQuirk(uiDelegate->m_webView.get().get(), organizationStorageAccessPromptQuirk->organizationName, organizationStorageAccessPromptQuirk->quirkDomains, WTF::move(completionHandler));
-#endif
-        return;
-    }
-
-    // Some sites have quirks where multiple login domains require storage access.
-    if (additionalLoginDomain) {
-#if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
-        presentStorageAccessAlertQuirk(uiDelegate->m_webView.get().get(), requestingDomain, *additionalLoginDomain, currentDomain, WTF::move(completionHandler));
-#endif
-        return;
-    }
-
-    if (!uiDelegate->m_delegateMethods.webViewRequestStorageAccessPanelUnderFirstPartyCompletionHandler) {
-#if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
-        presentStorageAccessAlert(uiDelegate->m_webView.get().get(), requestingDomain, currentDomain, WTF::move(completionHandler));
-#endif
-        return;
-    }
+    // MAVERICKS_BACKPORT: the quirk-first order below now lives in one place, presentStorageAccessAlert,
+    // so the legacy C UI client reaches the same sheet in the same order; the alert takes the page
+    // rather than a WKWebView so a page hosted in a WKView reaches it at all.
+    // if (organizationStorageAccessPromptQuirk) {
+    // #if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
+    //     presentStorageAccessAlertSSOQuirk(uiDelegate->m_webView.get().get(), organizationStorageAccessPromptQuirk->organizationName, organizationStorageAccessPromptQuirk->quirkDomains, WTF::move(completionHandler));
+    // #endif
+    //     return;
+    // }
+    //
+    // // Some sites have quirks where multiple login domains require storage access.
+    // if (additionalLoginDomain) {
+    // #if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
+    //     presentStorageAccessAlertQuirk(uiDelegate->m_webView.get().get(), requestingDomain, *additionalLoginDomain, currentDomain, WTF::move(completionHandler));
+    // #endif
+    //     return;
+    // }
+    //
+    // if (!uiDelegate->m_delegateMethods.webViewRequestStorageAccessPanelUnderFirstPartyCompletionHandler) {
+    // #if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
+    //     presentStorageAccessAlert(uiDelegate->m_webView.get().get(), requestingDomain, currentDomain, WTF::move(completionHandler));
+    // #endif
+    //     return;
+    // }
+    if (organizationStorageAccessPromptQuirk || additionalLoginDomain || !uiDelegate->m_delegateMethods.webViewRequestStorageAccessPanelUnderFirstPartyCompletionHandler) { // MAVERICKS_BACKPORT: one call in place of the three above.
+#if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV) // MAVERICKS_BACKPORT: ditto.
+        presentStorageAccessAlert(webPageProxy, requestingDomain, currentDomain, WTF::move(organizationStorageAccessPromptQuirk), WTF::move(completionHandler)); // MAVERICKS_BACKPORT: ditto.
+#endif // MAVERICKS_BACKPORT: closes the guard around the call above.
+        return; // MAVERICKS_BACKPORT: ditto.
+    } // MAVERICKS_BACKPORT: ditto.
 
     auto checker = CompletionHandlerCallChecker::create(delegate.get(), @selector(_webView:requestStorageAccessPanelForDomain:underCurrentDomain:completionHandler:));
     [delegate _webView:uiDelegate->m_webView.get().get() requestStorageAccessPanelForDomain:requestingDomain.string().createNSString().get() underCurrentDomain:currentDomain.string().createNSString().get() completionHandler:makeBlockPtr([completionHandler = WTF::move(completionHandler), checker = WTF::move(checker)] (BOOL result) mutable {

@@ -78,6 +78,8 @@
 #include "WebContextSupplement.h"
 #include "WebFrameProxy.h"
 #include "WebGeolocationManagerProxy.h"
+#include "APIIconLoadingClient.h" // MAVERICKS_BACKPORT: setIconLoadingClient below takes ownership of one, so the type must be whole here.
+#include "WebIconDatabase.h" // MAVERICKS_BACKPORT: revived legacy WK2 icon database for Safari 7 favicons (#49)
 #include "WebInspectorUtilities.h"
 #include "WebKit2Initialize.h"
 #include "WebKitServiceNames.h"
@@ -1001,24 +1003,14 @@ void WebProcessPool::initializeNewWebProcess(WebProcessProxy& process, WebsiteDa
     parameters.overrideLanguages = overrideLanguages();
     LOG_WITH_STREAM(Language, stream << "WebProcessPool is initializing a new web process with overrideLanguages: " << parameters.overrideLanguages);
 
-    parameters.urlSchemesRegisteredAsSecure = copyToVector(LegacyGlobalSettings::singleton().schemesToRegisterAsSecure());
-    parameters.urlSchemesRegisteredAsBypassingContentSecurityPolicy = copyToVector(LegacyGlobalSettings::singleton().schemesToRegisterAsBypassingContentSecurityPolicy());
-    parameters.urlSchemesRegisteredAsLocal = copyToVector(LegacyGlobalSettings::singleton().schemesToRegisterAsLocal());
-#if ENABLE(ALL_LEGACY_REGISTERED_SPECIAL_URL_SCHEMES)
-    parameters.urlSchemesRegisteredAsNoAccess = copyToVector(LegacyGlobalSettings::singleton().schemesToRegisterAsNoAccess());
-#endif
-
-    parameters.urlSchemesRegisteredAsEmptyDocument = copyToVector(m_schemesToRegisterAsEmptyDocument);
-    parameters.urlSchemesForWhichDomainRelaxationIsForbidden = copyToVector(m_schemesToSetDomainRelaxationForbiddenFor);
-    parameters.urlSchemesRegisteredAsDisplayIsolated = copyToVector(m_schemesToRegisterAsDisplayIsolated);
-    parameters.urlSchemesRegisteredAsCORSEnabled = copyToVector(m_schemesToRegisterAsCORSEnabled);
-    parameters.urlSchemesRegisteredAsAlwaysRevalidated = copyToVector(m_schemesToRegisterAsAlwaysRevalidated);
-    parameters.urlSchemesRegisteredAsCachePartitioned = copyToVector(m_schemesToRegisterAsCachePartitioned);
-    parameters.urlSchemesRegisteredAsCanDisplayOnlyIfCanRequest = copyToVector(m_schemesToRegisterAsCanDisplayOnlyIfCanRequest);
-
-#if ENABLE(WK_WEB_EXTENSIONS)
-    parameters.urlSchemesRegisteredAsWebExtensions = copyToVector(WebExtensionMatchPattern::extensionSchemes());
-#endif
+    // MAVERICKS_BACKPORT: the scheme-registration fields are assembled just before
+    // process.initializeWebProcess() below rather than here. Safari 7 registers schemes from inside
+    // this function: WebNotificationProvider::notificationPermissions() calls out to
+    // Safari::UserNotificationController, which lazily constructs Safari::ExtensionsController, whose
+    // constructor calls WKContextRegisterURLSchemeAsSecure and
+    // WKContextSetDomainRelaxationForbiddenForURLScheme for safari-extension://. Assembled here, those
+    // land after the snapshot and before createNewWebProcess() appends to m_processes, so they reach
+    // neither the parameters nor sendToAllProcesses and are lost for the life of that process.
 
     parameters.shouldAlwaysUseComplexTextCodePath = m_alwaysUsesComplexTextCodePath;
     parameters.disableFontSubpixelAntialiasingForTesting = m_disableFontSubpixelAntialiasingForTesting;
@@ -1074,6 +1066,30 @@ void WebProcessPool::initializeNewWebProcess(WebProcessProxy& process, WebsiteDa
     
     if (websiteDataStore)
         parameters.websiteDataStoreParameters = webProcessDataStoreParameters(process, *websiteDataStore);
+
+    // MAVERICKS_BACKPORT: assembled here, after every embedder callout above, so schemes an embedder
+    // registers re-entrantly during this function reach the process. See the note at the top.
+    parameters.urlSchemesRegisteredAsSecure = copyToVector(LegacyGlobalSettings::singleton().schemesToRegisterAsSecure());
+    parameters.urlSchemesRegisteredAsBypassingContentSecurityPolicy = copyToVector(LegacyGlobalSettings::singleton().schemesToRegisterAsBypassingContentSecurityPolicy());
+    parameters.urlSchemesRegisteredAsLocal = copyToVector(LegacyGlobalSettings::singleton().schemesToRegisterAsLocal());
+#if ENABLE(ALL_LEGACY_REGISTERED_SPECIAL_URL_SCHEMES)
+    parameters.urlSchemesRegisteredAsNoAccess = copyToVector(LegacyGlobalSettings::singleton().schemesToRegisterAsNoAccess());
+#endif
+
+    parameters.urlSchemesRegisteredAsEmptyDocument = copyToVector(m_schemesToRegisterAsEmptyDocument);
+    parameters.urlSchemesForWhichDomainRelaxationIsForbidden = copyToVector(m_schemesToSetDomainRelaxationForbiddenFor);
+    parameters.urlSchemesRegisteredAsDisplayIsolated = copyToVector(m_schemesToRegisterAsDisplayIsolated);
+    parameters.urlSchemesRegisteredAsCORSEnabled = copyToVector(m_schemesToRegisterAsCORSEnabled);
+    parameters.urlSchemesRegisteredAsAlwaysRevalidated = copyToVector(m_schemesToRegisterAsAlwaysRevalidated);
+    parameters.urlSchemesRegisteredAsCachePartitioned = copyToVector(m_schemesToRegisterAsCachePartitioned);
+    parameters.urlSchemesRegisteredAsCanDisplayOnlyIfCanRequest = copyToVector(m_schemesToRegisterAsCanDisplayOnlyIfCanRequest);
+    // MAVERICKS_BACKPORT: tell new WebProcesses about app-registered custom-protocol schemes (e.g. safari-reader://)
+    // so WebPage::canHandleRequest accepts them; see WebProcess::registerURLSchemeForCustomProtocol.
+    parameters.urlSchemesRegisteredForCustomProtocols = WebProcessPool::urlSchemesWithCustomProtocolHandlers();
+
+#if ENABLE(WK_WEB_EXTENSIONS)
+    parameters.urlSchemesRegisteredAsWebExtensions = copyToVector(WebExtensionMatchPattern::extensionSchemes());
+#endif
 
     process.initializeWebProcess(WTF::move(parameters));
 
@@ -1156,6 +1172,11 @@ bool WebProcessPool::shouldTerminate(WebProcessProxy& process)
 void WebProcessPool::processDidFinishLaunching(WebProcessProxy& process)
 {
     ASSERT(m_processes.containsIf([&](auto& item) { return item.ptr() == &process; }));
+
+    // MAVERICKS_BACKPORT: legacy WKContextConnectionClient emulation for the ObjC WKProcessGroup
+    // (see setWebProcessDidFinishLaunchingHandler in the header).
+    if (m_webProcessDidFinishLaunchingHandler)
+        m_webProcessDidFinishLaunchingHandler();
 
     if (!m_visitedLinksPopulated) {
         populateVisitedLinks();
@@ -1298,11 +1319,11 @@ Ref<WebProcessProxy> WebProcessPool::processForSite(WebsiteDataStore& websiteDat
     }
 
     if (usesSingleWebProcess()) {
-#if PLATFORM(COCOA)
-        bool mustMatchDataStore = WebKit::WebsiteDataStore::defaultDataStoreExists() && &websiteDataStore != &WebKit::WebsiteDataStore::defaultDataStore();
-#else
-        bool mustMatchDataStore = false;
-#endif
+        // MAVERICKS_BACKPORT: always match the data store, not only for non-default target stores.
+        // A WebProcess hosts exactly one session (WebProcessProxy asserts it, and in-process paths
+        // like BroadcastChannel's postMessageLocally rely on it); without this, a default-store page
+        // created after an ephemeral one reuses the ephemeral process and folds two sessions together.
+        bool mustMatchDataStore = true;
 
         for (Ref process : m_processes) {
             if (process->isPrewarmed() || process->isDummyProcessProxy())
@@ -1334,6 +1355,11 @@ Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API:
 {
     if (!pageConfiguration->pageGroup())
         pageConfiguration->setPageGroup(m_defaultPageGroup.copyRef());
+
+    // MAVERICKS_BACKPORT: the Network process reads the pool's single-WebProcess mode out of this
+    // preference and keeps a Cross-Origin-Opener-Policy response in its browsing context group when
+    // it is set. Upstream sets it in WKWebView and WebKitWebView; Safari 7 builds pages with the C API.
+    protect(pageConfiguration->preferences())->setUsesSingleWebProcess(usesSingleWebProcess());
 
     RefPtr<WebProcessProxy> process;
     auto lockdownMode = pageConfiguration->lockdownModeEnabled() ? WebProcessProxy::LockdownMode::Enabled : WebProcessProxy::LockdownMode::Disabled;
@@ -1406,6 +1432,10 @@ Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API:
 #if ENABLE(LAUNCHSERVICES_SANDBOX_EXTENSION_BLOCKING)
     NetworkProcessProxy::ensureDefaultNetworkProcess();
 #endif
+
+    // MAVERICKS_BACKPORT: attach a real icon-loading client so favicons load for Safari 7's C-API pages (#49).
+    if (m_iconDatabaseEnabled && m_iconDatabase)
+        page->setIconLoadingClient(createPageIconLoadingClient(page.get(), *m_iconDatabase));
 
     return page;
 }
@@ -1657,6 +1687,10 @@ void WebProcessPool::registerGlobalURLSchemeAsHavingCustomProtocolHandlers(const
     globalURLSchemesWithCustomProtocolHandlers().add(urlScheme);
     for (Ref networkProcess : NetworkProcessProxy::allNetworkProcesses())
         networkProcess->registerSchemeForLegacyCustomProtocol(urlScheme);
+    // MAVERICKS_BACKPORT: also tell already-running WebProcesses, so WebPage::canHandleRequest accepts
+    // the scheme and WebCore's PolicyChecker lets the navigation through to the NetworkProcess.
+    for (Ref processPool : allProcessPools())
+        processPool->sendToAllProcesses(Messages::WebProcess::RegisterURLSchemeForCustomProtocol(urlScheme));
 }
 
 void WebProcessPool::unregisterGlobalURLSchemeAsHavingCustomProtocolHandlers(const String& urlScheme)
@@ -1668,6 +1702,9 @@ void WebProcessPool::unregisterGlobalURLSchemeAsHavingCustomProtocolHandlers(con
     globalURLSchemesWithCustomProtocolHandlers().remove(urlScheme);
     for (Ref networkProcess : NetworkProcessProxy::allNetworkProcesses())
         networkProcess->unregisterSchemeForLegacyCustomProtocol(urlScheme);
+    // MAVERICKS_BACKPORT: also tell already-running WebProcesses (mirror of the register path above).
+    for (Ref processPool : allProcessPools())
+        processPool->sendToAllProcesses(Messages::WebProcess::UnregisterURLSchemeForCustomProtocol(urlScheme));
 }
 
 void WebProcessPool::registerURLSchemeAsCachePartitioned(const String& urlScheme)
@@ -2256,7 +2293,12 @@ std::tuple<Ref<WebProcessProxy>, RefPtr<SuspendedPageProxy>, ASCIILiteral> WebPr
         return processForSite(dataStore, isolatedProcessType, targetSite, mainFrameSite, { }, lockdownMode, enhancedSecurity, pageConfiguration, WebCore::ProcessSwapDisposition::None);
     };
 
-    if (usesSingleWebProcess())
+    // MAVERICKS_BACKPORT: single-WebProcess mode must still honor a session change. A WebProcess
+    // hosts exactly one session (WebProcessProxy::addExistingWebPage asserts it; in-process paths
+    // like BroadcastChannel's postMessageLocally rely on it), so a navigation whose target
+    // WebsiteDataStore differs from the source process's (e.g. a swap into an ephemeral session)
+    // takes the swap path below instead of folding two sessions into one process.
+    if (usesSingleWebProcess() && sourceProcess->websiteDataStore() == dataStore.ptr())
         return { WTF::move(sourceProcess), nullptr, "Single WebProcess mode is enabled"_s };
 
     if (pageConfiguration->relatedPage() && page.alwaysUseRelatedPageProcess())

@@ -38,11 +38,15 @@ namespace WebKit {
 
 class WebPreferences;
 class WebPageProxy;
+// MAVERICKS_BACKPORT: forward declaration for the restored page-group user content controller.
+class WebUserContentControllerProxy;
 
 class WebPageGroup : public API::ObjectImpl<API::Object::Type::PageGroup>, public CanMakeWeakPtr<WebPageGroup> {
 public:
     explicit WebPageGroup(const String& identifier = { });
     static Ref<WebPageGroup> create(const String& identifier = { });
+    // MAVERICKS_BACKPORT: lookup for PageGroupHandle resolution.
+    static RefPtr<WebPageGroup> get(PageGroupIdentifier);
 
     virtual ~WebPageGroup();
 
@@ -51,10 +55,35 @@ public:
     const WebPageGroupData& data() const LIFETIME_BOUND { return m_data; }
 
     WebPreferences& preferences() const { return m_preferences; }
+    // MAVERICKS_BACKPORT: Safari 7 attaches its own WKPreferences to the page
+    // group via WKPageGroupSetPreferences.
+    void setPreferences(WebPreferences& preferences) { m_preferences = preferences; }
+
+    // MAVERICKS_BACKPORT: the page group's identifier, needed by WKView to scope
+    // bundle-injected user content (data().identifier).
+    const String& identifier() const LIFETIME_BOUND { return m_data.identifier; }
+
+    // MAVERICKS_BACKPORT: restore the page group's user content controller, removed
+    // upstream with the page-group user-content model. The legacy WKPageGroup C SPI
+    // (WKPageGroupAddUserScript / AddUserStyleSheet / RemoveAll*) and Safari 7-era
+    // clients (Mail's MUIWebDocumentViewGroup, QuickLook's Web2.qldisplay) add user
+    // scripts and style sheets here; pages created in the group share this controller
+    // (WKView seeds the page configuration with it) so the content is injected.
+    WebUserContentControllerProxy& userContentController() { return m_userContentController; }
 
 private:
+    // MAVERICKS_BACKPORT: declared first so its identifier is available when m_data is built.
+    Ref<WebUserContentControllerProxy> m_userContentController;
     WebPageGroupData m_data;
-    const Ref<WebPreferences> m_preferences;
+    // MAVERICKS_BACKPORT: drop const so setPreferences() can reseat m_preferences
+    // (Safari 7 attaches its own WKPreferences via WKPageGroupSetPreferences).
+    Ref<WebPreferences> m_preferences;
 };
 
 } // namespace WebKit
+
+// MAVERICKS_BACKPORT: type traits so a WebPageGroup can be downcast from an
+// API::Object (PageGroupHandle resolution / WKPageGroup C SPI).
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebPageGroup)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::PageGroup; }
+SPECIALIZE_TYPE_TRAITS_END()

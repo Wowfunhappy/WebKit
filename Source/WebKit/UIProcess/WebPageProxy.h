@@ -28,6 +28,7 @@
 // Including more headers here slows down build times a lot.
 // Use forward declarations and WebPageProxyInternals.h instead.
 #include "APIObject.h"
+#include "DrawingAreaInfo.h" // MAVERICKS_BACKPORT: LayerHostingMode (m_layerHostingMode)
 #include "MessageReceiver.h"
 #include <wtf/ApproximateTime.h>
 #include <wtf/CheckedRef.h>
@@ -504,6 +505,7 @@ class LayerTreeContext;
 class ListDataObserver;
 class MediaCapability;
 class MediaKeySystemPermissionRequestManagerProxy;
+class MediaKeySystemPermissionRequestProxy; // MAVERICKS_BACKPORT: allowMediaKeySystemRequestWithWidevineCdm below.
 class MediaSessionCoordinatorProxyPrivate;
 class MediaUsageManager;
 class ModelElementController;
@@ -767,6 +769,11 @@ public:
     DrawingAreaProxy* drawingArea() const { return m_drawingArea.get(); }
     DrawingAreaProxy* NODELETE provisionalDrawingArea() const;
 
+#if ENABLE(TILED_CA_DRAWING_AREA)
+    // MAVERICKS_BACKPORT: 537-parity per-window layer hosting mode (see DrawingAreaInfo.h).
+    LayerHostingMode layerHostingMode() const { return m_layerHostingMode; }
+#endif
+
     WebNavigationState& navigationState() LIFETIME_BOUND { return m_navigationState; }
 
     WebsiteDataStore& websiteDataStore() { return m_websiteDataStore; }
@@ -1007,6 +1014,13 @@ public:
     void loadAlternateHTML(Ref<WebCore::DataSegment>&&, const String& encoding, const URL& baseURL, const URL& unreachableURL, RefPtr<API::WebsitePolicies>);
 
     void loadAndDecodeImage(WebCore::ResourceRequest&&, std::optional<WebCore::FloatSize>, size_t, CompletionHandler<void(Expected<Ref<WebCore::ShareableBitmap>, WebCore::ResourceError>&&)>&&);
+    // MAVERICKS_BACKPORT: fetch image bytes through the web process, for the favicon store (#112).
+    void loadImageData(WebCore::ResourceRequest&&, size_t maximumBytesFromNetwork, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
+    // MAVERICKS_BACKPORT: the URL of the request that STARTED the committed main-frame load, before any
+    // redirect — the UI-process copy of the DocumentLoader::originalRequest() that the pre-deletion
+    // IconController::commitToDatabase read through FrameLoader::initialRequest(). The favicon store
+    // maps a page's icon under this URL as well as the committed one (#112).
+    const WTF::URL& committedInitialRequestURL() const LIFETIME_BOUND { return m_committedInitialRequestURL; }
 #if PLATFORM(COCOA)
     void getInformationFromImageData(Vector<uint8_t>&& data, CompletionHandler<void(Expected<std::pair<String, Vector<WebCore::IntSize>>, WebCore::ImageDecodingError>&&)>&&);
     void createIconDataFromImageData(Ref<WebCore::SharedBuffer>&&, const Vector<unsigned>&, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
@@ -1018,6 +1032,10 @@ public:
 
     void stopLoading();
     RefPtr<API::Navigation> reload(OptionSet<WebCore::ReloadOption>);
+
+    // MAVERICKS_BACKPORT: invoked by WebPreferences when Safari 7's global Private Browsing toggle flips;
+    // reloads so the navigation-policy path moves the page onto/off that client's ephemeral store (#55).
+    void privateBrowsingEnabledDidChange();
 
     RefPtr<API::Navigation> goForward();
     RefPtr<API::Navigation> goBack();
@@ -1966,6 +1984,11 @@ public:
     void saveDataToFileInDownloadsFolder(String&& suggestedFilename, String&& mimeType, URL&& originatingURL, API::Data&);
     void savePDFToFileInDownloadsFolder(String&& suggestedFilename, URL&& originatingURL, std::span<const uint8_t>);
 
+#if PLATFORM(MAC)
+    // MAVERICKS_BACKPORT: the QuickTime Player hand-off decidePolicyForResponseShared makes for an HLS playlist.
+    bool openMediaPlaylistInQuickTimePlayer(const URL&);
+#endif
+
 #if ENABLE(PDF_PLUGIN) && PLATFORM(MAC)
     void savePDFToTemporaryFolderAndOpenWithNativeApplication(const String& suggestedFilename, FrameInfoData&&, std::span<const uint8_t>);
     void showPDFContextMenu(const PDFContextMenu&, PDFPluginIdentifier, WebCore::FrameIdentifier, CompletionHandler<void(std::optional<int32_t>&&)>&&);
@@ -2338,7 +2361,8 @@ public:
     void didChangeProvisionalURLForFrameShared(Ref<WebProcessProxy>&&, WebCore::FrameIdentifier, std::optional<WebCore::NavigationIdentifier>, URL&&);
     void decidePolicyForNavigationActionAsync(IPC::Connection&, NavigationActionData&&, CompletionHandler<void(PolicyDecision&&)>&&);
     void decidePolicyForNavigationActionSync(IPC::Connection&, NavigationActionData&&, CompletionHandler<void(PolicyDecision&&)>&&);
-    void decidePolicyForResponseShared(Ref<WebProcessProxy>&&, WebCore::PageIdentifier, FrameInfoData&&, std::optional<WebCore::NavigationIdentifier>, const WebCore::ResourceResponse&, const WebCore::ResourceRequest&, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, CompletionHandler<void(PolicyDecision&&)>&&);
+    // MAVERICKS_BACKPORT: bundlePolicyUserData parameter added (injected-bundle policy client userData).
+    void decidePolicyForResponseShared(Ref<WebProcessProxy>&&, WebCore::PageIdentifier, FrameInfoData&&, std::optional<WebCore::NavigationIdentifier>, const WebCore::ResourceResponse&, const WebCore::ResourceRequest&, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, const UserData& bundlePolicyUserData, CompletionHandler<void(PolicyDecision&&)>&&);
     void startURLSchemeTaskShared(IPC::Connection&, Ref<WebProcessProxy>&&, WebCore::PageIdentifier, URLSchemeTaskParameters&&);
     void loadDataWithNavigationShared(Ref<WebProcessProxy>&&, WebCore::PageIdentifier, API::Navigation&, Ref<WebCore::SharedBuffer>&&, const String& MIMEType, const String& encoding, const String& baseURL, API::Object* userData, WebCore::ShouldTreatAsContinuingLoad, std::optional<NavigatingToAppBoundDomain>, RefPtr<API::WebsitePolicies>&&, WebCore::ShouldOpenExternalURLsPolicy, WebCore::SessionHistoryVisibility);
     void loadRequestWithNavigationShared(Ref<WebProcessProxy>&&, WebCore::PageIdentifier, API::Navigation&, WebCore::ResourceRequest&&, WebCore::ShouldOpenExternalURLsPolicy, WebCore::NavigationUpgradeToHTTPSBehavior, API::Object* userData, WebCore::ShouldTreatAsContinuingLoad, std::optional<NavigatingToAppBoundDomain>, RefPtr<API::WebsitePolicies>&&, std::optional<NetworkResourceLoadIdentifier> existingNetworkResourceLoadIdentifierToResume);
@@ -3083,7 +3107,10 @@ private:
     void decidePolicyForNavigationAction(Ref<WebProcessProxy>&&, WebFrameProxy&, NavigationActionData&&, CompletionHandler<void(PolicyDecision&&)>&&);
     RefPtr<FrameState> frameStateForBackForwardChildFrame(WebFrameProxy&, WebCore::BackForwardItemIdentifier);
     void decidePolicyForNewWindowAction(IPC::Connection&, NavigationActionData&&, const String& frameName, CompletionHandler<void(PolicyDecision&&)>&&);
-    void decidePolicyForResponse(IPC::Connection&, FrameInfoData&&, std::optional<WebCore::NavigationIdentifier>, const WebCore::ResourceResponse&, const WebCore::ResourceRequest&, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, CompletionHandler<void(PolicyDecision&&)>&&);
+    // MAVERICKS_BACKPORT: restored with InjectedBundlePagePolicyClient (upstream 9eeab8d removed it).
+    void unableToImplementPolicy(IPC::Connection&, WebCore::FrameIdentifier, const WebCore::ResourceError&, const UserData&);
+    // MAVERICKS_BACKPORT: bundlePolicyUserData parameter added (injected-bundle policy client userData).
+    void decidePolicyForResponse(IPC::Connection&, FrameInfoData&&, std::optional<WebCore::NavigationIdentifier>, const WebCore::ResourceResponse&, const WebCore::ResourceRequest&, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, const UserData& bundlePolicyUserData, CompletionHandler<void(PolicyDecision&&)>&&);
     void beginSafeBrowsingCheck(const URL&, API::Navigation&, bool forMainFrameNavigation);
     void showBrowsingWarning(RefPtr<WebKit::BrowsingWarning>&&);
     void deferModalUntilSafeBrowsingCompletes(CompletionHandler<void(bool shouldShow)>&&);
@@ -3111,7 +3138,11 @@ private:
     void runJavaScriptConfirm(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, String&&, CompletionHandler<void(bool)>&&);
     void runJavaScriptPrompt(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, String&&, String&&, CompletionHandler<void(const String&)>&&);
     void setStatusText(const String&);
-    void mouseDidMoveOverElement(WebHitTestResultData&&, OptionSet<WebEventModifier>);
+    // MAVERICKS_BACKPORT: gains IPC::Connection& + UserData to carry the injected-bundle hovered-URL for #58.
+    void mouseDidMoveOverElement(IPC::Connection&, WebHitTestResultData&&, OptionSet<WebEventModifier>, const UserData&);
+    // MAVERICKS_BACKPORT: shared delivery for both the IPC hover path (with injected-bundle userData) and the
+    // async hit-test path (dispatchMouseDidMoveOverElementAsynchronously, which has no userData) (#58).
+    void dispatchMouseDidMoveOverElement(WebHitTestResultData&&, OptionSet<WebEventModifier>, API::Object* userData);
 
     void NODELETE getIsViewVisible(bool&);
     void setIsResizable(bool isResizable);
@@ -3163,6 +3194,11 @@ private:
 
 #if ENABLE(ENCRYPTED_MEDIA)
     MediaKeySystemPermissionRequestManagerProxy& mediaKeySystemPermissionRequestManager() LIFETIME_BOUND;
+#if PLATFORM(MAC) && USE(GSTREAMER)
+    // MAVERICKS_BACKPORT: installs Google's Widevine CDM if this host has yet to, tells the web
+    // process where it is, and answers the page's request with what that produced.
+    void allowMediaKeySystemRequestWithWidevineCdm(Ref<MediaKeySystemPermissionRequestProxy>&&);
+#endif
 #endif
     void requestMediaKeySystemPermissionForFrame(IPC::Connection&, WebCore::MediaKeySystemRequestIdentifier, WebCore::FrameIdentifier, WebCore::ClientOrigin&&, const String&);
 
@@ -3699,6 +3735,8 @@ private:
     RefPtr<PageLoadStateObserverBase> m_pageLoadStateObserver;
 
     const UniqueRef<WebNavigationState> m_navigationState;
+    // MAVERICKS_BACKPORT: see committedInitialRequestURL(); set at each main-frame commit (#112).
+    WTF::URL m_committedInitialRequestURL;
     String m_failingProvisionalLoadURL;
     bool m_allowsLoadingAlternateHTMLForFailingProvisionalLoadURL { true };
     bool m_isLoadingAlternateHTMLStringForFailingProvisionalLoad { false };
@@ -3717,6 +3755,10 @@ private:
 #endif
 
     RefPtr<DrawingAreaProxy> m_drawingArea;
+#if ENABLE(TILED_CA_DRAWING_AREA)
+    // MAVERICKS_BACKPORT: see layerHostingMode(); recomputed in viewDidEnterWindow().
+    LayerHostingMode m_layerHostingMode { LayerHostingMode::InWindowServer };
+#endif
 #if PLATFORM(COCOA)
     std::unique_ptr<RemoteLayerTreeHost> m_frozenRemoteLayerTreeHost;
     std::unique_ptr<RemoteScrollingCoordinatorProxy> m_scrollingCoordinatorProxy;

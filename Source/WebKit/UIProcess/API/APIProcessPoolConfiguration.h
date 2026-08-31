@@ -37,7 +37,11 @@
 
 namespace API {
 
-#if PLATFORM(COCOA) && !PLATFORM(IOS_FAMILY_SIMULATOR)
+// MAVERICKS_BACKPORT: on a Mac the out-of-process display path exists only with ScreenCaptureKit —
+// UseGPUProcessForDisplayCapture is conditioned on it, and the UserMediaCaptureManagerProxy that answers
+// a remote display source is hosted only by GPUConnectionToWebProcess. Without it the web process
+// captures the display itself through the Cocoa factory.
+#if PLATFORM(COCOA) && !PLATFORM(IOS_FAMILY_SIMULATOR) && (!PLATFORM(MAC) || HAVE(SCREEN_CAPTURE_KIT))
 #define DEFAULT_CAPTURE_DISPLAY_IN_UI_PROCESS true
 #else
 #define DEFAULT_CAPTURE_DISPLAY_IN_UI_PROCESS false
@@ -191,7 +195,13 @@ private:
     bool m_clientWouldBenefitFromAutomaticProcessPrewarming { false };
     bool m_shouldConfigureJSCForTesting { false };
     bool m_isJITEnabled { true };
-    bool m_usesSingleWebProcess { false };
+    // MAVERICKS_BACKPORT (10.9): default single-WebProcess mode ON. This port runs all pages of a
+    // pool in one WebContent process (per WebsiteDataStore — processForSite's single-process reuse
+    // skips mismatched stores, so ephemeral sessions still get their own process, preserving the
+    // one-session-per-WebProcess invariant that BroadcastChannel's postMessageLocally relies on).
+    // Sharing one process keeps a Safari extension's content-script <-> global-page safari.*
+    // messaging intra-process and lets inspector WebPages share WebContent with the inspected page.
+    bool m_usesSingleWebProcess { true };
 #if PLATFORM(PLAYSTATION)
     WTF::String m_webProcessPath;
     WTF::String m_networkProcessPath;

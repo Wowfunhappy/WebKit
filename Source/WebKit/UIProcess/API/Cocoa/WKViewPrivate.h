@@ -32,11 +32,26 @@
 
 @class _WKLinkIconParameters;
 
+// MAVERICKS_BACKPORT: WKContentAnchor is the Safari-7-era content-anchor enum for the
+// -[WKView contentAnchor] SPI, restored verbatim from the Safari-537-era WKViewPrivate.h.
+// The values are ABI with Safari.framework, which was compiled against them.
+typedef enum {
+    WKContentAnchorTopLeft,
+    WKContentAnchorTopRight,
+    WKContentAnchorBottomLeft,
+    WKContentAnchorBottomRight,
+} WKContentAnchor;
+
 @interface WKView (Private)
 
 /* C SPI support. */
 
 @property (readonly) WKPageRef pageRef;
+
+// MAVERICKS_BACKPORT: Safari-7-era SPI restored from the Safari-537-era WKViewPrivate.h —
+// the corner painted content stays anchored to while an async resize is in flight.
+// Safari 7 sets this unguarded around window/toolbar resize animations.
+@property WKContentAnchor contentAnchor;
 
 - (id)initWithFrame:(NSRect)frame contextRef:(WKContextRef)contextRef pageGroupRef:(WKPageGroupRef)pageGroupRef;
 - (id)initWithFrame:(NSRect)frame contextRef:(WKContextRef)contextRef pageGroupRef:(WKPageGroupRef)pageGroupRef relatedToPage:(WKPageRef)relatedPage;
@@ -54,6 +69,20 @@
 // and allows subsequent updates as the frame size is set. Calls can be nested.
 - (void)enableFrameSizeUpdates;
 - (BOOL)frameSizeUpdatesDisabled;
+
+// MAVERICKS_BACKPORT: Safari-7-era async drawing-area size-update SPI, restored from the
+// Safari-537-era WKViewPrivate.h. Safari 7 calls both unguarded around fullscreen and
+// banner resizes.
+- (void)forceAsyncDrawingAreaSizeUpdate:(NSSize)size;
+- (void)waitForAsyncDrawingAreaSizeUpdate;
+
+// MAVERICKS_BACKPORT: automatic-substitution SPI Safari 7 sends to its WKView unguarded
+// (Edit > Substitutions state and preferences plumbing). Upstream keeps these on
+// WebViewImpl; this tree's standalone WKView implements them directly.
+- (BOOL)isAutomaticQuoteSubstitutionEnabled;
+- (void)setAutomaticQuoteSubstitutionEnabled:(BOOL)flag;
+- (BOOL)isAutomaticDashSubstitutionEnabled;
+- (void)setAutomaticDashSubstitutionEnabled:(BOOL)flag;
 
 + (void)hideWordDefinitionWindow;
 

@@ -26,6 +26,8 @@
 #include "config.h"
 #include "WKFrame.h"
 
+// MAVERICKS_BACKPORT: restored for the WKCertificateInfo C API the base gutted (#103)
+#include "APICertificateInfo.h"
 #include "APIData.h"
 #include "APIFrameHandle.h"
 #include "APIFrameInfo.h"
@@ -97,7 +99,10 @@ WKPageRef WKFrameGetPage(WKFrameRef frameRef)
 
 WKCertificateInfoRef WKFrameGetCertificateInfo(WKFrameRef frameRef)
 {
-    return nullptr;
+    // MAVERICKS_BACKPORT: upstream gutted this to null, which keeps Safari 7's address-bar
+    // lock permanently dark (#103). Get semantics: the WebFrameProxy owns the wrapper.
+    // return nullptr;
+    return toAPI(&protect(toImpl(frameRef))->apiCertificateInfo());
 }
 
 bool WKFrameCanProvideSource(WKFrameRef frameRef)

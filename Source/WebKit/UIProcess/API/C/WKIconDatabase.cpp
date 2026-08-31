@@ -29,6 +29,8 @@
 #include "APIData.h"
 #include "WKAPICast.h"
 #include "WebIconDatabase.h"
+// MAVERICKS_BACKPORT: revived icon-database client wrapper used by WKIconDatabaseSetIconDatabaseClient below (#49).
+#include "WebIconDatabaseClient.h"
 
 using namespace WebKit;
 
@@ -37,8 +39,12 @@ WKTypeID WKIconDatabaseGetTypeID()
     return toAPI(WebIconDatabase::APIType);
 }
 
-void WKIconDatabaseSetIconDatabaseClient(WKIconDatabaseRef, const WKIconDatabaseClientBase*)
+// MAVERICKS_BACKPORT: attach Safari 7's legacy C icon-database client so favicon change
+// notifications are delivered again (#49).
+void WKIconDatabaseSetIconDatabaseClient(WKIconDatabaseRef iconDatabaseRef, const WKIconDatabaseClientBase* client)
 {
+    // MAVERICKS_BACKPORT: forward the legacy client to the revived in-memory icon store (upstream stub did nothing) (#49).
+    toImpl(iconDatabaseRef)->setClient(client ? makeUnique<WebIconDatabaseClient>(client) : nullptr);
 }
 
 void WKIconDatabaseRetainIconForURL(WKIconDatabaseRef, WKURLRef)
@@ -57,28 +63,42 @@ void WKIconDatabaseSetIconURLForPageURL(WKIconDatabaseRef, WKURLRef, WKURLRef)
 {
 }
 
-WKURLRef WKIconDatabaseCopyIconURLForPageURL(WKIconDatabaseRef, WKURLRef)
+// MAVERICKS_BACKPORT: answer favicon URL/data queries from the revived in-memory store (#49).
+WKURLRef WKIconDatabaseCopyIconURLForPageURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL)
 {
-    return nullptr;
+    String iconURL = toImpl(iconDatabaseRef)->iconURLForPageURL(toWTFString(pageURL));
+    if (iconURL.isEmpty())
+        return nullptr;
+    return toCopiedURLAPI(iconURL);
 }
 
-WKDataRef WKIconDatabaseCopyIconDataForPageURL(WKIconDatabaseRef, WKURLRef)
+// MAVERICKS_BACKPORT: return raw favicon bytes from the revived in-memory store instead of the upstream nullptr stub (#49).
+WKDataRef WKIconDatabaseCopyIconDataForPageURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL)
 {
-    return nullptr;
+    RefPtr data = toImpl(iconDatabaseRef)->iconDataForPageURL(toWTFString(pageURL));
+    if (!data)
+        return nullptr;
+    return toAPILeakingRef(data.releaseNonNull());
 }
 
 void WKIconDatabaseEnableDatabaseCleanup(WKIconDatabaseRef)
 {
 }
 
-void WKIconDatabaseRemoveAllIcons(WKIconDatabaseRef)
+// MAVERICKS_BACKPORT: clear the revived in-memory store (#49).
+void WKIconDatabaseRemoveAllIcons(WKIconDatabaseRef iconDatabaseRef)
 {
+    toImpl(iconDatabaseRef)->removeAllIcons();
 }
 
 void WKIconDatabaseCheckIntegrityBeforeOpening(WKIconDatabaseRef)
 {
 }
 
-void WKIconDatabaseClose(WKIconDatabaseRef)
+// MAVERICKS_BACKPORT: Safari is done with icons (it calls this at quit); close the on-disk store.
+// Every write is committed as it happens, so there is nothing to flush first (#112).
+void WKIconDatabaseClose(WKIconDatabaseRef iconDatabaseRef)
 {
+    // MAVERICKS_BACKPORT: close the revived on-disk icon store (#112).
+    toImpl(iconDatabaseRef)->close();
 }
