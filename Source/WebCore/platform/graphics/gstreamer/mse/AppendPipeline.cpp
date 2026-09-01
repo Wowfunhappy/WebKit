@@ -121,7 +121,11 @@ void AppendPipeline::setupDemuxing()
     const String& type = m_sourceBufferPrivate.type().containerType();
     GST_DEBUG_OBJECT(pipeline(), "SourceBuffer containerType: %s", type.utf8().data());
 
-    if (type.endsWith("mp4"_s) || type.endsWith("aac"_s)) {
+    // MAVERICKS_BACKPORT: an "aac" container type is the unmuxed ADTS byte stream, not an ISO-BMFF
+    // one -- WebCore groups it with audio/mpeg in MediaSource::contentTypeShouldGenerateTimestamps().
+    // The typefind branch below frames it with aacparse.
+    // if (type.endsWith("mp4"_s) || type.endsWith("aac"_s)) {
+    if (type.endsWith("mp4"_s)) {
         m_demux = makeGStreamerElement("qtdemux"_s);
         m_typefind = makeGStreamerElement("identity"_s);
         GRefPtr<GstCaps> caps = adoptGRef(gst_caps_new_simple("video/quicktime", "variant", G_TYPE_STRING, "mse-bytestream", NULL));
@@ -129,7 +133,7 @@ void AppendPipeline::setupDemuxing()
     } else if (type.endsWith("webm"_s)) {
         m_demux = makeGStreamerElement("matroskademux"_s);
         m_typefind = makeGStreamerElement("identity"_s);
-    } else if (type == "audio/mpeg"_s) {
+    } else if (type == "audio/mpeg"_s || type.endsWith("aac"_s)) { // MAVERICKS_BACKPORT: an "aac" container type is an unmuxed ADTS byte stream; see above.
         // Will be instantiated later based on typefind results.
         m_demux = nullptr;
         m_typefind = makeGStreamerElement("typefind"_s);
@@ -150,8 +154,10 @@ void AppendPipeline::setupDemuxing()
                 demuxerElementName = "identity"_s;
 
             if (demuxerElementName.isNull()) {
+                // MAVERICKS_BACKPORT: more than one container type enters this branch, so the error
+                // names the byte stream it frames rather than one of those types.
                 GST_ELEMENT_ERROR(appendPipeline->pipeline(), STREAM, WRONG_TYPE,
-                    ("Unsupported caps for audio/mpeg mimetype: %s",
+                    ("Unsupported caps for an unmuxed audio byte stream: %s",
                     gstStructureGetName(capsStructure).utf8()), (nullptr));
                 return;
             }
@@ -179,7 +185,8 @@ void AppendPipeline::setupDemuxing()
         GST_INFO_OBJECT(pipeline(), "Created typefind: %s", gst_element_get_name(m_typefind.get()));
 
     // m_demux might be null at this point if there's a typefind pending to identify the proper demuxer to be used
-    // (see the audio/mpeg case right above).
+    // (see the unmuxed audio byte stream case right above -- MAVERICKS_BACKPORT: more than one
+    // container type enters it).
     if (m_demux) {
         configureOptionalDemuxerFromAnyThread();
         GST_INFO_OBJECT(pipeline(), "Created demuxer: %s", gst_element_get_name(m_demux.get()));

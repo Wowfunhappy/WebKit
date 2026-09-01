@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>MSE: raw ADTS AAC byte stream</title>
+<style>body{font:13px -apple-system,Helvetica;padding:1em}pre{background:#f4f4f4;padding:8px;white-space:pre-wrap}button{margin-right:6px}</style>
+<h1>MediaSource: raw ADTS AAC byte stream</h1>
+<p>ChatGPT's "Read aloud" appends the bytes of <code>/backend-api/synthesize?format=aac</code>
+(raw ADTS AAC, not ISO-BMFF) to a SourceBuffer whose type is <code>audio/aac</code>.
+<code>audio/mpeg</code> runs the identical bytes through the byte stream format WebCore groups
+<code>audio/aac</code> with, so all three buttons must behave the same.</p>
+<button id="aac">audio/aac, whole file</button>
+<button id="aacChunked">audio/aac, 3 kB chunks</button>
+<button id="mpeg">audio/mpeg, whole file</button>
+<audio id="a" controls></audio>
+<pre id="log"></pre>
+<script>
+var out = document.getElementById('log');
+function log() { out.textContent += Array.prototype.join.call(arguments, ' ') + '\n'; }
+
+log('MediaSource.isTypeSupported("audio/aac") = ' + MediaSource.isTypeSupported('audio/aac'));
+log('MediaSource.isTypeSupported("audio/mpeg") = ' + MediaSource.isTypeSupported('audio/mpeg'));
+
+function run(mimeType, chunkSize) {
+    var audio = document.getElementById('a');
+    var ms = new MediaSource();
+    audio.src = URL.createObjectURL(ms);
+    audio.addEventListener('error', function () {
+        log('FAIL audio error code=' + (audio.error && audio.error.code) + ' message=' + (audio.error && audio.error.message));
+    });
+    audio.addEventListener('loadedmetadata', function () { log('loadedmetadata duration=' + audio.duration); });
+    audio.addEventListener('playing', function () { log('playing'); });
+    audio.addEventListener('ended', function () { log('ended at ' + audio.currentTime.toFixed(3)); });
+
+    ms.addEventListener('sourceopen', function () {
+        var sb;
+        try {
+            sb = ms.addSourceBuffer(mimeType);
+        } catch (e) {
+            log('FAIL addSourceBuffer threw: ' + e);
+            return;
+        }
+        log('addSourceBuffer ' + mimeType + ' mode=' + sb.mode);
+        sb.addEventListener('error', function () { log('FAIL sourceBuffer error event'); });
+
+        fetch('tone.aac').then(function (r) { return r.arrayBuffer(); }).then(function (b) {
+            log('fetched ' + b.byteLength + ' bytes');
+            var offset = 0;
+            var step = chunkSize || b.byteLength;
+            sb.addEventListener('updateend', function () {
+                log('updateend buffered=' + (sb.buffered.length
+                        ? sb.buffered.start(0).toFixed(3) + '-' + sb.buffered.end(0).toFixed(3) : 'none')
+                    + ' audioTracks=' + audio.audioTracks.length);
+                if (offset < b.byteLength)
+                    appendNext();
+                else if (ms.readyState === 'open')
+                    ms.endOfStream();
+            });
+            function appendNext() {
+                var end = Math.min(offset + step, b.byteLength);
+                try {
+                    sb.appendBuffer(b.slice(offset, end));
+                } catch (e) {
+                    log('FAIL appendBuffer threw: ' + e);
+                    return;
+                }
+                offset = end;
+            }
+            appendNext();
+        });
+    });
+    audio.play().then(function () { log('play() resolved'); },
+                      function (e) { log('FAIL play() rejected: ' + e.name + ' ' + e.message); });
+}
+
+document.getElementById('aac').onclick = function () { log('--- audio/aac, whole file ---'); run('audio/aac'); };
+document.getElementById('aacChunked').onclick = function () { log('--- audio/aac, 3 kB chunks ---'); run('audio/aac', 3072); };
+document.getElementById('mpeg').onclick = function () { log('--- audio/mpeg, whole file ---'); run('audio/mpeg'); };
+</script>
