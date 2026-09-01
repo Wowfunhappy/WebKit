@@ -371,6 +371,9 @@ PROBE_LIBS="$OUT/libpolyfill.a -framework Foundation -framework CoreFoundation -
 "$CLANG" $MODERN $INC -o "$T/feature_clear" "$TBEHAV/CoreText-feature-clear.c" $PROBE_LIBS \
     -framework CoreText -framework CoreGraphics -lc++
 "$T/feature_clear"
+"$CLANG" $MODERN $INC -o "$T/descriptor_options" "$TBEHAV/CoreText-descriptor-options.c" $PROBE_LIBS \
+    -framework CoreText -framework CoreGraphics -lc++
+"$T/descriptor_options"
 # The 10.9 host headers, not the modern SDK's: AudioUnit* live in AudioUnit.framework here and in
 # AudioToolbox from 10.10 on, so only these headers put the probe's references where this OS has them.
 "$CLANG" $HOST -Wno-deprecated-declarations $INC -o "$T/audiounit_max_frames" "$TBEHAV/AudioUnit-max-frames.c" \

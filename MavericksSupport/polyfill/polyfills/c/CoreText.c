@@ -841,6 +841,19 @@ static const CGAffineTransform *wk_fontMatrixForRequest(bool sourceScalesToNothi
 
 // The face a descriptor's weight, width and slant traits select, applied below with the
 // trait-selection machinery this shares with CTFontCreateCopyWithAttributes.
+// kCTFontDescriptorOptionSystemUIFont travels on the descriptor a font was realized from, and this
+// layer substitutes faces and rebuilds descriptors: both have to carry it, because stock 10.9 keeps
+// it across the same operations and WebCore::isSystemFont() reads it back off the result.
+extern bool CTFontDescriptorIsSystemUIFont(CTFontDescriptorRef);
+extern CTFontDescriptorRef CTFontDescriptorCreateWithAttributesAndOptions(CFDictionaryRef, uint32_t);
+
+#define WK_SYSTEM_UI_FONT_OPTION (1u << 1) /* kCTFontDescriptorOptionSystemUIFont */
+
+static bool wk_descriptorIsSystemUI(CTFontDescriptorRef descriptor)
+{
+    return descriptor && CTFontDescriptorIsSystemUIFont(descriptor);
+}
+
 static CTFontRef wkApplyTraitsToFace(CTFontRef copy, CTFontDescriptorRef attributes);
 
 // The descriptor 10.9 can realize, out of the one the caller wrote, or NULL when they are the same.
@@ -898,7 +911,8 @@ static CTFontDescriptorRef wk_realizableDescriptor(CTFontDescriptorRef descripto
         }
         if (wantsMonospaced)
             CFDictionarySetValue(realizable, kCTFontFamilyNameAttribute, CFSTR("Menlo"));
-        realized = CTFontDescriptorCreateWithAttributes(realizable);
+        realized = CTFontDescriptorCreateWithAttributesAndOptions(realizable,
+            wk_descriptorIsSystemUI(descriptor) ? WK_SYSTEM_UI_FONT_OPTION : 0);
     }
     if (reducedTraits)
         CFRelease(reducedTraits);
@@ -1394,8 +1408,15 @@ static CTFontRef wkNearestSymbolicTraitFace(CTFontRef copy, CGFloat targetWeight
             if (haveWeights) {
                 wk_face_rank lighter = wkRankFace(0.0, weights[0], 0.0, targetWeight, false);
                 wk_face_rank heavier = wkRankFace(0.0, weights[1], 0.0, targetWeight, false);
-                chosen = faces[wkRankIsNearer(&heavier, &lighter) ? 1 : 0];
-                CFRetain(chosen);
+                // The symbolic-trait fonts name the candidates but are not the answer:
+                // CTFontCreateCopyWithSymbolicTraits drops the descriptor's options, so the chosen
+                // face is minted again by name off the source's own descriptor, which carries them.
+                CTFontRef nearest = faces[wkRankIsNearer(&heavier, &lighter) ? 1 : 0];
+                CFStringRef nearestName = CTFontCopyPostScriptName(nearest);
+                if (nearestName) {
+                    chosen = wkFontWithFaceName(copy, nearestName);
+                    CFRelease(nearestName);
+                }
             }
         }
     }
@@ -2483,17 +2504,17 @@ typedef struct {
     uint32_t length;
 } wk_font_table;
 
-static bool wk_tableHas(wk_font_table table, uint32_t offset, uint32_t size)
+static bool wk_tableHas(wk_font_table table, uint64_t offset, uint64_t size)
 {
     return offset <= table.length && size <= table.length - offset;
 }
 
-static uint16_t wk_tableU16(wk_font_table table, uint32_t offset)
+static uint16_t wk_tableU16(wk_font_table table, uint64_t offset)
 {
     return wk_tableHas(table, offset, 2) ? wk_be16(table.bytes + offset) : 0;
 }
 
-static uint32_t wk_tableU32(wk_font_table table, uint32_t offset)
+static uint32_t wk_tableU32(wk_font_table table, uint64_t offset)
 {
     return wk_tableHas(table, offset, 4) ? wk_be32(table.bytes + offset) : 0;
 }
@@ -2505,27 +2526,31 @@ static void wk_markGlyph(CFMutableBitVectorRef coverage, uint32_t glyph)
 }
 
 // An OpenType Coverage table: format 1 lists the glyphs, format 2 lists first/last ranges.
-static void wk_markCoverageTable(wk_font_table gsub, uint32_t offset, CFMutableBitVectorRef coverage)
+static void wk_markCoverageTable(wk_font_table gsub, uint64_t offset, CFMutableBitVectorRef coverage)
 {
     uint16_t format = wk_tableU16(gsub, offset);
-    uint32_t count = wk_tableU16(gsub, offset + 2);
+    uint64_t count = wk_tableU16(gsub, offset + 2);
     if (format == 1) {
         if (!wk_tableHas(gsub, offset + 4, count * 2))
             return;
-        for (uint32_t i = 0; i < count; i++)
+        for (uint64_t i = 0; i < count; i++)
             wk_markGlyph(coverage, wk_be16(gsub.bytes + offset + 4 + i * 2));
     } else if (format == 2) {
         if (!wk_tableHas(gsub, offset + 4, count * 6))
             return;
-        for (uint32_t i = 0; i < count; i++) {
+        // The range ends the font states are unclamped, and wk_markGlyph discards anything past the
+        // last glyph, so the walk stops there rather than running the stated range out.
+        uint32_t glyphs = (uint32_t)CFBitVectorGetCount(coverage);
+        for (uint64_t i = 0; i < count; i++) {
             const uint8_t *record = gsub.bytes + offset + 4 + i * 6;
-            for (uint32_t glyph = wk_be16(record); glyph <= wk_be16(record + 2); glyph++)
+            uint32_t last = wk_be16(record + 2);
+            for (uint32_t glyph = wk_be16(record); glyph < glyphs && glyph <= last; glyph++)
                 wk_markGlyph(coverage, glyph);
         }
     }
 }
 
-static void wk_markCoverageAt(wk_font_table gsub, uint32_t base, uint32_t offset, CFMutableBitVectorRef coverage)
+static void wk_markCoverageAt(wk_font_table gsub, uint64_t base, uint64_t offset, CFMutableBitVectorRef coverage)
 {
     if (offset)
         wk_markCoverageTable(gsub, base + offset, coverage);
@@ -2536,7 +2561,7 @@ static void wk_markCoverageAt(wk_font_table gsub, uint32_t base, uint32_t offset
 // chaining-context types, which cover the first glyph of every rule they hold. Format 3 of those two
 // names one coverage per input position instead, and an extension subtable names the real subtable and
 // its type at a 32-bit offset.
-static void wk_markGSUBSubtable(wk_font_table gsub, uint16_t lookupType, uint32_t subtable,
+static void wk_markGSUBSubtable(wk_font_table gsub, uint16_t lookupType, uint64_t subtable,
                                 CFMutableBitVectorRef coverage, int extensionsLeft)
 {
     uint16_t format = wk_tableU16(gsub, subtable);
@@ -2547,34 +2572,34 @@ static void wk_markGSUBSubtable(wk_font_table gsub, uint16_t lookupType, uint32_
         return;
     }
     if (lookupType == 5 && format == 3) {
-        uint32_t inputCount = wk_tableU16(gsub, subtable + 2);
-        for (uint32_t i = 0; i < inputCount; i++)
+        uint64_t inputCount = wk_tableU16(gsub, subtable + 2);
+        for (uint64_t i = 0; i < inputCount; i++)
             wk_markCoverageAt(gsub, subtable, wk_tableU16(gsub, subtable + 6 + i * 2), coverage);
         return;
     }
     if (lookupType == 6 && format == 3) {
-        uint32_t cursor = subtable + 2 + 2 * (uint32_t)wk_tableU16(gsub, subtable + 2);
-        uint32_t inputCount = wk_tableU16(gsub, cursor + 2);
-        for (uint32_t i = 0; i < inputCount; i++)
+        uint64_t cursor = subtable + 2 + 2 * (uint64_t)wk_tableU16(gsub, subtable + 2);
+        uint64_t inputCount = wk_tableU16(gsub, cursor + 2);
+        for (uint64_t i = 0; i < inputCount; i++)
             wk_markCoverageAt(gsub, subtable, wk_tableU16(gsub, cursor + 4 + i * 2), coverage);
         return;
     }
     wk_markCoverageAt(gsub, subtable, wk_tableU16(gsub, subtable + 2), coverage);
 }
 
-static void wk_markGSUBLookups(wk_font_table gsub, uint32_t feature, uint32_t lookupList,
+static void wk_markGSUBLookups(wk_font_table gsub, uint64_t feature, uint64_t lookupList,
                                CFMutableBitVectorRef coverage)
 {
-    uint32_t lookupCount = wk_tableU16(gsub, feature + 2);
+    uint64_t lookupCount = wk_tableU16(gsub, feature + 2);
     uint32_t listCount = wk_tableU16(gsub, lookupList);
-    for (uint32_t i = 0; i < lookupCount; i++) {
+    for (uint64_t i = 0; i < lookupCount; i++) {
         uint32_t index = wk_tableU16(gsub, feature + 4 + i * 2);
         if (index >= listCount)
             continue;
-        uint32_t lookup = lookupList + wk_tableU16(gsub, lookupList + 2 + index * 2);
+        uint64_t lookup = lookupList + wk_tableU16(gsub, lookupList + 2 + (uint64_t)index * 2);
         uint16_t lookupType = wk_tableU16(gsub, lookup);
-        uint32_t subtableCount = wk_tableU16(gsub, lookup + 4);
-        for (uint32_t s = 0; s < subtableCount; s++)
+        uint64_t subtableCount = wk_tableU16(gsub, lookup + 4);
+        for (uint64_t s = 0; s < subtableCount; s++)
             wk_markGSUBSubtable(gsub, lookupType, lookup + wk_tableU16(gsub, lookup + 6 + s * 2), coverage, 1);
     }
 }
@@ -2590,11 +2615,11 @@ static void wk_markOpenTypeFeatureCoverage(CTFontRef font, const char *tag, CFMu
     if (gsub.bytes) {
         uint32_t wanted = ((uint32_t)(uint8_t)tag[0] << 24) | ((uint32_t)(uint8_t)tag[1] << 16)
                         | ((uint32_t)(uint8_t)tag[2] << 8) | (uint8_t)tag[3];
-        uint32_t featureList = wk_tableU16(gsub, 6);
-        uint32_t lookupList = wk_tableU16(gsub, 8);
-        uint32_t featureCount = wk_tableU16(gsub, featureList);
-        for (uint32_t i = 0; i < featureCount; i++) {
-            uint32_t record = featureList + 2 + i * 6;
+        uint64_t featureList = wk_tableU16(gsub, 6);
+        uint64_t lookupList = wk_tableU16(gsub, 8);
+        uint64_t featureCount = wk_tableU16(gsub, featureList);
+        for (uint64_t i = 0; i < featureCount; i++) {
+            uint64_t record = featureList + 2 + i * 6;
             if (wk_tableU32(gsub, record) == wanted)
                 wk_markGSUBLookups(gsub, featureList + wk_tableU16(gsub, record + 4), lookupList, coverage);
         }
@@ -2615,33 +2640,33 @@ static uint64_t wk_beN(const uint8_t *bytes, uint32_t size)
 // glyph class in a state table's class table.
 typedef void (*wk_aat_lookup_visitor)(uint32_t glyph, uint64_t value, CFMutableBitVectorRef coverage);
 
-static void wk_walkAATLookup(wk_font_table table, uint32_t offset, uint32_t glyphCount,
+static void wk_walkAATLookup(wk_font_table table, uint64_t offset, uint32_t glyphCount,
                              wk_aat_lookup_visitor visit, CFMutableBitVectorRef coverage)
 {
     // The binary-search header formats 2, 4 and 6 share: unit size, unit count, and three search hints.
-    uint32_t unitCount = wk_tableU16(table, offset + 4);
-    uint32_t units = offset + 12;
+    uint64_t unitCount = wk_tableU16(table, offset + 4);
+    uint64_t units = offset + 12;
 
     switch (wk_tableU16(table, offset)) {
     case 0:
-        for (uint32_t glyph = 0; glyph < glyphCount && wk_tableHas(table, offset + 2 + glyph * 2, 2); glyph++)
-            visit(glyph, wk_be16(table.bytes + offset + 2 + glyph * 2), coverage);
+        for (uint64_t glyph = 0; glyph < glyphCount && wk_tableHas(table, offset + 2 + glyph * 2, 2); glyph++)
+            visit((uint32_t)glyph, wk_be16(table.bytes + offset + 2 + glyph * 2), coverage);
         break;
     case 2:
-        for (uint32_t i = 0; i < unitCount && wk_tableHas(table, units + i * 6, 6); i++) {
+        for (uint64_t i = 0; i < unitCount && wk_tableHas(table, units + i * 6, 6); i++) {
             const uint8_t *unit = table.bytes + units + i * 6;
             uint32_t last = wk_be16(unit), value = wk_be16(unit + 4);
-            for (uint32_t glyph = wk_be16(unit + 2); glyph <= last; glyph++)
+            for (uint32_t glyph = wk_be16(unit + 2); glyph < glyphCount && glyph <= last; glyph++)
                 visit(glyph, value, coverage);
         }
         break;
     case 4:
-        for (uint32_t i = 0; i < unitCount && wk_tableHas(table, units + i * 6, 6); i++) {
+        for (uint64_t i = 0; i < unitCount && wk_tableHas(table, units + i * 6, 6); i++) {
             const uint8_t *unit = table.bytes + units + i * 6;
             uint32_t last = wk_be16(unit), first = wk_be16(unit + 2);
-            uint32_t values = offset + wk_be16(unit + 4);
+            uint64_t values = offset + wk_be16(unit + 4);
             for (uint32_t glyph = first; glyph <= last; glyph++) {
-                uint32_t at = values + (glyph - first) * 2;
+                uint64_t at = values + (uint64_t)(glyph - first) * 2;
                 if (!wk_tableHas(table, at, 2))
                     break;
                 visit(glyph, wk_be16(table.bytes + at), coverage);
@@ -2649,27 +2674,27 @@ static void wk_walkAATLookup(wk_font_table table, uint32_t offset, uint32_t glyp
         }
         break;
     case 6:
-        for (uint32_t i = 0; i < unitCount && wk_tableHas(table, units + i * 4, 4); i++) {
+        for (uint64_t i = 0; i < unitCount && wk_tableHas(table, units + i * 4, 4); i++) {
             const uint8_t *unit = table.bytes + units + i * 4;
             visit(wk_be16(unit), wk_be16(unit + 2), coverage);
         }
         break;
     case 8: {
         uint32_t first = wk_tableU16(table, offset + 2);
-        uint32_t count = wk_tableU16(table, offset + 4);
-        for (uint32_t i = 0; i < count && wk_tableHas(table, offset + 6 + i * 2, 2); i++)
-            visit(first + i, wk_be16(table.bytes + offset + 6 + i * 2), coverage);
+        uint64_t count = wk_tableU16(table, offset + 4);
+        for (uint64_t i = 0; i < count && wk_tableHas(table, offset + 6 + i * 2, 2); i++)
+            visit(first + (uint32_t)i, wk_be16(table.bytes + offset + 6 + i * 2), coverage);
         break;
     }
     case 10: {
         // A trimmed array whose entries are one, two, four or eight bytes wide.
-        uint32_t unitSize = wk_tableU16(table, offset + 2);
+        uint64_t unitSize = wk_tableU16(table, offset + 2);
         uint32_t first = wk_tableU16(table, offset + 4);
-        uint32_t count = wk_tableU16(table, offset + 6);
+        uint64_t count = wk_tableU16(table, offset + 6);
         if (unitSize != 1 && unitSize != 2 && unitSize != 4 && unitSize != 8)
             break;
-        for (uint32_t i = 0; i < count && wk_tableHas(table, offset + 8 + i * unitSize, unitSize); i++)
-            visit(first + i, wk_beN(table.bytes + offset + 8 + i * unitSize, unitSize), coverage);
+        for (uint64_t i = 0; i < count && wk_tableHas(table, offset + 8 + i * unitSize, unitSize); i++)
+            visit(first + (uint32_t)i, wk_beN(table.bytes + offset + 8 + i * unitSize, (uint32_t)unitSize), coverage);
         break;
     }
     default:
@@ -2696,7 +2721,7 @@ static void wk_markClassifiedGlyph(uint32_t glyph, uint64_t value, CFMutableBitV
 // ligature and insertion — are state machines whose header names the class table that decides which
 // glyphs the machine can see. morx carries the extended state header, with 32-bit offsets and an AAT
 // lookup for the class table; mort carries the original, with 16-bit offsets and a trimmed byte array.
-static void wk_markMetamorphosisSubtable(wk_font_table table, uint32_t body, uint32_t type, bool extended,
+static void wk_markMetamorphosisSubtable(wk_font_table table, uint64_t body, uint32_t type, bool extended,
                                          uint32_t glyphCount, CFMutableBitVectorRef coverage)
 {
     if (type == 4) {
@@ -2709,11 +2734,11 @@ static void wk_markMetamorphosisSubtable(wk_font_table table, uint32_t body, uin
         wk_walkAATLookup(table, body + wk_tableU32(table, body + 4), glyphCount, wk_markClassifiedGlyph, coverage);
         return;
     }
-    uint32_t classTable = body + wk_tableU16(table, body + 2);
+    uint64_t classTable = body + wk_tableU16(table, body + 2);
     uint32_t first = wk_tableU16(table, classTable);
-    uint32_t count = wk_tableU16(table, classTable + 2);
-    for (uint32_t i = 0; i < count && wk_tableHas(table, classTable + 4 + i, 1); i++)
-        wk_markClassifiedGlyph(first + i, table.bytes[classTable + 4 + i], coverage);
+    uint64_t count = wk_tableU16(table, classTable + 2);
+    for (uint64_t i = 0; i < count && wk_tableHas(table, classTable + 4 + i, 1); i++)
+        wk_markClassifiedGlyph(first + (uint32_t)i, table.bytes[classTable + 4 + i], coverage);
 }
 
 // One metamorphosis chain. A chain applies a feature entry as `flags = (flags & disableFlags) |
@@ -2722,15 +2747,15 @@ static void wk_markMetamorphosisSubtable(wk_font_table table, uint32_t body, uin
 // set nothing at all: Didot's lining-figures setting only clears the old-style flag its chain defaults
 // carry, so the glyphs it acts on are that subtable's. Clearing a flag the defaults do not carry changes
 // nothing, and names no glyph.
-static void wk_markMetamorphosisChain(wk_font_table table, uint32_t chain, uint32_t featureCount,
+static void wk_markMetamorphosisChain(wk_font_table table, uint64_t chain, uint32_t featureCount,
                                       uint32_t subtableCount, uint32_t chainHeader, uint32_t subtableHeader,
                                       bool extended, int featureType, int featureSelector,
                                       uint32_t glyphCount, CFMutableBitVectorRef coverage)
 {
     uint32_t enableFlags = 0, clearedFlags = 0;
     bool names = false;
-    uint32_t entries = chain + chainHeader;
-    for (uint32_t i = 0; i < featureCount && wk_tableHas(table, entries + i * 12, 12); i++) {
+    uint64_t entries = chain + chainHeader;
+    for (uint64_t i = 0; i < featureCount && wk_tableHas(table, entries + i * 12, 12); i++) {
         const uint8_t *entry = table.bytes + entries + i * 12;
         if (wk_be16(entry) == (uint16_t)featureType && wk_be16(entry + 2) == (uint16_t)featureSelector) {
             enableFlags |= wk_be32(entry + 4);
@@ -2742,7 +2767,7 @@ static void wk_markMetamorphosisChain(wk_font_table table, uint32_t chain, uint3
         return;
     uint32_t affectedFlags = enableFlags | (clearedFlags & wk_tableU32(table, chain));
 
-    uint32_t subtable = entries + featureCount * 12;
+    uint64_t subtable = entries + (uint64_t)featureCount * 12;
     for (uint32_t i = 0; i < subtableCount && wk_tableHas(table, subtable, subtableHeader); i++) {
         uint32_t length = extended ? wk_tableU32(table, subtable) : wk_tableU16(table, subtable);
         uint32_t flags = extended ? wk_tableU32(table, subtable + 8) : wk_tableU32(table, subtable + 4);
@@ -2809,7 +2834,7 @@ static void wk_markAATFeatureCoverage(CTFontRef font, int featureType, int featu
     wk_font_table table = { CFDataGetBytePtr(data), CFDataGetBytePtr(data) ? (uint32_t)CFDataGetLength(data) : 0 };
     uint32_t chainCount = wk_tableU32(table, 4);
     uint32_t chainHeader = extended ? 16u : 12u;
-    uint32_t chain = 8;
+    uint64_t chain = 8;
     for (uint32_t c = 0; c < chainCount && wk_tableHas(table, chain, chainHeader); c++) {
         uint32_t length = wk_tableU32(table, chain + 4);
         uint32_t featureCount = extended ? wk_tableU32(table, chain + 8) : wk_tableU16(table, chain + 8);
@@ -3088,13 +3113,6 @@ WK_POLYFILL_ABSENT("CoreText", CGFloat, CTFontGetAccessibilityBoldWeightOfWeight
     return weight;
 }
 
-// Descriptor option flags (newer). 10.9 descriptors carry none; report none.
-WK_POLYFILL_ABSENT("CoreText", uint64_t, CTFontDescriptorGetOptions, (CTFontDescriptorRef descriptor))
-{
-    (void)descriptor;
-    return 0;
-}
-
 // Glyphs for a run of consecutive BMP characters. The modern convenience over CTFontGetGlyphsFor
 // Characters (which 10.9 has): the caller passes a CFRange of UniChar code points and a glyph buffer
 // sized to the range length.
@@ -3139,41 +3157,27 @@ WK_POLYFILL_ABSENT("CoreText", bool, CTFontIsAppleColorEmoji, (CTFontRef font))
     return result;
 }
 
-// Is this the system UI font? 10.9 has no such predicate, but it does have a system UI font, and
-// names it the same way every later system does: CTFontCreateUIFontForLanguage(kCTFontUIFontSystem).
-// So ask that font what family it belongs to and compare — on this OS the answer is Lucida Grande,
-// on later ones it is the hidden .AppleSystemUIFont family, and the comparison is written against
-// neither. Family rather than PostScript name so the family's other faces (bold, italic) answer
-// true, matching the real predicate.
-//
-// The family name is fetched once: this runs on every FontPlatformData construction
-// (FontPlatformDataCoreText.cpp:82), and the system UI font does not change within a process.
-static CFStringRef wkSystemUIFontFamilyName;
+// The system UI font, and the option set a descriptor carries. 10.9 stores descriptor options and
+// exposes the one that matters through CTFontDescriptorIsSystemUIFont, which reads the same
+// kCTFontDescriptorOptionSystemUIFont bit CTFontDescriptorGetOptions reports. The bit is what the
+// descriptor was created with, not a property of the names it carries: the same attributes with the
+// option and without it are two different answers, which is the distinction the serialization round
+// trip in FontPlatformDataCoreText.cpp turns on.
+extern bool CTFontDescriptorIsSystemUIFont(CTFontDescriptorRef);
 
-static void wkCopySystemUIFontFamilyName(void)
+WK_POLYFILL_ABSENT("CoreText", uint32_t, CTFontDescriptorGetOptions, (CTFontDescriptorRef descriptor))
 {
-    CTFontRef systemFont = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 0.0, NULL);
-    if (!systemFont)
-        return;
-    wkSystemUIFontFamilyName = CTFontCopyFamilyName(systemFont);
-    CFRelease(systemFont);
+    return CTFontDescriptorIsSystemUIFont(descriptor) ? 1u << 1 /* kCTFontDescriptorOptionSystemUIFont */ : 0;
 }
 
 WK_POLYFILL_ABSENT("CoreText", bool, CTFontIsSystemUIFont, (CTFontRef font))
 {
     if (!font)
         return false;
-
-    static pthread_once_t once = PTHREAD_ONCE_INIT;
-    pthread_once(&once, wkCopySystemUIFontFamilyName);
-    if (!wkSystemUIFontFamilyName)
-        return false;
-
-    CFStringRef familyName = CTFontCopyFamilyName(font);
-    if (!familyName)
-        return false;
-    bool result = CFStringCompare(familyName, wkSystemUIFontFamilyName, 0) == kCFCompareEqualTo;
-    CFRelease(familyName);
+    CTFontDescriptorRef descriptor = CTFontCopyFontDescriptor(font);
+    bool result = CTFontDescriptorIsSystemUIFont(descriptor);
+    if (descriptor)
+        CFRelease(descriptor);
     return result;
 }
 
