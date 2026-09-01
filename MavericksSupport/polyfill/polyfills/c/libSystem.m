@@ -949,18 +949,22 @@ WK_POLYFILL_ABSENT(NULL, BOOL, objc_opt_respondsToSelector, (id object, SEL sele
 
 #pragma clang diagnostic pop
 
-// objc_unsafeClaimAutoreleasedReturnValue (10.11+) claims an autoreleased return value without
-// retaining it. 10.9 has only the retaining form; claiming with a retain is the conservative
-// direction (the object stays alive at least as long), and ARC balances it at the call site.
+// objc_unsafeClaimAutoreleasedReturnValue (10.11+) claims an autoreleased return value and leaves it
+// at +0, because ARC emits no balancing release for the call sites that use it. 10.9 has the
+// retaining form, which consumes the caller's +1 on the optimized-return fast path and retains
+// otherwise; releasing after it gives back the one reference either path added.
 extern id objc_retainAutoreleasedReturnValue(id object);
+extern void objc_release(id object);
 WK_POLYFILL_ABSENT(NULL, id, objc_unsafeClaimAutoreleasedReturnValue, (id object))
 {
-    return objc_retainAutoreleasedReturnValue(object);
+    objc_retainAutoreleasedReturnValue(object);
+    objc_release(object);
+    return object;
 }
 
 #pragma mark - mach thread register scanning
 
-// thread_get_register_pointer_values (10.11+) reports a suspended thread's stack pointer and the
+// thread_get_register_pointer_values (10.14+) reports a suspended thread's stack pointer and the
 // registers that may hold pointers — what a conservative garbage collector scans for roots. 10.9
 // has no such call, but it does have thread_get_state, from which the same values come directly:
 // %rsp plus the 15 general-purpose registers and %rip.
@@ -973,28 +977,34 @@ WK_POLYFILL_ABSENT(NULL, kern_return_t, thread_get_register_pointer_values,
     if (kr != KERN_SUCCESS)
         return kr;
 
-    if (sp)
-        *sp = state.__rsp;
+    if (!count)
+        return KERN_INVALID_ARGUMENT;
 
-    if (register_values && count) {
-        size_t i = 0;
-        register_values[i++] = state.__rax;
-        register_values[i++] = state.__rbx;
-        register_values[i++] = state.__rcx;
-        register_values[i++] = state.__rdx;
-        register_values[i++] = state.__rdi;
-        register_values[i++] = state.__rsi;
-        register_values[i++] = state.__rbp;
-        register_values[i++] = state.__r8;
-        register_values[i++] = state.__r9;
-        register_values[i++] = state.__r10;
-        register_values[i++] = state.__r11;
-        register_values[i++] = state.__r12;
-        register_values[i++] = state.__r13;
-        register_values[i++] = state.__r14;
-        register_values[i++] = state.__r15;
-        register_values[i++] = state.__rip;
-        *count = i;
+    // The x86_64 System V red zone is live data below %rsp, and the API reports a stack pointer
+    // already adjusted for it.
+    if (sp)
+        *sp = state.__rsp - 128;
+
+    {
+        const uintptr_t values[] = {
+            state.__rax, state.__rbx, state.__rcx, state.__rdx,
+            state.__rdi, state.__rsi, state.__rbp,
+            state.__r8, state.__r9, state.__r10, state.__r11,
+            state.__r12, state.__r13, state.__r14, state.__r15,
+            state.__rip,
+        };
+        const size_t valueCount = sizeof(values) / sizeof(values[0]);
+        // |count| is in-out: it arrives holding the capacity of |register_values|, and leaves
+        // holding how many registers there are. A capacity with nowhere to write is the caller's
+        // error; a capacity too small for all of them takes as many as fit.
+        if (!register_values && *count)
+            return KERN_INVALID_ARGUMENT;
+        size_t filled = *count < valueCount ? *count : valueCount;
+        for (size_t i = 0; i < filled; i++)
+            register_values[i] = values[i];
+        *count = valueCount;
+        if (filled < valueCount)
+            return KERN_INSUFFICIENT_BUFFER_SIZE;
     }
     return KERN_SUCCESS;
 }
