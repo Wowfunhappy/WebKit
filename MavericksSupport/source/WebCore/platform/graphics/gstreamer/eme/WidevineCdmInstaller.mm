@@ -221,6 +221,14 @@ static std::optional<WidevineCdmModule> newestInstalledModule(const String& root
 // runs.
 static std::optional<WidevineCdmModule> install(const String& root, const ManifestEntry& manifest, const String& versionInUse)
 {
+    // The version names the directory the module is installed into, and it comes from the update
+    // service's manifest. Only the dotted-number names newestInstalledModule() will pick up again
+    // are installable.
+    if (!isVersionName(manifest.version)) {
+        WTFLogAlways("Widevine: the manifest names no version");
+        return std::nullopt;
+    }
+
     WTFLogAlways("Widevine: fetching module %s", manifest.version.utf8().data());
     RetainPtr archive = fetch(manifest.url, 600);
     if (!archive) {

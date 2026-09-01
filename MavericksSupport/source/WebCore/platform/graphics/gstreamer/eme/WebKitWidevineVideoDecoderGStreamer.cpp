@@ -649,12 +649,8 @@ static GstFlowReturn webKitMediaWidevineVideoDecodeHandleFrame(GstVideoDecoder* 
             GST_ERROR_OBJECT(self, "failed to map the subsample buffer");
             return GST_FLOW_ERROR;
         }
-        if (!CDMProxyWidevine::parseSubsamples(mappedSubsamples.span<uint8_t>(), protection.subsampleCount, subsamples)) {
-            GST_ELEMENT_ERROR(self, STREAM, DECRYPT, ("Subsample buffer too small for %u subsamples", protection.subsampleCount), (nullptr));
-            return GST_FLOW_NOT_SUPPORTED;
-        }
-        if (!subsamplesCoverSize(subsamples, input.size())) {
-            GST_ELEMENT_ERROR(self, STREAM, DECRYPT, ("Subsample table does not describe the %zu-byte sample", input.size()), (nullptr));
+        if (!CDMProxyWidevine::parseSubsamples(mappedSubsamples.span<uint8_t>(), protection.subsampleCount, input.size(), subsamples)) {
+            GST_ELEMENT_ERROR(self, STREAM, DECRYPT, ("%u subsamples do not describe the %zu-byte sample", protection.subsampleCount, input.size()), (nullptr));
             return GST_FLOW_NOT_SUPPORTED;
         }
     }

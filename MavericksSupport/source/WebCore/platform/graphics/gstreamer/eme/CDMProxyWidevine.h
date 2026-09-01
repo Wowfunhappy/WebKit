@@ -8,6 +8,7 @@
 
 #include "CDMProxy.h"
 #include "WidevineCdmModule.h"
+#include <array>
 #include <wtf/Lock.h>
 #include <wtf/TZoneMalloc.h>
 
@@ -65,9 +66,16 @@ public:
     void resetVideoDecoder();
     cdm::Status decryptAndDecodeFrame(DecodeContext&, WidevineVideoFrame&);
 
+    static constexpr size_t ivSizeInBytes = 16;
+
     // GStreamer carries subsamples as big-endian (uint16 clear, uint32 encrypted) pairs. False
-    // when the buffer the media supplied is too small for the count it claims.
-    static bool parseSubsamples(std::span<const uint8_t>, unsigned count, Vector<cdm::SubsampleEntry>&);
+    // when the buffer the media supplied is too small for the count it claims, or when the entries
+    // do not add up to |sampleSize|.
+    static bool parseSubsamples(std::span<const uint8_t>, unsigned count, size_t sampleSize, Vector<cdm::SubsampleEntry>&);
+
+    // The 16-byte counter block the CDM takes, from the 8- or 16-byte IV the media carries. False
+    // for any other length.
+    static bool normalizeIV(std::span<const uint8_t>, std::array<uint8_t, ivSizeInBytes>&);
 
 private:
     Lock m_cdmLock;
