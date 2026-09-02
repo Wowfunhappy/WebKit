@@ -74,6 +74,17 @@ typedef enum {
 
 wk_samesite_header_disposition wk_sameSiteRewriteSetCookieHeader(CFStringRef header, CFURLRef url, CFStringRef *rewritten);
 
+// The set-cookie-strings a folded Set-Cookie field carries, as ranges over the field. A comma divides
+// two cookies only where a cookie-name and its '=' follow it, and never inside a double-quoted value.
+// The caller owns the result; *outCount is the number of ranges.
+CFRange *wk_copySetCookieRanges(CFStringRef header, CFIndex *outCount);
+
+// RFC 6265bis 5.5: a set-cookie-string carrying a CTL other than HTAB is ignored, its attributes
+// included. The cookies of a folded Set-Cookie field that carry none, folded back into one field, or
+// NULL when every cookie in it carries one. The caller owns the result.
+CFStringRef wk_copyFieldWithoutControlCookies(CFStringRef header);
+
+
 #ifdef __cplusplus
 }
 #endif

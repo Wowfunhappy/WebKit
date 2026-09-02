@@ -14,6 +14,7 @@
 // CFNetwork's own cookie parser and accessors, resolved the way the polyfill resolves them: they are
 // exported on 10.9 and absent from the build SDK's stub library.
 typedef const struct OpaqueCFHTTPCookie *CookieRef;
+typedef struct OpaqueCFHTTPCookieStorage *CFHTTPCookieStorageRef;
 typedef CFArrayRef (*ParseFn)(CFAllocatorRef, CFDictionaryRef, CFURLRef);
 typedef CFStringRef (*CopyFn)(CookieRef);
 
@@ -131,6 +132,55 @@ static void checkRewrite(const char *label, const char *header, const char *expe
     CFRelease(url);
 }
 
+
+// RFC 6265bis 5.5 at the HTTP seam: the set-cookie-strings of a folded field that carry no CTL other
+// than HTAB, folded back into one field. |expected| is NULL when every cookie in the field carries one.
+static void checkControlSplit(const char *label, const char *header, const char *expected)
+{
+    CFStringRef field = str(header);
+    CFStringRef kept = wk_copyFieldWithoutControlCookies(field);
+    char *actual = kept ? utf8(kept) : NULL;
+    bool same = expected ? (actual && !strcmp(actual, expected)) : !actual;
+    if (!same) {
+        printf("  FAIL: %s\n        header   %s\n        expected %s\n        actual   %s\n",
+               label, header, expected ? expected : "(the whole field ignored)",
+               actual ? actual : "(the whole field ignored)");
+        ++failures;
+    }
+    free(actual);
+    if (kept)
+        CFRelease(kept);
+    CFRelease(field);
+}
+
+
+// The division this layer makes must be the one 10.9's parser makes, so a field is never handed on
+// carrying more or fewer cookies than the server sent.
+static void checkRangeCountMatchesParser(const char *header)
+{
+    CFURLRef url = CFURLCreateWithString(NULL, CFSTR("http://a.test/x"), NULL);
+    CFStringRef field = str(header);
+    CFIndex ours = 0;
+    CFRange *ranges = wk_copySetCookieRanges(field, &ours);
+    const void *key = (const void *)CFSTR("Set-Cookie");
+    const void *value = (const void *)field;
+    CFDictionaryRef fields = CFDictionaryCreate(NULL, &key, &value, 1,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFArrayRef parsed = ((ParseFn)cfnetwork("CFHTTPCookieCreateWithResponseHeaderFields"))(NULL, fields, url);
+    CFRelease(fields);
+    CFIndex theirs = parsed ? CFArrayGetCount(parsed) : 0;
+    if (ours != theirs) {
+        printf("  FAIL: the field divides into %ld cookies here and %ld in the parser\n        header %s\n",
+               (long)ours, (long)theirs, header);
+        ++failures;
+    }
+    free(ranges);
+    if (parsed)
+        CFRelease(parsed);
+    CFRelease(field);
+    CFRelease(url);
+}
+
 static void checkPolicy(const char *sameSite, wk_same_site_policy expected, const char *what)
 {
     CFStringRef policy = str(sameSite);
@@ -153,6 +203,122 @@ static void checkSameSite(const char *site, const char *url, bool expected, cons
         CFRelease(b);
     CFRelease(siteText);
     CFRelease(urlText);
+}
+
+
+// ---------------------------------------------------------------------------------------------------
+// The bulk-merge report (polyfills/c/CFNetwork.c). A file-backed cookie storage takes in whatever
+// another process wrote to its file when it syncs, naming none of it; the hook snapshots the storage
+// either side of that merge and the watcher reports the difference. Driven here with two storages over
+// one file: the second writes, the first syncs, and the handlers say what moved.
+typedef CFHTTPCookieStorageRef (*CreateFromFileFn)(CFAllocatorRef, CFURLRef, CFDictionaryRef);
+typedef void (*SyncNowFn)(CFHTTPCookieStorageRef);
+typedef void (*StorageSetCookieFn)(CFHTTPCookieStorageRef, CookieRef);
+typedef void (*StorageDeleteCookieFn)(CFHTTPCookieStorageRef, CookieRef);
+
+// -_initWithCFHTTPCookieStorage: is 10.9's own, so the public selector reaches it; the three handler
+// methods below are ones this layer adds, and an added method answers only the private selector the
+// layer registers it under ("wk_" and the real name), which is what a send made at runtime must name.
+static NSHTTPCookieStorage *wrapStorage(CFHTTPCookieStorageRef store)
+{
+    return [((id (*)(id, SEL, CFHTTPCookieStorageRef))objc_msgSend)([NSHTTPCookieStorage alloc],
+        sel_getUid("_initWithCFHTTPCookieStorage:"), store) autorelease];
+}
+
+static NSHTTPCookie *cookieNamed(NSString *name, NSString *value)
+{
+    return [NSHTTPCookie cookieWithProperties:@{ NSHTTPCookieName: name, NSHTTPCookieValue: value,
+        NSHTTPCookieDomain: @"merge.test", NSHTTPCookiePath: @"/" }];
+}
+
+// The reports the watcher has delivered, drained by spinning the run loop the handlers are queued on.
+static NSMutableArray *gAdded, *gRemoved;
+
+static void drain(void)
+{
+    for (int i = 0; i < 40; ++i)
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.02, true);
+}
+
+static NSString *describe(NSArray *cookies)
+{
+    NSMutableArray *parts = [NSMutableArray array];
+    for (NSHTTPCookie *c in [cookies sortedArrayUsingComparator:^NSComparisonResult(NSHTTPCookie *a, NSHTTPCookie *b) {
+            return [[a name] compare:[b name]]; }])
+        [parts addObject:[NSString stringWithFormat:@"%@=%@", [c name], [c value]]];
+    return [parts componentsJoinedByString:@","];
+}
+
+static void checkMerge(const char *label, NSString *gotAdded, const char *wantAdded,
+                       NSString *gotRemoved, const char *wantRemoved)
+{
+    if (strcmp([gotAdded UTF8String], wantAdded) || strcmp([gotRemoved UTF8String], wantRemoved)) {
+        printf("  FAIL: %s\n        added   expected [%s] got [%s]\n        removed expected [%s] got [%s]\n",
+               label, wantAdded, [gotAdded UTF8String], wantRemoved, [gotRemoved UTF8String]);
+        ++failures;
+    }
+}
+
+static void checkBulkMergeReport(void)
+{
+    CreateFromFileFn createFromFile = (CreateFromFileFn)cfnetwork("CFHTTPCookieStorageCreateFromFile");
+    SyncNowFn syncNow = (SyncNowFn)cfnetwork("CFHTTPCookieStorageSyncStorageNow");
+
+    NSString *path = [NSString stringWithFormat:@"/tmp/wk-merge-%d.cookies", (int)getpid()];
+    [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
+    CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)[path UTF8String],
+                                                           (CFIndex)strlen([path UTF8String]), false);
+
+    CFHTTPCookieStorageRef observed = createFromFile(NULL, url, NULL);
+    CFHTTPCookieStorageRef writer = createFromFile(NULL, url, NULL);
+    if (!observed || !writer) {
+        printf("  FAIL: a file-backed cookie storage could not be made\n");
+        ++failures;
+        CFRelease(url);
+        return;
+    }
+
+    gAdded = [NSMutableArray array];
+    gRemoved = [NSMutableArray array];
+    NSHTTPCookieStorage *watched = wrapStorage(observed);
+    NSHTTPCookieStorage *writing = wrapStorage(writer);
+
+    ((void (*)(id, SEL, id, dispatch_queue_t))objc_msgSend)(watched, sel_getUid("wk__setCookiesChangedHandler:onQueue:"),
+        ^(NSArray *cookies, NSString *host) { (void)host; [gAdded addObjectsFromArray:cookies]; }, dispatch_get_main_queue());
+    ((void (*)(id, SEL, id, dispatch_queue_t))objc_msgSend)(watched, sel_getUid("wk__setCookiesRemovedHandler:onQueue:"),
+        ^(NSArray *cookies, NSString *host, BOOL all) { (void)host; (void)all; [gRemoved addObjectsFromArray:cookies]; }, dispatch_get_main_queue());
+    ((void (*)(id, SEL, id))objc_msgSend)(watched, sel_getUid("wk__setSubscribedDomainsForCookieChanges:"),
+        [NSSet setWithObject:@"merge.test"]);
+
+    // (1) a cookie another writer added arrives as an addition
+    [writing setCookie:cookieNamed(@"a", @"1")];
+    [writing setCookie:cookieNamed(@"b", @"2")];
+    syncNow(writer);
+    syncNow(observed);
+    drain();
+    checkMerge("a merge that adds cookies names them", describe(gAdded), "a=1,b=2", describe(gRemoved), "");
+
+    // (2) a value change under the same identity is a set, not a pair of edits
+    [gAdded removeAllObjects]; [gRemoved removeAllObjects];
+    [writing setCookie:cookieNamed(@"a", @"changed")];
+    syncNow(writer);
+    syncNow(observed);
+    drain();
+    checkMerge("a merge that changes a value names it once", describe(gAdded), "a=changed", describe(gRemoved), "");
+
+    // (3) a cookie another writer removed arrives as a removal
+    [gAdded removeAllObjects]; [gRemoved removeAllObjects];
+    [writing deleteCookie:cookieNamed(@"b", @"2")];
+    syncNow(writer);
+    syncNow(observed);
+    drain();
+    checkMerge("a merge that removes a cookie names it", describe(gAdded), "", describe(gRemoved), "b=2");
+
+    ((void (*)(id, SEL, id))objc_msgSend)(watched, sel_getUid("wk__setSubscribedDomainsForCookieChanges:"), nil);
+    CFRelease(observed);
+    CFRelease(writer);
+    CFRelease(url);
+    [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
 }
 
 int main(void)
@@ -247,6 +413,30 @@ int main(void)
                  "p=1; Path=/; SameSite=None, q=2; Path=/; SameSite=Lax", "[p=1|-][q=2|wk:1 ss=Lax]");
     // The grammar allows space around an attribute's value.
     checkRewrite("spaces around the value", "a=1; Path=/; SameSite = Lax ", "[a=1|wk:1 ss=Lax]");
+
+    // A comma inside an Expires date and a comma inside a value are not fold boundaries, so a cookie
+    // that shares a field with one carrying a control character keeps every byte the server sent it.
+    checkControlSplit("a date's comma is not a boundary",
+                      "a=1; Expires=Wed, 09 Jun 2027 10:18:14 GMT, b=2\x01",
+                      "a=1; Expires=Wed, 09 Jun 2027 10:18:14 GMT");
+    checkControlSplit("a comma with no name= after it divides nothing",
+                      "a=1,2, b=3\x01", "a=1,2");
+    checkControlSplit("the cookie carrying it is the only one dropped",
+                      "good=1, bad=2\x01, alsogood=3", "good=1, alsogood=3");
+    checkControlSplit("a field whose every cookie carries one", "bad=1\x01, worse=2\x02", NULL);
+    checkRangeCountMatchesParser("a=1");
+    checkRangeCountMatchesParser("a=1, b=2");
+    checkRangeCountMatchesParser("a=1,2, b=3");
+    checkRangeCountMatchesParser("a=1; Expires=Wed, 09 Jun 2027 10:18:14 GMT");
+    checkRangeCountMatchesParser("a=1; Expires=Wed, 09 Jun 2027 10:18:14 GMT, b=2");
+    checkRangeCountMatchesParser("a=\"x,y\"; Path=/");
+    checkRangeCountMatchesParser("a=\"x,y\"; Path=/, b=2");
+    checkRangeCountMatchesParser("a=1; Path=/; SameSite=Lax, b=2; SameSite=Strict");
+
+    checkControlSplit("a quoted comma is not a boundary",
+                      "a=\"x,y\"; Path=/, b=2\x01", "a=\"x,y\"; Path=/");
+    checkRewrite("a quoted semicolon begins no attribute",
+                 "a=\"x; SameSite=Strict\"; Path=/", "[a=\"x; SameSite=Strict\"|-]");
 
     // A field carrying as many attributes as a busy response: every one of them is carried, and the
     // cost is one parse for the round that attributes them all rather than one parse each.
@@ -343,6 +533,8 @@ int main(void)
             CFRelease(huge);
         }
     }
+
+    checkBulkMergeReport();
 
     printf(failures ? "  %d FAILED\n" : "  ok\n", failures);
     return failures ? 1 : 0;

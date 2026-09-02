@@ -347,15 +347,18 @@ PROBE_LIBS="$OUT/libpolyfill.a -framework Foundation -framework CoreFoundation -
 "$T/unfair_lock"
 # SameSite: the encoding a cookie carries the attribute in, the rule, and the Set-Cookie rewrite, all
 # against 10.9's own cookie parser.
-# force_load of the method archive so the blocks install their private selectors on NSHTTPCookie here,
-# which is how the constructors this layer replaces can be driven from a program of our own.
-# The whole method archive comes in, so the frameworks owning every class its other blocks extend are on
-# the line too -- and libpolyfill.a ahead of them, so the layer's own absent-on-10.9 constants satisfy
-# the method archive's references the way force_load does inside a shipped framework.
+# The cookie blocks install their private selectors on NSHTTPCookie here, which is how the constructors
+# this layer replaces can be driven from a program of our own: Foundation.o carries them and
+# wk_selref_scope.o installs them. Those two objects rather than the whole method archive, because the
+# archive's other blocks extend classes owned by PDFKit and QuartzCore, and linking those reaches
+# JavaScriptCore through the Quartz umbrella -- the installed frameworks' copy of this layer, which
+# would claim the CFNetwork slots this test exercises and leave it measuring that copy instead.
+# libpolyfill.a ahead of the frameworks, so the layer's own absent-on-10.9 constants satisfy the
+# objects' references the way force_load does inside a shipped framework.
 "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/samesite" "$TBEHAV/CFNetwork-samesite.m" \
-    -Wl,-force_load,"$OUT/libpolyfill_methods.a" -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
-    -framework AppKit -framework QuartzCore -framework ApplicationServices -framework CoreServices \
-    -framework AVFoundation -framework CoreLocation -framework PDFKit "$OUT/libpolyfill_classes.dylib" \
+    "$OBJ/methods/Foundation.o" "$OBJ/mech/wk_selref_scope.o" \
+    -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+    -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
     $PROBE_LIBS
 "$T/samesite"
 # -lc++: realizing a font reaches the variable-font instancer, which is C++.

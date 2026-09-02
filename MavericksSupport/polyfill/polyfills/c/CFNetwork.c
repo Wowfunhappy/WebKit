@@ -1,11 +1,15 @@
 // CFNetwork: entry points and constants modern WebKit references that 10.9's CFNetwork does not export,
 // and a load-time patch of one CFNetwork constant in the network process.
+#include "wk_cookie_storage.h"
 #include "wk_polyfill.h"
 #include "wk_samesite.h"
 #include "wk_symbols.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <dlfcn.h>
+#include <objc/message.h>
+#include <objc/runtime.h>
+#include <syslog.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -384,6 +388,24 @@ static CFStringRef wk_setCookieFieldName(CFDictionaryRef fields)
     return name;
 }
 
+// A CTL other than HTAB: %x00-08, %x0A-1F or %x7F.
+static bool wk_hasControlCharacter(CFStringRef text)
+{
+    CFIndex length = text ? CFStringGetLength(text) : 0;
+    if (!length)
+        return false;
+    CFStringInlineBuffer buffer;
+    CFStringInitInlineBuffer(text, &buffer, CFRangeMake(0, length));
+    for (CFIndex i = 0; i < length; ++i) {
+        UniChar c = CFStringGetCharacterFromInlineBuffer(&buffer, i);
+        if (c == '\t')
+            continue;
+        if (c <= 0x1f || c == 0x7f)
+            return true;
+    }
+    return false;
+}
+
 static void wk_setCookiesWithResponseHeaderFields(const void *storage, CFURLRef url, CFDictionaryRef headerFields,
                                                   CFURLRef mainDocumentURL, int acceptPolicy)
 {
@@ -398,19 +420,255 @@ static void wk_setCookiesWithResponseHeaderFields(const void *storage, CFURLRef 
         return;
     }
 
+    // RFC 6265bis 5.5: a set-cookie-string carrying a CTL other than HTAB is ignored, its attributes
+    // included; 10.9's parser truncates the string at the character and keeps the cookie. A field
+    // CFNetwork folded carries several set-cookie-strings and only the ones carrying the character are
+    // ignored, so the survivors are folded back into a field that goes on to be stored as one.
+    CFStringRef withoutControls = NULL;
+    if (wk_hasControlCharacter((CFStringRef)header)) {
+        withoutControls = wk_copyFieldWithoutControlCookies((CFStringRef)header);
+        // Every set-cookie-string in the field is ignored, so the field sets nothing.
+        if (!withoutControls)
+            return;
+        header = withoutControls;
+    }
+
     CFStringRef rewritten = NULL;
     wk_samesite_header_disposition disposition = wk_sameSiteRewriteSetCookieHeader((CFStringRef)header, url, &rewritten);
-    if (disposition == WK_SAMESITE_HEADER_UNCHANGED) {
+    if (disposition == WK_SAMESITE_HEADER_UNCHANGED && !withoutControls) {
         original(storage, url, headerFields, mainDocumentURL, acceptPolicy);
         return;
     }
     CFMutableDictionaryRef replaced = CFDictionaryCreateMutableCopy(NULL, 0, headerFields);
     if (!replaced)
         wk_patch_fail(kSameSiteHooks, "the response header fields carrying the attribute could not be copied");
-    CFDictionarySetValue(replaced, name, rewritten);
+    CFDictionarySetValue(replaced, name, rewritten ? rewritten : (CFStringRef)header);
     original(storage, url, replaced, mainDocumentURL, acceptPolicy);
     CFRelease(replaced);
-    CFRelease(rewritten);
+    if (rewritten)
+        CFRelease(rewritten);
+    if (withoutControls)
+        CFRelease(withoutControls);
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Cookie change reporting. HTTPCookieStorage::setCookie, ::deleteCookie and ::deleteAllCookies take the
+// storage's mutex and call the backend's setCookieInternalLocked(CompactCookieHeader const*),
+// deleteCookieInternalLocked and deleteAllCookiesLocked, and every write a process makes to a jar --
+// a response's Set-Cookie fields, -setCookies:forURL:mainDocumentURL:, -setCookie:, -deleteCookie:,
+// CFHTTPCookieStorageDeleteAllCookies -- ends in one of those three. A file-backed storage also takes
+// in what another process wrote to its file, in bulk, when syncStorageWithCompletionLocked merges the
+// file and replays its journal; that boundary is reported from below. The per-cookie slots answer whether
+// the jar changed, and HTTPCookieStorage notifies its own observers on that answer, so the report is
+// made on it too. The cookie is rebuilt from the header and handed to WKPolyfillCookieWatcher
+// (methods/Foundation.m) through the runtime: the framework whose copy of this claimed the slots is not
+// necessarily the one carrying the watcher. NSCFPrivateCookieStorage::setCookieInternalLocked builds a
+// cookie and sends it to a delegate from inside this same slot, so an Objective-C call made here is one
+// the storage's own mutex is already held across.
+static const char kCookieChangeHooks[] = "CFNetwork cookie change hooks";
+
+struct wk_backend_hook {
+    const void *vtable;
+    void *setCookieInternalLocked;
+    void *deleteCookieInternalLocked;
+    void *deleteAllCookiesLocked;
+    // Set only for the backends whose sync merges a file another process may have written.
+    void *visitCookiesLocked;
+    void *syncStorageWithCompletionLocked;
+};
+static struct wk_backend_hook wk_backendHooks[5];
+static long wk_backendHookCount;
+
+static const struct wk_backend_hook *wk_backendHookFor(const void *backend)
+{
+    const void *vtable = *(const void *const *)backend;
+    for (long i = 0; i < wk_backendHookCount; ++i) {
+        if (wk_backendHooks[i].vtable == vtable)
+            return &wk_backendHooks[i];
+    }
+    return NULL;
+}
+
+typedef unsigned char (*wk_compact_cookie_fn)(const void *backend, const void *header);
+typedef void (*wk_delete_all_cookies_fn)(const void *backend);
+typedef void (*wk_visit_cookies_fn)(const void *backend, void (^visitor)(const void *header));
+typedef void (*wk_sync_storage_fn)(const void *backend, unsigned char flags, void (^completion)(void));
+typedef const void *(*wk_cf_class_fn)(void);
+typedef void *(*wk_cf_object_allocate_fn)(unsigned long size, const void *cfClass, CFAllocatorRef allocator);
+typedef void (*wk_compact_cookie_ctor_fn)(void *payload, const void *header);
+typedef CFTypeID (*wk_type_id_fn)(void);
+typedef CFAbsoluteTime (*wk_cookie_time_fn)(CFTypeRef cookie);
+
+static wk_cf_class_fn wk_HTTPCookieClass;
+static wk_cf_object_allocate_fn wk_CFObjectAllocate;
+static wk_compact_cookie_ctor_fn wk_constructCompactHTTPCookieWithData;
+static wk_type_id_fn wk_CFHTTPCookieStorageGetTypeID;
+static wk_cookie_time_fn wk_CFHTTPCookieGetCreationTime;
+static wk_cookie_time_fn wk_CFHTTPCookieGetExpirationTime;
+
+// A CF object's payload -- the C++ object CFObject::Allocate answers with, and the `this` its methods
+// take -- follows its CFRuntimeBase.
+static const size_t kCFPayloadOffset = 2 * sizeof(void *);
+
+// The cookie a stored header describes, built the way NSCFPrivateCookieStorage::setCookieInternalLocked
+// builds the one it hands its delegate: CFObject::Allocate(0x18, HTTPCookie::Class(), allocator), the
+// CompactHTTPCookieWithData constructor over the payload, and the CF object the payload sits inside.
+static CFTypeRef wk_copyCookieFromCompactHeader(const void *header)
+{
+    void *payload = wk_CFObjectAllocate(0x18, wk_HTTPCookieClass(), kCFAllocatorDefault);
+    if (!payload)
+        return NULL;
+    wk_constructCompactHTTPCookieWithData(payload, header);
+    return (CFTypeRef)((const uint8_t *)payload - kCFPayloadOffset);
+}
+
+// CFHTTPCookieStorageSetCookie hands HTTPCookieStorage::setCookie the storage's payload, and setCookie
+// dispatches to the backend two words into that payload.
+const void *wk_cookieStorageBackend(CFTypeRef storage)
+{
+    if (!wk_CFHTTPCookieStorageGetTypeID)
+        wk_patch_fail(kCookieChangeHooks, "a cookie storage was reached before the cookie hooks were installed");
+    if (!storage || CFGetTypeID(storage) != wk_CFHTTPCookieStorageGetTypeID())
+        wk_patch_fail(kCookieChangeHooks, "a cookie change watcher was asked for something that is not a cookie storage");
+    const uint8_t *wrapper = (const uint8_t *)storage + kCFPayloadOffset;
+    const void *backend = *(const void *const *)(wrapper + 2 * sizeof(void *));
+    if (!backend || !wk_backendHookFor(backend))
+        wk_patch_fail(kCookieChangeHooks, "a cookie storage's backend is not one of the classes this patches");
+    return backend;
+}
+
+static void wk_reportCookieChange(const void *backend, CFTypeRef cookie, enum wk_cookie_change change)
+{
+    static SEL report;
+    static Class watcherClass;
+    if (!watcherClass) {
+        Class found = objc_getClass("WKPolyfillCookieWatcher");
+        if (!found)
+            return;
+        report = sel_registerName("reportCookie:ofStorage:change:");
+        watcherClass = found;
+    }
+    ((void (*)(id, SEL, CFTypeRef, const void *, int))objc_msgSend)((id)watcherClass, report, cookie, backend, (int)change);
+}
+
+// The two sides of a merge, which the watcher tells apart per subscribed host.
+static void wk_reportCookieMerge(const void *backend, CFArrayRef before, CFArrayRef after)
+{
+    static SEL report;
+    static Class watcherClass;
+    if (!watcherClass) {
+        Class found = objc_getClass("WKPolyfillCookieWatcher");
+        if (!found)
+            return;
+        report = sel_registerName("reportMergeOfStorage:before:after:");
+        watcherClass = found;
+    }
+    ((void (*)(id, SEL, const void *, CFArrayRef, CFArrayRef))objc_msgSend)((id)watcherClass, report, backend, before, after);
+}
+
+static void wk_reportCompactCookie(const void *backend, const void *header, enum wk_cookie_change change)
+{
+    CFTypeRef cookie = wk_copyCookieFromCompactHeader(header);
+    if (!cookie)
+        return;
+    wk_reportCookieChange(backend, cookie, change);
+    CFRelease(cookie);
+}
+
+static const struct wk_backend_hook *wk_backendHookOrFail(const void *backend)
+{
+    const struct wk_backend_hook *hook = wk_backendHookFor(backend);
+    if (!hook)
+        wk_patch_fail(kCookieChangeHooks, "a cookie storage backend reached a replacement installed on another class");
+    return hook;
+}
+
+// A cookie already expired when it is stored: the write deletes rather than sets, which is how a
+// script and a server both delete one -- CookieStore::deleteCookie writes the cookie with an expiry a
+// day old, and "Max-Age=0" dates a cookie to its own creation. A cookie carrying no expiry at all
+// reports 0 here and is a session cookie, not an expired one. This is the test
+// CookieStore::cookiesAdded makes of the same pair.
+static bool wk_cookieExpiredWhenStored(CFTypeRef cookie)
+{
+    CFAbsoluteTime expires = wk_CFHTTPCookieGetExpirationTime(cookie);
+    return expires && expires <= wk_CFHTTPCookieGetCreationTime(cookie);
+}
+
+static unsigned char wk_setCookieInternalLocked(const void *backend, const void *header)
+{
+    const struct wk_backend_hook *hook = wk_backendHookOrFail(backend);
+    unsigned char changed = ((wk_compact_cookie_fn)hook->setCookieInternalLocked)(backend, header);
+    if (!changed)
+        return changed;
+
+    CFTypeRef cookie = wk_copyCookieFromCompactHeader(header);
+    if (!cookie)
+        return changed;
+
+    if (wk_cookieExpiredWhenStored(cookie)) {
+        // 10.9 keeps a cookie whose expiry is the instant it was stored, and goes on sending it with
+        // requests, until the clock passes that instant -- so a cookie written to delete another is
+        // still sent for the rest of that second. The storage's own delete is what takes it out, which
+        // is where modern CFNetwork has it gone by.
+        ((wk_compact_cookie_fn)hook->deleteCookieInternalLocked)(backend, header);
+        wk_reportCookieChange(backend, cookie, WK_COOKIE_DELETED);
+    } else
+        wk_reportCookieChange(backend, cookie, WK_COOKIE_SET);
+
+    CFRelease(cookie);
+    return changed;
+}
+
+static unsigned char wk_deleteCookieInternalLocked(const void *backend, const void *header)
+{
+    wk_compact_cookie_fn original = (wk_compact_cookie_fn)wk_backendHookOrFail(backend)->deleteCookieInternalLocked;
+    unsigned char changed = original(backend, header);
+    if (changed)
+        wk_reportCompactCookie(backend, header, WK_COOKIE_DELETED);
+    return changed;
+}
+
+// The cookies a storage holds, as the records it holds them as. visitCookiesLocked is the storage's own
+// enumerator and reaches no cookie server.
+static CFArrayRef wk_copyCookiesOfBackend(const struct wk_backend_hook *hook, const void *backend)
+{
+    CFMutableArrayRef cookies = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+    if (!cookies)
+        wk_patch_fail(kCookieChangeHooks, "a cookie storage's contents did not fit in memory");
+    ((wk_visit_cookies_fn)hook->visitCookiesLocked)(backend, ^(const void *header) {
+        CFTypeRef cookie = wk_copyCookieFromCompactHeader(header);
+        if (!cookie)
+            wk_patch_fail(kCookieChangeHooks, "a cookie the storage holds could not be read");
+        CFArrayAppendValue(cookies, cookie);
+        CFRelease(cookie);
+    });
+    return cookies;
+}
+
+// A file-backed storage syncs by merging the file and replaying its journal, which is how a cookie
+// another process wrote to that file arrives. The merge names nothing it brought in, so the cookies the
+// storage holds on either side of it do: this runs under the storage's own mutex, where no other writer
+// can interleave, and the merge is a disk sync rather than a per-write step.
+static void wk_syncStorageWithCompletionLocked(const void *backend, unsigned char flags, void (^completion)(void))
+{
+    const struct wk_backend_hook *hook = wk_backendHookOrFail(backend);
+    wk_sync_storage_fn original = (wk_sync_storage_fn)hook->syncStorageWithCompletionLocked;
+    if (!original)
+        wk_patch_fail(kCookieChangeHooks, "a cookie storage class this does not merge for was synced");
+
+    CFArrayRef before = wk_copyCookiesOfBackend(hook, backend);
+    original(backend, flags, completion);
+    CFArrayRef after = wk_copyCookiesOfBackend(hook, backend);
+    wk_reportCookieMerge(backend, before, after);
+    CFRelease(before);
+    CFRelease(after);
+}
+
+static void wk_deleteAllCookiesLocked(const void *backend)
+{
+    wk_delete_all_cookies_fn original = (wk_delete_all_cookies_fn)wk_backendHookOrFail(backend)->deleteAllCookiesLocked;
+    original(backend);
+    wk_reportCookieChange(backend, NULL, WK_COOKIE_ALL_DELETED);
 }
 
 // The vptr an instance carries: the vtable symbol addresses the offset-to-top and typeinfo words ahead
@@ -497,6 +755,107 @@ __attribute__((constructor)) static void wk_installSameSiteCookieHooks(void)
             continue;
         patch.originalSymbol = classes[i].setCookiesWithResponseHeaderFields;
         patch.replacement = (const void *)wk_setCookiesWithResponseHeaderFields;
+        wk_patch_vtable_slot(&patch, &thisFrameworkWrote);
+        if (thisFrameworkWrote)
+            ++claimed;
+        else
+            ++alreadyDone;
+    }
+
+    // The backends a storage's writes reach. The set is every vtable holding the mutation slots, which
+    // is not the same as every class defining them: XMLCookieStorage and BinaryCookieStorage are the two
+    // concrete file-backed jars and both inherit DiskCookieStorage's implementations, while
+    // DiskCookieStorage itself has no complete-object constructor and is never a live vptr.
+    struct wk_backend_class {
+        const char *vtable;
+        const char *setCookieInternalLocked;
+        const char *deleteCookieInternalLocked;
+        const char *deleteAllCookiesLocked;
+        // Only the file-backed pair merges on sync; the rest hold no file to merge.
+        const char *visitCookiesLocked;
+        const char *syncStorageWithCompletionLocked;
+    };
+    static const char kDiskSet[] = "__ZN17DiskCookieStorage23setCookieInternalLockedEPK19CompactCookieHeader";
+    static const char kDiskDelete[] = "__ZN17DiskCookieStorage26deleteCookieInternalLockedEPK19CompactCookieHeader";
+    static const char kDiskDeleteAll[] = "__ZN17DiskCookieStorage22deleteAllCookiesLockedEv";
+    static const char kDiskVisit[] = "__ZN17DiskCookieStorage18visitCookiesLockedEU13block_pointerFvPK19CompactCookieHeaderE";
+    static const char kDiskSync[] = "__ZN17DiskCookieStorage31syncStorageWithCompletionLockedEhU13block_pointerFvvE";
+    static const struct wk_backend_class backends[] = {
+        { "__ZTV21ExternalCookieStorage",
+          "__ZN21ExternalCookieStorage23setCookieInternalLockedEPK19CompactCookieHeader",
+          "__ZN21ExternalCookieStorage26deleteCookieInternalLockedEPK19CompactCookieHeader",
+          "__ZN21ExternalCookieStorage22deleteAllCookiesLockedEv", NULL, NULL },
+        { "__ZTV19MemoryCookieStorage",
+          "__ZN19MemoryCookieStorage23setCookieInternalLockedEPK19CompactCookieHeader",
+          "__ZN19MemoryCookieStorage26deleteCookieInternalLockedEPK19CompactCookieHeader",
+          "__ZN19MemoryCookieStorage22deleteAllCookiesLockedEv", NULL, NULL },
+        { "__ZTV24NSCFPrivateCookieStorage",
+          "__ZN24NSCFPrivateCookieStorage23setCookieInternalLockedEPK19CompactCookieHeader",
+          "__ZN24NSCFPrivateCookieStorage26deleteCookieInternalLockedEPK19CompactCookieHeader",
+          "__ZN24NSCFPrivateCookieStorage22deleteAllCookiesLockedEv", NULL, NULL },
+        { "__ZTV16XMLCookieStorage", kDiskSet, kDiskDelete, kDiskDeleteAll, kDiskVisit, kDiskSync },
+        { "__ZTV19BinaryCookieStorage", kDiskSet, kDiskDelete, kDiskDeleteAll, kDiskVisit, kDiskSync },
+    };
+    const long backendCount = (long)(sizeof(backends) / sizeof(backends[0]));
+
+    wk_HTTPCookieClass = (wk_cf_class_fn)wk_symbol_in_image(&image, "__ZN10HTTPCookie5ClassEv");
+    wk_CFObjectAllocate = (wk_cf_object_allocate_fn)wk_symbol_in_image(&image, "__ZN8CFObject8AllocateEmRK7CFClassPK13__CFAllocator");
+    wk_constructCompactHTTPCookieWithData = (wk_compact_cookie_ctor_fn)wk_symbol_in_image(&image, "__ZN25CompactHTTPCookieWithDataC1EPK19CompactCookieHeader");
+    wk_CFHTTPCookieStorageGetTypeID = (wk_type_id_fn)wk_symbol_in_image(&image, "_CFHTTPCookieStorageGetTypeID");
+    wk_CFHTTPCookieGetCreationTime = (wk_cookie_time_fn)wk_symbol_in_image(&image, "_CFHTTPCookieGetCreationTime");
+    wk_CFHTTPCookieGetExpirationTime = (wk_cookie_time_fn)wk_symbol_in_image(&image, "_CFHTTPCookieGetExpirationTime");
+    if (!wk_CFHTTPCookieGetCreationTime || !wk_CFHTTPCookieGetExpirationTime)
+        wk_patch_fail(kCookieChangeHooks, "CFNetwork's symbol table does not name the cookie times a stored cookie is judged by");
+    if (!wk_HTTPCookieClass || !wk_CFObjectAllocate || !wk_constructCompactHTTPCookieWithData || !wk_CFHTTPCookieStorageGetTypeID)
+        wk_patch_fail(kCookieChangeHooks, "CFNetwork's symbol table does not name the cookie constructor this rebuilds a stored cookie with");
+    for (long i = 0; i < backendCount; ++i) {
+        wk_backendHooks[i].vtable = wk_vptrOfVTable(&image, backends[i].vtable);
+        wk_backendHooks[i].setCookieInternalLocked = wk_symbol_in_image(&image, backends[i].setCookieInternalLocked);
+        wk_backendHooks[i].deleteCookieInternalLocked = wk_symbol_in_image(&image, backends[i].deleteCookieInternalLocked);
+        wk_backendHooks[i].deleteAllCookiesLocked = wk_symbol_in_image(&image, backends[i].deleteAllCookiesLocked);
+        if (!wk_backendHooks[i].setCookieInternalLocked || !wk_backendHooks[i].deleteCookieInternalLocked
+            || !wk_backendHooks[i].deleteAllCookiesLocked)
+            wk_patch_fail(kCookieChangeHooks, "CFNetwork's symbol table does not name a cookie storage mutation slot this stands in for");
+        if (!backends[i].syncStorageWithCompletionLocked)
+            continue;
+        wk_backendHooks[i].visitCookiesLocked = wk_symbol_in_image(&image, backends[i].visitCookiesLocked);
+        wk_backendHooks[i].syncStorageWithCompletionLocked = wk_symbol_in_image(&image, backends[i].syncStorageWithCompletionLocked);
+        if (!wk_backendHooks[i].visitCookiesLocked || !wk_backendHooks[i].syncStorageWithCompletionLocked)
+            wk_patch_fail(kCookieChangeHooks, "CFNetwork's symbol table does not name the cookie storage merge this reports");
+    }
+    wk_backendHookCount = backendCount;
+
+    patch.what = kCookieChangeHooks;
+    for (long i = 0; i < backendCount; ++i) {
+        patch.vtableSymbol = backends[i].vtable;
+        patch.originalSymbol = backends[i].setCookieInternalLocked;
+        patch.replacement = (const void *)wk_setCookieInternalLocked;
+        wk_patch_vtable_slot(&patch, &thisFrameworkWrote);
+        if (thisFrameworkWrote)
+            ++claimed;
+        else
+            ++alreadyDone;
+
+        patch.originalSymbol = backends[i].deleteCookieInternalLocked;
+        patch.replacement = (const void *)wk_deleteCookieInternalLocked;
+        wk_patch_vtable_slot(&patch, &thisFrameworkWrote);
+        if (thisFrameworkWrote)
+            ++claimed;
+        else
+            ++alreadyDone;
+
+        patch.originalSymbol = backends[i].deleteAllCookiesLocked;
+        patch.replacement = (const void *)wk_deleteAllCookiesLocked;
+        wk_patch_vtable_slot(&patch, &thisFrameworkWrote);
+        if (thisFrameworkWrote)
+            ++claimed;
+        else
+            ++alreadyDone;
+
+        if (!backends[i].syncStorageWithCompletionLocked)
+            continue;
+        patch.originalSymbol = backends[i].syncStorageWithCompletionLocked;
+        patch.replacement = (const void *)wk_syncStorageWithCompletionLocked;
         wk_patch_vtable_slot(&patch, &thisFrameworkWrote);
         if (thisFrameworkWrote)
             ++claimed;
