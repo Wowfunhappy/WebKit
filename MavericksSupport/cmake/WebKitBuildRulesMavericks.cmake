@@ -35,11 +35,28 @@ endmacro()
 # only SHIPPED binaries WEBKIT_EXECUTABLE produces, so they are named here rather than force-loading
 # the polyfill from that macro -- which also builds the build-time tools, where dragging the whole
 # archive in would only add link-line requirements for polyfills they never call.
+# The test drivers need it for a different reason: they are standalone images that call the layer's
+# gap-fills directly (DumpRenderTree reaches UTTypeIsDynamic, TestWebKitAPI reaches
+# SecKeyCreateWithData), and an ordinary archive link never pulls those -- they are compiled
+# -fvisibility=hidden, so they do not satisfy a reference from another object. The reference then binds
+# to the SDK's stub for a symbol this OS does not have, and the process dies at first use.
 macro(_MAVERICKS_APPLY_TARGET_POLICY _target)
     _MAVERICKS_LINK_POLYFILL_CLASSES(${_target})
-    foreach (_mavShipped WebProcess NetworkProcess GPUProcess)
+    foreach (_mavShipped WebProcess NetworkProcess GPUProcess
+                         DumpRenderTree WebKitTestRunner TestRunnerInjectedBundle
+                         TestWTF TestWebCore TestWebKit TestWebKitLegacy)
         if ("${_target}" STREQUAL "${_mavShipped}")
             _WEBKIT_FORCE_LOAD_POLYFILL(${_target})
+        endif ()
+    endforeach ()
+    # The test images additionally carry their own calls to selectors 10.9 lacks (Challenge.mm sends
+    # -[NSKeyedArchiver initRequiringSecureCoding:]). WK_POLYFILL_ADD_METHODS installs those under a
+    # renamed selector and the patcher rewrites the call sites only in marked images, so an unmarked
+    # image sends the original name to a class that does not implement it.
+    foreach (_mavTestImage DumpRenderTree WebKitTestRunner TestRunnerInjectedBundle
+                           TestWTF TestWebCore TestWebKit TestWebKitLegacy)
+        if ("${_target}" STREQUAL "${_mavTestImage}")
+            _WEBKIT_FORCE_LOAD_WK_MARKER(${_target})
         endif ()
     endforeach ()
 endmacro()

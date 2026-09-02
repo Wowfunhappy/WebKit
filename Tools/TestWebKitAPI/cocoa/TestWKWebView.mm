@@ -36,6 +36,9 @@
 #import "Test.h"
 #import "TestCocoa.h"
 #import "TestNavigationDelegate.h"
+// MAVERICKS_BACKPORT: rightClickAtPointAndWaitForContextMenu: builds a TestUIDelegate; the Xcode target
+// gets that interface from a sibling in the same unified-source bundle, this port compiles per file.
+#import "TestUIDelegate.h"
 #import "Utilities.h"
 
 #import <WebCore/Color.h>

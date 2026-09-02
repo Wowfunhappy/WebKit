@@ -15,7 +15,7 @@ BUILD="$HERE/build"
 SCRIPTS="$HERE/scripts"
 mkdir -p "$BUILD"
 
-echo "### [1/9] assemble build/clang from vendor/clang"
+echo "### [1/10] assemble build/clang from vendor/clang"
 CLANG_OUT="$BUILD/clang"
 if [ ! -x "$CLANG_OUT/bin/clang-22" ]; then
     rm -rf "$CLANG_OUT"; mkdir -p "$CLANG_OUT/bin"
@@ -40,13 +40,14 @@ else
     echo "    already present, skipping"
 fi
 
-echo "### [2/9] cctools"; [ -x "$BUILD/cctools/bin/otool" ]   || "$SCRIPTS/build_cctools.sh"
-echo "### [3/9] python3"; [ -x "$BUILD/python3/bin/python3" ] || "$SCRIPTS/build_python3.sh"
-echo "### [4/9] nasm";    [ -x "$BUILD/nasm/bin/nasm" ]       || "$SCRIPTS/build_nasm.sh"
-echo "### [5/9] ninja";   [ -x "$BUILD/ninja/bin/ninja" ]     || "$SCRIPTS/build_ninja.sh"
-echo "### [6/9] cmake";   [ -x "$BUILD/cmake/bin/cmake" ]     || "$SCRIPTS/build_cmake.sh"
-echo "### [7/9] ccache";  [ -x "$BUILD/ccache/bin/ccache" ]   || "$SCRIPTS/build_ccache.sh"
-echo "### [8/9] git";     [ -x "$BUILD/git/bin/git" ]         || "$SCRIPTS/build_git.sh"
-echo "### [9/9] ruby";    [ -x "$BUILD/ruby/bin/ruby" ]       || "$SCRIPTS/build_ruby.sh"
+echo "### [2/10] cctools"; [ -x "$BUILD/cctools/bin/otool" ]   || "$SCRIPTS/build_cctools.sh"
+echo "### [3/10] openssl"; [ -x "$BUILD/openssl/bin/openssl" ] || "$SCRIPTS/build_openssl.sh"
+echo "### [4/10] python3"; [ -x "$BUILD/python3/bin/python3" ] || "$SCRIPTS/build_python3.sh"
+echo "### [5/10] nasm";    [ -x "$BUILD/nasm/bin/nasm" ]       || "$SCRIPTS/build_nasm.sh"
+echo "### [6/10] ninja";   [ -x "$BUILD/ninja/bin/ninja" ]     || "$SCRIPTS/build_ninja.sh"
+echo "### [7/10] cmake";   [ -x "$BUILD/cmake/bin/cmake" ]     || "$SCRIPTS/build_cmake.sh"
+echo "### [8/10] ccache";  [ -x "$BUILD/ccache/bin/ccache" ]   || "$SCRIPTS/build_ccache.sh"
+echo "### [9/10] git";     [ -x "$BUILD/git/bin/git" ]         || "$SCRIPTS/build_git.sh"
+echo "### [10/10] ruby";   [ -x "$BUILD/ruby/bin/ruby" ]       || "$SCRIPTS/build_ruby.sh"
 
 echo "### toolchain ready under $BUILD"

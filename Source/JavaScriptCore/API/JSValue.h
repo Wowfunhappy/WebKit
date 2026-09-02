@@ -643,11 +643,14 @@ Create a JSValue from a CGRect.
  */
 @interface JSValue (PropertyAccess)
 
-#if (defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101500) || (defined(__IPHONE_OS_VERSION_MIN_REQUIRED) && __IPHONE_OS_VERSION_MIN_REQUIRED < 130000)
-typedef NSString * _Null_unspecified JSValueProperty;
-#else
+// MAVERICKS_BACKPORT: the guarded spelling picks the property-key type from the deployment target.
+// These methods route a non-NSString key to the JSObject*ForKey C entry points (performPropertyOperation
+// in JSValue.mm), so a JSValue symbol is a key this JavaScriptCore takes at any deployment target.
+// #if (defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101500) || (defined(__IPHONE_OS_VERSION_MIN_REQUIRED) && __IPHONE_OS_VERSION_MIN_REQUIRED < 130000)
+// typedef NSString * _Null_unspecified JSValueProperty;
+// #else
 typedef id _Null_unspecified JSValueProperty;
-#endif
+// #endif // MAVERICKS_BACKPORT: closes the deployment-target guard commented out above.
 
 /*!
  @method

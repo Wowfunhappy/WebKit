@@ -57,13 +57,6 @@ editing [ Pass ]
 http/tests/security [ Pass ]
 http/tests/xmlhttprequest [ Pass ]
 
-# iOS-only editing tests must not run on the Mac port (they exercise UIKit/iOS text interaction).
-editing/selection/ios [ Skip ]
-editing/caret/ios [ Skip ]
-editing/input/ios [ Skip ]
-editing/deleting/ios [ Skip ]
-editing/pasteboard/ios [ Skip ]
-
 # More behavioral suites for crash-hunting / coverage
 fast/events [ Pass ]
 fast/forms [ Pass ]
@@ -71,6 +64,12 @@ fast/loader [ Pass ]
 accessibility [ Pass ]
 http/tests/misc [ Pass ]
 http/tests/navigation [ Pass ]
+
+# Cookie behavior is a backport-critical area (NSHTTPCookieStorage on 10.9 predates SameSite and the
+# public-suffix rules), so the WPT cookie suites run here rather than under mac-wk1's blanket
+# `imported [ Skip ]`.
+imported/w3c/web-platform-tests/cookies [ Pass ]
+imported/w3c/web-platform-tests/cookiestore [ Pass ]
 
 # --- Non-Mac platform tests that leaked in via the broad un-skips above -------------------------------
 # These exercise iOS/GTK/Win-specific behavior (touch events, UIKit text interaction, ATK, etc.) that

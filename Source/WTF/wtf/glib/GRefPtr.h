@@ -32,6 +32,10 @@
 extern "C" {
     typedef struct _GDBusConnection GDBusConnection;
     typedef struct _GDBusNodeInfo GDBusNodeInfo;
+    // MAVERICKS_BACKPORT: GResource gets ref traits declared below but no declaration of its own, so
+    // this header only compiles after something has included <gio/gio.h> (wtf/glib/GUniquePtr.h is
+    // the usual route). Declare it here, the way its neighbours are.
+    typedef struct _GResource GResource;
 
     GDBusNodeInfo* g_dbus_node_info_ref(GDBusNodeInfo*);
     void g_dbus_node_info_unref(GDBusNodeInfo*);

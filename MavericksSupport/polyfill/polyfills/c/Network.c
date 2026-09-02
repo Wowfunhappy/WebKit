@@ -22,10 +22,14 @@
 // through the absent-provider dlopen token, which answers NULL for every Network.framework name, so
 // create() returns nullptr and a page's `new WebTransport(url)` fails to connect before any nw_*
 // call is reached.
+// Every definition in this file answers "10.9 ships no Network.framework". They are declared WEAK so
+// an image that implements these entry points for itself binds its own -- TestWebKitAPI's HTTPServer
+// does, over sockets and SecureTransport -- while every other image, which has no such implementation,
+// still gets the answer here.
 typedef void *PolyVoidPtrConst;
-WK_POLYFILL_CONST("Network", PolyVoidPtrConst, _nw_content_context_default_message, NULL);
-WK_POLYFILL_CONST("Network", PolyVoidPtrConst, _nw_parameters_configure_protocol_default_configuration, NULL);
-WK_POLYFILL_CONST("Network", PolyVoidPtrConst, _nw_parameters_configure_protocol_disable, NULL);
+WK_POLYFILL_CONST_WEAK("Network", PolyVoidPtrConst, _nw_content_context_default_message, NULL);
+WK_POLYFILL_CONST_WEAK("Network", PolyVoidPtrConst, _nw_parameters_configure_protocol_default_configuration, NULL);
+WK_POLYFILL_CONST_WEAK("Network", PolyVoidPtrConst, _nw_parameters_configure_protocol_disable, NULL);
 
 // ---------------------------------------------------------------------------------------------------
 // Network.framework known-tracker lookup — Network.framework is empty on 10.9, so these two entry
@@ -108,54 +112,54 @@ static void __attribute__((noreturn)) wkNoNetworkFramework(const char *symbol)
     abort();
 }
 
-WK_POLYFILL_ABSENT_FATAL("Network", void *, nw_endpoint_create_url, (const char *url))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void *, nw_endpoint_create_url, (const char *url))
 { (void)url; wkNoNetworkFramework("nw_endpoint_create_url"); }
-WK_POLYFILL_ABSENT_FATAL("Network", void *, nw_group_descriptor_create_multiplex, (void *endpoint))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void *, nw_group_descriptor_create_multiplex, (void *endpoint))
 { (void)endpoint; wkNoNetworkFramework("nw_group_descriptor_create_multiplex"); }
-WK_POLYFILL_ABSENT_FATAL("Network", void *, nw_connection_group_create, (void *descriptor, void *parameters))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void *, nw_connection_group_create, (void *descriptor, void *parameters))
 { (void)descriptor; (void)parameters; wkNoNetworkFramework("nw_connection_group_create"); }
-WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_group_set_queue, (void *group, void *queue))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void, nw_connection_group_set_queue, (void *group, void *queue))
 { (void)group; (void)queue; wkNoNetworkFramework("nw_connection_group_set_queue"); }
-WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_group_set_state_changed_handler, (void *group, void *handler))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void, nw_connection_group_set_state_changed_handler, (void *group, void *handler))
 { (void)group; (void)handler; wkNoNetworkFramework("nw_connection_group_set_state_changed_handler"); }
-WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_group_set_new_connection_handler, (void *group, void *handler))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void, nw_connection_group_set_new_connection_handler, (void *group, void *handler))
 { (void)group; (void)handler; wkNoNetworkFramework("nw_connection_group_set_new_connection_handler"); }
-WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_group_start, (void *group))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void, nw_connection_group_start, (void *group))
 { (void)group; wkNoNetworkFramework("nw_connection_group_start"); }
-WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_group_cancel, (void *group))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void, nw_connection_group_cancel, (void *group))
 { (void)group; wkNoNetworkFramework("nw_connection_group_cancel"); }
-WK_POLYFILL_ABSENT_FATAL("Network", void *, nw_connection_group_extract_connection, (void *group, void *endpoint, void *protocol))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void *, nw_connection_group_extract_connection, (void *group, void *endpoint, void *protocol))
 { (void)group; (void)endpoint; (void)protocol; wkNoNetworkFramework("nw_connection_group_extract_connection"); }
-WK_POLYFILL_ABSENT_FATAL("Network", void *, nw_connection_group_copy_protocol_metadata, (void *group, void *definition))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void *, nw_connection_group_copy_protocol_metadata, (void *group, void *definition))
 { (void)group; (void)definition; wkNoNetworkFramework("nw_connection_group_copy_protocol_metadata"); }
-WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_start, (void *connection))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void, nw_connection_start, (void *connection))
 { (void)connection; wkNoNetworkFramework("nw_connection_start"); }
-WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_cancel, (void *connection))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void, nw_connection_cancel, (void *connection))
 { (void)connection; wkNoNetworkFramework("nw_connection_cancel"); }
-WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_set_queue, (void *connection, void *queue))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void, nw_connection_set_queue, (void *connection, void *queue))
 { (void)connection; (void)queue; wkNoNetworkFramework("nw_connection_set_queue"); }
-WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_set_state_changed_handler, (void *connection, void *handler))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void, nw_connection_set_state_changed_handler, (void *connection, void *handler))
 { (void)connection; (void)handler; wkNoNetworkFramework("nw_connection_set_state_changed_handler"); }
-WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_send, (void *connection, void *content, void *context, bool is_complete, void *completion))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void, nw_connection_send, (void *connection, void *content, void *context, bool is_complete, void *completion))
 { (void)connection; (void)content; (void)context; (void)is_complete; (void)completion; wkNoNetworkFramework("nw_connection_send"); }
-WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_receive, (void *connection, uint32_t minimum, uint32_t maximum, void *completion))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void, nw_connection_receive, (void *connection, uint32_t minimum, uint32_t maximum, void *completion))
 { (void)connection; (void)minimum; (void)maximum; (void)completion; wkNoNetworkFramework("nw_connection_receive"); }
-WK_POLYFILL_ABSENT_FATAL("Network", void *, nw_connection_copy_protocol_metadata, (void *connection, void *definition))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void *, nw_connection_copy_protocol_metadata, (void *connection, void *definition))
 { (void)connection; (void)definition; wkNoNetworkFramework("nw_connection_copy_protocol_metadata"); }
-WK_POLYFILL_ABSENT_FATAL("Network", int, nw_error_get_error_domain, (void *error))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", int, nw_error_get_error_domain, (void *error))
 { (void)error; wkNoNetworkFramework("nw_error_get_error_domain"); }
-WK_POLYFILL_ABSENT_FATAL("Network", int, nw_error_get_error_code, (void *error))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", int, nw_error_get_error_code, (void *error))
 { (void)error; wkNoNetworkFramework("nw_error_get_error_code"); }
-WK_POLYFILL_ABSENT_FATAL("Network", void, nw_quic_set_max_datagram_frame_size, (void *options, uint16_t size))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void, nw_quic_set_max_datagram_frame_size, (void *options, uint16_t size))
 { (void)options; (void)size; wkNoNetworkFramework("nw_quic_set_max_datagram_frame_size"); }
-WK_POLYFILL_ABSENT_FATAL("Network", void *, nw_tls_copy_sec_protocol_options, (void *options))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void *, nw_tls_copy_sec_protocol_options, (void *options))
 { (void)options; wkNoNetworkFramework("nw_tls_copy_sec_protocol_options"); }
 // The three sec_* entries are DECLARED by Security.framework's headers (SecProtocolTypes.h,
 // SecProtocolOptions.h) even though Network.framework is what implements them, so unlike the nw_*
 // entries above these must use the real SDK types -- this file includes <Security/Security.h>.
-WK_POLYFILL_ABSENT_FATAL("Network", void, sec_protocol_options_set_peer_authentication_required, (sec_protocol_options_t options, bool peer_authentication_required))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void, sec_protocol_options_set_peer_authentication_required, (sec_protocol_options_t options, bool peer_authentication_required))
 { (void)options; (void)peer_authentication_required; wkNoNetworkFramework("sec_protocol_options_set_peer_authentication_required"); }
-WK_POLYFILL_ABSENT_FATAL("Network", void, sec_protocol_options_set_verify_block, (sec_protocol_options_t options, sec_protocol_verify_t verify_block, dispatch_queue_t verify_block_queue))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", void, sec_protocol_options_set_verify_block, (sec_protocol_options_t options, sec_protocol_verify_t verify_block, dispatch_queue_t verify_block_queue))
 { (void)options; (void)verify_block; (void)verify_block_queue; wkNoNetworkFramework("sec_protocol_options_set_verify_block"); }
-WK_POLYFILL_ABSENT_FATAL("Network", SecTrustRef, sec_trust_copy_ref, (sec_trust_t trust))
+WK_POLYFILL_ABSENT_FATAL_WEAK("Network", SecTrustRef, sec_trust_copy_ref, (sec_trust_t trust))
 { (void)trust; wkNoNetworkFramework("sec_trust_copy_ref"); }

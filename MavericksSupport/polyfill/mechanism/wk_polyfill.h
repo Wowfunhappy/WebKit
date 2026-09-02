@@ -149,15 +149,18 @@ void *wk_polyfill_system_symbol(const char *provider, const char *name, void **c
 // They are ONE mechanism, differing only in the intent the registry records — which the build gate
 // reads: a gap-fill 10.9 turns out to have fails the build, a replacement asserts 10.9 has it. The
 // runtime does what you declared; it never re-decides at a call.
-#define WK_PF_FUNCTION(PROVIDER, RET, NAME, PARAMS, INTENT)                             \
+#define WK_PF_FUNCTION_(ATTRS, PROVIDER, RET, NAME, PARAMS, INTENT)                     \
     _Pragma("clang diagnostic push")                                                    \
     _Pragma("clang diagnostic ignored \"-Wunguarded-availability\"")                    \
     _Pragma("clang diagnostic ignored \"-Wunguarded-availability-new\"")                \
-    RET NAME PARAMS;                                                                    \
+    RET NAME PARAMS ATTRS;                                                              \
     typedef RET (*wk_pf_fn_##NAME) PARAMS;                                              \
     _Pragma("clang diagnostic pop")                                                     \
     WK_PF_ENTRY(NAME, PROVIDER, &NAME, WK_POLYFILL_FUNCTION, INTENT);                   \
     RET NAME PARAMS
+
+#define WK_PF_FUNCTION(PROVIDER, RET, NAME, PARAMS, INTENT) \
+    WK_PF_FUNCTION_(, PROVIDER, RET, NAME, PARAMS, INTENT)
 
 #define WK_POLYFILL_ABSENT(PROVIDER, RET, NAME, PARAMS) \
     WK_PF_FUNCTION(PROVIDER, RET, NAME, PARAMS, WK_POLYFILL_GAP_FILL)
@@ -171,21 +174,35 @@ void *wk_polyfill_system_symbol(const char *provider, const char *name, void **c
 #define WK_POLYFILL_ABSENT_FATAL(PROVIDER, RET, NAME, PARAMS) \
     WK_PF_FUNCTION(PROVIDER, RET, NAME, PARAMS, WK_POLYFILL_UNAVAILABLE)
 
+// The same, weakly defined, for an API an individual image may implement for itself: a strong
+// definition in that image binds its own references, and every other image still gets this one.
+// TestWebKitAPI is the case -- its HTTPServer implements the Network.framework entry points over
+// sockets and SecureTransport, and force-loads this archive for the rest of the layer.
+#define WK_POLYFILL_ABSENT_FATAL_WEAK(PROVIDER, RET, NAME, PARAMS) \
+    WK_PF_FUNCTION_(__attribute__((weak)), PROVIDER, RET, NAME, PARAMS, WK_POLYFILL_UNAVAILABLE)
+
 // Data constants. The declared value IS the value — 10.9 lacks the symbol (a gap-fill), or has it and
 // is being deliberately overridden (WK_POLYFILL_CONST_REPLACES). There is no load-time mirroring of
 // 10.9's value; if 10.9 turns out to export a gap-fill constant, that is a mistake the build gate
 // rejects. (The gate replaces the old mirroring, which existed to stop a token-valued placeholder
 // shadowing a key the system interprets — the EXIF and proxy-key regressions. Caught at build now.)
-#define WK_POLYFILL_CONST_(PROVIDER, TYPE, NAME, VALUE, INTENT)                     \
+#define WK_POLYFILL_CONST_ATTR_(ATTRS, PROVIDER, TYPE, NAME, VALUE, INTENT)         \
     _Pragma("clang diagnostic push")                                                \
     _Pragma("clang diagnostic ignored \"-Wunguarded-availability\"")                \
     _Pragma("clang diagnostic ignored \"-Wunguarded-availability-new\"")            \
-    const TYPE NAME = VALUE;                                                        \
+    ATTRS const TYPE NAME = VALUE;                                                  \
     _Pragma("clang diagnostic pop")                                                 \
     WK_PF_ENTRY(NAME, PROVIDER, &NAME, WK_POLYFILL_CONSTANT, INTENT)
 
+#define WK_POLYFILL_CONST_(PROVIDER, TYPE, NAME, VALUE, INTENT) \
+    WK_POLYFILL_CONST_ATTR_(, PROVIDER, TYPE, NAME, VALUE, INTENT)
+
 #define WK_POLYFILL_CONST(PROVIDER, TYPE, NAME, VALUE) \
     WK_POLYFILL_CONST_(PROVIDER, TYPE, NAME, VALUE, WK_POLYFILL_GAP_FILL)
+
+// Weakly defined, for the same reason as WK_POLYFILL_ABSENT_FATAL_WEAK.
+#define WK_POLYFILL_CONST_WEAK(PROVIDER, TYPE, NAME, VALUE) \
+    WK_POLYFILL_CONST_ATTR_(__attribute__((weak)), PROVIDER, TYPE, NAME, VALUE, WK_POLYFILL_GAP_FILL)
 #define WK_POLYFILL_CONST_REPLACES(PROVIDER, TYPE, NAME, VALUE) \
     WK_POLYFILL_CONST_(PROVIDER, TYPE, NAME, VALUE, WK_POLYFILL_REPLACES)
 

@@ -450,6 +450,8 @@ list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/Cocoa/_WKInspectorPrivateForTesting.h
     UIProcess/API/Cocoa/_WKInspectorWindow.h
     UIProcess/API/Cocoa/_WKInternalDebugFeature.h
+    # MAVERICKS_BACKPORT: forwarded like its neighbours -- TestWKWebView.mm imports <WebKit/_WKJSHandle.h>.
+    UIProcess/API/Cocoa/_WKJSHandle.h
     UIProcess/API/Cocoa/_WKLayoutMode.h
     UIProcess/API/Cocoa/_WKLinkIconParameters.h
     UIProcess/API/Cocoa/_WKOverlayScrollbarStyle.h

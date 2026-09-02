@@ -90,6 +90,14 @@ add_compile_definitions(
 # defaults for them key on this flag.
 add_compile_definitions(ENABLE_GPU_PROCESS_RASTERIZATION_ONLY=1)
 
+# PlatformHave.h turns the Cookie Store API on by default from a macOS 15.4 deployment target, which
+# is a ship-date gate rather than a capability one: this engine carries the whole implementation
+# (Source/WebCore/Modules/cookie-store), and CookieStoreAPIEnabled is a stable preference whose only
+# other input is this flag. At 10.9 the guard leaves it 0, so defaultCookieStoreAPIEnabled() answers
+# false and `cookieStore` is undefined -- the entire imported/w3c/web-platform-tests/cookiestore suite
+# throws before it can report. The #if !defined() guard around it takes this definition.
+add_compile_definitions(ENABLE_COOKIE_STORE_API_BY_DEFAULT=1)
+
 # The source-list filter macro used by the WebCore/WebKit platform overlays.
 include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/MavericksSourceLists.cmake)
 
@@ -342,16 +350,25 @@ link_libraries(${MAVERICKS_TC}/lib/libc++abi.1.dylib)
 # deps/build/lib is on that path for everything that links a GStreamer dylib and carries the media
 # runtime's own copies of these two, so CMake sees a name it cannot safely resolve. Spelling the
 # toolchain directory as explicit lets it order the two, ahead of deps/build/lib.
-list(REMOVE_ITEM CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES "${MAVERICKS_TC}/lib")
-list(REMOVE_ITEM CMAKE_OBJCXX_IMPLICIT_LINK_DIRECTORIES "${MAVERICKS_TC}/lib")
+# C and ObjC targets need it too: link_libraries() puts the toolchain's libc++ on every link, and its
+# own dependency libc++abi carries an @rpath install name, so a target CMake gives no rpath to cannot
+# load at all.
+foreach (_mavLang C CXX OBJC OBJCXX)
+    list(REMOVE_ITEM CMAKE_${_mavLang}_IMPLICIT_LINK_DIRECTORIES "${MAVERICKS_TC}/lib")
+endforeach ()
 
 # WebKit intends RTTI disabled everywhere (Xcode's GCC_ENABLE_CPP_RTTI=NO covers ObjC++ too), but
 # WebKitCompilerFlags.cmake applies -fno-rtti to CXX alone, leaving OBJCXX (.mm) with RTTI on. That
 # mismatch makes .mm files emit and reference C++ typeinfos for classes whose .cpp definitions
 # (compiled -fno-rtti) emit none -- strong-undefined "typeinfo for ..." symbols that abort every
 # WebKit process at dyld load. No .mm in the tree uses dynamic_cast or typeid.
+#
+# C++ exceptions are the same mismatch: Xcode's GCC_ENABLE_CPP_EXCEPTIONS=NO covers ObjC++, while
+# WebKitCompilerFlags.cmake's WEBKIT_APPEND_GLOBAL_COMPILER_FLAGS(-fno-exceptions) reaches only C and
+# CXX. -fobjc-exceptions goes with it (Xcode's GCC_ENABLE_OBJC_EXCEPTIONS=YES): -fno-exceptions alone
+# would also turn off @try/@catch, which .mm files across the tree use.
 if (CMAKE_OBJCXX_COMPILER_LOADED)
-    set(CMAKE_OBJCXX_FLAGS "${CMAKE_OBJCXX_FLAGS} -fno-rtti")
+    set(CMAKE_OBJCXX_FLAGS "${CMAKE_OBJCXX_FLAGS} -fno-rtti -fno-exceptions -fobjc-exceptions")
 endif ()
 # libpolyfill.a supplies the symbols this port provides in place of the 10.9 runtime's: the
 # POSIX/libc base, the framework-SPI gap-fills, and the handful of deliberate replacements for 10.9

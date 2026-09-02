@@ -27,7 +27,7 @@ list(REMOVE_ITEM WebCore_LIBRARIES webrtc)
 macro(_MAVERICKS_FINALIZE_WEBCORE_TARGET _target)
     set_target_properties(${_target} PROPERTIES
         LINKER_LANGUAGE CXX
-        LINK_FLAGS "-fuse-ld=lld -weak-lxslt -undefined dynamic_lookup -weak_framework Metal -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy -allowable_client DumpRenderTree -allowable_client WebKitTestRunner -allowable_client TestRunnerInjectedBundle")
+        LINK_FLAGS "-fuse-ld=lld -weak-lxslt -undefined dynamic_lookup -weak_framework Metal -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy -allowable_client DumpRenderTree -allowable_client WebKitTestRunner -allowable_client TestRunnerInjectedBundle -allowable_client TestWebCore -allowable_client TestWebKit -allowable_client TestWebKitCocoa -allowable_client TestWebKitLegacy")
     _MAVERICKS_LINK_LIBWEBRTC(${_target})
 
     if (EXISTS "${WEBCORE_DIR}/platform/audio/resources/Composite.wav")

@@ -634,7 +634,10 @@ list(APPEND WebKitLegacy_SOURCES
 
 set(WebKitLegacy_OUTPUT_NAME WebKitLegacy)
 
-set(CMAKE_SHARED_LINKER_FLAGS ${CMAKE_SHARED_LINKER_FLAGS} "-compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION} -framework SecurityInterface")
+# MAVERICKS_BACKPORT: append as a STRING. CMAKE_SHARED_LINKER_FLAGS is a space-separated string, and
+# DEVELOPER_MODE puts -fuse-ld=lld in it (OptionsCommon.cmake), so the two-argument set() form joins
+# them with a semicolon and the link line runs as a shell command ("-compatibility_version: not found").
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION} -framework SecurityInterface")
 
 # MAVERICKS_BACKPORT: seam 3 of 3 -- same file, the phase that operates on the target and on the
 # framework's Headers directory.

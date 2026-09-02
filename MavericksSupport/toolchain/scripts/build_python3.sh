@@ -44,10 +44,17 @@ export MACOSX_DEPLOYMENT_TARGET=10.9
 export CFLAGS="-O2 -mmacosx-version-min=10.9"
 SHIM="-Wl,-force_load,$CCDIR/libavailshim.a"
 echo "### Configuring (prefix=$PREFIX)"
-./configure CC="$CCDIR/bin/cc" --prefix="$PREFIX" --without-ensurepip
+# --with-openssl: webkitpy imports `ssl` at module load and the WPT server serves https, so the
+# _ssl and _hashlib extension modules have to be there. 10.9's system OpenSSL is 0.9.8, below
+# CPython 3.9's 1.0.2 floor, so the toolchain's own static build (build_openssl.sh) supplies it.
+OPENSSL="$TOOLCHAIN/build/openssl"
+[ -d "$OPENSSL" ] || { echo "### openssl missing at $OPENSSL -- run build_openssl.sh first"; exit 1; }
+./configure CC="$CCDIR/bin/cc" --prefix="$PREFIX" --without-ensurepip \
+    --with-openssl="$OPENSSL"
 echo "### Building + installing"
 make -j"$(sysctl -n hw.ncpu)" LIBS="-ldl $SHIM"
 make install LIBS="-ldl $SHIM"
 echo "=== python3 built ==="
 "$PREFIX/bin/python3" --version
 "$PREFIX/bin/python3" -c 'import sys; print("ok", sys.version.split()[0])'
+"$PREFIX/bin/python3" -c 'import ssl, hashlib; print("ssl", ssl.OPENSSL_VERSION)'

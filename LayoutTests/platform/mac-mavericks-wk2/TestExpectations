@@ -51,3 +51,9 @@ storage/indexeddb/abort-while-committing-crash.html [ Skip ]
 # HiDPI iframe pixel tests are flaky at 2x on the VM (no real Retina hardware).
 fast/frames/hidpi-position-iframe-on-device-pixel.html [ Pass ImageOnlyFailure ]
 fast/frames/iframe-translucent-background.html [ Pass ImageOnlyFailure ]
+
+# Cookie behavior is a backport-critical area (NSHTTPCookieStorage on 10.9 predates SameSite and the
+# public-suffix rules), so the WPT cookie suites run here in full rather than under the generic
+# expectations' per-test skips.
+imported/w3c/web-platform-tests/cookies [ Pass ]
+imported/w3c/web-platform-tests/cookiestore [ Pass ]

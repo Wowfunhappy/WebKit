@@ -56,6 +56,16 @@ WK_POLYFILL_ABSENT("ApplicationServices", int, _AXUIElementUseSecondaryAXThread,
     return -25200; // kAXErrorFailure
 }
 
+// libAccessibility's isolated-tree mode setter, named as a direct extern by WebKitTestRunner's
+// accessibility controller under the same ENABLE(ACCESSIBILITY_ISOLATED_TREE). 10.9 ships no
+// libAccessibility, so there is no mode to record: the reader beside it, _AXSIsolatedTreeMode, is
+// soft-linked through that absent dylib and reports unavailable, which is what keeps every isolated
+// tree from being built here.
+WK_POLYFILL_ABSENT("/usr/lib/libAccessibility.dylib", void, _AXSSetIsolatedTreeMode, (int32_t mode))
+{
+    (void)mode;
+}
+
 // _AXGetClientForCurrentRequestUntrusted reports which assistive client (VoiceOver, a test harness, ...) is
 // servicing the current accessibility request. Absent on 10.9 (postdates this OS) and referenced as a direct
 // extern (not soft-linked), so a call would dyld-halt WebContent on the text-input path

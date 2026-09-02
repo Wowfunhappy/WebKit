@@ -15,11 +15,17 @@
 # _OBJC_CLASS_$_NSURLSessionWebSocketMessage import. It is a SEPARATE archive from libpolyfill_methods.a
 # so these ObjC classes are registered exactly once, here, rather than in every image that links the
 # shared archive.
+# com.apple.WebKit2 is the identity this port installs WK2 under (stage-frameworks.sh renames the
+# framework to WebKit2.framework, because Safari 7's API contract gives the WebKit.framework name and
+# the com.apple.WebKit identity to WebKitLegacy). Stamping it at build time makes the build tree answer
+# the same CFBundleGetBundleWithIdentifier lookups the installed tree does -- XPCServiceMain.mm finds
+# the network and web-content entry points that way, and a build-tree WebKit2 without this identity
+# hands CFBundleGetFunctionPointerForName a null bundle, so every service dies at launch.
 macro(_MAVERICKS_FINALIZE_WEBKIT_TARGET _target)
     set_target_properties(${_target} PROPERTIES
         LINKER_LANGUAGE CXX
         SOVERSION "A"
-        MACOSX_FRAMEWORK_IDENTIFIER "com.apple.WebKit")
+        MACOSX_FRAMEWORK_IDENTIFIER "com.apple.WebKit2")
     _MAVERICKS_LINK_LIBWEBRTC(${_target})
     if (APPLE)
         target_link_options(${_target} PRIVATE
