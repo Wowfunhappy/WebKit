@@ -10,6 +10,7 @@
 // literal. A polyfill's contract is the system API's modern behavior, so it is correct at every caller.
 
 #import "wk_cookie_storage.h"
+#import "wk_url_coding.h"
 #import "wk_polyfill.h"
 #import "wk_samesite.h"
 #import "wk_selref_scope.h"
@@ -37,6 +38,7 @@
 // CFNetwork SPI, exported on 10.9 but not declared in any public header.
 typedef struct OpaqueCFHTTPCookieStorage *CFHTTPCookieStorageRef;
 extern CFHTTPCookieStorageRef _CFHTTPCookieStorageGetDefault(CFAllocatorRef);
+extern void CFHTTPCookieStorageSetCookieAcceptPolicy(CFHTTPCookieStorageRef, CFIndex);
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -544,34 +546,44 @@ static NSString *wk_canonicalSameSitePolicy(NSHTTPCookie *cookie)
 // A cookie whose creation time reads as 1 sorts ahead of every other cookie of its path, which is the
 // order RFC 6265 5.4 composes the Cookie header in. Dropping the key leaves the constructor to stamp
 // the record it is making, which is the answer it gives for every spelling it does understand.
-static NSDictionary *wk_propertiesWithoutUnreadableCreated(NSDictionary *properties)
+// The creation time a caller asks for, as the blob carries it: a decimal string of the CFAbsoluteTime
+// the "Created" key names, which is the number -properties reports for a cookie 10.9 stamped itself.
+static NSString *wk_createdFieldOfProperties(NSDictionary *properties)
 {
-    if (![properties objectForKey:@"Created"])
-        return properties;
-    NSMutableDictionary *stamped = [[properties mutableCopy] autorelease];
-    [stamped removeObjectForKey:@"Created"];
-    return stamped;
+    id created = [properties objectForKey:@"Created"];
+    if ([created isKindOfClass:[NSNumber class]] || [created isKindOfClass:[NSString class]])
+        return [NSString stringWithFormat:@"%.17g", [created doubleValue]];
+    return nil;
 }
 
 static NSDictionary *wk_propertiesWithSameSiteEncoded(NSDictionary *properties)
 {
-    properties = wk_propertiesWithoutUnreadableCreated(properties);
     id policy = properties[NSHTTPCookieSameSitePolicy];
     if (![policy isKindOfClass:[NSString class]])
+        policy = nil;
+    else if (wk_sameSitePolicyOfValue((CFStringRef)policy) == WK_SAME_SITE_NONE) {
+        // A value that restricts nothing is a cookie with no attribute, which is what the key's
+        // absence already says.
+        policy = nil;
+    }
+    NSString *created = wk_createdFieldOfProperties(properties);
+    if (!policy && !created)
         return properties;
 
     NSMutableDictionary *translated = [[properties mutableCopy] autorelease];
     [translated removeObjectForKey:NSHTTPCookieSameSitePolicy];
-    // A restriction is carried in the Comment the record does have; a value that restricts nothing is
-    // a cookie with no attribute, which is what the key's absence already says.
-    if (wk_sameSitePolicyOfValue((CFStringRef)policy) == WK_SAME_SITE_NONE)
-        return translated;
+    // 10.9's own record cannot carry a creation time a caller chose: whatever the key names, the cookie
+    // comes back reporting 1, and a cookie whose creation time reads as 1 sorts ahead of every other
+    // cookie of its path in the order RFC 6265 5.4 composes the Cookie header in. Dropping the key
+    // leaves the constructor to stamp the record it is making, and the time the caller asked for rides
+    // in the blob with the SameSite attribute, which is what -properties reports back.
+    [translated removeObjectForKey:@"Created"];
 
     id comment = properties[NSHTTPCookieComment];
-    CFStringRef encoded = wk_sameSiteCommentCreate((CFStringRef)policy,
+    CFStringRef encoded = wk_cookieBlobCreate((CFStringRef)policy, (CFStringRef)created,
         [comment isKindOfClass:[NSString class]] ? (CFStringRef)comment : NULL);
     // Text with no encoding -- a lone surrogate, which a script can put in a comment -- leaves the
-    // cookie as the caller wrote it, carrying the restriction 10.9 carries for every cookie.
+    // cookie as the caller wrote it, carrying what 10.9 carries for every cookie.
     if (encoded)
         translated[NSHTTPCookieComment] = [(NSString *)encoded autorelease];
     return translated;
@@ -691,7 +703,8 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookie)
     if (![comment isKindOfClass:[NSString class]])
         return properties;
     NSString *sameSite = [(NSString *)wk_sameSiteCopyValue((CFStringRef)comment) autorelease];
-    if (!sameSite)
+    NSString *created = [(NSString *)wk_cookieBlobCopyCreated((CFStringRef)comment) autorelease];
+    if (!sameSite && !created)
         return properties;
 
     NSMutableDictionary *decoded = [[properties mutableCopy] autorelease];
@@ -700,7 +713,10 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookie)
         decoded[NSHTTPCookieComment] = server;
     else
         [decoded removeObjectForKey:NSHTTPCookieComment];
-    decoded[NSHTTPCookieSameSitePolicy] = sameSite;
+    if (sameSite)
+        decoded[NSHTTPCookieSameSitePolicy] = sameSite;
+    if (created)
+        decoded[@"Created"] = @([created doubleValue]);
     return decoded;
 #pragma clang diagnostic pop
 }
@@ -1419,6 +1435,57 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
 }
 @end
 
+// The accept policy the process's own cookie jar starts with: 10.9 hands its handle over set to
+// NSHTTPCookieAcceptPolicyNever, and c/CFNetwork.c's wk_giveTheProcessCookieJarItsDefaultAcceptPolicy
+// gives it the one CFNetwork documents, once, before anybody has had it to choose a policy on. This is
+// the ObjC half of the two ways WebKit reaches that jar; the C half replaces
+// _CFHTTPCookieStorageGetDefault.
+WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
++ (NSHTTPCookieStorage *)sharedHTTPCookieStorage
+{
+    NSHTTPCookieStorage *storage = WK_ORIGINAL_METHOD(NSHTTPCookieStorage *, ());
+    wk_giveTheProcessCookieJarItsDefaultAcceptPolicy(wk_cfCookieStorageOf(storage));
+    return storage;
+}
+// -setCookieAcceptPolicy: leaves the CF storage as it was, while the getter -- and every other reader --
+// takes the policy from the CF storage, so on 10.9 the setter has no effect anybody can observe. The
+// rest of the class covers the CF storage directly (-setCookie: and -deleteCookie: call
+// CFHTTPCookieStorageSetCookie and CFHTTPCookieStorageDeleteCookie), so writing through is the shape of
+// the class.
+//
+// What 10.9's own implementation does instead is stamp com.apple.WebFoundation's NSHTTPAcceptCookies --
+// a setting every CFNetwork client in the user's account reads -- and it does that for ANY receiver,
+// including a private in-memory jar (measured: setting Never on a jar from -_initWithIdentifier:private:
+// leaves NSHTTPAcceptCookies=never behind). A policy chosen for one storage is not an account-wide
+// choice, so the original runs only for the storage that IS the process's own jar.
+- (void)setCookieAcceptPolicy:(NSHTTPCookieAcceptPolicy)policy
+{
+    CFHTTPCookieStorageRef store = wk_cfCookieStorageOf(self);
+    if (store == _CFHTTPCookieStorageGetDefault(kCFAllocatorDefault))
+        WK_ORIGINAL_METHOD(void, (NSHTTPCookieAcceptPolicy), policy);
+    if (store)
+        CFHTTPCookieStorageSetCookieAcceptPolicy(store, (CFIndex)policy);
+}
+@end
+
+// An HttpOnly cookie the store holds is not a public caller's to replace or to delete; the rule, and
+// why both this pair and the CF pair carry it, is with wk_publicCallerMayChangeCookie in c/CFNetwork.c.
+// These two reach CFNetwork through Foundation's own call, which this archive does not rebind.
+WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
+- (void)setCookie:(NSHTTPCookie *)cookie
+{
+    if (wk_publicCallerMayChangeCookie(wk_cfCookieStorageOf(self), (CFStringRef)[cookie name],
+        (CFStringRef)[cookie domain], (CFStringRef)[cookie path], [cookie isHTTPOnly]))
+        WK_ORIGINAL_METHOD(void, (NSHTTPCookie *), cookie);
+}
+- (void)deleteCookie:(NSHTTPCookie *)cookie
+{
+    if (wk_publicCallerMayChangeCookie(wk_cfCookieStorageOf(self), (CFStringRef)[cookie name],
+        (CFStringRef)[cookie domain], (CFStringRef)[cookie path], [cookie isHTTPOnly]))
+        WK_ORIGINAL_METHOD(void, (NSHTTPCookie *), cookie);
+}
+@end
+
 // -[NSURLRequest HTTPShouldHandleCookies] is public, documented, scheme-agnostic Foundation API, and it
 // is how a caller withholds cookies from one request. 10.9 keeps the flag only for an http(s) URL:
 // set it on a ws://, wss:// or blob: request and it reads back NO however it was set (measured), so on
@@ -1912,6 +1979,9 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
     }
 
     id result = ((id (*)(id, SEL, CFHTTPCookieStorageRef))objc_msgSend)(self, initWithCFStorageSelector, storage);
+    // A handle this layer just constructed: nobody has had it to choose a policy on, so it starts where
+    // CFNetwork's default is rather than where 10.9 leaves it.
+    wk_giveTheProcessCookieJarItsDefaultAcceptPolicy(storage);
     CFRelease(storage);
     return result;
 }
@@ -1987,6 +2057,155 @@ WK_POLYFILL_ADD_METHODS(NSURLCredentialStorage)
     id result = ((id (*)(id, SEL, CFURLCredentialStorageRef))objc_msgSend)(self, initWithCFStorageSelector, storage);
     CFRelease(storage);
     return result;
+}
+@end
+
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSURLProtectionSpace _webKitPropertyListData] / -_initWithWebKitPropertyListData: and the
+// NSURLCredential pair (Foundation, 15.4+): a protection space or credential as the dictionary WebKit's
+// CoreIPCNSURLProtectionSpace / CoreIPCNSURLCredential read and write, field by field, with a
+// SecTrustRef travelling as itself. The keys and values are the ones those coders name -- "host",
+// "port", "type", "realm", "scheme", "trust", "distnames"; "persistence", "type", "user", "password",
+// "trust" -- with "type" and "scheme" as CFNetwork numbers its server types and authentication
+// schemes, "persistence" as kCFURLCredentialPersistence*, and a credential's "type" as its
+// kURLCredential* kind.
+//
+// Built from what 10.9 exports: the CF space behind an NSURLProtectionSpace (-_cfurlprtotectionspace,
+// sic) and its getters, wk_createProtectionSpace and -_initWithCFURLProtectionSpace: for the way
+// back; the public NSURLCredential constructors and getters, with the kind and the server trust read
+// by wk_credentialKind / wk_credentialServerTrust. A client-certificate credential crosses as its
+// kind alone, the way the coder writes it, and 10.9 can make no credential of that kind without an
+// identity (measured: CFURLCredentialCreateWithIdentityAndCertificateArray answers NULL), so the
+// initializer answers nil for one.
+typedef const struct _CFURLProtectionSpace *WKURLProtectionSpaceRef;
+extern CFStringRef CFURLProtectionSpaceGetHost(WKURLProtectionSpaceRef);
+extern int CFURLProtectionSpaceGetPort(WKURLProtectionSpaceRef);
+extern int CFURLProtectionSpaceGetServerType(WKURLProtectionSpaceRef);
+extern CFStringRef CFURLProtectionSpaceGetRealm(WKURLProtectionSpaceRef);
+extern int CFURLProtectionSpaceGetAuthenticationScheme(WKURLProtectionSpaceRef);
+
+enum {
+    kWKCredentialKindInternetPassword = 0,
+    kWKCredentialKindServerTrust = 1,
+};
+
+static id wk_valueOfClass(NSDictionary *dictionary, NSString *key, Class cls)
+{
+    id value = [dictionary objectForKey:key];
+    return [value isKindOfClass:cls] ? value : nil;
+}
+
+WK_POLYFILL_ADD_METHODS(NSURLProtectionSpace)
+- (NSDictionary *)_webKitPropertyListData
+{
+    static SEL cfSpaceSelector;
+    if (!cfSpaceSelector)
+        cfSpaceSelector = sel_registerName("_cfurlprtotectionspace");
+    WKURLProtectionSpaceRef space = ((WKURLProtectionSpaceRef (*)(id, SEL))objc_msgSend)(self, cfSpaceSelector);
+    if (!space)
+        return nil;
+    NSMutableDictionary *dictionary = [NSMutableDictionary dictionaryWithCapacity:7];
+    CFStringRef host = CFURLProtectionSpaceGetHost(space);
+    if (host)
+        [dictionary setObject:(NSString *)host forKey:@"host"];
+    [dictionary setObject:[NSNumber numberWithInt:CFURLProtectionSpaceGetPort(space)] forKey:@"port"];
+    [dictionary setObject:[NSNumber numberWithInt:CFURLProtectionSpaceGetServerType(space)] forKey:@"type"];
+    CFStringRef realm = CFURLProtectionSpaceGetRealm(space);
+    if (realm)
+        [dictionary setObject:(NSString *)realm forKey:@"realm"];
+    [dictionary setObject:[NSNumber numberWithInt:CFURLProtectionSpaceGetAuthenticationScheme(space)] forKey:@"scheme"];
+    SecTrustRef trust = self.serverTrust;
+    if (trust)
+        [dictionary setObject:(id)trust forKey:@"trust"];
+    NSArray *distinguishedNames = self.distinguishedNames;
+    if (distinguishedNames)
+        [dictionary setObject:distinguishedNames forKey:@"distnames"];
+    return dictionary;
+}
+
+- (instancetype)_initWithWebKitPropertyListData:(NSDictionary *)dictionary
+{
+    static SEL initWithCFSpaceSelector;
+    if (!initWithCFSpaceSelector)
+        initWithCFSpaceSelector = sel_registerName("_initWithCFURLProtectionSpace:");
+    NSString *host = wk_valueOfClass(dictionary, @"host", [NSString class]);
+    NSNumber *port = wk_valueOfClass(dictionary, @"port", [NSNumber class]);
+    NSNumber *type = wk_valueOfClass(dictionary, @"type", [NSNumber class]);
+    NSString *realm = wk_valueOfClass(dictionary, @"realm", [NSString class]);
+    NSNumber *scheme = wk_valueOfClass(dictionary, @"scheme", [NSNumber class]);
+    id trust = [dictionary objectForKey:@"trust"];
+    if (trust && CFGetTypeID((CFTypeRef)trust) != SecTrustGetTypeID())
+        trust = nil;
+    NSArray *distinguishedNames = wk_valueOfClass(dictionary, @"distnames", [NSArray class]);
+    CFTypeRef space = port && type && scheme
+        ? wk_createProtectionSpace((CFStringRef)host, [port intValue], [type intValue], (CFStringRef)realm, [scheme intValue],
+            (CFArrayRef)distinguishedNames, (SecTrustRef)trust)
+        : NULL;
+    if (!space) {
+        [self release];
+        return nil;
+    }
+    id result = ((id (*)(id, SEL, CFTypeRef))objc_msgSend)(self, initWithCFSpaceSelector, space);
+    CFRelease(space);
+    return result;
+}
+@end
+
+WK_POLYFILL_ADD_METHODS(NSURLCredential)
+- (NSDictionary *)_webKitPropertyListData
+{
+    static SEL cfCredentialSelector;
+    if (!cfCredentialSelector)
+        cfCredentialSelector = sel_registerName("_cfurlcredential");
+    CFTypeRef credential = ((CFTypeRef (*)(id, SEL))objc_msgSend)(self, cfCredentialSelector);
+    int kind = wk_credentialKind(credential);
+    if (kind < 0)
+        return nil;
+    // NSURLCredentialPersistence is kCFURLCredentialPersistence less one.
+    NSMutableDictionary *dictionary = [NSMutableDictionary dictionaryWithCapacity:5];
+    [dictionary setObject:[NSNumber numberWithInt:(int)self.persistence + 1] forKey:@"persistence"];
+    [dictionary setObject:[NSNumber numberWithInt:kind] forKey:@"type"];
+    if (kind == kWKCredentialKindInternetPassword) {
+        NSString *user = self.user;
+        if (user)
+            [dictionary setObject:user forKey:@"user"];
+        NSString *password = self.hasPassword ? self.password : nil;
+        if (password)
+            [dictionary setObject:password forKey:@"password"];
+    } else if (kind == kWKCredentialKindServerTrust) {
+        SecTrustRef trust = wk_credentialServerTrust(credential);
+        if (!trust)
+            return nil;
+        [dictionary setObject:(id)trust forKey:@"trust"];
+    }
+    return dictionary;
+}
+
+- (instancetype)_initWithWebKitPropertyListData:(NSDictionary *)dictionary
+{
+    NSNumber *persistence = wk_valueOfClass(dictionary, @"persistence", [NSNumber class]);
+    NSNumber *type = wk_valueOfClass(dictionary, @"type", [NSNumber class]);
+    if (!type || !persistence) {
+        [self release];
+        return nil;
+    }
+    NSURLCredentialPersistence nsPersistence = (NSURLCredentialPersistence)([persistence intValue] - 1);
+    switch ([type intValue]) {
+    case kWKCredentialKindInternetPassword:
+        return [self initWithUser:wk_valueOfClass(dictionary, @"user", [NSString class])
+            password:wk_valueOfClass(dictionary, @"password", [NSString class]) persistence:nsPersistence];
+    case kWKCredentialKindServerTrust: {
+        id trust = [dictionary objectForKey:@"trust"];
+        if (trust && CFGetTypeID((CFTypeRef)trust) == SecTrustGetTypeID())
+            return [self initWithTrust:(SecTrustRef)trust];
+        break;
+    }
+    default:
+        break;
+    }
+    [self release];
+    return nil;
 }
 @end
 

@@ -106,7 +106,9 @@ CoreIPCNSURLCredential::CoreIPCNSURLCredential(NSURLCredential *credential)
     if ([useKeychain isKindOfClass:NSNumber.class])
         m_data.useKeychain = [useKeychain boolValue];
 
-    SecTrustRef secTrust = static_cast<SecTrustRef>(dict[@"trust"]);
+    // MAVERICKS_BACKPORT: clang-22 demands the bridge for a CF_BRIDGED_TYPE cast under ARC.
+    // SecTrustRef secTrust = static_cast<SecTrustRef>(dict[@"trust"]);
+    SecTrustRef secTrust = (__bridge SecTrustRef)dict[@"trust"];
     if (secTrust && CFGetTypeID(secTrust) == SecTrustGetTypeID())
         m_data.trust = CoreIPCSecTrust(secTrust);
 
@@ -230,7 +232,9 @@ RetainPtr<id> CoreIPCNSURLCredential::toID() const
         RetainPtr<SecTrustRef> trust = m_data.trust.createSecTrust();
         if (trust) {
             [dict setObject:@(kURLCredentialServerTrust) forKey:@"type"];
-            [dict setObject:(id)trust.get() forKey:@"trust"];
+            // MAVERICKS_BACKPORT: clang-22 demands the bridge for a CF_BRIDGED_TYPE cast under ARC.
+            // [dict setObject:(id)trust.get() forKey:@"trust"];
+            [dict setObject:(__bridge id)trust.get() forKey:@"trust"];
         }
         break;
     }

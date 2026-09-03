@@ -73,9 +73,8 @@ protected:
     void blockCookies(NSMutableURLRequest *);
     void blockCookies(WebCore::ResourceRequest&);
     void unblockCookies(WebCore::ResourceRequest&);
-    // MAVERICKS_BACKPORT: for a task whose request was already withheld cookies before the task existed
-    // (WebSocket tasks, which are handed to their WebSocketTask fully formed).
-    void markCookiesBlockedAtCreation();
+    void blockCookies(); // MAVERICKS_BACKPORT: upstream's form, for the tasks that can take a jar of their own (WebSocket tasks).
+    void unblockCookies();
     static void updateTaskWithFirstPartyForSameSiteCookies(NSURLSessionTask*, const WebCore::ResourceRequest&);
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES)
     void updateTaskWithStoragePartitionIdentifier(const WebCore::ResourceRequest&);
@@ -98,6 +97,9 @@ private:
 
     WeakPtr<NetworkSession> m_networkSession;
     bool m_hasBeenSetToUseStatelessCookieStorage { false };
+    // MAVERICKS_BACKPORT: whether the block was made by putting the task on its own jar (blockCookies())
+    // rather than on the request, which is what unblockCookies(ResourceRequest&) undoes it by.
+    bool m_hasBeenPutOnItsOwnCookieStorage { false };
     Seconds m_ageCapForCNAMECloakedCookies { 24_h * 7 };
     bool m_isAlwaysOnLoggingAllowed { false };
 };

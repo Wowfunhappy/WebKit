@@ -1,10 +1,12 @@
 // Security: entry points and constants modern WebKit references that 10.9's Security does not export.
 #include "wk_polyfill.h"
+#include "wk_trust.h"
 
 #include <CommonCrypto/CommonDigest.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
 #include <Security/cssmtype.h>
+#include <Security/cssmapple.h>
 #include <objc/message.h>
 #include <objc/runtime.h>
 #include <dispatch/dispatch.h>
@@ -525,71 +527,230 @@ WK_POLYFILL_ABSENT("Security", uint32_t, SecTaskGetCodeSignStatus, (SecTaskRef t
     return status;
 }
 
-// SecTrust IPC serialization (12.0+). A serialized trust has to carry the state a receiver needs to
-// reach the same verdict the sender would: the certificates, the policies they are judged against, any
-// custom anchors, whether network fetching is allowed, the verification date, and the result the sender
-// computed. All of that is readable on 10.9, and apart from the certificates it is readable without
-// evaluating anything (measured: policies + custom anchors + network-fetch + verify time on an
-// unevaluated trust leave it kSecTrustResultInvalid and cost 0.0000s).
+// SecTrust IPC serialization (12.0+). A serialized trust carries the state a receiver needs to reach
+// the same verdict the sender would: the certificates, the policies they are judged against, any custom
+// anchors, whether network fetching is allowed, and the verification date. All of that is readable on
+// 10.9, and apart from the certificates it is readable without evaluating anything (measured: policies
+// + custom anchors + network-fetch + verify time on an unevaluated trust leave it
+// kSecTrustResultInvalid and cost 0.0000s).
 //
 // User exceptions are NOT carried, because 10.9 cannot report them. SecTrustCopyExceptions is not a
-// getter for exceptions somebody set — it mints a blanket "accept whatever this chain currently
+// getter for exceptions somebody set -- it mints a blanket "accept whatever this chain currently
 // reports" blob for any trust, including one that just failed, and there is no getter for what was
 // actually set. Carrying its output would hand the receiver a verdict instead of the sender's state:
 // measured on a self-signed chain, the sender evaluates kSecTrustResultRecoverableTrustFailure, and a
 // receiver given that blob reports kSecTrustResultProceed. Since nothing in this tree sets exceptions
 // on a trust that crosses IPC, omitting them is what the platform can honestly report.
 //
-// Carrying only the chain -- which is what this did before -- was a security-relevant loss, not a
-// lossy convenience: a trust that went in bound to a hostname by SecPolicyCreateSSL came back under
-// SecPolicyCreateBasicX509, so the receiver evaluated a weaker question than the sender asked. Measured
-// against github.com's chain: the original policy and a policy rebuilt through its properties both
-// report kSecTrustResultProceed, a rebuilt policy carrying the WRONG hostname reports
-// kSecTrustResultRecoverableTrustFailure -- and basic X.509 reports Proceed, accepting a chain the
-// hostname-bound question rejects.
+// The policies decide the question the receiver asks, so they travel by what they are made of rather
+// than by the dictionary that describes them: SecPolicyCopyProperties reports a name and an OID and
+// says nothing about the client/server direction, and SecPolicyCreateWithProperties writes a server
+// name back with its NUL included, so "example.org" returns as 12 bytes. A trust that names no policy
+// is one this cannot rebuild, and it answers NULL: a receiver handed a policy the sender never asked
+// for would evaluate a weaker question. Measured against github.com's chain, a policy carrying the
+// WRONG hostname reports kSecTrustResultRecoverableTrustFailure where the right one reports Proceed,
+// and basic X.509 reports Proceed for both -- accepting a chain the hostname-bound question rejects.
 //
 // 10.9 has no way to install a trust result on a trust object, so a receiver that asks for a verdict
-// re-evaluates; carrying the policies, anchors and date is what makes that re-evaluation
-// answer the sender's question. The result is carried for a receiver that only wants to know what the
-// sender concluded.
+// re-evaluates; carrying the policies, anchors and date is what makes that re-evaluation answer the
+// sender's question.
 static CFStringRef const kMavTrustCertificates = CFSTR("certificates");
 static CFStringRef const kMavTrustPolicies = CFSTR("policies");
 static CFStringRef const kMavTrustAnchors = CFSTR("anchors");
 static CFStringRef const kMavTrustNetworkFetchAllowed = CFSTR("networkFetchAllowed");
 static CFStringRef const kMavTrustVerifyDate = CFSTR("verifyDate");
-static CFStringRef const kMavTrustResult = CFSTR("result");
+static CFStringRef const kMavPolicyOID = CFSTR("oid");
+static CFStringRef const kMavPolicyServerName = CFSTR("serverName");
+static CFStringRef const kMavPolicyFlags = CFSTR("flags");
 
-// DER for each certificate in an array of SecCertificateRef, and the reverse.
+// DER for each certificate in an array of SecCertificateRef, and the reverse. An element that cannot
+// be converted fails the whole array: the receiver gets every certificate the sender had, or none.
 static CFArrayRef mav_certificateDataArray(CFArrayRef certificates)
 {
-    CFIndex count = certificates ? CFArrayGetCount(certificates) : 0;
+    if (!certificates || CFGetTypeID(certificates) != CFArrayGetTypeID())
+        return NULL;
+    CFIndex count = CFArrayGetCount(certificates);
     CFMutableArrayRef datas = CFArrayCreateMutable(NULL, count, &kCFTypeArrayCallBacks);
     for (CFIndex i = 0; i < count; ++i) {
         SecCertificateRef certificate = (SecCertificateRef)CFArrayGetValueAtIndex(certificates, i);
-        CFDataRef der = certificate ? SecCertificateCopyData(certificate) : NULL;
-        if (der) {
-            CFArrayAppendValue(datas, der);
-            CFRelease(der);
+        CFDataRef der = certificate && CFGetTypeID(certificate) == SecCertificateGetTypeID()
+            ? SecCertificateCopyData(certificate) : NULL;
+        if (!der) {
+            CFRelease(datas);
+            return NULL;
         }
+        CFArrayAppendValue(datas, der);
+        CFRelease(der);
     }
     return datas;
 }
 
 static CFArrayRef mav_certificateArrayFromData(CFArrayRef datas)
 {
-    CFIndex count = datas ? CFArrayGetCount(datas) : 0;
+    if (!datas || CFGetTypeID(datas) != CFArrayGetTypeID())
+        return NULL;
+    CFIndex count = CFArrayGetCount(datas);
     CFMutableArrayRef certificates = CFArrayCreateMutable(NULL, count, &kCFTypeArrayCallBacks);
     for (CFIndex i = 0; i < count; ++i) {
         CFDataRef der = (CFDataRef)CFArrayGetValueAtIndex(datas, i);
-        if (!der || CFGetTypeID(der) != CFDataGetTypeID())
-            continue;
-        SecCertificateRef certificate = SecCertificateCreateWithData(NULL, der);
-        if (certificate) {
-            CFArrayAppendValue(certificates, certificate);
-            CFRelease(certificate);
+        SecCertificateRef certificate = der && CFGetTypeID(der) == CFDataGetTypeID()
+            ? SecCertificateCreateWithData(NULL, der) : NULL;
+        if (!certificate) {
+            CFRelease(certificates);
+            return NULL;
         }
+        CFArrayAppendValue(certificates, certificate);
+        CFRelease(certificate);
     }
     return certificates;
+}
+
+// The certificates a trust was created with. 10.9's SecTrust accessors report the evaluated chain --
+// SecTrustGetCertificateCount runs the evaluation to produce it, and a three-certificate input comes
+// back as the one certificate the evaluator kept -- and SecTrustCopyInputCertificates does not exist
+// here. Security's Trust object keeps the caller's array in a CFArray field at this offset from the
+// SecTrustRef, measured on 10.9.5 (malloc_size 352) as the only certificate array present before an
+// evaluation and unchanged by one. Reading it costs no evaluation. The field is checked before it is
+// believed: it must be a heap CFArray of SecCertificates whose first element is the trust's leaf --
+// SecTrustGetCertificateAtIndex(trust, 0) answers without evaluating, evaluated or not -- and anything
+// else is NULL.
+enum { kMavTrustInputCertificatesOffset = 0x98 };
+
+CFArrayRef wk_trustInputCertificates(SecTrustRef trust)
+{
+    if (malloc_size(trust) < kMavTrustInputCertificatesOffset + sizeof(CFArrayRef))
+        return NULL;
+    CFArrayRef certificates = *(CFArrayRef *)((const char *)trust + kMavTrustInputCertificatesOffset);
+    if (!certificates || ((uintptr_t)certificates & (sizeof(void *) - 1)) || !malloc_size(certificates)
+        || CFGetTypeID(certificates) != CFArrayGetTypeID())
+        return NULL;
+    CFIndex count = CFArrayGetCount(certificates);
+    if (count < 1)
+        return NULL;
+    for (CFIndex i = 0; i < count; ++i) {
+        const void *certificate = CFArrayGetValueAtIndex(certificates, i);
+        if (!certificate || !malloc_size(certificate) || CFGetTypeID(certificate) != SecCertificateGetTypeID())
+            return NULL;
+    }
+
+    SecCertificateRef leaf = SecTrustGetCertificateAtIndex(trust, 0);
+    CFDataRef leafDER = leaf ? SecCertificateCopyData(leaf) : NULL;
+    CFDataRef firstDER = SecCertificateCopyData((SecCertificateRef)CFArrayGetValueAtIndex(certificates, 0));
+    bool sameLeaf = leafDER && firstDER && CFEqual(leafDER, firstDER);
+    if (leafDER)
+        CFRelease(leafDER);
+    if (firstDER)
+        CFRelease(firstDER);
+    return sameLeaf ? certificates : NULL;
+}
+
+// A policy, as the OID that names it and the options it carries. SecPolicyGetValue hands back the
+// option block a policy was made with -- for SSL that is CSSM_APPLE_TP_SSL_OPTIONS, whose ServerName is
+// a pointer into the policy, so the name is copied out by length rather than shipped as the pointer it
+// is. Its flags carry the bit that says whether the policy asks the client question or the server one,
+// which no property dictionary on this OS reports.
+//
+// A policy this cannot describe, or cannot rebuild, fails the whole serialization. Dropping one would
+// hand the receiver a subset of the sender's checks -- a weaker question, silently.
+static bool mav_oidEquals(const CSSM_OID *a, const CSSM_OID *b)
+{
+    return a && b && a->Length == b->Length && a->Data && b->Data && !memcmp(a->Data, b->Data, a->Length);
+}
+
+static CFDictionaryRef mav_copyPolicyDescription(SecPolicyRef policy)
+{
+    if (!policy)
+        return NULL;
+    CSSM_OID oid;
+    memset(&oid, 0, sizeof(oid));
+    if (SecPolicyGetOID(policy, &oid) != errSecSuccess || !oid.Data || !oid.Length)
+        return NULL;
+
+    // Only the policies this can put back are worth describing: an SSL policy by its options, and a
+    // basic X.509 policy, which carries none. A revocation policy names its methods in neither
+    // SecPolicyGetValue (empty on this OS) nor SecPolicyCopyProperties (OID only), so it cannot be
+    // rebuilt as the policy it was and is refused rather than rebuilt as a weaker one.
+    bool isSSL = mav_oidEquals(&oid, &CSSMOID_APPLE_TP_SSL);
+    if (!isSSL && !mav_oidEquals(&oid, &CSSMOID_APPLE_X509_BASIC))
+        return NULL;
+
+    CFMutableDictionaryRef description = CFDictionaryCreateMutable(NULL, 3, &kCFTypeDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks);
+    if (!description)
+        return NULL;
+    CFDataRef oidData = CFDataCreate(NULL, oid.Data, (CFIndex)oid.Length);
+    CFDictionarySetValue(description, kMavPolicyOID, oidData);
+    CFRelease(oidData);
+    if (!isSSL)
+        return description;
+
+    CSSM_DATA value;
+    memset(&value, 0, sizeof(value));
+    const CSSM_APPLE_TP_SSL_OPTIONS *options = NULL;
+    if (SecPolicyGetValue(policy, &value) == errSecSuccess && value.Data
+        && value.Length >= sizeof(CSSM_APPLE_TP_SSL_OPTIONS)) {
+        const CSSM_APPLE_TP_SSL_OPTIONS *candidate = (const CSSM_APPLE_TP_SSL_OPTIONS *)value.Data;
+        if (candidate->Version == CSSM_APPLE_TP_SSL_OPTS_VERSION)
+            options = candidate;
+    }
+    // An SSL policy that names no host is a real policy on this OS; one whose options cannot be read is
+    // not the same thing, and must not arrive as one.
+    if (!options) {
+        CFRelease(description);
+        return NULL;
+    }
+    if (options->ServerNameLen) {
+        if (!options->ServerName) {
+            CFRelease(description);
+            return NULL;
+        }
+        CFDataRef name = CFDataCreate(NULL, (const uint8_t *)options->ServerName, (CFIndex)options->ServerNameLen);
+        CFDictionarySetValue(description, kMavPolicyServerName, name);
+        CFRelease(name);
+    }
+    int32_t flags = (int32_t)options->Flags;
+    CFNumberRef number = CFNumberCreate(NULL, kCFNumberSInt32Type, &flags);
+    CFDictionarySetValue(description, kMavPolicyFlags, number);
+    CFRelease(number);
+    return description;
+}
+
+// The inverse, built with the concrete constructors: SecPolicyCreateWithProperties is what writes a
+// server name back with its terminator included.
+static SecPolicyRef mav_createPolicyFromDescription(CFDictionaryRef description)
+{
+    CFDataRef oidData = (CFDataRef)CFDictionaryGetValue(description, kMavPolicyOID);
+    if (!oidData || CFGetTypeID(oidData) != CFDataGetTypeID())
+        return NULL;
+    CSSM_OID oid;
+    oid.Data = (uint8_t *)CFDataGetBytePtr(oidData);
+    oid.Length = (CSSM_SIZE)CFDataGetLength(oidData);
+
+    if (mav_oidEquals(&oid, &CSSMOID_APPLE_X509_BASIC))
+        return SecPolicyCreateBasicX509();
+    if (!mav_oidEquals(&oid, &CSSMOID_APPLE_TP_SSL))
+        return NULL;
+
+    CFNumberRef number = (CFNumberRef)CFDictionaryGetValue(description, kMavPolicyFlags);
+    if (!number || CFGetTypeID(number) != CFNumberGetTypeID())
+        return NULL;
+    int32_t flags = 0;
+    CFNumberGetValue(number, kCFNumberSInt32Type, &flags);
+
+    CFDataRef nameData = (CFDataRef)CFDictionaryGetValue(description, kMavPolicyServerName);
+    CFStringRef name = NULL;
+    if (nameData) {
+        if (CFGetTypeID(nameData) != CFDataGetTypeID())
+            return NULL;
+        name = CFStringCreateWithBytes(NULL, CFDataGetBytePtr(nameData), CFDataGetLength(nameData),
+            kCFStringEncodingUTF8, false);
+        if (!name)
+            return NULL;
+    }
+    SecPolicyRef policy = SecPolicyCreateSSL(!(flags & CSSM_APPLE_TP_SSL_CLIENT), name);
+    if (name)
+        CFRelease(name);
+    return policy;
 }
 
 WK_POLYFILL_ABSENT("Security", CFDataRef, SecTrustSerialize, (SecTrustRef trust, CFErrorRef *error))
@@ -597,48 +758,64 @@ WK_POLYFILL_ABSENT("Security", CFDataRef, SecTrustSerialize, (SecTrustRef trust,
     if (error)
         *error = NULL;
     if (!trust) {
-        mav_reportUnimplemented(error);
+        mav_reportOSStatus(error, errSecParam);
         return NULL;
     }
 
-    CFMutableDictionaryRef state = CFDictionaryCreateMutable(NULL, 7, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-
-    CFIndex count = SecTrustGetCertificateCount(trust);
-    CFMutableArrayRef certificates = CFArrayCreateMutable(NULL, count, &kCFTypeArrayCallBacks);
-    for (CFIndex i = 0; i < count; ++i) {
-        SecCertificateRef certificate = SecTrustGetCertificateAtIndex(trust, i);
-        if (certificate)
-            CFArrayAppendValue(certificates, certificate);
+    // The sender's own certificates, read without an evaluation. A blob is written only from state the
+    // receiver can put back whole; anything short of that fails here rather than deserializing as a
+    // different trust.
+    CFArrayRef certificateDatas = mav_certificateDataArray(wk_trustInputCertificates(trust));
+    if (!certificateDatas) {
+        mav_reportOSStatus(error, errSecParam);
+        return NULL;
     }
-    CFArrayRef certificateDatas = mav_certificateDataArray(certificates);
+    CFMutableDictionaryRef state = CFDictionaryCreateMutable(NULL, 7, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     CFDictionarySetValue(state, kMavTrustCertificates, certificateDatas);
     CFRelease(certificateDatas);
-    CFRelease(certificates);
 
-    // A policy travels as the property dictionary that describes it, which is what
-    // SecPolicyCreateWithProperties reverses.
+    // A policy travels as its OID and the option block it carries, which is what it is made of.
+    // SecPolicyCopyProperties reports only a name and an OID on this OS -- it says nothing about the
+    // client/server direction -- and SecPolicyCreateWithProperties writes the name back with its NUL
+    // included, so a hostname that went in as "example.org" came back as "example.org\0". Reading the
+    // options and rebuilding with SecPolicyCreateSSL keeps both.
     CFArrayRef policies = NULL;
-    if (SecTrustCopyPolicies(trust, &policies) == errSecSuccess && policies) {
-        CFIndex policyCount = CFArrayGetCount(policies);
-        CFMutableArrayRef policyProperties = CFArrayCreateMutable(NULL, policyCount, &kCFTypeArrayCallBacks);
-        for (CFIndex i = 0; i < policyCount; ++i) {
-            CFDictionaryRef properties = SecPolicyCopyProperties((SecPolicyRef)CFArrayGetValueAtIndex(policies, i));
-            if (properties) {
-                CFArrayAppendValue(policyProperties, properties);
-                CFRelease(properties);
-            }
-        }
-        CFDictionarySetValue(state, kMavTrustPolicies, policyProperties);
-        CFRelease(policyProperties);
-        CFRelease(policies);
+    CFIndex policyCount = SecTrustCopyPolicies(trust, &policies) == errSecSuccess && policies ? CFArrayGetCount(policies) : 0;
+    if (!policyCount) {
+        if (policies)
+            CFRelease(policies);
+        CFRelease(state);
+        mav_reportOSStatus(error, errSecParam);
+        return NULL;
     }
+    CFMutableArrayRef described = CFArrayCreateMutable(NULL, policyCount, &kCFTypeArrayCallBacks);
+    for (CFIndex i = 0; i < policyCount; ++i) {
+        CFDictionaryRef one = mav_copyPolicyDescription((SecPolicyRef)CFArrayGetValueAtIndex(policies, i));
+        if (!one) {
+            CFRelease(described);
+            CFRelease(policies);
+            CFRelease(state);
+            mav_reportOSStatus(error, errSecParam);
+            return NULL;
+        }
+        CFArrayAppendValue(described, one);
+        CFRelease(one);
+    }
+    CFDictionarySetValue(state, kMavTrustPolicies, described);
+    CFRelease(described);
+    CFRelease(policies);
 
     CFArrayRef anchors = NULL;
     if (SecTrustCopyCustomAnchorCertificates(trust, &anchors) == errSecSuccess && anchors) {
         CFArrayRef anchorDatas = mav_certificateDataArray(anchors);
+        CFRelease(anchors);
+        if (!anchorDatas) {
+            CFRelease(state);
+            mav_reportOSStatus(error, errSecParam);
+            return NULL;
+        }
         CFDictionarySetValue(state, kMavTrustAnchors, anchorDatas);
         CFRelease(anchorDatas);
-        CFRelease(anchors);
     }
 
     Boolean networkFetchAllowed = false;
@@ -652,19 +829,10 @@ WK_POLYFILL_ABSENT("Security", CFDataRef, SecTrustSerialize, (SecTrustRef trust,
         CFRelease(date);
     }
 
-    SecTrustResultType trustResult = kSecTrustResultInvalid;
-    if (SecTrustGetTrustResult(trust, &trustResult) == errSecSuccess) {
-        int32_t value = (int32_t)trustResult;
-        CFNumberRef number = CFNumberCreate(NULL, kCFNumberSInt32Type, &value);
-        CFDictionarySetValue(state, kMavTrustResult, number);
-        CFRelease(number);
-
-    }
-
     CFDataRef data = CFPropertyListCreateData(NULL, state, kCFPropertyListBinaryFormat_v1_0, 0, NULL);
     CFRelease(state);
     if (!data)
-        mav_reportUnimplemented(error);
+        mav_reportOSStatus(error, errSecAllocate);
     return data;
 }
 
@@ -673,18 +841,25 @@ WK_POLYFILL_ABSENT("Security", SecTrustRef, SecTrustDeserialize, (CFDataRef seri
     if (error)
         *error = NULL;
     if (!serializedTrust) {
-        mav_reportUnimplemented(error);
+        mav_reportOSStatus(error, errSecParam);
         return NULL;
     }
     CFDictionaryRef state = (CFDictionaryRef)CFPropertyListCreateWithData(NULL, serializedTrust, kCFPropertyListImmutable, NULL, NULL);
     if (!state || CFGetTypeID(state) != CFDictionaryGetTypeID()) {
         if (state)
             CFRelease(state);
-        mav_reportUnimplemented(error);
+        mav_reportOSStatus(error, errSecDecode);
         return NULL;
     }
 
     CFArrayRef certificates = mav_certificateArrayFromData((CFArrayRef)CFDictionaryGetValue(state, kMavTrustCertificates));
+    if (!certificates || !CFArrayGetCount(certificates)) {
+        if (certificates)
+            CFRelease(certificates);
+        CFRelease(state);
+        mav_reportOSStatus(error, errSecDecode);
+        return NULL;
+    }
 
     CFArrayRef policyProperties = (CFArrayRef)CFDictionaryGetValue(state, kMavTrustPolicies);
     CFMutableArrayRef policies = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
@@ -692,37 +867,40 @@ WK_POLYFILL_ABSENT("Security", SecTrustRef, SecTrustDeserialize, (CFDataRef seri
         CFIndex policyCount = CFArrayGetCount(policyProperties);
         for (CFIndex i = 0; i < policyCount; ++i) {
             CFDictionaryRef properties = (CFDictionaryRef)CFArrayGetValueAtIndex(policyProperties, i);
-            if (!properties || CFGetTypeID(properties) != CFDictionaryGetTypeID())
-                continue;
-            CFTypeRef oid = CFDictionaryGetValue(properties, kSecPolicyOid);
-            SecPolicyRef policy = oid ? SecPolicyCreateWithProperties(oid, properties) : NULL;
-            if (policy) {
-                CFArrayAppendValue(policies, policy);
-                CFRelease(policy);
+            SecPolicyRef policy = (properties && CFGetTypeID(properties) == CFDictionaryGetTypeID())
+                ? mav_createPolicyFromDescription(properties) : NULL;
+            if (!policy) {
+                CFRelease(certificates);
+                CFRelease(policies);
+                CFRelease(state);
+                mav_reportOSStatus(error, errSecDecode);
+                return NULL;
             }
+            CFArrayAppendValue(policies, policy);
+            CFRelease(policy);
         }
-    }
-    // A trust with no policy cannot be evaluated at all; basic X.509 is the only honest stand-in when
-    // the sender had nothing to describe, and it is never reached for a trust that carried one.
-    if (!CFArrayGetCount(policies)) {
-        SecPolicyRef basic = SecPolicyCreateBasicX509();
-        CFArrayAppendValue(policies, basic);
-        CFRelease(basic);
     }
 
     SecTrustRef trust = NULL;
-    OSStatus status = SecTrustCreateWithCertificates(certificates, policies, &trust);
+    OSStatus status = CFArrayGetCount(policies) ? SecTrustCreateWithCertificates(certificates, policies, &trust)
+                                                : errSecDecode;
     CFRelease(certificates);
     CFRelease(policies);
     if (status != errSecSuccess || !trust) {
         CFRelease(state);
-        mav_reportUnimplemented(error);
+        mav_reportOSStatus(error, status);
         return NULL;
     }
 
     CFArrayRef anchorDatas = (CFArrayRef)CFDictionaryGetValue(state, kMavTrustAnchors);
-    if (anchorDatas && CFGetTypeID(anchorDatas) == CFArrayGetTypeID()) {
+    if (anchorDatas) {
         CFArrayRef anchors = mav_certificateArrayFromData(anchorDatas);
+        if (!anchors) {
+            CFRelease(trust);
+            CFRelease(state);
+            mav_reportOSStatus(error, errSecDecode);
+            return NULL;
+        }
         SecTrustSetAnchorCertificates(trust, anchors);
         CFRelease(anchors);
     }
@@ -759,8 +937,8 @@ WK_POLYFILL_ABSENT("Security", int, SecTrustSetClientAuditToken, (SecTrustRef tr
     return errSecUnimplemented;
 }
 
-// SecTrustCopyCertificateChain (Security, 12.0+): rebuild the evaluated chain via the per-index
-// accessors 10.9 ships.
+// SecTrustCopyCertificateChain (Security, 12.0+): the evaluated chain, whole or not at all, via the
+// per-index accessors 10.9 ships.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 WK_POLYFILL_ABSENT("Security", CFArrayRef, SecTrustCopyCertificateChain, (SecTrustRef trust))
@@ -775,8 +953,11 @@ WK_POLYFILL_ABSENT("Security", CFArrayRef, SecTrustCopyCertificateChain, (SecTru
         return NULL;
     for (CFIndex i = 0; i < count; i++) {
         SecCertificateRef cert = SecTrustGetCertificateAtIndex(trust, i);
-        if (cert)
-            CFArrayAppendValue(chain, cert);
+        if (!cert) {
+            CFRelease(chain);
+            return NULL;
+        }
+        CFArrayAppendValue(chain, cert);
     }
     return chain;
 }
@@ -1050,11 +1231,14 @@ static CFDataRef mav_secKeyTransform(SecKeyRef key, CFStringRef algorithm, CFDat
     return result;
 }
 
-// SecItemExport writes a public key as SubjectPublicKeyInfo -- SEQUENCE { AlgorithmIdentifier,
-// BIT STRING } -- while SecKeyCopyExternalRepresentation's contract is the bare representation the
-// BIT STRING carries: PKCS#1 RSAPublicKey for RSA, the ANSI X9.63 uncompressed point 04||X||Y for EC.
-// These two walk that wrapper off and put it back, so both directions match the system's contract
-// rather than SecItemExport's file format.
+// SecKeyCopyExternalRepresentation's contract is the bare representation of a public key: PKCS#1
+// RSAPublicKey for RSA, the ANSI X9.63 uncompressed point 04||X||Y for EC. SecItemExport's shape
+// follows the key's CSSM blob format rather than its algorithm, so it is not one shape to strip:
+// measured on this OS, a certificate-derived RSA key (KeyHeader.Format PKCS1) exports the bare
+// PKCS#1 already, while a generated RSA key (format NONE) and every EC key export a
+// SubjectPublicKeyInfo -- SEQUENCE { AlgorithmIdentifier, BIT STRING } -- whose BIT STRING carries
+// the bare form. These two put that wrapper on and take it off so both directions meet the system's
+// contract whichever shape the export chose.
 //
 // Minimal DER: a definite-length tag whose length is short-form (< 0x80) or long-form (0x8n followed
 // by n length bytes). Nothing here parses beyond the two nested headers it has to step over.
@@ -1093,7 +1277,14 @@ static CFDataRef mav_copySubjectPublicKeyBits(CFDataRef spki)
     if (!mav_derReadHeader(bytes, length, &offset, &tag, &size) || tag != 0x30)
         return NULL;
     size_t end = offset + size;
-    if (!mav_derReadHeader(bytes, end, &offset, &tag, &size) || tag != 0x30)
+
+    // What the outer SEQUENCE opens with tells the two shapes apart with no overlap.
+    if (!mav_derReadHeader(bytes, end, &offset, &tag, &size))
+        return NULL;
+    // PKCS#1 RSAPublicKey -- SEQUENCE { INTEGER, INTEGER } -- is already the bare representation.
+    if (tag == 0x02)
+        return CFDataCreateCopy(kCFAllocatorDefault, spki);
+    if (tag != 0x30)
         return NULL;
     offset += size; // step over the AlgorithmIdentifier
     if (!mav_derReadHeader(bytes, end, &offset, &tag, &size) || tag != 0x03 || !size)
@@ -1102,27 +1293,36 @@ static CFDataRef mav_copySubjectPublicKeyBits(CFDataRef spki)
     return CFDataCreate(kCFAllocatorDefault, bytes + offset + 1, (CFIndex)(size - 1));
 }
 
-// DER requires the shortest length encoding that fits: one byte below 128, otherwise 0x81 and a byte.
-// No key this wraps needs more than that.
+// DER requires the shortest length encoding that fits: one byte below 128, then 0x81 and a byte, then
+// 0x82 and two. A 4096-bit RSA SubjectPublicKeyInfo needs the last of those.
 static size_t mav_derHeaderLength(size_t contentLength)
 {
-    return contentLength < 0x80 ? 2 : 3;
+    if (contentLength < 0x80)
+        return 2;
+    return contentLength <= 0xff ? 3 : 4;
 }
 
 static bool mav_derAppendHeader(CFMutableDataRef data, uint8_t tag, size_t contentLength)
 {
-    uint8_t header[3];
+    uint8_t header[4];
     header[0] = tag;
     if (contentLength < 0x80) {
         header[1] = (uint8_t)contentLength;
         CFDataAppendBytes(data, header, 2);
         return true;
     }
-    if (contentLength > 0xff)
-        return false; // past the one-byte long form, which is all this writer emits
-    header[1] = 0x81;
-    header[2] = (uint8_t)contentLength;
-    CFDataAppendBytes(data, header, 3);
+    if (contentLength <= 0xff) {
+        header[1] = 0x81;
+        header[2] = (uint8_t)contentLength;
+        CFDataAppendBytes(data, header, 3);
+        return true;
+    }
+    if (contentLength > 0xffff)
+        return false; // past the two-byte long form, which is all this writer emits
+    header[1] = 0x82;
+    header[2] = (uint8_t)(contentLength >> 8);
+    header[3] = (uint8_t)contentLength;
+    CFDataAppendBytes(data, header, 4);
     return true;
 }
 
@@ -1133,6 +1333,44 @@ static bool mav_isECKeyType(CFStringRef keyType)
     // 10.9 names key types by CSSM algorithm id: "42" is RSA, "73" is ECDSA, which is the value
     // kSecAttrKeyTypeECSECPrimeRandom carries here and kSecAttrKeyTypeEC carries on this OS.
     return CFStringCompare(keyType, CFSTR("73"), 0) == kCFCompareEqualTo;
+}
+
+// A PKCS#1 RSAPublicKey, wrapped as SubjectPublicKeyInfo with the rsaEncryption AlgorithmIdentifier.
+// SecItemImport reads only the wrapped form: measured on this OS, handing it 10.9's own bare PKCS#1
+// export answers errSecUnknownFormat, so the bare representation this API's contract names has to be
+// put back into the shape the importer reads.
+static CFDataRef mav_copyRSASubjectPublicKeyInfo(CFDataRef pkcs1)
+{
+    // AlgorithmIdentifier ::= SEQUENCE { rsaEncryption, NULL }
+    static const uint8_t rsaEncryption[] = { 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01,
+                                             0x05, 0x00 };
+    size_t keyLength = (size_t)CFDataGetLength(pkcs1);
+    if (!keyLength)
+        return NULL;
+
+    size_t algorithmContent = sizeof(rsaEncryption);
+    // BIT STRING carries one leading octet for its unused-bit count.
+    size_t bitStringContent = keyLength + 1;
+    size_t sequenceContent = mav_derHeaderLength(algorithmContent) + algorithmContent
+        + mav_derHeaderLength(bitStringContent) + bitStringContent;
+
+    CFMutableDataRef spki = CFDataCreateMutable(kCFAllocatorDefault, 0);
+    if (!spki)
+        return NULL;
+    if (!mav_derAppendHeader(spki, 0x30, sequenceContent)
+        || !mav_derAppendHeader(spki, 0x30, algorithmContent)) {
+        CFRelease(spki);
+        return NULL;
+    }
+    CFDataAppendBytes(spki, rsaEncryption, (CFIndex)sizeof(rsaEncryption));
+    if (!mav_derAppendHeader(spki, 0x03, bitStringContent)) {
+        CFRelease(spki);
+        return NULL;
+    }
+    const uint8_t unusedBits = 0x00;
+    CFDataAppendBytes(spki, &unusedBits, 1);
+    CFDataAppendBytes(spki, CFDataGetBytePtr(pkcs1), (CFIndex)keyLength);
+    return spki;
 }
 
 // An X9.63 point, wrapped as SubjectPublicKeyInfo with the id-ecPublicKey AlgorithmIdentifier whose
@@ -1227,8 +1465,9 @@ WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCreateWithData, (CFDataRef keyDa
     // is wrapped back into one -- the inverse of what SecKeyCopyExternalRepresentation strips off.
     CFStringRef keyType = (CFStringRef)CFDictionaryGetValue(attributes, kSecAttrKeyType);
     CFDataRef wrapped = NULL;
-    if (itemType == kSecItemTypePublicKey && mav_isECKeyType(keyType))
-        wrapped = mav_copyECSubjectPublicKeyInfo(keyData);
+    if (itemType == kSecItemTypePublicKey)
+        wrapped = mav_isECKeyType(keyType) ? mav_copyECSubjectPublicKeyInfo(keyData)
+                                           : mav_copyRSASubjectPublicKeyInfo(keyData);
 
     SecExternalFormat format = kSecFormatOpenSSL;
     SecItemImportExportKeyParameters params;

@@ -86,13 +86,18 @@ static bool hostAppHasEntitlement(audit_token_t hostAppAuditToken, ASCIILiteral 
 
 static String bundleIdentifierFromAuditToken(audit_token_t token)
 {
-#if PLATFORM(MAC) && !USE(APPLE_INTERNAL_SDK) && USE(MOZILLA_PUSH_SERVICE)
-    // MAVERICKS_BACKPORT: real host apps (Safari) drive webpushd on this port, not TestWebKitAPI,
-    // so the placeholder identifier below would misfile every subscription under a test bundle and
-    // wake the wrong app. codeSigningIdentifier() answers for real here: 10.9's absent
-    // SecTaskCopySigningIdentifier is supplied by the polyfill layer over csops(2).
-    return WebKit::codeSigningIdentifier(token);
-#elif PLATFORM(MAC) && !USE(APPLE_INTERNAL_SDK)
+#if PLATFORM(MAC) && !USE(APPLE_INTERNAL_SDK)
+#if USE(MOZILLA_PUSH_SERVICE)
+    // MAVERICKS_BACKPORT: real host apps (Safari) drive webpushd on this port, so a signed host is
+    // filed under its own identifier -- the placeholder below would misfile every subscription under
+    // a test bundle and wake the wrong app. codeSigningIdentifier() answers for real here: 10.9's
+    // absent SecTaskCopySigningIdentifier is supplied by the polyfill layer over csops(2). A host
+    // without a signature (TestWebKitAPI's build products) has no identifier to answer, and is the
+    // client the placeholder names.
+    String signingIdentifier = WebKit::codeSigningIdentifier(token);
+    if (!signingIdentifier.isEmpty())
+        return signingIdentifier;
+#endif // MAVERICKS_BACKPORT: closes the USE(MOZILLA_PUSH_SERVICE) block above.
     // This isn't great, but currently the only user of webpushd in open source builds is TestWebKitAPI and codeSigningIdentifier returns the null String on x86_64 Macs.
     UNUSED_PARAM(token);
     return "com.apple.WebKit.TestWebKitAPI"_s;

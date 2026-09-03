@@ -102,7 +102,9 @@ typedef NS_ENUM(NSInteger, WKWSState) {
 };
 
 @interface WKWebSocketStream : NSObject {
-    NSURLRequest *_request;
+    NSURLRequest *_request;         // the hop being made now
+    NSURLRequest *_originalRequest; // the request the task was created with
+    NSUInteger _redirectCount;
     NSString *_requestedProtocol;
     NSString *_acceptKey;           // expected Sec-WebSocket-Accept
     NSURLResponse *_response;       // handshake response (NSHTTPURLResponse)
@@ -131,6 +133,11 @@ typedef NS_ENUM(NSInteger, WKWSState) {
     NSMutableData *_outBuffer;      // bytes pending write to the socket
     NSMutableData *_messageBuffer;  // reassembly of a fragmented data message
     int _messageOpcode;             // opcode of the in-progress data message (1 text, 2 binary)
+
+    NSHTTPCookieStorage *_explicitCookieStorage; // the jar this task alone uses, when it was given one
+    NSURL *_siteForCookies;
+    BOOL _isTopLevelNavigation;
+    NSArray<NSHTTPCookie *> *(^_cookieTransform)(NSArray<NSHTTPCookie *> *);
 
     NSLock *_lock;                  // guards the receive plumbing below
     NSMutableArray *_incomingMessages;
@@ -217,6 +224,122 @@ static NSArray *wkResolveProxyAutoConfiguration(NSArray *proxies, NSURL *targetU
     return resolved;
 }
 
+// CFNetwork stops following redirects after 16 hops and fails the task with
+// NSURLErrorHTTPTooManyRedirects; a WebSocket handshake redirect loop ends the same way here.
+static const NSUInteger kWKWSMaximumRedirects = 16;
+
+// Cookies for a WebSocket URL are the cookies its http(s) equivalent would get:
+// -[NSHTTPCookieStorage cookiesForURL:] treats only http/https as a secure scheme, so a lookup under a
+// ws://wss:// URL silently drops every Secure cookie (e.g. figma's __Host-figma.authn / figma.session),
+// leaving the handshake unauthenticated. WebKit looks WebSocket cookies up the same way
+// (WebSocketHandshake::httpURLForAuthenticationAndCookies).
+static NSURL *wsCookieURL(NSURL *url)
+{
+    NSString *scheme = url.scheme.lowercaseString;
+    if (![scheme isEqualToString:@"ws"] && ![scheme isEqualToString:@"wss"])
+        return url;
+    NSURLComponents *components = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
+    components.scheme = [scheme isEqualToString:@"wss"] ? @"https" : @"http";
+    return components.URL ?: url;
+}
+
+// The cookie storage a task is pointed at arrives as CFNetwork's own reference to it.
+typedef struct OpaqueCFHTTPCookieStorage *WKCFHTTPCookieStorageRef;
+
+@interface NSHTTPCookieStorage (WKPolyfillCFStorage)
+- (id)_initWithCFHTTPCookieStorage:(WKCFHTTPCookieStorageRef)storage;
+@end
+
+// The same-site disposition WebKit stamped on this request (ResourceRequestCocoa's
+// doUpdateResourceRequest), which is the answer this port reads for every other load -- c/CFNetwork.c's
+// wk_contextOfRequest takes the same two properties off the CFURLRequest. The site is compared with the
+// URL of the hop being made, which is why the stamp is passed on rather than turned into a yes/no here.
+static NSURL *wsSiteForCookies(NSURLRequest *request)
+{
+    id site = [NSURLProtocol propertyForKey:@"_kCFHTTPCookiePolicyPropertySiteForCookies" inRequest:request];
+    return [site isKindOfClass:[NSURL class]] ? site : nil;
+}
+
+static BOOL wsIsTopLevelNavigation(NSURLRequest *request)
+{
+    id isTopLevel = [NSURLProtocol propertyForKey:@"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation" inRequest:request];
+    return [isTopLevel isKindOfClass:[NSNumber class]] ? [isTopLevel boolValue] : NO;
+}
+
+static NSHTTPCookieStorage *wsSessionCookieStorage(NSURLSession *session)
+{
+    return session.configuration.HTTPCookieStorage ?: [NSHTTPCookieStorage sharedHTTPCookieStorage];
+}
+
+@interface NSHTTPCookieStorage (WKPolyfillPolicyProperties)
+- (void)_getCookiesForURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL partition:(NSString *)partition policyProperties:(NSDictionary *)policyProperties completionHandler:(void (^)(NSArray<NSHTTPCookie *> *))completionHandler;
+@end
+
+// The Cookie header NSURLSession attaches to each hop of a task whose request handles cookies.
+// HTTPShouldHandleCookies is how a caller withholds cookies from one request, and both
+// NetworkSessionCocoa::createWebSocketTask and NetworkTaskCocoa::willPerformHTTPRedirection clear it on
+// the request when shouldBlockCookies() says so. This image is WebKit.framework, so the send reaches the
+// polyfill's REPLACE body (methods/Foundation.m), which keeps the flag for a ws:// URL where 10.9's own
+// method does not.
+//
+// The cookies come back through the same policy-carrying read the rest of this port uses
+// (NetworkStorageSession::cookiesForURL), so a handshake to another site gets exactly the cookies an
+// http request to it would; the site this read is for is WebKit's own same-site answer, stamped on the
+// request it made or set on the task when a redirect changed it.
+static void wsApplyStoredCookies(NSHTTPCookieStorage *storage, NSMutableURLRequest *request, NSURL *siteForCookies, BOOL isTopLevelNavigation)
+{
+    if (![request HTTPShouldHandleCookies] || [request valueForHTTPHeaderField:@"Cookie"])
+        return;
+    NSURL *cookieURL = wsCookieURL(request.URL);
+    NSMutableDictionary *policyProperties = [NSMutableDictionary dictionary];
+    policyProperties[@"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation"] = @(isTopLevelNavigation);
+    if (siteForCookies)
+        policyProperties[@"_kCFHTTPCookiePolicyPropertySiteForCookies"] = wsCookieURL(siteForCookies);
+    __block NSArray<NSHTTPCookie *> *cookies = nil;
+    [storage _getCookiesForURL:cookieURL mainDocumentURL:request.mainDocumentURL partition:nil
+        policyProperties:policyProperties completionHandler:^(NSArray<NSHTTPCookie *> *result) { cookies = result; }];
+    if (!cookies.count)
+        return;
+    NSString *header = [NSHTTPCookie requestHeaderFieldsWithCookies:cookies][@"Cookie"];
+    if (header.length)
+        [request setValue:header forHTTPHeaderField:@"Cookie"];
+}
+
+// A handshake response's Set-Cookie fields reach the session's storage, as they do for every other
+// NSURLSession task.
+static void wsStoreCookiesFromResponse(NSHTTPCookieStorage *storage, NSHTTPURLResponse *response, NSURLRequest *request,
+    NSArray<NSHTTPCookie *> *(^cookieTransform)(NSArray<NSHTTPCookie *> *))
+{
+    if (![request HTTPShouldHandleCookies])
+        return;
+    NSURL *cookieURL = wsCookieURL(response.URL ?: request.URL);
+    NSArray<NSHTTPCookie *> *cookies = [NSHTTPCookie cookiesWithResponseHeaderFields:response.allHeaderFields forURL:cookieURL];
+    // The transform is where NetworkTaskCocoa caps the expiry of a cookie set through third-party CNAME
+    // or address cloaking, and where a partitioned store rewrites the cookies it takes in.
+    if (cookieTransform)
+        cookies = cookieTransform(cookies);
+    if (!cookies.count)
+        return;
+    [storage setCookies:cookies forURL:cookieURL mainDocumentURL:request.mainDocumentURL];
+}
+
+// Two URLs are same-origin when scheme, host and effective port all match; ws and wss carry http's and
+// https's default ports.
+static BOOL wsURLsAreSameOrigin(NSURL *a, NSURL *b)
+{
+    NSString *schemeA = a.scheme.lowercaseString;
+    NSString *schemeB = b.scheme.lowercaseString;
+    if (![schemeA isEqualToString:schemeB])
+        return NO;
+    if (!a.host.length || [a.host caseInsensitiveCompare:b.host] != NSOrderedSame)
+        return NO;
+    BOOL secure = [schemeA isEqualToString:@"wss"] || [schemeA isEqualToString:@"https"];
+    unsigned defaultPort = secure ? 443 : 80;
+    unsigned portA = a.port ? a.port.unsignedIntValue : defaultPort;
+    unsigned portB = b.port ? b.port.unsignedIntValue : defaultPort;
+    return portA == portB;
+}
+
 // The queue a callback belongs on. NSURLSession delivers delegate messages and completion handlers on the
 // session's delegateQueue, so this polyfill does too rather than hardcoding the main queue: hardcoding was
 // correct only for a caller whose delegateQueue happens to be the main one, which is caller-specific
@@ -240,6 +363,7 @@ static void wsDispatchToCallbackQueue(NSURLSession *session, void (^work)(void))
     if (!(self = [super init]))
         return nil;
     _request = request;
+    _originalRequest = request;
     _requestedProtocol = protocol.length ? protocol : nil;
     _session = session;
     _delegate = session.delegate;
@@ -259,15 +383,58 @@ static void wsDispatchToCallbackQueue(NSURLSession *session, void (^work)(void))
 // ----- NSURLSessionWebSocketTask-shaped interface used by WebSocketTaskCocoa -----
 
 - (NSUInteger)taskIdentifier { return _taskIdentifier; }
-- (NSURLRequest *)currentRequest { return _request; }
-- (NSURLRequest *)originalRequest { return _request; }
+- (NSURLRequest *)currentRequest
+{
+    // Read from the delegate queue while the socket queue is following a redirect.
+    [_lock lock];
+    NSURLRequest *request = _request;
+    [_lock unlock];
+    return request;
+}
+- (NSURLRequest *)originalRequest { return _originalRequest; }
 - (NSURLResponse *)response { return _response; }
 - (NSInteger)closeCode { return _closeCode; }
 - (void)setMaximumMessageSize:(NSInteger)size { (void)size; }
+// The per-task cookie controls NetworkTaskCocoa sets, honoured rather than recorded: this task does its
+// own cookie work, so the site-for-cookies WebKit computed is the one its reads are made under, the jar
+// it is pointed at is the one it reads and writes, and the transform runs over what its handshake
+// response sets.
+- (void)set_siteForCookies:(NSURL *)site { _siteForCookies = site; }
+- (NSURL *)_siteForCookies { return _siteForCookies; }
+- (void)set_isTopLevelNavigation:(BOOL)isTopLevelNavigation { _isTopLevelNavigation = isTopLevelNavigation; }
+- (BOOL)_isTopLevelNavigation { return _isTopLevelNavigation; }
+- (void)set_cookieTransformCallback:(NSArray<NSHTTPCookie *> *(^)(NSArray<NSHTTPCookie *> *))callback
+{
+    _cookieTransform = [callback copy];
+}
+- (NSArray<NSHTTPCookie *> *(^)(NSArray<NSHTTPCookie *> *))_cookieTransformCallback { return _cookieTransform; }
+- (void)_setExplicitCookieStorage:(WKCFHTTPCookieStorageRef)storage
+{
+    _explicitCookieStorage = storage ? [[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:storage] : nil;
+}
+- (NSHTTPCookieStorage *)cookieStorage
+{
+    return _explicitCookieStorage ?: wsSessionCookieStorage(_session);
+}
+
+- (void)setCurrentRequest:(NSURLRequest *)request
+{
+    [_lock lock];
+    _request = request;
+    [_lock unlock];
+}
 
 - (void)resume
 {
-    dispatch_async(_ioQueue, ^{ [self startConnection]; });
+    dispatch_async(_ioQueue, ^{
+        // The first hop's Cookie header is attached here: by the time a task is resumed it has been
+        // given whatever cookie storage and site-for-cookies its creator meant it to use.
+        NSMutableURLRequest *request = [[self currentRequest] mutableCopy];
+        wsApplyStoredCookies([self cookieStorage], request, wsSiteForCookies(request) ?: self->_siteForCookies,
+            wsSiteForCookies(request) ? wsIsTopLevelNavigation(request) : self->_isTopLevelNavigation);
+        [self setCurrentRequest:request];
+        [self startConnection];
+    });
 }
 
 - (void)cancel
@@ -754,6 +921,10 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
     }
 
     _response = [[NSHTTPURLResponse alloc] initWithURL:_request.URL statusCode:statusCode HTTPVersion:@"HTTP/1.1" headerFields:responseHeaders];
+    wsStoreCookiesFromResponse([self cookieStorage], (NSHTTPURLResponse *)_response, _request, _cookieTransform);
+
+    if (statusCode == 301 || statusCode == 302 || statusCode == 303 || statusCode == 307 || statusCode == 308)
+        return [self followRedirect];
 
     if (statusCode != 101)
         return [self handshakeFailed:statusCode];
@@ -768,6 +939,77 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
     NSString *protocol = [(NSHTTPURLResponse *)_response valueForHTTPHeaderField:@"Sec-WebSocket-Protocol"] ?: @"";
     [self deliverDidOpenWithProtocol:protocol];
     return YES;
+}
+
+// A handshake that answers with a redirect is followed on a new connection, with the session delegate
+// approving each hop: NetworkSessionCocoa answers URLSession:task:willPerformHTTPRedirection: for a
+// WebSocket task too, and that is where WebSocketTask applies its cookie policy to the continuing
+// request.
+- (BOOL)followRedirect
+{
+    NSHTTPURLResponse *redirectResponse = (NSHTTPURLResponse *)_response;
+    NSString *location = [redirectResponse valueForHTTPHeaderField:@"Location"];
+    NSURL *newURL = location.length ? [[NSURL URLWithString:location relativeToURL:_request.URL] absoluteURL] : nil;
+    NSString *scheme = newURL.scheme.lowercaseString;
+    BOOL reachable = [scheme isEqualToString:@"ws"] || [scheme isEqualToString:@"wss"]
+        || [scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"];
+    if (!newURL.host.length || !reachable)
+        return [self handshakeFailed:redirectResponse.statusCode];
+
+    if (++_redirectCount > kWKWSMaximumRedirects) {
+        _state = WKWSStateClosed;
+        [self deliverError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorHTTPTooManyRedirects userInfo:nil]];
+        [self teardownStreams];
+        return NO;
+    }
+
+    NSMutableURLRequest *newRequest = [_request mutableCopy];
+    newRequest.URL = newURL;
+    // The Cookie header belongs to the hop that sent it; the next hop's is looked up for its own URL
+    // once the delegate has answered.
+    [newRequest setValue:nil forHTTPHeaderField:@"Cookie"];
+    // Fetch: a request whose origin is not the redirect target's carries an opaque origin from there on.
+    if ([newRequest valueForHTTPHeaderField:@"Origin"] && !wsURLsAreSameOrigin(_request.URL, newURL))
+        [newRequest setValue:@"null" forHTTPHeaderField:@"Origin"];
+
+    [self teardownStreams];
+    _state = WKWSStateConnecting;
+    [_inBuffer setLength:0];
+    [_outBuffer setLength:0];
+    _writeStreamOpen = NO;
+
+    __weak id delegate = _delegate;
+    __weak NSURLSession *session = _session;
+    WKWebSocketStream *taskSelf = self;
+    dispatch_queue_t ioQueue = _ioQueue;
+    wsDispatchToCallbackQueue(_session, ^{
+        void (^continueWithRequest)(NSURLRequest *) = ^(NSURLRequest *request) {
+            dispatch_async(ioQueue, ^{ [taskSelf continueWithRedirectRequest:request status:redirectResponse.statusCode]; });
+        };
+        id<NSURLSessionTaskDelegate> d = (id<NSURLSessionTaskDelegate>)delegate;
+        if ([d respondsToSelector:@selector(URLSession:task:willPerformHTTPRedirection:newRequest:completionHandler:)])
+            [d URLSession:session task:(NSURLSessionTask *)taskSelf willPerformHTTPRedirection:redirectResponse newRequest:newRequest completionHandler:continueWithRequest];
+        else
+            continueWithRequest(newRequest);
+    });
+    return NO;
+}
+
+// The delegate's answer: a request to continue with, or nil for a redirect it declines to follow --
+// which leaves the handshake unfinished, so it is reported as the failure it is.
+- (void)continueWithRedirectRequest:(NSURLRequest *)request status:(NSInteger)statusCode
+{
+    if (_state == WKWSStateClosed)
+        return;
+    if (!request) {
+        [self handshakeFailed:statusCode];
+        return;
+    }
+    NSMutableURLRequest *hop = [request mutableCopy];
+    wsApplyStoredCookies([self cookieStorage], hop, wsSiteForCookies(hop) ?: _siteForCookies,
+        wsSiteForCookies(hop) ? wsIsTopLevelNavigation(hop) : _isTopLevelNavigation);
+    [self setCurrentRequest:hop];
+    [self startConnection];
 }
 
 - (BOOL)handshakeFailed:(NSInteger)statusCode
@@ -1046,37 +1288,9 @@ WK_POLYFILL_ADD_METHODS_ON(NSURLSession, "NSURLSession", "__NSCFURLSession")
 
     NSString *protocol = [request valueForHTTPHeaderField:@"Sec-WebSocket-Protocol"];
 
-    NSMutableURLRequest *mutableRequest = [request mutableCopy];
-    // HTTPShouldHandleCookies is how a caller withholds cookies from one request, and NetworkSessionCocoa
-    // clears it on this very request when shouldBlockCookies() says so. This image is WebKit.framework,
-    // so the send reaches the polyfill's REPLACE body (methods/Foundation.m), which keeps the flag for a
-    // ws:// URL where 10.9's own method does not.
-    BOOL shouldHandleCookies = [mutableRequest HTTPShouldHandleCookies];
-    if (shouldHandleCookies && ![mutableRequest valueForHTTPHeaderField:@"Cookie"]) {
-        NSHTTPCookieStorage *storage = session.configuration.HTTPCookieStorage ?: [NSHTTPCookieStorage sharedHTTPCookieStorage];
-        // -[NSHTTPCookieStorage cookiesForURL:] only treats http/https as a
-        // secure scheme, so looking cookies up under a ws://wss:// URL silently drops every Secure
-        // cookie (e.g. figma's __Host-figma.authn / figma.session), leaving the WebSocket handshake
-        // unauthenticated. WebKit always looks WebSocket cookies up under the http(s) equivalent URL
-        // (WebSocketHandshake::httpURLForAuthenticationAndCookies); mirror that here so a wss:// URL
-        // gets exactly the cookies https:// would.
-        NSURL *cookieURL = request.URL;
-        NSString *scheme = cookieURL.scheme.lowercaseString;
-        if ([scheme isEqualToString:@"wss"] || [scheme isEqualToString:@"ws"]) {
-            NSURLComponents *components = [NSURLComponents componentsWithURL:cookieURL resolvingAgainstBaseURL:NO];
-            components.scheme = [scheme isEqualToString:@"wss"] ? @"https" : @"http";
-            if (components.URL)
-                cookieURL = components.URL;
-        }
-        NSArray<NSHTTPCookie *> *cookies = [storage cookiesForURL:cookieURL];
-        if (cookies.count) {
-            NSString *cookieHeader = [NSHTTPCookie requestHeaderFieldsWithCookies:cookies][@"Cookie"];
-            if (cookieHeader.length)
-                [mutableRequest setValue:cookieHeader forHTTPHeaderField:@"Cookie"];
-        }
-    }
-
-    WKWebSocketStream *stream = [[WKWebSocketStream alloc] initWithRequest:mutableRequest protocol:protocol session:session taskIdentifier:identifier];
+    // The Cookie header is attached when the task is resumed rather than here: NetworkSessionCocoa
+    // creates the task and only then hands it its cookie storage and its site-for-cookies.
+    WKWebSocketStream *stream = [[WKWebSocketStream alloc] initWithRequest:request protocol:protocol session:session taskIdentifier:identifier];
     return (NSURLSessionWebSocketTask *)stream;
 }
 @end

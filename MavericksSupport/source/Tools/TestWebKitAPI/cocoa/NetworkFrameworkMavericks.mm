@@ -270,7 +270,6 @@ static nw_error_t makeError(int posixCode)
     BOOL _cancelled;
 
     NSMutableArray *_receives;
-    BOOL _deliveringReceives;
     NSMutableArray *_queuedSends;
 }
 - (instancetype)initWithFileDescriptor:(int)fd parameters:(WKNWParameters *)parameters;
@@ -678,36 +677,39 @@ static SSLProtocol sslProtocolVersion(tls_protocol_version_t version)
     }
 }
 
+// Network.framework invokes a receive completion on the connection's queue, never inside the receive
+// call that queued it. A completion routinely asks for the next chunk (Connection::receiveHTTPRequest
+// reads until it has a whole request), so the queue turns between one delivery and the next and each
+// runs under its own autorelease pool.
+- (void)completeReceive:(WKNWReceive *)receive content:(dispatch_data_t)content isComplete:(bool)isComplete
+{
+    WKNWContentContext *context = content ? [[[WKNWContentContext alloc] init] autorelease] : nil;
+    dispatch_async(_queue, ^{
+        receive.completion(content, (nw_content_context_t)context, isComplete, nil);
+    });
+}
+
 - (void)deliverReceives
 {
-    // A completion handler routinely asks for the next chunk (Connection::receiveHTTPRequest reads
-    // until it has a whole request), and enqueueing re-enters here.
-    if (_deliveringReceives)
-        return;
-    _deliveringReceives = YES;
     while ([_receives count]) {
-        WKNWReceive *receive = [_receives objectAtIndex:0];
+        WKNWReceive *receive = [[[_receives objectAtIndex:0] retain] autorelease];
         NSUInteger available = [_appIn length];
         if (available >= receive.minimumLength && available) {
             NSUInteger length = std::min<NSUInteger>(available, receive.maximumLength);
             dispatch_data_t content = dispatch_data_create([_appIn bytes], length, _queue, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
             [_appIn replaceBytesInRange:NSMakeRange(0, length) withBytes:NULL length:0];
-            [[receive retain] autorelease];
             [_receives removeObjectAtIndex:0];
-            WKNWContentContext *context = [[[WKNWContentContext alloc] init] autorelease];
-            receive.completion(content, (nw_content_context_t)context, false, nil);
+            [self completeReceive:receive content:content isComplete:false];
             dispatch_release(content);
             continue;
         }
         if (_appClosed) {
-            [[receive retain] autorelease];
             [_receives removeObjectAtIndex:0];
-            receive.completion(nil, nil, true, nil);
+            [self completeReceive:receive content:nil isComplete:true];
             continue;
         }
         break;
     }
-    _deliveringReceives = NO;
 }
 
 - (void)enqueueReceiveWithMinimum:(uint32_t)minimum maximum:(uint32_t)maximum completion:(nw_connection_receive_completion_t)completion

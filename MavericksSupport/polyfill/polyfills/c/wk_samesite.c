@@ -240,37 +240,60 @@ static bool wk_fieldReadsBackAs(CFStringRef blob, const char *key, CFStringRef e
     return equal;
 }
 
-CFStringRef wk_sameSiteCommentCreate(CFStringRef sameSite, CFStringRef comment)
+CFStringRef wk_cookieBlobCreate(CFStringRef sameSite, CFStringRef created, CFStringRef comment)
 {
-    if (!sameSite)
+    if (!sameSite && !created)
         return comment ? (CFStringRef)CFRetain(comment) : NULL;
 
     // Text that does not convert -- a lone surrogate, which a script can put in a cookie's comment --
     // has no encoding, so there is nothing to carry and the caller stores the cookie without it.
-    CFStringRef encodedSameSite = wk_copyPercentEncoded(sameSite);
+    CFStringRef encodedSameSite = sameSite ? wk_copyPercentEncoded(sameSite) : NULL;
+    CFStringRef encodedCreated = created ? wk_copyPercentEncoded(created) : NULL;
     CFStringRef encodedComment = comment ? wk_copyPercentEncoded(comment) : NULL;
     CFMutableStringRef blob = NULL;
-    if (encodedSameSite && (!comment || encodedComment)) {
+    if ((!sameSite || encodedSameSite) && (!created || encodedCreated) && (!comment || encodedComment)) {
+        int fields = (encodedComment ? 1 : 0) + (encodedCreated ? 1 : 0) + (encodedSameSite ? 1 : 0);
         blob = CFStringCreateMutable(NULL, 0);
         if (!blob)
             wk_patch_fail(kSameSiteEncoding, "a comment could not be allocated");
-        CFStringAppendFormat(blob, NULL, CFSTR(WK_BLOB_PREFIX "%d"), encodedComment ? 2 : 1);
+        CFStringAppendFormat(blob, NULL, CFSTR(WK_BLOB_PREFIX "%d"), fields);
         if (encodedComment)
             CFStringAppendFormat(blob, NULL, CFSTR(" c=%@"), encodedComment);
-        CFStringAppendFormat(blob, NULL, CFSTR(" ss=%@"), encodedSameSite);
+        if (encodedCreated)
+            CFStringAppendFormat(blob, NULL, CFSTR(" cr=%@"), encodedCreated);
+        if (encodedSameSite)
+            CFStringAppendFormat(blob, NULL, CFSTR(" ss=%@"), encodedSameSite);
     }
     if (encodedSameSite)
         CFRelease(encodedSameSite);
+    if (encodedCreated)
+        CFRelease(encodedCreated);
     if (encodedComment)
         CFRelease(encodedComment);
 
     // A blob that does not read back carries nothing this layer could read either, so the cookie is
-    // stored the way 10.9 stores every cookie: without the restriction.
-    if (blob && (!wk_fieldReadsBackAs(blob, "ss", sameSite) || !wk_fieldReadsBackAs(blob, "c", comment))) {
+    // stored the way 10.9 stores every cookie: without the fields it could not carry.
+    if (blob && (!wk_fieldReadsBackAs(blob, "ss", sameSite) || !wk_fieldReadsBackAs(blob, "cr", created)
+        || !wk_fieldReadsBackAs(blob, "c", comment))) {
         CFRelease(blob);
         blob = NULL;
     }
     return blob;
+}
+
+CFStringRef wk_sameSiteCommentCreate(CFStringRef sameSite, CFStringRef comment)
+{
+    return wk_cookieBlobCreate(sameSite, NULL, comment);
+}
+
+// The creation time the caller of +[NSHTTPCookie cookieWithProperties:] asked for, which 10.9's own
+// record cannot carry (measured: any "Created" a caller passes comes back as 1).
+CFStringRef wk_cookieBlobCopyCreated(CFStringRef comment)
+{
+    CFRange range;
+    if (!wk_blobScan(comment, "cr", &range) || range.location == kCFNotFound)
+        return NULL;
+    return wk_copyDecodedField(comment, range);
 }
 
 CFStringRef wk_sameSiteCopyValue(CFStringRef comment)

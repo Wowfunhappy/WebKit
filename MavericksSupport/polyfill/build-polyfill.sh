@@ -258,7 +258,7 @@ echo "### libpolyfill_classes.dylib"
 # binding to the framework that owns them in the build SDK. This one dylib defines every stub (each class
 # defined exactly once across the loaded images) and is link_libraries'd into every framework, which
 # resolves the classes the linker reaches it for (AppKit/QuartzCore/Foundation). For classes whose owning
-# framework is linked BEFORE this dylib (Security -> SecKeyProxy; CFNetwork -> _NSHTTPAlternativeServices*;
+# framework is linked BEFORE this dylib (CFNetwork -> _NSHTTPAlternativeServices*;
 # CoreServices -> LSBundleProxy; QuartzCore in some binaries -> CABackdropLayer) the dylib REEXPORTS those
 # frameworks and scripts/stage-frameworks.sh repoints each WebKit binary's dependency on them to it, so the
 # class resolves here and the framework's real symbols pass through. compatibility_version is very high so
@@ -337,6 +337,8 @@ PROBE_LIBS="$OUT/libpolyfill.a -framework Foundation -framework CoreFoundation -
 "$T/dispatch_activate"
 "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/sectask_identity" "$TBEHAV/Security-sectask.m" $PROBE_LIBS
 "$T/sectask_identity"
+"$CLANG" $MODERN $INC -Wno-deprecated-declarations -o "$T/trust_serialize" "$TBEHAV/Security-trust-serialize.c" $PROBE_LIBS
+"$T/trust_serialize"
 "$CLANG" $MODERN $INC -o "$T/timebase" "$TBEHAV/libSystem-timebase.c" $PROBE_LIBS
 "$T/timebase"
 "$CLANG" $MODERN $INC -o "$T/memory_entry_data_addr" "$TBEHAV/mach-memory-entry-data-addr.c" $PROBE_LIBS
@@ -361,6 +363,14 @@ PROBE_LIBS="$OUT/libpolyfill.a -framework Foundation -framework CoreFoundation -
     -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
     $PROBE_LIBS
 "$T/samesite"
+# The property-list coders behind HAVE(WK_SECURE_CODING_NSURLPROTECTIONSPACE) / NSURLCREDENTIAL, linked
+# the same way: the bodies in Foundation.o, installed by wk_selref_scope.o.
+"$CLANG" $MODERN $INC -fno-objc-arc -o "$T/secure_coding" "$TBEHAV/Foundation-secure-coding.m" \
+    "$OBJ/methods/Foundation.o" "$OBJ/mech/wk_selref_scope.o" \
+    -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+    -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+    $PROBE_LIBS
+"$T/secure_coding"
 # -lc++: realizing a font reaches the variable-font instancer, which is C++.
 "$CLANG" $MODERN $INC -o "$T/optical_size" "$TBEHAV/CoreText-optical-size.c" $PROBE_LIBS \
     -framework CoreText -framework CoreGraphics -lc++

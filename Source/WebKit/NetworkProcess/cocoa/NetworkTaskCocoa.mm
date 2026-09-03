@@ -333,16 +333,42 @@ void NetworkTaskCocoa::unblockCookies(WebCore::ResourceRequest& request)
     if (!m_hasBeenSetToUseStatelessCookieStorage)
         return;
 
+    // MAVERICKS_BACKPORT: a task that took the stateless jar is let back onto the session's the way it
+    // was put on it; the request carries the answer for every task that was blocked on its request.
+    if (m_hasBeenPutOnItsOwnCookieStorage) {
+        unblockCookies();
+        return;
+    }
+
     // MAVERICKS_BACKPORT: the request, per the note above blockCookies.
     request.setAllowCookies(true);
     m_hasBeenSetToUseStatelessCookieStorage = false;
 }
 
-// MAVERICKS_BACKPORT: a WebSocket task is handed to its WebSocketTask already created, so the cookies
-// were withheld on its request in NetworkSessionCocoa::createWebSocketTask; only the latch is left.
-void NetworkTaskCocoa::markCookiesBlockedAtCreation()
+void NetworkTaskCocoa::blockCookies()
 {
+    ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
+
+    if (m_hasBeenSetToUseStatelessCookieStorage)
+        return;
+
+    [protect(task()) _setExplicitCookieStorage:RetainPtr { statelessCookieStorage() }.get()._cookieStorage];
     m_hasBeenSetToUseStatelessCookieStorage = true;
+    m_hasBeenPutOnItsOwnCookieStorage = true; // MAVERICKS_BACKPORT: which mechanism blocked, for unblockCookies(ResourceRequest&).
+}
+
+void NetworkTaskCocoa::unblockCookies()
+{
+    ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
+
+    if (!m_hasBeenSetToUseStatelessCookieStorage)
+        return;
+
+    if (CheckedPtr storageSession = protect(m_networkSession)->networkStorageSession()) {
+        [protect(task()) _setExplicitCookieStorage:[storageSession->nsCookieStorage() _cookieStorage]];
+        m_hasBeenSetToUseStatelessCookieStorage = false;
+        m_hasBeenPutOnItsOwnCookieStorage = false; // MAVERICKS_BACKPORT: as above.
+    }
 }
 
 WebCore::ThirdPartyCookieBlockingDecision NetworkTaskCocoa::requestThirdPartyCookieBlockingDecision(const WebCore::ResourceRequest& request) const

@@ -264,6 +264,31 @@ void HTTPServer::setResponse(String&& path, HTTPResponse&& response)
 
 void HTTPServer::respondWithChallengeThenOK(Connection connection)
 {
+    // MAVERICKS_BACKPORT: 10.9's CFNetwork sends the request it retries with a credential on a NEW
+    // connection -- measured with a plain NSURLSession and no WebKit in the process: the 401 arrives on
+    // one connection and the Authorization header on the next. So what says whether a request has been
+    // challenged is the request, not its place in a connection's sequence.
+    connection.receiveHTTPRequest([connection] (Vector<char>&& request) {
+        constexpr auto challengeHeader =
+        "HTTP/1.1 401 Unauthorized\r\n"
+        "Date: Sat, 23 Mar 2019 06:29:01 GMT\r\n"
+        "Content-Length: 0\r\n"
+        "WWW-Authenticate: Basic realm=\"testrealm\"\r\n\r\n"_s;
+        if (find(request.span(), "\r\nAuthorization:"_span) == notFound) {
+            connection.send(challengeHeader, [connection] {
+                respondWithChallengeThenOK(connection);
+            });
+            return;
+        }
+        connection.send(
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Length: 34\r\n\r\n"
+            "<script>alert('success!')</script>"_s, [connection] {
+                respondWithChallengeThenOK(connection);
+            }
+        );
+    });
+    /* MAVERICKS_BACKPORT: the challenge-then-OK sequence above was tied to one connection.
     connection.receiveHTTPRequest([connection] (Vector<char>&&) {
         constexpr auto challengeHeader =
         "HTTP/1.1 401 Unauthorized\r\n"
@@ -282,6 +307,7 @@ void HTTPServer::respondWithChallengeThenOK(Connection connection)
             });
         });
     });
+    */
 }
 
 void HTTPServer::respondWithOK(Connection connection)

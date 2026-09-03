@@ -154,3 +154,59 @@ add_custom_command(TARGET TestWebKitCocoa POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_mavTestResources}
         ${_mavTestResourcesBundle}/Contents/Resources
     VERBATIM)
+
+# A Cocoa test that installs a WKWebProcessPlugIn names its plug-in class and loads it out of a
+# TestWebKitAPI.wkbundle beside the executable (WKWebViewConfiguration's
+# _test_configurationWithTestPlugInClassName:); the Xcode build produces that bundle from a target of
+# its own. Assemble the same bundle here: the principal class, which instantiates the class the test
+# named and forwards to it, and the plug-in classes belonging to the tests built above.
+set(TestWebKitAPIWKBundle_LIBRARY_TYPE SHARED)
+set(TestWebKitAPIWKBundle_OUTPUT_NAME TestWebKitAPI)
+
+set(TestWebKitAPIWKBundle_SOURCES
+    ${TESTWEBKITAPI_DIR}/cocoa/PlatformUtilitiesCocoa.mm
+    ${TESTWEBKITAPI_DIR}/cocoa/WebProcessPlugIn/WebProcessPlugIn.mm
+
+    ${TESTWEBKITAPI_DIR}/Tests/WebKitCocoa/BasicProposedCredentialPlugIn.mm
+)
+
+set(TestWebKitAPIWKBundle_PRIVATE_INCLUDE_DIRECTORIES
+    ${TestWebKitCocoa_PRIVATE_INCLUDE_DIRECTORIES}
+    ${bmalloc_FRAMEWORK_HEADERS_DIR}
+    ${WTF_FRAMEWORK_HEADERS_DIR}
+    ${JavaScriptCore_FRAMEWORK_HEADERS_DIR})
+set(TestWebKitAPIWKBundle_LIBRARIES ${TestWebKitCocoa_LIBRARIES})
+set(TestWebKitAPIWKBundle_FRAMEWORKS bmalloc WTF WebKit)
+
+WEBKIT_LIBRARY_DECLARE(TestWebKitAPIWKBundle)
+WEBKIT_LIBRARY(TestWebKitAPIWKBundle)
+target_link_libraries(TestWebKitAPIWKBundle PRIVATE WebKit::WebKit)
+target_compile_options(TestWebKitAPIWKBundle PRIVATE
+    -include ${CMAKE_SOURCE_DIR}/MavericksSupport/source/Tools/TestWebKitAPI/TestWebKitCocoaPrefix.h)
+if (COMPILER_IS_GCC_OR_CLANG)
+    WEBKIT_ADD_TARGET_CXX_FLAGS(TestWebKitAPIWKBundle ${TestWebKitAPI_DISABLED_WARNINGS} -Wno-deprecated-declarations)
+endif ()
+
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/TestWebKitAPIWKBundleInfo.plist
+"<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
+<plist version=\"1.0\"><dict>
+  <key>CFBundleExecutable</key><string>TestWebKitAPI</string>
+  <key>CFBundleIdentifier</key><string>com.apple.WebKit.TestWebKitAPI.InjectedBundle</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundlePackageType</key><string>BNDL</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>NSPrincipalClass</key><string>WebProcessPlugIn</string>
+</dict></plist>
+")
+
+set(_mavTestPlugInBundle ${TESTWEBKITAPI_RUNTIME_OUTPUT_DIRECTORY}/TestWebKitAPI.wkbundle)
+add_custom_command(TARGET TestWebKitAPIWKBundle POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${_mavTestPlugInBundle}/Contents/MacOS
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_BINARY_DIR}/TestWebKitAPIWKBundleInfo.plist
+        ${_mavTestPlugInBundle}/Contents/Info.plist
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:TestWebKitAPIWKBundle> ${_mavTestPlugInBundle}/Contents/MacOS/TestWebKitAPI
+    VERBATIM)
+add_dependencies(TestWebKitCocoa TestWebKitAPIWKBundle)

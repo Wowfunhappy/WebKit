@@ -1793,15 +1793,6 @@ RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdent
 
     enableAdvancedPrivacyProtections(ensureMutableRequest().get(), advancedPrivacyProtections);
 
-    // MAVERICKS_BACKPORT: the cookie-blocking decision upstream makes in WebSocketTask's constructor is
-    // made here instead, because on 10.9 cookies can only be withheld on the request a task is created
-    // FROM -- see NetworkTaskCocoa::blockCookies. The outcome travels with the task so its latch agrees.
-    bool cookiesBlockedAtCreation = storedCredentialsPolicy == WebCore::StoredCredentialsPolicy::EphemeralStateless;
-    if (CheckedPtr storageSession = networkStorageSession(); storageSession && !cookiesBlockedAtCreation)
-        cookiesBlockedAtCreation = storageSession->shouldBlockCookies(request, frameID, pageID, networkProcess().shouldRelaxThirdPartyCookieBlockingForPage(webPageProxyID), isRequestToKnownCrossSiteTracker(request));
-    if (cookiesBlockedAtCreation)
-        ensureMutableRequest().get().HTTPShouldHandleCookies = NO;
-
     Ref sessionSet = sessionSetForPage(webPageProxyID);
     RetainPtr task = [sessionSet->sessionWithCredentialStorage->session webSocketTaskWithRequest:nsRequest.get()];
     
@@ -1809,8 +1800,7 @@ RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdent
     // Use NSIntegerMax instead of 2^63 - 1 for 32-bit systems.
     task.get().maximumMessageSize = NSIntegerMax;
 
-    // MAVERICKS_BACKPORT: cookiesBlockedAtCreation, decided above.
-    return WebSocketTask::create(channel, webPageProxyID, frameID, pageID, sessionSet, request, clientOrigin, WTF::move(task), storedCredentialsPolicy, cookiesBlockedAtCreation);
+    return WebSocketTask::create(channel, webPageProxyID, frameID, pageID, sessionSet, request, clientOrigin, WTF::move(task), storedCredentialsPolicy);
 }
 
 void NetworkSessionCocoa::addWebSocketTask(WebPageProxyIdentifier webPageProxyID, WebSocketTask& task)

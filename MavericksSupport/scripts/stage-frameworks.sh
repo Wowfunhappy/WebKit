@@ -213,8 +213,8 @@ repoint_framework_dep() {
 rewrite_abs_deps() {
     local bin="$1"
     # Redirect Security/CoreServices/CFNetwork/QuartzCore/AppKit to libpolyfill_classes.dylib, which REEXPORTS each of
-    # them and ADDS the absent-on-10.9 ObjC classes the build SDK declares in them (SecKeyProxy,
-    # _NSHTTPAlternativeServices*/_NSHSTSStorage, LSBundleProxy, CABackdropLayer, ...). WebKit's two-level
+    # them and ADDS the absent-on-10.9 ObjC classes the build SDK declares in them
+    # (_NSHTTPAlternativeServices*/_NSHSTSStorage, LSBundleProxy, CABackdropLayer, ...). WebKit's two-level
     # reference to those classes is stamped "from <that framework>"; redirecting the framework's load command
     # to this dylib makes the class resolve from the single shared definition here (no "Class X is implemented
     # in both ..." warning, no "Symbol not found" crash), while the framework's real symbols pass straight

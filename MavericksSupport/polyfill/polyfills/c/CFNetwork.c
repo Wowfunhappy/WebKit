@@ -4,9 +4,12 @@
 #include "wk_polyfill.h"
 #include "wk_samesite.h"
 #include "wk_symbols.h"
+#include "wk_trust.h"
+#include "wk_url_coding.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <dlfcn.h>
+#include <malloc/malloc.h>
 #include <objc/message.h>
 #include <objc/runtime.h>
 #include <syslog.h>
@@ -183,6 +186,127 @@ __attribute__((constructor)) static void clearDefaultFormMediaType(void)
         .replacement = NULL,
     };
     wk_patch_pointer(&patch);
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The accept policy the process's own cookie jar starts with.
+//
+// 10.9 hands the process's default cookie storage over set to kCFHTTPCookieStorageAcceptPolicyNever,
+// where CFNetwork's documented default -- the value every caller of these APIs is written against -- is
+// Always. (A storage created for a session of its own is a different case and is left alone: it starts
+// at OnlyFromMainDocumentDomain, and WebCore::createPrivateStorageSession sets the policy its creator
+// chose on it immediately.) A normal NSURLSession load never notices the default jar's value, because
+// 10.9 stamps the session configuration's own policy onto each request and reads the storage's only as
+// a fallback; WebKit does notice, because NetworkSessionCocoa marks the storage authoritative over the
+// configuration (-_overrideSessionCookieAcceptPolicy) and then only READS the policy, and because
+// WebKitLegacy's DOM cookie writes go straight to this jar. Left as 10.9 hands it over, no response and
+// no script can store a cookie.
+//
+// The policy belongs to the handle rather than to the store, so the correction is made on each handle
+// on this jar as it is handed over, once, before anybody has had it to choose a policy on: a policy set
+// afterwards -- Safari's Privacy radio through WebCookieManagerMac, WKHTTPCookieStore's
+// setCookiePolicy: -- is the answer from then on.
+static const char kCookieAcceptPolicyKey[] = "wk cookie accept policy defaulted";
+
+enum { kWKCookieAcceptPolicyAlways = 0, kWKCookieAcceptPolicyNever = 1 };
+
+WK_SYSTEM_FN("CFNetwork", CFIndex, CFHTTPCookieStorageGetCookieAcceptPolicy, (CFTypeRef));
+WK_SYSTEM_FN("CFNetwork", void, CFHTTPCookieStorageSetCookieAcceptPolicy, (CFTypeRef, CFIndex));
+
+void wk_giveTheProcessCookieJarItsDefaultAcceptPolicy(CFTypeRef storage)
+{
+    if (!storage || objc_getAssociatedObject((id)storage, kCookieAcceptPolicyKey))
+        return;
+    objc_setAssociatedObject((id)storage, kCookieAcceptPolicyKey, (id)kCFBooleanTrue, OBJC_ASSOCIATION_ASSIGN);
+    if (WK_SYSTEM(CFHTTPCookieStorageGetCookieAcceptPolicy)(storage) == kWKCookieAcceptPolicyNever)
+        WK_SYSTEM(CFHTTPCookieStorageSetCookieAcceptPolicy)(storage, kWKCookieAcceptPolicyAlways);
+}
+
+// The C half of the two ways WebKit reaches this jar: NetworkStorageSession reads the default storage
+// straight through this entry point (its ObjC twin is +[NSHTTPCookieStorage sharedHTTPCookieStorage],
+// replaced in methods/Foundation.m). The replacement covers WebKit's images only -- the archive is
+// static and hidden -- so a host application's own default storage is untouched.
+WK_POLYFILL_REPLACES("CFNetwork", CFTypeRef, _CFHTTPCookieStorageGetDefault, (CFAllocatorRef allocator))
+{
+    CFTypeRef storage = WK_ORIGINAL(_CFHTTPCookieStorageGetDefault)(allocator);
+    wk_giveTheProcessCookieJarItsDefaultAcceptPolicy(storage);
+    return storage;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// An HttpOnly cookie is not the public API's to replace or to delete.
+//
+// Later CFNetwork ignores a public-API set or delete whose cookie is not itself HttpOnly when the store
+// holds an HttpOnly cookie of the same name, domain and path -- the rule WKHTTPCookieStore's
+// setCookie:/deleteCookie: are written against, and the one upstream's WKHTTPCookieStore.HttpOnly
+// asserts. 10.9 lets either through. The two entry points a caller reaches are the CF pair below and
+// -[NSHTTPCookieStorage setCookie:]/-deleteCookie: (methods/Foundation.m), which cover the CF pair
+// through Foundation's own call rather than through this archive; both ask the rule here.
+// NetworkStorageSession takes the CF route whenever a session has a cookie storage of its own and the
+// ObjC route otherwise, so a rule on either alone would be a rule for one kind of data store.
+//
+// A response's cookies do not come through here: CFNetwork stores those from the protocol layer, where
+// the restriction does not apply.
+WK_SYSTEM_FN("CFNetwork", CFArrayRef, CFHTTPCookieStorageCopyCookies, (CFTypeRef));
+WK_SYSTEM_FN("CFNetwork", CFStringRef, CFHTTPCookieGetName, (CFTypeRef));
+WK_SYSTEM_FN("CFNetwork", CFStringRef, CFHTTPCookieGetDomain, (CFTypeRef));
+WK_SYSTEM_FN("CFNetwork", CFStringRef, CFHTTPCookieGetPath, (CFTypeRef));
+WK_SYSTEM_FN("CFNetwork", Boolean, CFHTTPCookieIsHTTPOnly, (CFTypeRef));
+
+static bool wk_stringsMatch(CFStringRef a, CFStringRef b, CFStringCompareFlags flags)
+{
+    if (!a || !b)
+        return a == b;
+    return CFStringCompare(a, b, flags) == kCFCompareEqualTo;
+}
+
+// Whether a caller that is not the protocol layer may set or delete |cookie| in |storage|: it may,
+// unless the store holds an HttpOnly cookie of the same name, domain and path and this cookie is not
+// itself HttpOnly. Asking again for the same operation is safe: a delete that was refused leaves the
+// stored cookie in place and is refused identically, and one that went through leaves no match, which
+// is the answer for a cookie the store does not hold. -[NSHTTPCookieStorage deleteCookie:] reaches
+// CFHTTPCookieStorageDeleteCookie twice, the second time on the base storage.
+bool wk_publicCallerMayChangeCookie(CFTypeRef storage, CFStringRef name, CFStringRef domain, CFStringRef path, bool cookieIsHTTPOnly)
+{
+    if (cookieIsHTTPOnly || !storage || !name)
+        return true;
+
+    CFArrayRef cookies = WK_SYSTEM(CFHTTPCookieStorageCopyCookies)(storage);
+    CFIndex count = cookies ? CFArrayGetCount(cookies) : 0;
+    bool mayChange = true;
+    for (CFIndex i = 0; i < count && mayChange; ++i) {
+        CFTypeRef stored = CFArrayGetValueAtIndex(cookies, i);
+        if (!WK_SYSTEM(CFHTTPCookieIsHTTPOnly)(stored))
+            continue;
+        if (wk_stringsMatch(WK_SYSTEM(CFHTTPCookieGetName)(stored), name, 0)
+            && wk_stringsMatch(WK_SYSTEM(CFHTTPCookieGetDomain)(stored), domain, kCFCompareCaseInsensitive)
+            && wk_stringsMatch(WK_SYSTEM(CFHTTPCookieGetPath)(stored), path, 0))
+            mayChange = false;
+    }
+    if (cookies)
+        CFRelease(cookies);
+    return mayChange;
+}
+
+static bool wk_publicCallerMayChangeCFCookie(CFTypeRef storage, CFTypeRef cookie)
+{
+    if (!cookie)
+        return true;
+    return wk_publicCallerMayChangeCookie(storage, WK_SYSTEM(CFHTTPCookieGetName)(cookie),
+        WK_SYSTEM(CFHTTPCookieGetDomain)(cookie), WK_SYSTEM(CFHTTPCookieGetPath)(cookie),
+        WK_SYSTEM(CFHTTPCookieIsHTTPOnly)(cookie));
+}
+
+WK_POLYFILL_REPLACES("CFNetwork", void, CFHTTPCookieStorageSetCookie, (CFTypeRef storage, CFTypeRef cookie))
+{
+    if (wk_publicCallerMayChangeCFCookie(storage, cookie))
+        WK_ORIGINAL(CFHTTPCookieStorageSetCookie)(storage, cookie);
+}
+
+WK_POLYFILL_REPLACES("CFNetwork", void, CFHTTPCookieStorageDeleteCookie, (CFTypeRef storage, CFTypeRef cookie))
+{
+    if (wk_publicCallerMayChangeCFCookie(storage, cookie))
+        WK_ORIGINAL(CFHTTPCookieStorageDeleteCookie)(storage, cookie);
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -870,4 +994,149 @@ __attribute__((constructor)) static void wk_installSameSiteCookieHooks(void)
     if (claimed && alreadyDone)
         wk_patch_fail(kSameSiteHooks, "one framework did not claim the whole set, so the replacements would "
                                       "not share the request context they pass between them");
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Protection spaces and credentials as property lists: the CFNetwork side of the
+// HAVE(WK_SECURE_CODING_NSURLPROTECTIONSPACE) / HAVE(WK_SECURE_CODING_NSURLCREDENTIAL) coders, whose
+// Foundation methods methods/Foundation.m supplies.
+//
+// A protection space's trust and distinguished names have no setter in the API CFNetwork exports:
+// CFURLProtectionSpaceCreate takes the other five fields, and the two arrive only through the archive
+// _CFURLProtectionSpaceCreateFromArchive reads -- the dictionary _CFURLProtectionSpaceCreateArchive
+// writes for a space, plus "distnames" and a "trust" entry of {"certs", "policies"}, each array written
+// by SerializableArchive::add(CFStringRef, CFArrayRef). The dearchiver rebuilds the trust from those
+// certificates with SecPolicyCreateSSL(false, NULL) as its policy, so the question the trust asks is
+// then set from the trust it stands for: policies, custom anchors, verify date and network fetch.
+static const char kProtectionSpaceCoding[] = "CFNetwork protection-space property list";
+
+typedef const struct _CFURLProtectionSpace *WKURLProtectionSpaceRef;
+WK_SYSTEM_FN("CFNetwork", WKURLProtectionSpaceRef, CFURLProtectionSpaceCreate,
+    (CFAllocatorRef, CFStringRef host, int port, int serverType, CFStringRef realm, int authenticationScheme));
+WK_SYSTEM_FN("CFNetwork", SecTrustRef, CFURLProtectionSpaceGetServerTrust, (WKURLProtectionSpaceRef));
+WK_SYSTEM_FN("CFNetwork", CFDictionaryRef, _CFURLProtectionSpaceCreateArchive, (CFAllocatorRef, WKURLProtectionSpaceRef));
+WK_SYSTEM_FN("CFNetwork", WKURLProtectionSpaceRef, _CFURLProtectionSpaceCreateFromArchive, (CFAllocatorRef, CFDictionaryRef));
+WK_SYSTEM_FN("CFNetwork", CFTypeID, CFURLCredentialGetTypeID, (void));
+
+// SerializableArchive is the one dictionary it writes into.
+typedef struct {
+    CFMutableDictionaryRef dictionary;
+} wk_serializable_archive;
+typedef void (*wk_add_array_fn)(wk_serializable_archive *archive, CFStringRef key, CFArrayRef value);
+
+static wk_add_array_fn wk_archiveAddArray(void)
+{
+    static wk_add_array_fn addArray;
+    if (!addArray) {
+        wk_image image;
+        if (!wk_find_image(kCFNetworkSuffix, &image))
+            wk_patch_fail(kProtectionSpaceCoding, "CFNetwork is not loaded in this process");
+        addArray = (wk_add_array_fn)wk_symbol_in_image(&image, "__ZN19SerializableArchive3addEPK10__CFStringPK9__CFArray");
+        if (!addArray)
+            wk_patch_fail(kProtectionSpaceCoding, "CFNetwork's symbol table does not name the archive writer this calls");
+    }
+    return addArray;
+}
+
+CFTypeRef wk_createProtectionSpace(CFStringRef host, int port, int serverType, CFStringRef realm,
+    int authenticationScheme, CFArrayRef distinguishedNames, SecTrustRef trust)
+{
+    WKURLProtectionSpaceRef bare = WK_SYSTEM(CFURLProtectionSpaceCreate)(kCFAllocatorDefault, host, port, serverType, realm, authenticationScheme);
+    if (!bare)
+        return NULL;
+    if (!distinguishedNames && !trust)
+        return bare;
+    CFDictionaryRef bareArchive = WK_SYSTEM(_CFURLProtectionSpaceCreateArchive)(kCFAllocatorDefault, bare);
+    CFRelease(bare);
+    if (!bareArchive)
+        return NULL;
+    wk_serializable_archive archive = { CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, bareArchive) };
+    CFRelease(bareArchive);
+
+    if (distinguishedNames)
+        wk_archiveAddArray()(&archive, CFSTR("distnames"), distinguishedNames);
+
+    CFArrayRef policies = NULL;
+    if (trust) {
+        CFArrayRef certificates = wk_trustInputCertificates(trust);
+        if (!certificates) {
+            CFRelease(archive.dictionary);
+            return NULL;
+        }
+        SecTrustCopyPolicies(trust, &policies);
+        wk_serializable_archive trustArchive = {
+            CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks)
+        };
+        wk_archiveAddArray()(&trustArchive, CFSTR("certs"), certificates);
+        if (policies)
+            wk_archiveAddArray()(&trustArchive, CFSTR("policies"), policies);
+        CFDictionarySetValue(archive.dictionary, CFSTR("trust"), trustArchive.dictionary);
+        CFRelease(trustArchive.dictionary);
+    }
+
+    WKURLProtectionSpaceRef space = WK_SYSTEM(_CFURLProtectionSpaceCreateFromArchive)(kCFAllocatorDefault, archive.dictionary);
+    CFRelease(archive.dictionary);
+    if (space && trust) {
+        SecTrustRef attached = WK_SYSTEM(CFURLProtectionSpaceGetServerTrust)(space);
+        CFArrayRef anchors = NULL;
+        Boolean networkFetchAllowed = false;
+        CFAbsoluteTime verifyTime = SecTrustGetVerifyTime(trust);
+        if (!attached || (policies && SecTrustSetPolicies(attached, policies) != errSecSuccess)
+            || (SecTrustCopyCustomAnchorCertificates(trust, &anchors) == errSecSuccess && anchors
+                && SecTrustSetAnchorCertificates(attached, anchors) != errSecSuccess)
+            || (SecTrustGetNetworkFetchAllowed(trust, &networkFetchAllowed) == errSecSuccess
+                && SecTrustSetNetworkFetchAllowed(attached, networkFetchAllowed) != errSecSuccess)) {
+            CFRelease(space);
+            space = NULL;
+        }
+        if (space && verifyTime) {
+            CFDateRef date = CFDateCreate(kCFAllocatorDefault, verifyTime);
+            if (SecTrustSetVerifyDate(attached, date) != errSecSuccess) {
+                CFRelease(space);
+                space = NULL;
+            }
+            CFRelease(date);
+        }
+        if (anchors)
+            CFRelease(anchors);
+    }
+    if (policies)
+        CFRelease(policies);
+    return space;
+}
+
+// A CFURLCredential's payload begins with the vptr of the URLCredential subclass its kind selects, holds
+// the kind at +0x20 -- CFURLCredentialGetCertificateIdentity tests that word against 3 -- and, for the
+// server-trust kind, the trust URLCredentialServerTrust::initialize stores at +0x40 (measured on
+// 10.9.5). Each read is checked before it is believed.
+enum {
+    kWKCredentialKindOffset = 0x20,
+    kWKCredentialServerTrustOffset = 0x40,
+    kWKCredentialKindServerTrust = 1,
+};
+
+static const uint8_t *wk_credentialPayload(CFTypeRef credential, size_t extent)
+{
+    if (!credential || CFGetTypeID(credential) != WK_SYSTEM(CFURLCredentialGetTypeID)())
+        return NULL;
+    if (malloc_size(credential) < kCFPayloadOffset + extent)
+        return NULL;
+    return (const uint8_t *)credential + kCFPayloadOffset;
+}
+
+int wk_credentialKind(CFTypeRef credential)
+{
+    const uint8_t *payload = wk_credentialPayload(credential, kWKCredentialKindOffset + sizeof(int32_t));
+    return payload ? *(const int32_t *)(payload + kWKCredentialKindOffset) : -1;
+}
+
+SecTrustRef wk_credentialServerTrust(CFTypeRef credential)
+{
+    if (wk_credentialKind(credential) != kWKCredentialKindServerTrust)
+        return NULL;
+    const uint8_t *payload = wk_credentialPayload(credential, kWKCredentialServerTrustOffset + sizeof(void *));
+    SecTrustRef trust = payload ? *(SecTrustRef *)(payload + kWKCredentialServerTrustOffset) : NULL;
+    if (!trust || ((uintptr_t)trust & (sizeof(void *) - 1)) || !malloc_size(trust) || CFGetTypeID(trust) != SecTrustGetTypeID())
+        return NULL;
+    return trust;
 }

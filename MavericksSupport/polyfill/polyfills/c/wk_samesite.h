@@ -36,6 +36,15 @@ typedef enum {
 // encoding: that cookie is stored as it came, carrying the restriction 10.9 carries for every cookie.
 CFStringRef wk_sameSiteCommentCreate(CFStringRef sameSite, CFStringRef comment);
 
+// The same blob with a creation time in it as well: a cookie carries the SameSite attribute and the
+// creation time its maker asked for in the one Comment field 10.9 does keep, alongside the server's own
+// comment. Any of the three may be NULL.
+CFStringRef wk_cookieBlobCreate(CFStringRef sameSite, CFStringRef created, CFStringRef comment);
+
+// The creation time a blob carries, or NULL for a comment that is not one of this layer's or carries
+// no creation time.
+CFStringRef wk_cookieBlobCopyCreated(CFStringRef comment);
+
 // The attribute's value inside |comment|, or NULL when it carries none. The caller owns the result.
 CFStringRef wk_sameSiteCopyValue(CFStringRef comment);
 

@@ -345,6 +345,40 @@ int main(void)
     check(wk_sameSiteCopyServerComment(NULL) == NULL, "no comment stays no comment");
     check(wk_sameSiteCommentCreate(NULL, NULL) == NULL, "nothing to carry encodes to nothing");
 
+    // The creation time a caller of +[NSHTTPCookie cookieWithProperties:] asked for rides in the same
+    // blob, because 10.9's record cannot carry it (any "Created" a caller passes comes back as 1).
+    {
+        CFStringRef withEverything = wk_cookieBlobCreate(CFSTR("Strict"), CFSTR("100000"), CFSTR("a server comment"));
+        CFStringRef created = withEverything ? wk_cookieBlobCopyCreated(withEverything) : NULL;
+        CFStringRef policy = withEverything ? wk_sameSiteCopyValue(withEverything) : NULL;
+        CFStringRef comment = withEverything ? wk_sameSiteCopyServerComment(withEverything) : NULL;
+        check(created && CFEqual(created, CFSTR("100000")), "a creation time reads back");
+        check(policy && CFEqual(policy, CFSTR("Strict")), "alongside the attribute");
+        check(comment && CFEqual(comment, CFSTR("a server comment")), "and the server's own comment");
+        if (created)
+            CFRelease(created);
+        if (policy)
+            CFRelease(policy);
+        if (comment)
+            CFRelease(comment);
+        if (withEverything)
+            CFRelease(withEverything);
+
+        CFStringRef timeOnly = wk_cookieBlobCreate(NULL, CFSTR("810100830.5"), NULL);
+        CFStringRef readBack = timeOnly ? wk_cookieBlobCopyCreated(timeOnly) : NULL;
+        check(readBack && CFEqual(readBack, CFSTR("810100830.5")), "a creation time alone reads back");
+        check(timeOnly && wk_sameSiteCopyValue(timeOnly) == NULL, "and carries no attribute");
+        check(timeOnly && wk_sameSitePolicyOfComment(timeOnly) == WK_SAME_SITE_NONE, "so it restricts nothing");
+        if (readBack)
+            CFRelease(readBack);
+        if (timeOnly)
+            CFRelease(timeOnly);
+
+        CFStringRef plain = CFSTR("a comment the server sent");
+        check(wk_cookieBlobCopyCreated(plain) == NULL, "a comment that is not one of ours carries no time");
+        check(wk_cookieBlobCreate(NULL, NULL, plain) != NULL, "and encodes to itself");
+    }
+
     // A field as long as the record carries: 10.9 stores a comment of thousands of characters and hands
     // it back whole (measured), so the encoding has no length of its own to stop at.
     {

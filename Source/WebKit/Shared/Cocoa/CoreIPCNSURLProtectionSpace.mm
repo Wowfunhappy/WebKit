@@ -75,7 +75,9 @@ CoreIPCNSURLProtectionSpace::CoreIPCNSURLProtectionSpace(NSURLProtectionSpace *p
 
     id trust = dict[@"trust"];
     if (trust && CFGetTypeID((CFTypeRef)trust) == SecTrustGetTypeID())
-        m_data.trust = { CoreIPCSecTrust((SecTrustRef)trust) };
+        // MAVERICKS_BACKPORT: clang-22 demands the bridge for a CF_BRIDGED_TYPE cast under ARC.
+        // m_data.trust = { CoreIPCSecTrust((SecTrustRef)trust) };
+        m_data.trust = { CoreIPCSecTrust((__bridge SecTrustRef)trust) };
 
     NSArray *distnames = dict[@"distnames"];
     if ([distnames isKindOfClass:NSArray.class]) {
@@ -117,7 +119,9 @@ RetainPtr<id> CoreIPCNSURLProtectionSpace::toID() const
 
     if (m_data.trust) {
         if (RetainPtr trust = m_data.trust->createSecTrust())
-            [dict setObject:(id)trust.get() forKey:@"trust"];
+            // MAVERICKS_BACKPORT: clang-22 demands the bridge for a CF_BRIDGED_TYPE cast under ARC.
+            // [dict setObject:(id)trust.get() forKey:@"trust"];
+            [dict setObject:(__bridge id)trust.get() forKey:@"trust"];
     }
 
     if (m_data.distnames) {
