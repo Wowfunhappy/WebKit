@@ -41,6 +41,23 @@ CFStringRef wk_sameSiteCommentCreate(CFStringRef sameSite, CFStringRef comment);
 // dictionary pass in methods/Foundation.m -- take the number and the text they emit from here.
 #define WK_MAXIMUM_COOKIE_LIFETIME_SECONDS (400 * 24 * 60 * 60)
 
+// Everything a Set-Cookie field is held to before a storage takes it in: the control-character rule,
+// the cookies that may not be set at all, the lifetime ceiling and the SameSite attribute. Answers a new
+// field when any pass changed it, NULL when it is storable as it stands; *outSetsNothing marks a field
+// whose every cookie was refused, which the caller must not pass on.
+CFStringRef wk_storableSetCookieFieldCreate(CFStringRef header, CFURLRef url, bool *outSetsNothing);
+
+// Whether a cookie of these fields may be set at all for |url|: a Secure cookie needs a secure origin,
+// and a cookie whose name carries the __Secure- or __Host- prefix must keep that prefix's promise. The
+// fields rather than a cookie object, because the two seams that ask hold different ones -- a
+// CFHTTPCookie from the field a response sent, an NSHTTPCookie parsed from what a script wrote. See the
+// definition for the rules and for what 10.9 does instead.
+bool wk_cookieMayBeSet(CFStringRef name, bool isSecure, CFStringRef path, bool hasDomainAttribute, CFURLRef url);
+
+// The same field with the cookies that may not be set left out, or NULL when every cookie in it may be.
+// *outSetsNothing says the field sets nothing at all, which its caller must not pass on.
+CFStringRef wk_cookieFieldWithoutRefusedCookiesCreate(CFStringRef header, CFURLRef url, bool *outSetsNothing);
+
 // The same field with every cookie in it held to that ceiling, or NULL when none of them exceeds it.
 // See the definition for how the cap is expressed.
 CFStringRef wk_cookieLifetimeCappedHeaderCreate(CFStringRef header, CFURLRef url);
@@ -96,6 +113,10 @@ wk_samesite_header_disposition wk_sameSiteRewriteSetCookieHeader(CFStringRef hea
 // two cookies only where a cookie-name and its '=' follow it, and never inside a double-quoted value.
 // The caller owns the result; *outCount is the number of ranges.
 CFRange *wk_copySetCookieRanges(CFStringRef header, CFIndex *outCount);
+
+// Whether |text| carries a CTL other than HTAB, which is what makes a set-cookie-string one RFC 6265bis
+// 5.5 ignores.
+bool wk_hasControlCharacter(CFStringRef text);
 
 // RFC 6265bis 5.5: a set-cookie-string carrying a CTL other than HTAB is ignored, its attributes
 // included. The cookies of a folded Set-Cookie field that carry none, folded back into one field, or

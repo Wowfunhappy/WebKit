@@ -786,25 +786,18 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookie)
     if (![header isKindOfClass:[NSString class]] || !url)
         return WK_ORIGINAL_METHOD(NSArray *, (NSDictionary *, NSURL *), headerFields, url);
 
-    // The lifetime ceiling first, so the attribute the SameSite pass may add lands after it and each
-    // pass edits the ranges it measured -- the order c/CFNetwork.c's storage hook uses.
-    NSString *capped = [(NSString *)wk_cookieLifetimeCappedHeaderCreate((CFStringRef)header, (CFURLRef)url) autorelease];
-    if (capped)
-        header = capped;
-
-    CFStringRef rewritten = NULL;
-    switch (wk_sameSiteRewriteSetCookieHeader((CFStringRef)header, (CFURLRef)url, &rewritten)) {
-    case WK_SAMESITE_HEADER_UNCHANGED:
-        break;
-    case WK_SAMESITE_HEADER_REWRITTEN:
-        header = [(NSString *)rewritten autorelease];
-        break;
-    }
-    if (header == (id)headerFields[name])
+    // Everything a Set-Cookie field is held to, in the one pass the storage's own hook uses
+    // (wk_storableSetCookieFieldCreate, c/wk_samesite.c): the control-character rule, the cookies that
+    // may not be set at all, the lifetime ceiling and the SameSite attribute.
+    bool setsNothing = false;
+    NSString *storable = (NSString *)wk_storableSetCookieFieldCreate((CFStringRef)header, (CFURLRef)url, &setsNothing);
+    if (setsNothing)
+        return @[];
+    if (!storable)
         return WK_ORIGINAL_METHOD(NSArray *, (NSDictionary *, NSURL *), headerFields, url);
 
     NSMutableDictionary *replaced = [[headerFields mutableCopy] autorelease];
-    replaced[name] = header;
+    replaced[name] = [storable autorelease];
     return WK_ORIGINAL_METHOD(NSArray *, (NSDictionary *, NSURL *), replaced, url);
 }
 @end

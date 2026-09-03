@@ -45,5 +45,77 @@ fi
 # bundled inside it, and two copies of the dylib register the same ObjC classes twice.
 export DYLD_LIBRARY_PATH="$ROOT/MavericksSupport/polyfill/build${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
 
-"$BINDIR/$BINARY" "$@"
-exit $?
+# An enumeration answers in one process; so does an explicit request for gtest's own reporting.
+for arg in "$@"; do
+    case "$arg" in
+        --gtest_list_tests|--gtest_output=*|--gtest_repeat=*)
+            "$BINDIR/$BINARY" "$@"
+            exit $?
+            ;;
+    esac
+done
+
+# One process per test, the way Tools/Scripts/run-api-tests runs them (webkitpy/api_tests/runner.py,
+# _run_single_test). Tests share a persistent website data store, so a cookie, a database or a cache one
+# test leaves behind decides the next one's result when they run together.
+# The filter selects which tests run; each run below names one test, so it is not forwarded.
+GTEST_ARGS=()
+for arg in "$@"; do
+    case "$arg" in
+        --gtest_filter=*) ;;
+        *) GTEST_ARGS+=("$arg") ;;
+    esac
+done
+
+TESTS=$("$BINDIR/$BINARY" --gtest_list_tests "$@" 2>/dev/null | awk '
+    /^[A-Za-z_][A-Za-z0-9_]*\.$/ { suite = $1; next }
+    /^  / { if (suite != "" && $1 !~ /^DISABLED_/) print suite $1 }')
+if [ -z "$TESTS" ]; then
+    echo "no tests matched" >&2
+    exit 1
+fi
+
+# A test that never finishes is reported, not waited on. WK_API_TEST_TIMEOUT is the per-test budget in
+# seconds, the way Tools/Scripts/run-api-tests takes --timeout.
+TEST_TIMEOUT=${WK_API_TEST_TIMEOUT:-180}
+
+PASSED=0
+FAILED=0
+FAILED_NAMES=""
+for TEST in $TESTS; do
+    OUT_FILE=$(mktemp -t wk_api_test)
+    "$BINDIR/$BINARY" --gtest_filter="$TEST" ${GTEST_ARGS[@]+"${GTEST_ARGS[@]}"} > "$OUT_FILE" 2>&1 &
+    TEST_PID=$!
+    WAITED=0
+    while kill -0 "$TEST_PID" 2>/dev/null && [ "$WAITED" -lt "$TEST_TIMEOUT" ]; do
+        sleep 1
+        WAITED=$((WAITED + 1))
+    done
+    if kill -0 "$TEST_PID" 2>/dev/null; then
+        kill -9 "$TEST_PID" 2>/dev/null
+        echo "timed out after ${TEST_TIMEOUT}s" >> "$OUT_FILE"
+    fi
+    wait "$TEST_PID" 2>/dev/null
+    STATUS=$?
+    OUTPUT=$(cat "$OUT_FILE")
+    rm -f "$OUT_FILE"
+    if [ $STATUS -eq 0 ] && printf '%s' "$OUTPUT" | grep -qF "**PASS** $TEST"; then
+        PASSED=$((PASSED + 1))
+        echo "**PASS** $TEST"
+    else
+        FAILED=$((FAILED + 1))
+        FAILED_NAMES="$FAILED_NAMES $TEST"
+        echo "**FAIL** $TEST"
+        printf '%s\n' "$OUTPUT" | sed 's/^/    /'
+    fi
+    reap_test_orphans
+done
+
+echo
+echo "Ran $((PASSED + FAILED)) tests: $PASSED passed, $FAILED failed"
+if [ $FAILED -gt 0 ]; then
+    echo "Failing:"
+    for NAME in $FAILED_NAMES; do echo "  $NAME"; done
+    exit 1
+fi
+exit 0

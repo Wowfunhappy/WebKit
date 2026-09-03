@@ -512,24 +512,6 @@ static CFStringRef wk_setCookieFieldName(CFDictionaryRef fields)
     return name;
 }
 
-// A CTL other than HTAB: %x00-08, %x0A-1F or %x7F.
-static bool wk_hasControlCharacter(CFStringRef text)
-{
-    CFIndex length = text ? CFStringGetLength(text) : 0;
-    if (!length)
-        return false;
-    CFStringInlineBuffer buffer;
-    CFStringInitInlineBuffer(text, &buffer, CFRangeMake(0, length));
-    for (CFIndex i = 0; i < length; ++i) {
-        UniChar c = CFStringGetCharacterFromInlineBuffer(&buffer, i);
-        if (c == '\t')
-            continue;
-        if (c <= 0x1f || c == 0x7f)
-            return true;
-    }
-    return false;
-}
-
 static void wk_setCookiesWithResponseHeaderFields(const void *storage, CFURLRef url, CFDictionaryRef headerFields,
                                                   CFURLRef mainDocumentURL, int acceptPolicy)
 {
@@ -544,43 +526,25 @@ static void wk_setCookiesWithResponseHeaderFields(const void *storage, CFURLRef 
         return;
     }
 
-    // RFC 6265bis 5.5: a set-cookie-string carrying a CTL other than HTAB is ignored, its attributes
-    // included; 10.9's parser truncates the string at the character and keeps the cookie. A field
-    // CFNetwork folded carries several set-cookie-strings and only the ones carrying the character are
-    // ignored, so the survivors are folded back into a field that goes on to be stored as one.
-    CFStringRef withoutControls = NULL;
-    if (wk_hasControlCharacter((CFStringRef)header)) {
-        withoutControls = wk_copyFieldWithoutControlCookies((CFStringRef)header);
-        // Every set-cookie-string in the field is ignored, so the field sets nothing.
-        if (!withoutControls)
-            return;
-        header = withoutControls;
-    }
-
-    // The 400-day ceiling first, so the attribute the SameSite pass may add lands after it and the
-    // ranges each pass measures are the ones it edits.
-    CFStringRef capped = wk_cookieLifetimeCappedHeaderCreate((CFStringRef)header, url);
-    if (capped)
-        header = capped;
-
-    CFStringRef rewritten = NULL;
-    wk_samesite_header_disposition disposition = wk_sameSiteRewriteSetCookieHeader((CFStringRef)header, url, &rewritten);
-    if (disposition == WK_SAMESITE_HEADER_UNCHANGED && !withoutControls && !capped) {
+    // Everything the field is held to, in one pass (wk_storableSetCookieFieldCreate, c/wk_samesite.c):
+    // the control-character rule, the cookies that may not be set at all, the lifetime ceiling and the
+    // SameSite attribute. A field whose every cookie was refused is not passed on.
+    bool setsNothing = false;
+    CFStringRef storable = wk_storableSetCookieFieldCreate((CFStringRef)header, url, &setsNothing);
+    if (setsNothing)
+        return;
+    if (!storable) {
         original(storage, url, headerFields, mainDocumentURL, acceptPolicy);
         return;
     }
+
     CFMutableDictionaryRef replaced = CFDictionaryCreateMutableCopy(NULL, 0, headerFields);
     if (!replaced)
         wk_patch_fail(kSameSiteHooks, "the response header fields carrying the attribute could not be copied");
-    CFDictionarySetValue(replaced, name, rewritten ? rewritten : (CFStringRef)header);
+    CFDictionarySetValue(replaced, name, storable);
     original(storage, url, replaced, mainDocumentURL, acceptPolicy);
     CFRelease(replaced);
-    if (rewritten)
-        CFRelease(rewritten);
-    if (capped)
-        CFRelease(capped);
-    if (withoutControls)
-        CFRelease(withoutControls);
+    CFRelease(storable);
 }
 
 // ---------------------------------------------------------------------------------------------------

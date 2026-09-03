@@ -34,6 +34,10 @@ set(TestWebKitCocoa_SOURCES
 
     ${CMAKE_SOURCE_DIR}/MavericksSupport/source/Tools/TestWebKitAPI/cocoa/NetworkFrameworkMavericks.mm
 
+    # A WebSocket task's server-trust challenge is this port's own code (polyfills/webkit/websocket.mm),
+    # so its test is too.
+    ${CMAKE_SOURCE_DIR}/MavericksSupport/source/Tools/TestWebKitAPI/Tests/WebSocketServerTrust.mm
+
     # Challenge.mm defines testCertificate()/testIdentity()/testIdentity2(), which HTTPServer's TLS
     # configuration calls, alongside its own tests.
     ${TESTWEBKITAPI_DIR}/Tests/WebKitCocoa/Challenge.mm

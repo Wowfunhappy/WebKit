@@ -18,6 +18,12 @@ typedef const struct OpaqueCFHTTPCookie *WKHTTPCookieRef;
 WK_SYSTEM_FN("CFNetwork", CFArrayRef, CFHTTPCookieCreateWithResponseHeaderFields, (CFAllocatorRef, CFDictionaryRef, CFURLRef));
 WK_SYSTEM_FN("CFNetwork", CFStringRef, CFHTTPCookieCopyComment, (WKHTTPCookieRef));
 WK_SYSTEM_FN("CFNetwork", double, CFHTTPCookieGetExpirationTime, (CFTypeRef));
+// The Copy forms, not the Get forms: 10.9 says of its own accessors "CFHTTPCookieGetDomain is
+// deprecated in this OS build. Clients must call CFHTTPCookieCopyDomain or the NS equivalent instead or
+// risk leaks", and each Get call leaks the string it answers with.
+WK_SYSTEM_FN("CFNetwork", CFStringRef, CFHTTPCookieCopyName, (CFTypeRef));
+WK_SYSTEM_FN("CFNetwork", CFStringRef, CFHTTPCookieCopyPath, (CFTypeRef));
+WK_SYSTEM_FN("CFNetwork", Boolean, CFHTTPCookieIsSecure, (CFTypeRef));
 
 // ---------------------------------------------------------------------------------------------------
 // The encoded Comment.
@@ -614,6 +620,24 @@ static bool wk_rangeHasControlCharacter(CFStringRef header, CFRange range)
     return false;
 }
 
+// A CTL other than HTAB: %x00-08, %x0A-1F or %x7F.
+bool wk_hasControlCharacter(CFStringRef text)
+{
+    CFIndex length = text ? CFStringGetLength(text) : 0;
+    if (!length)
+        return false;
+    CFStringInlineBuffer buffer;
+    CFStringInitInlineBuffer(text, &buffer, CFRangeMake(0, length));
+    for (CFIndex i = 0; i < length; ++i) {
+        UniChar c = CFStringGetCharacterFromInlineBuffer(&buffer, i);
+        if (c == '\t')
+            continue;
+        if (c <= 0x1f || c == 0x7f)
+            return true;
+    }
+    return false;
+}
+
 // RFC 6265bis 5.5: a set-cookie-string carrying a CTL other than HTAB is ignored, its attributes
 // included. The cookies of |header| that carry none, folded back into one field. NULL when every cookie
 // in the field carries one, which is a field that sets nothing. The caller owns the result.
@@ -764,13 +788,13 @@ static bool wk_headerNamesALifetime(CFStringRef header)
     return false;
 }
 
-// The value bytes of the cookie's first Max-Age attribute, or a location of kCFNotFound when it has
-// none. The first rather than the last: 10.9's parser keeps the first Max-Age a set-cookie-string
-// carries and ignores the ones after it (measured), so that is the one whose value decides the lifetime.
-static CFRange wk_firstMaxAgeValue(CFStringRef header, CFRange cookie)
+// The value bytes of the cookie's first attribute of this name, or a location of kCFNotFound when it
+// carries none. The first rather than the last: 10.9's parser keeps the first Max-Age a set-cookie-string
+// carries and ignores the ones after it (measured), so that is the one whose value decides the lifetime,
+// and the same reading answers whether a Domain attribute is there at all.
+static CFRange wk_attributeValueRange(CFStringRef header, CFRange cookie, const char *wanted)
 {
-    static const char wanted[] = "max-age";
-    static const CFIndex wantedLength = 7;
+    CFIndex wantedLength = (CFIndex)strlen(wanted);
     CFRange none = CFRangeMake(kCFNotFound, 0);
     CFStringInlineBuffer buffer;
     CFStringInitInlineBuffer(header, &buffer, cookie);
@@ -827,6 +851,152 @@ static CFRange wk_firstMaxAgeValue(CFStringRef header, CFRange cookie)
 #undef WK_COOKIE_AT
 }
 
+// ---------------------------------------------------------------------------------------------------
+// The two things a cookie must be to be stored at all, beyond the domain rules already applied.
+//
+// A cookie with the Secure attribute belongs to a secure origin and a non-secure one may not set it
+// (RFC 6265bis 4.1.2.5); a cookie named __Secure-... promises exactly that, and one named __Host-...
+// promises it plus a path of "/" and no Domain attribute (4.1.3). A cookie that breaks its own promise
+// is ignored. Modern CFNetwork enforces all three, matching the prefixes CASE-SENSITIVELY -- __SeCuRe-
+// is an ordinary name there, which is what upstream's own expectations for
+// imported/w3c/web-platform-tests/cookies/prefix record -- and 10.9 enforces none of them (measured:
+// every spelling of every violation is stored).
+//
+// Whether the cookie carried a Domain attribute is read off the set-cookie-string it was parsed from,
+// not off the domain the parse produced: 10.9 marks a domain cookie with a leading dot for a named host
+// but not for an IPv4 literal (measured: Domain=127.0.0.1 comes back as 127.0.0.1, the same as a
+// host-only cookie), so the parsed domain cannot answer the question. An empty Domain= is no attribute
+// (RFC 6265bis 5.4, and 10.9 reads it as the host).
+static bool wk_urlIsSecureForCookies(CFURLRef url)
+{
+    CFStringRef scheme = url ? CFURLCopyScheme(url) : NULL;
+    bool secure = scheme
+        && (CFStringCompare(scheme, CFSTR("https"), kCFCompareCaseInsensitive) == kCFCompareEqualTo
+            || CFStringCompare(scheme, CFSTR("wss"), kCFCompareCaseInsensitive) == kCFCompareEqualTo);
+    if (scheme)
+        CFRelease(scheme);
+    return secure;
+}
+
+// What a field that could not name a refusable cookie costs: this one scan. A cookie is refusable only
+// if it carries the Secure attribute (which a non-secure origin may not set, and which both prefixes
+// require) or names the __Host- prefix, which is refused without Secure as well.
+static bool wk_headerCouldNameARefusableCookie(CFStringRef header)
+{
+    static const char secure[] = "secure";
+    static const char host[] = "__Host-";
+    CFIndex length = CFStringGetLength(header);
+    CFStringInlineBuffer buffer;
+    CFStringInitInlineBuffer(header, &buffer, CFRangeMake(0, length));
+    for (CFIndex i = 0; i < length; ++i) {
+        CFIndex j = 0;
+        while (j < 6 && i + j < length) {
+            UniChar c = CFStringGetCharacterFromInlineBuffer(&buffer, i + j);
+            if (c >= 'A' && c <= 'Z')
+                c += 'a' - 'A';
+            if (c != (UniChar)secure[j])
+                break;
+            ++j;
+        }
+        if (j == 6)
+            return true;
+        j = 0;
+        while (j < 7 && i + j < length
+            && CFStringGetCharacterFromInlineBuffer(&buffer, i + j) == (UniChar)host[j])
+            ++j;
+        if (j == 7)
+            return true;
+    }
+    return false;
+}
+
+bool wk_cookieMayBeSet(CFStringRef name, bool isSecure, CFStringRef path, bool hasDomainAttribute, CFURLRef url)
+{
+    bool fromSecureOrigin = wk_urlIsSecureForCookies(url);
+    if (isSecure && !fromSecureOrigin)
+        return false;
+
+    if (!name)
+        return true;
+    bool host = CFStringHasPrefix(name, CFSTR("__Host-"));
+    if (!host && !CFStringHasPrefix(name, CFSTR("__Secure-")))
+        return true;
+
+    if (!isSecure || !fromSecureOrigin)
+        return false;
+    if (!host)
+        return true;
+
+    if (!path || CFStringCompare(path, CFSTR("/"), 0) != kCFCompareEqualTo)
+        return false;
+    return !hasDomainAttribute;
+}
+
+static bool wk_parsedCookieMayBeSet(CFTypeRef cookie, CFStringRef setCookieString, CFURLRef url)
+{
+    if (!cookie)
+        return true;
+    CFRange domain = wk_attributeValueRange(setCookieString, CFRangeMake(0, CFStringGetLength(setCookieString)), "domain");
+    CFStringRef name = WK_SYSTEM(CFHTTPCookieCopyName)(cookie);
+    CFStringRef path = WK_SYSTEM(CFHTTPCookieCopyPath)(cookie);
+    bool mayBeSet = wk_cookieMayBeSet(name, WK_SYSTEM(CFHTTPCookieIsSecure)(cookie), path,
+        domain.location != kCFNotFound && domain.length > 0, url);
+    if (name)
+        CFRelease(name);
+    if (path)
+        CFRelease(path);
+    return mayBeSet;
+}
+
+// The same field with the cookies that may not be set left out, or NULL when every cookie in it may be.
+// An empty result is a field that sets nothing, which the caller must not pass on.
+CFStringRef wk_cookieFieldWithoutRefusedCookiesCreate(CFStringRef header, CFURLRef url, bool *outSetsNothing)
+{
+    *outSetsNothing = false;
+    if (!header || !CFStringGetLength(header) || !url || !wk_headerCouldNameARefusableCookie(header))
+        return NULL;
+
+    CFIndex cookieCount = 0;
+    CFRange *cookies = wk_copySetCookieRanges(header, &cookieCount);
+    if (!cookieCount) {
+        free(cookies);
+        return NULL;
+    }
+
+    CFMutableStringRef kept = CFStringCreateMutable(NULL, 0);
+    if (!kept)
+        wk_patch_fail(kSameSiteEncoding, "a Set-Cookie field could not be rebuilt");
+    long keptCount = 0, refusedCount = 0;
+    for (CFIndex c = 0; c < cookieCount; ++c) {
+        CFStringRef one = CFStringCreateWithSubstring(NULL, header, cookies[c]);
+        CFArrayRef parsed = one ? wk_parseSetCookieHeader(one, url) : NULL;
+        CFTypeRef cookie = parsed && CFArrayGetCount(parsed) == 1 ? CFArrayGetValueAtIndex(parsed, 0) : NULL;
+        if (!one)
+            wk_patch_fail(kSameSiteEncoding, "a Set-Cookie field's surviving cookie could not be read");
+        bool refused = cookie && !wk_parsedCookieMayBeSet(cookie, one, url);
+        if (refused)
+            ++refusedCount;
+        else {
+            if (keptCount)
+                CFStringAppend(kept, CFSTR(", "));
+            CFStringAppend(kept, one);
+            ++keptCount;
+        }
+        if (parsed)
+            CFRelease(parsed);
+        if (one)
+            CFRelease(one);
+    }
+    free(cookies);
+
+    if (!refusedCount) {
+        CFRelease(kept);
+        return NULL;
+    }
+    *outSetsNothing = !keptCount;
+    return kept;
+}
+
 CFStringRef wk_cookieLifetimeCappedHeaderCreate(CFStringRef header, CFURLRef url)
 {
     if (!header || !CFStringGetLength(header) || !url || !wk_headerNamesALifetime(header))
@@ -857,7 +1027,7 @@ CFStringRef wk_cookieLifetimeCappedHeaderCreate(CFStringRef header, CFURLRef url
             // A cookie that already names a Max-Age has that value replaced, because a second one is
             // ignored; one whose lifetime comes from Expires takes an appended Max-Age, which decides
             // the lifetime over the date it carries (RFC 6265 5.3, and measured on this parser).
-            CFRange maxAge = wk_firstMaxAgeValue(header, cookies[c]);
+            CFRange maxAge = wk_attributeValueRange(header, cookies[c], "max-age");
             if (maxAge.location != kCFNotFound) {
                 edits[editCount].range = maxAge;
                 edits[editCount].replacement = (CFStringRef)CFRetain(cappedSeconds);
@@ -1041,4 +1211,68 @@ done:
     free(attributes);
     free(cookies);
     return disposition;
+}
+
+// Everything a Set-Cookie field is held to before a storage takes it in, in the order the passes edit:
+// the control-character rule, then the cookies that may not be set at all, then the lifetime ceiling,
+// then the SameSite attribute, whose rewrite must land on the ranges the others left behind. Answers a
+// new field when any pass changed it, NULL when the field is already storable as it stands, and sets
+// *outSetsNothing for a field whose every cookie was refused -- which its caller must not pass on.
+//
+// One function rather than one per caller: the two seams a response's cookies arrive through -- the
+// storage's own setCookiesWithResponseHeaderFields (c/CFNetwork.c) and
+// +[NSHTTPCookie cookiesWithResponseHeaderFields:forURL:] (methods/Foundation.m), which is also what
+// the WebSocket handshake and document.cookie reach -- must hold a field to the same rules.
+CFStringRef wk_storableSetCookieFieldCreate(CFStringRef header, CFURLRef url, bool *outSetsNothing)
+{
+    *outSetsNothing = false;
+    if (!header || !CFStringGetLength(header) || !url)
+        return NULL;
+
+    CFStringRef current = (CFStringRef)CFRetain(header);
+    bool changed = false;
+
+    if (wk_hasControlCharacter(current)) {
+        CFStringRef withoutControls = wk_copyFieldWithoutControlCookies(current);
+        CFRelease(current);
+        if (!withoutControls) {
+            // Every set-cookie-string in the field is ignored, so the field sets nothing.
+            *outSetsNothing = true;
+            return NULL;
+        }
+        current = withoutControls;
+        changed = true;
+    }
+
+    bool setsNothing = false;
+    CFStringRef allowed = wk_cookieFieldWithoutRefusedCookiesCreate(current, url, &setsNothing);
+    if (allowed) {
+        CFRelease(current);
+        if (setsNothing) {
+            CFRelease(allowed);
+            *outSetsNothing = true;
+            return NULL;
+        }
+        current = allowed;
+        changed = true;
+    }
+
+    CFStringRef capped = wk_cookieLifetimeCappedHeaderCreate(current, url);
+    if (capped) {
+        CFRelease(current);
+        current = capped;
+        changed = true;
+    }
+
+    CFStringRef rewritten = NULL;
+    if (wk_sameSiteRewriteSetCookieHeader(current, url, &rewritten) == WK_SAMESITE_HEADER_REWRITTEN) {
+        CFRelease(current);
+        current = rewritten;
+        changed = true;
+    }
+
+    if (changed)
+        return current;
+    CFRelease(current);
+    return NULL;
 }

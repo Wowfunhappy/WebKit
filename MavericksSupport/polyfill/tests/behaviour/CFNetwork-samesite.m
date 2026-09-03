@@ -342,6 +342,65 @@ int main(void)
     if (asComment)
         CFRelease(asComment);
     CFRelease(foreign);
+    // What a cookie must be to be stored at all: a Secure cookie needs a secure origin, and a name
+    // prefix is a promise the cookie has to keep. The prefixes match case-sensitively, as CFNetwork's do.
+    {
+        CFURLRef secure = CFURLCreateWithString(NULL, CFSTR("https://example.com/x/"), NULL);
+        CFURLRef plain = CFURLCreateWithString(NULL, CFSTR("http://example.com/x/"), NULL);
+        check(wk_cookieMayBeSet(CFSTR("a"), false, CFSTR("/"), false, plain),
+              "an ordinary cookie is set from a non-secure origin");
+        check(!wk_cookieMayBeSet(CFSTR("a"), true, CFSTR("/"), false, plain),
+              "a Secure cookie is not");
+        check(wk_cookieMayBeSet(CFSTR("__Secure-a"), true, CFSTR("/"), false, secure),
+              "a __Secure- cookie that is Secure and from a secure origin is set");
+        check(!wk_cookieMayBeSet(CFSTR("__Secure-a"), false, CFSTR("/"), false, secure),
+              "one without the attribute is not");
+        check(wk_cookieMayBeSet(CFSTR("__SeCuRe-a"), false, CFSTR("/"), false, secure),
+              "and the prefix is matched case-sensitively, as CFNetwork matches it");
+        check(wk_cookieMayBeSet(CFSTR("__Host-a"), true, CFSTR("/"), false, secure),
+              "a __Host- cookie with a root path and no Domain is set");
+        check(!wk_cookieMayBeSet(CFSTR("__Host-a"), true, CFSTR("/x"), false, secure),
+              "one with another path is not");
+        check(!wk_cookieMayBeSet(CFSTR("__Host-a"), true, CFSTR("/"), true, secure),
+              "and neither is one that carried a Domain attribute");
+
+        bool setsNothing = true;
+        CFStringRef kept = wk_cookieFieldWithoutRefusedCookiesCreate(
+            CFSTR("good=1; Path=/, __Host-bad=2; Secure; Path=/; Domain=example.com"), secure, &setsNothing);
+        check(kept && !setsNothing && CFStringFind(kept, CFSTR("good=1"), 0).location != kCFNotFound
+              && CFStringFind(kept, CFSTR("__Host-bad"), 0).location == kCFNotFound,
+              "a field keeps the cookies that may be set and drops the one that may not");
+        CFStringRef none = wk_cookieFieldWithoutRefusedCookiesCreate(
+            CFSTR("__Host-bad=2; Secure; Path=/x"), secure, &setsNothing);
+        check(none && setsNothing, "a field whose every cookie is refused sets nothing");
+
+        // The Domain attribute is read off the string: a cookie set with Domain= an IPv4 literal comes
+        // back from the parser with the host and no leading dot, exactly like a host-only cookie.
+        CFURLRef literal = CFURLCreateWithString(NULL, CFSTR("https://127.0.0.1/"), NULL);
+        CFStringRef refusedByDomain = wk_cookieFieldWithoutRefusedCookiesCreate(
+            CFSTR("__Host-a=1; Secure; Path=/; Domain=127.0.0.1"), literal, &setsNothing);
+        check(refusedByDomain && setsNothing, "a __Host- cookie with Domain= an address literal is refused");
+        CFStringRef keptWithoutDomain = wk_cookieFieldWithoutRefusedCookiesCreate(
+            CFSTR("__Host-a=1; Secure; Path=/"), literal, &setsNothing);
+        check(!keptWithoutDomain, "and the same cookie without the attribute is kept");
+        CFStringRef emptyDomain = wk_cookieFieldWithoutRefusedCookiesCreate(
+            CFSTR("__Host-a=1; Secure; Path=/; Domain="), literal, &setsNothing);
+        check(!emptyDomain, "an empty Domain= is no attribute at all");
+        if (refusedByDomain)
+            CFRelease(refusedByDomain);
+        if (keptWithoutDomain)
+            CFRelease(keptWithoutDomain);
+        if (emptyDomain)
+            CFRelease(emptyDomain);
+        CFRelease(literal);
+        if (kept)
+            CFRelease(kept);
+        if (none)
+            CFRelease(none);
+        CFRelease(secure);
+        CFRelease(plain);
+    }
+
     // The 400-day ceiling, expressed by appending Max-Age to the cookies that exceed it.
     {
         CFURLRef url = CFURLCreateWithString(NULL, CFSTR("https://example.com/"), NULL);

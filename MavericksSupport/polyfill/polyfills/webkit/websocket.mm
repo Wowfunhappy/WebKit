@@ -38,6 +38,8 @@
 
 #import "wk_selref_scope.h"
 #import <CFNetwork/CFNetwork.h>
+#import <Security/Security.h>
+#import "wk_url_coding.h"
 #import <CommonCrypto/CommonDigest.h>
 #import <Foundation/Foundation.h>
 #import <pthread.h>
@@ -125,6 +127,8 @@ typedef NS_ENUM(NSInteger, WKWSState) {
     uint16_t _sentCloseCode;        // status the close reports; 1005 when the sent Close frame carried no code
 
     BOOL _secure;                   // wss
+    BOOL _peerTrustAnswered;        // the server's certificate has been put to the delegate and accepted
+    BOOL _peerTrustPending;         // a server-trust challenge is with the delegate, awaiting its answer
     BOOL _usingProxy;               // tunneling through an HTTP CONNECT proxy
     NSString *_targetHost;          // origin host (for CONNECT + TLS peer name)
     UInt32 _targetPort;             // origin port
@@ -312,6 +316,9 @@ static void wsStoreCookiesFromResponse(NSHTTPCookieStorage *storage, NSHTTPURLRe
 {
     if (![request HTTPShouldHandleCookies])
         return;
+    // The http(s) form of the handshake's URL, which is the origin the cookie rules are decided against:
+    // the parser this calls holds the field to all of them (methods/Foundation.m), so a ws:// handshake
+    // is a non-secure origin and a wss:// one is secure, exactly as the equivalent load would be.
     NSURL *cookieURL = wsCookieURL(response.URL ?: request.URL);
     NSArray<NSHTTPCookie *> *cookies = [NSHTTPCookie cookiesWithResponseHeaderFields:response.allHeaderFields forURL:cookieURL];
     // The transform is where NetworkTaskCocoa caps the expiry of a cookie set through third-party CNAME
@@ -338,6 +345,45 @@ static BOOL wsURLsAreSameOrigin(NSURL *a, NSURL *b)
     unsigned portA = a.port ? a.port.unsignedIntValue : defaultPort;
     unsigned portB = b.port ? b.port.unsignedIntValue : defaultPort;
     return portA == portB;
+}
+
+// A server-trust challenge for the certificate |trust| offers, shaped as the one an NSURLSession task
+// carries: the protection space names the host and port the connection is to and holds the trust
+// itself, which is what a delegate reads to decide (WebKit's reads it through -serverTrust). Built
+// through CFNetwork's own protection space because that is the only kind that can carry a trust
+// (wk_createProtectionSpace, c/CFNetwork.c).
+enum { kWSProtectionSpaceHTTPS = 2, kWSAuthenticationSchemeServerTrust = 8 };
+
+@interface WKWebSocketChallengeSender : NSObject <NSURLAuthenticationChallengeSender>
+@end
+
+@implementation WKWebSocketChallengeSender
+// The disposition travels through the delegate's completion handler, as it does for every
+// NSURLSessionTask challenge; these are the sender methods a caller may still send.
+- (void)useCredential:(NSURLCredential *)credential forAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge { }
+- (void)continueWithoutCredentialForAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge { }
+- (void)cancelAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge { }
+@end
+
+@interface NSURLProtectionSpace (WKPolyfillCFProtectionSpace)
+- (id)_initWithCFURLProtectionSpace:(CFTypeRef)space;
+@end
+
+static NSURLAuthenticationChallenge *wsServerTrustChallenge(NSURL *url, SecTrustRef trust)
+{
+    NSNumber *port = url.port;
+    CFTypeRef cfSpace = wk_createProtectionSpace((__bridge CFStringRef)url.host,
+        port ? port.intValue : 443, kWSProtectionSpaceHTTPS, NULL,
+        kWSAuthenticationSchemeServerTrust, NULL, trust);
+    if (!cfSpace)
+        return nil;
+    NSURLProtectionSpace *space = [[NSURLProtectionSpace alloc] _initWithCFURLProtectionSpace:cfSpace];
+    CFRelease(cfSpace);
+    if (!space)
+        return nil;
+    return [[NSURLAuthenticationChallenge alloc] initWithProtectionSpace:space proposedCredential:nil
+        previousFailureCount:0 failureResponse:nil error:nil
+        sender:[[WKWebSocketChallengeSender alloc] init]];
 }
 
 // The queue a callback belongs on. NSURLSession delivers delegate messages and completion handlers on the
@@ -395,6 +441,23 @@ static void wsDispatchToCallbackQueue(NSURLSession *session, void (^work)(void))
 - (NSURLResponse *)response { return _response; }
 - (NSInteger)closeCode { return _closeCode; }
 - (void)setMaximumMessageSize:(NSInteger)size { (void)size; }
+// What the session delegate reads off a task while it answers for it: its state, and the two
+// transfer-detail properties NetworkSessionCocoa consults on a challenge. 10.9 collects no task metrics
+// (see -[NSURLConnection _timingData] in methods/Foundation.m) and this port makes no preconnect, so
+// those are what a task of this platform has to say.
+- (NSURLSessionTaskState)state
+{
+    switch (_state) {
+    case WKWSStateClosed:
+        return NSURLSessionTaskStateCompleted;
+    case WKWSStateClosing:
+        return NSURLSessionTaskStateCanceling;
+    default:
+        return NSURLSessionTaskStateRunning;
+    }
+}
+- (id)_incompleteTaskMetrics { return nil; }
+- (BOOL)_preconnect { return NO; }
 // The per-task cookie controls NetworkTaskCocoa sets, honoured rather than recorded: this task does its
 // own cookie work, so the site-for-cookies WebKit computed is the one its reads are made under, the jar
 // it is pointed at is the one it reads and writes, and the transform runs over what its handshake
@@ -707,7 +770,11 @@ static void wsContextRelease(void *info) { CFRelease((CFTypeRef)info); }
     // clobbered by a later kCFStreamPropertySocketSecurityLevel write (which resets the peer name).
     CFReadStreamSetProperty(_readStream, kCFStreamPropertySocketSecurityLevel, kCFStreamSocketSecurityLevelNegotiatedSSL);
     CFWriteStreamSetProperty(_writeStream, kCFStreamPropertySocketSecurityLevel, kCFStreamSocketSecurityLevelNegotiatedSSL);
-    NSDictionary *ssl = @{ (__bridge id)kCFStreamSSLPeerName: _targetHost };
+    // The chain is not checked by the stream: a WebSocket task puts its server's certificate to the
+    // session delegate the way every other NSURLSession task does (verifyPeerTrust below), and a stream
+    // that decided for itself would either refuse before the delegate could answer or hide the question.
+    NSDictionary *ssl = @{ (__bridge id)kCFStreamSSLPeerName: _targetHost,
+                           (__bridge id)kCFStreamSSLValidatesCertificateChain: @NO };
     CFReadStreamSetProperty(_readStream, kCFStreamPropertySSLSettings, (__bridge CFDictionaryRef)ssl);
     CFWriteStreamSetProperty(_writeStream, kCFStreamPropertySSLSettings, (__bridge CFDictionaryRef)ssl);
 }
@@ -724,17 +791,9 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
 - (void)handleReadEvent:(CFStreamEventType)type
 {
     switch (type) {
-    case kCFStreamEventHasBytesAvailable: {
-        uint8_t buf[16384];
-        while (CFReadStreamHasBytesAvailable(_readStream)) {
-            CFIndex n = CFReadStreamRead(_readStream, buf, sizeof(buf));
-            if (n <= 0)
-                break;
-            [_inBuffer appendBytes:buf length:n];
-        }
-        [self processInput];
+    case kCFStreamEventHasBytesAvailable:
+        [self readAvailableInput];
         break;
-    }
     case kCFStreamEventErrorOccurred: {
         NSError *e = (__bridge_transfer NSError *)CFReadStreamCopyError(_readStream);
         [self failWithError:e reason:@"WebSocket socket read error"];
@@ -757,6 +816,28 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
     }
 }
 
+// A secure connection is answered for before any of it is used: while the certificate is with the
+// delegate the bytes stay in the stream, so no handshake is parsed, no cookie is stored and no callback
+// is delivered on a connection the delegate has not accepted. Decrypted bytes mean the TLS handshake
+// finished, so this is also where the question is put.
+- (void)readAvailableInput
+{
+    if (!_readStream)
+        return;
+    if (_secure && !_peerTrustAnswered) {
+        [self verifyPeerTrustThenContinue];
+        return;
+    }
+    uint8_t buf[16384];
+    while (CFReadStreamHasBytesAvailable(_readStream)) {
+        CFIndex n = CFReadStreamRead(_readStream, buf, sizeof(buf));
+        if (n <= 0)
+            break;
+        [_inBuffer appendBytes:buf length:n];
+    }
+    [self processInput];
+}
+
 - (void)handleWriteEvent:(CFStreamEventType)type
 {
     switch (type) {
@@ -777,8 +858,95 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
     }
 }
 
+// The server's certificate, asked about exactly as NSURLSession asks: the session delegate is handed a
+// server-trust challenge and its answer decides. A delegate that is not there, or that asks for the
+// default handling, gets what the system would have done on its own -- the evaluation below.
+- (void)verifyPeerTrustThenContinue
+{
+    // One challenge per connection: every write event and every read event arriving before the answer
+    // reaches this, and a delegate is asked about a certificate once.
+    if (_peerTrustPending || !_readStream)
+        return;
+    SecTrustRef trust = (SecTrustRef)CFReadStreamCopyProperty(_readStream, kCFStreamPropertySSLPeerTrust);
+    if (!trust) {
+        [self failWithReason:@"WebSocket TLS connection has no server certificate"];
+        return;
+    }
+
+    // The question the URL asks: this host, over SSL, with the anchors and the date the system uses.
+    SecPolicyRef policy = SecPolicyCreateSSL(true, (__bridge CFStringRef)_targetHost);
+    if (policy) {
+        SecTrustSetPolicies(trust, policy);
+        CFRelease(policy);
+    }
+    SecTrustResultType result = kSecTrustResultInvalid;
+    OSStatus status = SecTrustEvaluate(trust, &result);
+    BOOL systemAccepts = status == errSecSuccess
+        && (result == kSecTrustResultProceed || result == kSecTrustResultUnspecified);
+
+    __weak id delegate = _delegate;
+    __weak NSURLSession *session = _session;
+    WKWebSocketStream *taskSelf = self;
+    dispatch_queue_t ioQueue = _ioQueue;
+    NSURL *requestURL = _request.URL;
+    _peerTrustPending = YES;
+    wsDispatchToCallbackQueue(_session, ^{
+        void (^answer)(BOOL) = ^(BOOL accepted) {
+            dispatch_async(ioQueue, ^{ [taskSelf peerTrustAnswered:accepted]; CFRelease(trust); });
+        };
+        id<NSURLSessionTaskDelegate> d = (id<NSURLSessionTaskDelegate>)delegate;
+        if (![d respondsToSelector:@selector(URLSession:task:didReceiveChallenge:completionHandler:)]) {
+            answer(systemAccepts);
+            return;
+        }
+        NSURLAuthenticationChallenge *challenge = wsServerTrustChallenge(requestURL, trust);
+        if (!challenge) {
+            answer(systemAccepts);
+            return;
+        }
+        [d URLSession:session task:(NSURLSessionTask *)taskSelf didReceiveChallenge:challenge
+            completionHandler:^(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential *credential) {
+                switch (disposition) {
+                case NSURLSessionAuthChallengeUseCredential:
+                    answer(credential != nil);
+                    break;
+                case NSURLSessionAuthChallengePerformDefaultHandling:
+                    answer(systemAccepts);
+                    break;
+                default:
+                    answer(NO);
+                    break;
+                }
+            }];
+    });
+}
+
+- (void)peerTrustAnswered:(BOOL)accepted
+{
+    _peerTrustPending = NO;
+    if (_state == WKWSStateClosed)
+        return;
+    if (!accepted) {
+        [self failWithError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorServerCertificateUntrusted
+            userInfo:@{ NSLocalizedDescriptionKey: @"The certificate for this server is invalid" }] reason:nil];
+        return;
+    }
+    _peerTrustAnswered = YES;
+    [self flushOutput];
+    // Bytes that arrived while the question was out were left in the stream, and the read event that
+    // announced them will not come again.
+    [self readAvailableInput];
+}
+
 - (void)flushOutput
 {
+    // Nothing goes out over a secure connection until its certificate has been answered for.
+    if (_secure && !_peerTrustAnswered) {
+        if (_writeStreamOpen && CFWriteStreamCanAcceptBytes(_writeStream))
+            [self verifyPeerTrustThenContinue];
+        return;
+    }
+
     while (_outBuffer.length && CFWriteStreamCanAcceptBytes(_writeStream)) {
         CFIndex n = CFWriteStreamWrite(_writeStream, (const uint8_t *)_outBuffer.bytes, _outBuffer.length);
         if (n <= 0)
@@ -917,7 +1085,10 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
             continue;
         NSString *name = [[lines[i] substringToIndex:colon.location] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
         NSString *value = [[lines[i] substringFromIndex:colon.location + 1] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-        responseHeaders[name] = value;
+        // A header the response repeats -- Set-Cookie, above all -- is folded into one field value, as
+        // NSHTTPURLResponse folds it; keeping only the last would drop every cookie but one.
+        NSString *existing = responseHeaders[name];
+        responseHeaders[name] = existing.length ? [existing stringByAppendingFormat:@", %@", value] : value;
     }
 
     _response = [[NSHTTPURLResponse alloc] initWithURL:_request.URL statusCode:statusCode HTTPVersion:@"HTTP/1.1" headerFields:responseHeaders];
@@ -977,6 +1148,8 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
     [_inBuffer setLength:0];
     [_outBuffer setLength:0];
     _writeStreamOpen = NO;
+    _peerTrustAnswered = NO;
+    _peerTrustPending = NO;
 
     __weak id delegate = _delegate;
     __weak NSURLSession *session = _session;
@@ -1253,6 +1426,7 @@ static void maskBytes(uint8_t *bytes, NSUInteger length, const uint8_t key[4])
 - (void)teardownStreams
 {
     _state = WKWSStateClosed;
+    _writeStreamOpen = NO;
     if (_readStream) {
         CFReadStreamSetClient(_readStream, kCFStreamEventNone, NULL, NULL);
         CFReadStreamSetDispatchQueue(_readStream, NULL);

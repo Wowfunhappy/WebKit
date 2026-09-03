@@ -110,8 +110,9 @@ for f in "$PF"/classes/*.m; do
 done
 
 echo "### compiling polyfills/webkit (WebKit.framework only)"
+# MINC rather than INC: websocket.mm asks c/ for the protection space its server-trust challenge carries.
 for f in "$PF"/webkit/*.mm; do
-    cc_queue "$CLANG" -c $MODERN $BLOCKCF $INC -fobjc-arc -DWK_POLYFILL_UNIT="$(basename "${f%.mm}")" -o "$OBJ/webkit/$(basename "${f%.mm}").o" "$f"
+    cc_queue "$CLANG" -c $MODERN $BLOCKCF $MINC -fobjc-arc -DWK_POLYFILL_UNIT="$(basename "${f%.mm}")" -o "$OBJ/webkit/$(basename "${f%.mm}").o" "$f"
 done
 
 # --- availability inside method bodies -----------------------------------------------------------
