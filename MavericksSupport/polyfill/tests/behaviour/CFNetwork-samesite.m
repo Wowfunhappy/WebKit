@@ -443,6 +443,103 @@ int main(void)
             CFRelease(url);
     }
 
+    // RFC 6265bis 5.6 takes the last attribute of each recognised name, and 5.2 trims OWS from around a
+    // name or a value. 10.9 keeps the first and trims only SP.
+    {
+        struct { const char *field; const char *expected; } cases[] = {
+            { "test=8; Path=/qux; Path=/", "test=8; Path=/" },
+            { "test=9; Path=/; Path=/qux", "test=9; Path=/qux" },
+            { "test=21; path=/dog; path=", "test=21; path=" },
+            { "a=1; \tpath\t=\t/zzz", "a=1; path=/zzz" },
+            // OWS around the cookie's own name and value too: one HTAB after the value makes 10.9 drop
+            // every attribute the cookie carries.
+            { "\ta\t=\t1\t; path=/x", "a=1; path=/x" },
+            { "sid=abc\t; Path=/; Secure", "sid=abc; Path=/; Secure" },
+            { "a=1\t", "a=1" },
+            // A name RFC 6265bis 5.6 does not act on is ignored, never deduplicated.
+            { "a=1; Colour=red; Colour=blue", NULL },
+            { "a=1; Domain=aaa.com; domain=host.test", "a=1; domain=host.test" },
+            { "a=1; Secure; HttpOnly; Secure", "a=1; HttpOnly; Secure" },
+            // A ';' inside a double-quoted value opens no attribute, so nothing here repeats.
+            { "a=\"; path=/x\"; Path=/one", NULL },
+            { "a=1; Path=/one", NULL },
+            { "a=1", NULL },
+        };
+        for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+            CFStringRef field = CFStringCreateWithCString(NULL, cases[i].field, kCFStringEncodingUTF8);
+            CFStringRef got = field ? wk_cookieFieldWithLastAttributeWinningCreate(field) : NULL;
+            if (!cases[i].expected)
+                check(got == NULL, cases[i].field);
+            else {
+                CFStringRef want = CFStringCreateWithCString(NULL, cases[i].expected, kCFStringEncodingUTF8);
+                check(got && want && CFEqual(got, want), cases[i].field);
+                if (want)
+                    CFRelease(want);
+            }
+            if (got)
+                CFRelease(got);
+            if (field)
+                CFRelease(field);
+        }
+
+        // A folded field carries several set-cookie-strings and each is held to the rule on its own.
+        CFStringRef folded = CFSTR("a=1; Path=/one; Path=/two, b=2; Path=/three");
+        CFStringRef rebuilt = wk_cookieFieldWithLastAttributeWinningCreate(folded);
+        check(rebuilt && CFEqual(rebuilt, CFSTR("a=1; Path=/two, b=2; Path=/three")),
+              "a folded field keeps the last of each cookie's repeated attributes");
+        if (rebuilt)
+            CFRelease(rebuilt);
+
+        // A cookie whose value ends in an HTAB keeps its attributes through the pipeline: on 10.9's own
+        // parser it keeps none, so a Secure cookie arrives non-secure on the default path.
+        {
+            CFURLRef secure = CFURLCreateWithString(NULL, CFSTR("https://example.test/a/b/c.html"), NULL);
+            bool nothing = false;
+            CFStringRef held = wk_storableSetCookieFieldCreate(CFSTR("sid=abc\t; Path=/; Secure"), secure, &nothing);
+            NSArray *cookies = held ? [NSHTTPCookie cookiesWithResponseHeaderFields:@{ @"Set-Cookie": (NSString *)held }
+                                                                             forURL:(NSURL *)secure] : nil;
+            NSHTTPCookie *one = cookies.count == 1 ? cookies[0] : nil;
+            check(one && [one.name isEqualToString:@"sid"] && [one.value isEqualToString:@"abc"],
+                  "a trailing HTAB leaves the cookie's name and value as they were");
+            check(one && [one.path isEqualToString:@"/"] && one.isSecure,
+                  "and its Path and Secure attributes still reach the parser");
+            // 10.9's own reading of the same field, through the C parser this layer does not replace
+            // (the NSHTTPCookie one above is the polyfilled seam, so it would answer for the rule).
+            const void *name = (const void *)CFSTR("Set-Cookie");
+            const void *field = (const void *)CFSTR("sid=abc\t; Path=/; Secure");
+            CFDictionaryRef sent = CFDictionaryCreate(NULL, &name, &field, 1,
+                &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+            CFArrayRef asSent = sent ? ((ParseFn)cfnetwork("CFHTTPCookieCreateWithResponseHeaderFields"))(NULL, sent, (CFURLRef)secure) : NULL;
+            CookieRef raw = asSent && CFArrayGetCount(asSent) == 1 ? (CookieRef)CFArrayGetValueAtIndex(asSent, 0) : NULL;
+            CFStringRef rawPath = raw ? ((CopyFn)cfnetwork("CFHTTPCookieCopyPath"))(raw) : NULL;
+            check(rawPath && !CFEqual(rawPath, CFSTR("/")), "test premise: 10.9's own parser drops them");
+            if (rawPath)
+                CFRelease(rawPath);
+            if (asSent)
+                CFRelease(asSent);
+            if (sent)
+                CFRelease(sent);
+            if (held)
+                CFRelease(held);
+            if (secure)
+                CFRelease(secure);
+        }
+
+        // The rule runs through the whole pipeline, so 10.9's parser sees the surviving attribute.
+        CFURLRef url = CFURLCreateWithString(NULL, CFSTR("http://example.test/cookies/attributes/x.html"), NULL);
+        bool setsNothing = false;
+        CFStringRef storable = wk_storableSetCookieFieldCreate(CFSTR("test=8; Path=/qux; Path=/"), url, &setsNothing);
+        CFArrayRef parsed = storable ? (CFArrayRef)[NSHTTPCookie cookiesWithResponseHeaderFields:@{ @"Set-Cookie": (NSString *)storable }
+                                                                                          forURL:(NSURL *)url] : NULL;
+        NSHTTPCookie *cookie = parsed && CFArrayGetCount(parsed) == 1 ? (NSHTTPCookie *)CFArrayGetValueAtIndex(parsed, 0) : nil;
+        check(!setsNothing && cookie && [cookie.path isEqualToString:@"/"],
+              "the pipeline hands 10.9's parser the last Path, not the first");
+        if (storable)
+            CFRelease(storable);
+        if (url)
+            CFRelease(url);
+    }
+
     check(wk_sameSiteCopyServerComment(NULL) == NULL, "no comment stays no comment");
     check(wk_sameSiteCommentCreate(NULL, NULL) == NULL, "nothing to carry encodes to nothing");
 

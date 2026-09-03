@@ -54,6 +54,12 @@ CFStringRef wk_storableSetCookieFieldCreate(CFStringRef header, CFURLRef url, bo
 // definition for the rules and for what 10.9 does instead.
 bool wk_cookieMayBeSet(CFStringRef name, bool isSecure, CFStringRef path, bool hasDomainAttribute, CFURLRef url);
 
+// RFC 6265bis 5.6 takes the last attribute of each recognised name, and 5.2 trims OWS -- SP or HTAB --
+// from around a cookie's name and value and around every attribute name and value. The same field with
+// every cookie in it held to both, or NULL when none of them needs it. See the definition for what 10.9
+// does instead. The caller owns the result.
+CFStringRef wk_cookieFieldWithLastAttributeWinningCreate(CFStringRef header);
+
 // The same field with the cookies that may not be set left out, or NULL when every cookie in it may be.
 // *outSetsNothing says the field sets nothing at all, which its caller must not pass on.
 CFStringRef wk_cookieFieldWithoutRefusedCookiesCreate(CFStringRef header, CFURLRef url, bool *outSetsNothing);

@@ -426,6 +426,17 @@ struct wk_edit {
 
 static bool wk_isHeaderSpace(UniChar c) { return c == ' ' || c == '\t'; }
 
+static void wk_appendRange(CFMutableStringRef out, CFStringRef source, CFRange range)
+{
+    if (!range.length)
+        return;
+    CFStringRef text = CFStringCreateWithSubstring(NULL, source, range);
+    if (!text)
+        wk_patch_fail(kSameSiteEncoding, "a set-cookie-string's text could not be read");
+    CFStringAppend(out, text);
+    CFRelease(text);
+}
+
 static bool wk_rangeEqualsLowercase(CFStringInlineBuffer *buffer, CFRange range, const char *text)
 {
     if (range.length != (CFIndex)strlen(text))
@@ -997,6 +1008,246 @@ CFStringRef wk_cookieFieldWithoutRefusedCookiesCreate(CFStringRef header, CFURLR
     return kept;
 }
 
+// The attributes of one set-cookie-string, as ranges over it. RFC 6265bis 5.2 trims OWS -- SP or HTAB
+// -- from around a cookie's name and value and around every attribute name and value.
+struct wk_one_attribute {
+    CFRange name;
+    CFRange value;      // length 0 with location kCFNotFound when the attribute carries no '='
+    CFRange rawName;    // the same two before any trimming, which is what 10.9's parser is handed
+    CFRange rawValue;
+    int recognised;     // index into kRecognisedAttributes, or -1
+};
+
+// The attribute names RFC 6265bis 5.6 acts on. A name outside this set is ignored rather than
+// deduplicated, which is also what keeps the scans below linear over a field that came off the wire.
+static const char *const kRecognisedAttributes[] = {
+    "expires", "max-age", "domain", "path", "secure", "httponly", "samesite"
+};
+#define WK_RECOGNISED_ATTRIBUTE_COUNT ((int)(sizeof(kRecognisedAttributes) / sizeof(kRecognisedAttributes[0])))
+
+static int wk_recognisedAttributeIndex(CFStringInlineBuffer *buffer, CFRange name)
+{
+    for (int i = 0; i < WK_RECOGNISED_ATTRIBUTE_COUNT; ++i) {
+        if (wk_rangeEqualsLowercase(buffer, name, kRecognisedAttributes[i]))
+            return i;
+    }
+    return -1;
+}
+
+static CFRange wk_rangeTrimmed(CFStringInlineBuffer *buffer, CFRange range, bool includeTab)
+{
+    while (range.length) {
+        UniChar c = CFStringGetCharacterFromInlineBuffer(buffer, range.location);
+        if (c != ' ' && !(includeTab && c == '\t'))
+            break;
+        ++range.location;
+        --range.length;
+    }
+    while (range.length) {
+        UniChar c = CFStringGetCharacterFromInlineBuffer(buffer, range.location + range.length - 1);
+        if (c != ' ' && !(includeTab && c == '\t'))
+            break;
+        --range.length;
+    }
+    return range;
+}
+
+// |raw| split at its first '=' into a name and a value, each trimmed of OWS. A slice with no '=' is one
+// token, which the caller emits as it stands: whether 10.9 reads it as a name or as a value is 10.9's
+// own reading and this rule does not change it.
+static void wk_splitAtFirstEquals(CFStringInlineBuffer *buffer, CFRange raw,
+                                  CFRange *outRawName, CFRange *outRawValue,
+                                  CFRange *outName, CFRange *outValue)
+{
+    *outRawName = raw;
+    *outRawValue = CFRangeMake(kCFNotFound, 0);
+    for (CFIndex j = raw.location; j < raw.location + raw.length; ++j) {
+        if (CFStringGetCharacterFromInlineBuffer(buffer, j) != '=')
+            continue;
+        *outRawName = CFRangeMake(raw.location, j - raw.location);
+        *outRawValue = CFRangeMake(j + 1, raw.location + raw.length - (j + 1));
+        break;
+    }
+    *outName = wk_rangeTrimmed(buffer, *outRawName, true);
+    *outValue = outRawValue->location == kCFNotFound ? *outRawValue : wk_rangeTrimmed(buffer, *outRawValue, true);
+}
+
+// Whether the OWS trim of |raw| differs from the SP-only trim 10.9's parser applies, which is what
+// leaves an HTAB-bearing name or value unrecognised there.
+static bool wk_htabWouldSurvive(CFStringInlineBuffer *buffer, CFRange raw, CFRange trimmed)
+{
+    if (raw.location == kCFNotFound)
+        return false;
+    CFRange sp = wk_rangeTrimmed(buffer, raw, false);
+    return sp.location != trimmed.location || sp.length != trimmed.length;
+}
+
+// The attributes of |one|, split on the ';' that opens each (never one inside a double-quoted value).
+// *outPairEnd is where the name-value pair ends, which is where the first attribute's ';' sits, or the
+// length when the cookie carries no attribute at all.
+static struct wk_one_attribute *wk_copyOneCookiesAttributes(CFStringRef one, CFStringInlineBuffer *buffer,
+                                                            CFIndex *outPairEnd, long *outCount)
+{
+    CFIndex length = CFStringGetLength(one);
+    *outCount = 0;
+    *outPairEnd = length;
+
+    bool inQuotes = false;
+    for (CFIndex i = 0; i < length; ++i) {
+        UniChar c = CFStringGetCharacterFromInlineBuffer(buffer, i);
+        if (c == '"') {
+            inQuotes = !inQuotes;
+            continue;
+        }
+        if (!inQuotes && c == ';') {
+            *outPairEnd = i;
+            break;
+        }
+    }
+    if (*outPairEnd == length)
+        return NULL;
+
+    long count = 0, capacity = 8;
+    struct wk_one_attribute *found = (struct wk_one_attribute *)malloc((size_t)capacity * sizeof(*found));
+    if (!found)
+        wk_patch_fail(kSameSiteEncoding, "a set-cookie-string's attributes could not be collected");
+
+    CFIndex start = *outPairEnd + 1;
+    inQuotes = false;
+    for (CFIndex i = start; i <= length; ++i) {
+        UniChar c = i < length ? CFStringGetCharacterFromInlineBuffer(buffer, i) : (UniChar)';';
+        if (i < length && c == '"') {
+            inQuotes = !inQuotes;
+            continue;
+        }
+        if (i < length && (inQuotes || c != ';'))
+            continue;
+
+        struct wk_one_attribute attribute;
+        wk_splitAtFirstEquals(buffer, CFRangeMake(start, i - start),
+                              &attribute.rawName, &attribute.rawValue, &attribute.name, &attribute.value);
+        attribute.recognised = wk_recognisedAttributeIndex(buffer, attribute.name);
+        if (count == capacity) {
+            capacity *= 2;
+            struct wk_one_attribute *grown = (struct wk_one_attribute *)realloc(found, (size_t)capacity * sizeof(*found));
+            if (!grown)
+                wk_patch_fail(kSameSiteEncoding, "a set-cookie-string's attributes could not be collected");
+            found = grown;
+        }
+        found[count] = attribute;
+        ++count;
+        start = i + 1;
+    }
+    *outCount = count;
+    return found;
+}
+
+// RFC 6265bis 5.2 processes a set-cookie-string's attributes in order and 5.6 takes the last attribute
+// of each recognised name; 10.9's parser keeps the first ("test=8; Path=/qux; Path=/" stores /qux here
+// and / everywhere else, measured). 5.2 also trims OWS -- SP or HTAB -- from around the cookie's name
+// and value and around every attribute name and value, where 10.9 trims only SP: "\tpath\t=\t/x" names
+// no attribute there, and one HTAB after a cookie's value makes it drop every attribute the cookie
+// carries, so a "Secure; Path=/" cookie arrives non-secure on the default path. The same
+// set-cookie-string held to both, or NULL when it already reads that way.
+static CFStringRef wk_setCookieStringWithLastAttributeWinningCreate(CFStringRef one)
+{
+    CFIndex length = CFStringGetLength(one);
+    CFStringInlineBuffer buffer;
+    CFStringInitInlineBuffer(one, &buffer, CFRangeMake(0, length));
+
+    CFIndex pairEnd = 0;
+    long count = 0;
+    struct wk_one_attribute *attributes = wk_copyOneCookiesAttributes(one, &buffer, &pairEnd, &count);
+
+    CFRange rawPairName, rawPairValue, pairName, pairValue;
+    wk_splitAtFirstEquals(&buffer, CFRangeMake(0, pairEnd), &rawPairName, &rawPairValue, &pairName, &pairValue);
+
+    bool rewrite = wk_htabWouldSurvive(&buffer, rawPairName, pairName)
+        || wk_htabWouldSurvive(&buffer, rawPairValue, pairValue);
+
+    // The last attribute of each recognised name; every earlier one of that name is superseded.
+    long last[WK_RECOGNISED_ATTRIBUTE_COUNT];
+    for (int i = 0; i < WK_RECOGNISED_ATTRIBUTE_COUNT; ++i)
+        last[i] = -1;
+    for (long i = 0; i < count; ++i) {
+        if (attributes[i].recognised < 0)
+            continue;
+        if (last[attributes[i].recognised] >= 0)
+            rewrite = true;
+        last[attributes[i].recognised] = i;
+        if (wk_htabWouldSurvive(&buffer, attributes[i].rawName, attributes[i].name)
+            || wk_htabWouldSurvive(&buffer, attributes[i].rawValue, attributes[i].value))
+            rewrite = true;
+    }
+    if (!rewrite) {
+        free(attributes);
+        return NULL;
+    }
+
+    CFMutableStringRef out = CFStringCreateMutable(NULL, 0);
+    if (!out)
+        wk_patch_fail(kSameSiteEncoding, "a set-cookie-string could not be rebuilt");
+    wk_appendRange(out, one, pairName);
+    if (rawPairValue.location != kCFNotFound) {
+        CFStringAppend(out, CFSTR("="));
+        wk_appendRange(out, one, pairValue);
+    }
+
+    for (long i = 0; i < count; ++i) {
+        if (attributes[i].recognised >= 0 && last[attributes[i].recognised] != i)
+            continue;
+        CFStringAppend(out, CFSTR("; "));
+        wk_appendRange(out, one, attributes[i].name);
+        if (attributes[i].value.location == kCFNotFound)
+            continue;
+        CFStringAppend(out, CFSTR("="));
+        wk_appendRange(out, one, attributes[i].value);
+    }
+    free(attributes);
+    return out;
+}
+
+// The same field with every set-cookie-string in it held to that rule, or NULL when none of them needs
+// it.
+CFStringRef wk_cookieFieldWithLastAttributeWinningCreate(CFStringRef header)
+{
+    if (!header || !CFStringGetLength(header))
+        return NULL;
+
+    CFIndex cookieCount = 0;
+    CFRange *cookies = wk_copySetCookieRanges(header, &cookieCount);
+    if (!cookieCount) {
+        free(cookies);
+        return NULL;
+    }
+
+    CFMutableStringRef rebuilt = CFStringCreateMutable(NULL, 0);
+    if (!rebuilt)
+        wk_patch_fail(kSameSiteEncoding, "a Set-Cookie field could not be rebuilt");
+    long rewritten = 0;
+    for (CFIndex c = 0; c < cookieCount; ++c) {
+        CFStringRef one = CFStringCreateWithSubstring(NULL, header, cookies[c]);
+        if (!one)
+            wk_patch_fail(kSameSiteEncoding, "a Set-Cookie field's cookie could not be read");
+        CFStringRef canonical = wk_setCookieStringWithLastAttributeWinningCreate(one);
+        if (canonical)
+            ++rewritten;
+        if (c)
+            CFStringAppend(rebuilt, CFSTR(", "));
+        CFStringAppend(rebuilt, canonical ? canonical : one);
+        if (canonical)
+            CFRelease(canonical);
+        CFRelease(one);
+    }
+    free(cookies);
+
+    if (!rewritten) {
+        CFRelease(rebuilt);
+        return NULL;
+    }
+    return rebuilt;
+}
+
 CFStringRef wk_cookieLifetimeCappedHeaderCreate(CFStringRef header, CFURLRef url)
 {
     if (!header || !CFStringGetLength(header) || !url || !wk_headerNamesALifetime(header))
@@ -1024,9 +1275,10 @@ CFStringRef wk_cookieLifetimeCappedHeaderCreate(CFStringRef header, CFURLRef url
         CFArrayRef parsed = one ? wk_parseSetCookieHeader(one, url) : NULL;
         CFTypeRef cookie = parsed && CFArrayGetCount(parsed) == 1 ? CFArrayGetValueAtIndex(parsed, 0) : NULL;
         if (cookie && WK_SYSTEM(CFHTTPCookieGetExpirationTime)(cookie) > ceiling) {
-            // A cookie that already names a Max-Age has that value replaced, because a second one is
-            // ignored; one whose lifetime comes from Expires takes an appended Max-Age, which decides
-            // the lifetime over the date it carries (RFC 6265 5.3, and measured on this parser).
+            // A cookie that names a Max-Age has that value replaced -- the pass ahead of this one has
+            // already reduced a repeated attribute to its last occurrence, so there is one to replace.
+            // One whose lifetime comes from Expires takes an appended Max-Age, which decides the
+            // lifetime over the date it carries (RFC 6265 5.3, and measured on this parser).
             CFRange maxAge = wk_attributeValueRange(header, cookies[c], "max-age");
             if (maxAge.location != kCFNotFound) {
                 edits[editCount].range = maxAge;
@@ -1241,6 +1493,13 @@ CFStringRef wk_storableSetCookieFieldCreate(CFStringRef header, CFURLRef url, bo
             return NULL;
         }
         current = withoutControls;
+        changed = true;
+    }
+
+    CFStringRef canonical = wk_cookieFieldWithLastAttributeWinningCreate(current);
+    if (canonical) {
+        CFRelease(current);
+        current = canonical;
         changed = true;
     }
 
