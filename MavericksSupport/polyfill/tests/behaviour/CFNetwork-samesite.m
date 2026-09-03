@@ -540,6 +540,38 @@ int main(void)
             CFRelease(url);
     }
 
+    // RFC 6265 5.1.4: a cookie-path matches on a path-segment boundary. 10.9 tests only the prefix, so
+    // -[NSHTTPCookieStorage cookiesForURL:] answers a Path=/cook cookie for /cookies/x without the
+    // replacement in methods/Foundation.m.
+    {
+        struct { const char *cookiePath; const char *readPath; bool served; } cases[] = {
+            { "/cook",              "/cookies/x.html",    false },
+            { "/cookies",           "/cookies/x.html",    true  },
+            { "/cookies/",          "/cookies/x.html",    true  },
+            { "/cookies/x.html",    "/cookies/x.html",    true  },
+            { "/cookies/resources", "/cookies/x.html",    false },
+            { "/",                  "/cookies/x.html",    true  },
+        };
+        NSHTTPCookieStorage *storage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
+        for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+            for (NSHTTPCookie *held in [[storage.cookies copy] autorelease])
+                [storage deleteCookie:held];
+            NSString *cookiePath = [NSString stringWithUTF8String:cases[i].cookiePath];
+            NSURL *readURL = [NSURL URLWithString:[NSString stringWithFormat:@"http://path.test%s", cases[i].readPath]];
+            NSHTTPCookie *cookie = [NSHTTPCookie cookieWithProperties:@{
+                NSHTTPCookieName: @"p", NSHTTPCookieValue: @"1",
+                NSHTTPCookieDomain: @"path.test", NSHTTPCookiePath: cookiePath }];
+            [storage setCookie:cookie];
+            bool served = [storage cookiesForURL:readURL].count == 1;
+            char label[160];
+            snprintf(label, sizeof(label), "Path=%s %s served at %s", cases[i].cookiePath,
+                     cases[i].served ? "is" : "is not", cases[i].readPath);
+            check(served == cases[i].served, label);
+            for (NSHTTPCookie *held in [[storage.cookies copy] autorelease])
+                [storage deleteCookie:held];
+        }
+    }
+
     check(wk_sameSiteCopyServerComment(NULL) == NULL, "no comment stays no comment");
     check(wk_sameSiteCommentCreate(NULL, NULL) == NULL, "nothing to carry encodes to nothing");
 

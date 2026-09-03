@@ -248,9 +248,9 @@ WK_POLYFILL_REPLACES("CFNetwork", CFTypeRef, _CFHTTPCookieStorageGetDefault, (CF
 // A response's cookies do not come through here: CFNetwork stores those from the protocol layer, where
 // the restriction does not apply.
 WK_SYSTEM_FN("CFNetwork", CFArrayRef, CFHTTPCookieStorageCopyCookies, (CFTypeRef));
-WK_SYSTEM_FN("CFNetwork", CFStringRef, CFHTTPCookieGetName, (CFTypeRef));
-WK_SYSTEM_FN("CFNetwork", CFStringRef, CFHTTPCookieGetDomain, (CFTypeRef));
-WK_SYSTEM_FN("CFNetwork", CFStringRef, CFHTTPCookieGetPath, (CFTypeRef));
+WK_SYSTEM_FN("CFNetwork", CFStringRef, CFHTTPCookieCopyName, (CFTypeRef));
+WK_SYSTEM_FN("CFNetwork", CFStringRef, CFHTTPCookieCopyDomain, (CFTypeRef));
+WK_SYSTEM_FN("CFNetwork", CFStringRef, CFHTTPCookieCopyPath, (CFTypeRef));
 WK_SYSTEM_FN("CFNetwork", Boolean, CFHTTPCookieIsHTTPOnly, (CFTypeRef));
 
 static bool wk_stringsMatch(CFStringRef a, CFStringRef b, CFStringCompareFlags flags)
@@ -278,10 +278,19 @@ bool wk_publicCallerMayChangeCookie(CFTypeRef storage, CFStringRef name, CFStrin
         CFTypeRef stored = CFArrayGetValueAtIndex(cookies, i);
         if (!WK_SYSTEM(CFHTTPCookieIsHTTPOnly)(stored))
             continue;
-        if (wk_stringsMatch(WK_SYSTEM(CFHTTPCookieGetName)(stored), name, 0)
-            && wk_stringsMatch(WK_SYSTEM(CFHTTPCookieGetDomain)(stored), domain, kCFCompareCaseInsensitive)
-            && wk_stringsMatch(WK_SYSTEM(CFHTTPCookieGetPath)(stored), path, 0))
+        CFStringRef storedName = WK_SYSTEM(CFHTTPCookieCopyName)(stored);
+        CFStringRef storedDomain = WK_SYSTEM(CFHTTPCookieCopyDomain)(stored);
+        CFStringRef storedPath = WK_SYSTEM(CFHTTPCookieCopyPath)(stored);
+        if (wk_stringsMatch(storedName, name, 0)
+            && wk_stringsMatch(storedDomain, domain, kCFCompareCaseInsensitive)
+            && wk_stringsMatch(storedPath, path, 0))
             mayChange = false;
+        if (storedName)
+            CFRelease(storedName);
+        if (storedDomain)
+            CFRelease(storedDomain);
+        if (storedPath)
+            CFRelease(storedPath);
     }
     if (cookies)
         CFRelease(cookies);
@@ -292,9 +301,18 @@ static bool wk_publicCallerMayChangeCFCookie(CFTypeRef storage, CFTypeRef cookie
 {
     if (!cookie)
         return true;
-    return wk_publicCallerMayChangeCookie(storage, WK_SYSTEM(CFHTTPCookieGetName)(cookie),
-        WK_SYSTEM(CFHTTPCookieGetDomain)(cookie), WK_SYSTEM(CFHTTPCookieGetPath)(cookie),
+    CFStringRef name = WK_SYSTEM(CFHTTPCookieCopyName)(cookie);
+    CFStringRef domain = WK_SYSTEM(CFHTTPCookieCopyDomain)(cookie);
+    CFStringRef path = WK_SYSTEM(CFHTTPCookieCopyPath)(cookie);
+    bool mayChange = wk_publicCallerMayChangeCookie(storage, name, domain, path,
         WK_SYSTEM(CFHTTPCookieIsHTTPOnly)(cookie));
+    if (name)
+        CFRelease(name);
+    if (domain)
+        CFRelease(domain);
+    if (path)
+        CFRelease(path);
+    return mayChange;
 }
 
 WK_POLYFILL_REPLACES("CFNetwork", void, CFHTTPCookieStorageSetCookie, (CFTypeRef storage, CFTypeRef cookie))
@@ -453,21 +471,31 @@ static CFArrayRef wk_copyCookiesForURL(const void *storage, CFURLRef url, unsign
 {
     wk_copy_cookies_for_url_fn original = (wk_copy_cookies_for_url_fn)wk_hookForStorage(storage)->copyCookiesForURL;
     CFArrayRef cookies = original(storage, url, secure);
-    // Every other caller of this -- CFNetwork's own accept-policy path among them -- gets exactly what
-    // it would have got. A same-site read lets every cookie ride whatever its policy says
-    // (wk_sameSiteAllows), so only a cross-site read pays the per-cookie comment scan.
-    if (!cookies || !wk_cookieContext.known || wk_cookieContext.isSameSite)
+    if (!cookies)
         return cookies;
+
+    // This slot is what CFNetwork composes a request's Cookie header through, so the path rule holds for
+    // every caller of it. The SameSite rule is a property of the read: a same-site one lets every cookie
+    // ride whatever its policy says (wk_sameSiteAllows), so only a cross-site read pays the per-cookie
+    // comment scan.
+    bool applySameSite = wk_cookieContext.known && !wk_cookieContext.isSameSite;
+    CFStringRef requestPath = wk_requestPathCreate(url);
 
     CFIndex count = CFArrayGetCount(cookies);
     CFMutableArrayRef allowed = NULL;
     for (CFIndex i = 0; i < count; ++i) {
         const void *cookie = CFArrayGetValueAtIndex(cookies, i);
-        CFStringRef comment = WK_SYSTEM(CFHTTPCookieCopyComment)((WKHTTPCookieRef)cookie);
-        bool rides = wk_sameSiteAllows(wk_sameSitePolicyOfComment(comment), wk_cookieContext.isSameSite,
-                                       wk_cookieContext.isTopLevelNavigation, wk_cookieContext.isSafeMethod);
-        if (comment)
-            CFRelease(comment);
+        CFStringRef cookiePath = WK_SYSTEM(CFHTTPCookieCopyPath)((CFTypeRef)cookie);
+        bool rides = wk_cookiePathMatchesRequestPath(cookiePath, requestPath);
+        if (cookiePath)
+            CFRelease(cookiePath);
+        if (rides && applySameSite) {
+            CFStringRef comment = WK_SYSTEM(CFHTTPCookieCopyComment)((WKHTTPCookieRef)cookie);
+            rides = wk_sameSiteAllows(wk_sameSitePolicyOfComment(comment), wk_cookieContext.isSameSite,
+                                      wk_cookieContext.isTopLevelNavigation, wk_cookieContext.isSafeMethod);
+            if (comment)
+                CFRelease(comment);
+        }
         if (rides) {
             if (allowed)
                 CFArrayAppendValue(allowed, cookie);
@@ -476,11 +504,12 @@ static CFArrayRef wk_copyCookiesForURL(const void *storage, CFURLRef url, unsign
         if (!allowed) {
             allowed = CFArrayCreateMutable(NULL, count, &kCFTypeArrayCallBacks);
             if (!allowed)
-                return cookies;
+                wk_patch_fail(kSameSiteHooks, "a read's surviving cookies did not fit in memory");
             for (CFIndex kept = 0; kept < i; ++kept)
                 CFArrayAppendValue(allowed, CFArrayGetValueAtIndex(cookies, kept));
         }
     }
+    CFRelease(requestPath);
     if (!allowed)
         return cookies;
     CFRelease(cookies);

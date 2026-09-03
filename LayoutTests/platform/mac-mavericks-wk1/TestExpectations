@@ -24,12 +24,8 @@ webaudio/decode-audio-data-mp4-opus.html [ Failure ]
 webaudio/decode-audio-data-webm-opus.html [ Failure ]
 webaudio/decode-audio-data-webm-opus-resample.html [ Failure ]
 webaudio/decode-audio-data-webm-vorbis.html [ Failure ]
-webaudio/Panner/hrtf-database.html [ Skip ]
 webaudio/codec-tests/vorbis [ Skip ]
 
-# Real issues to revisit (not blocking the broad win):
-# audioworklet-does-not-leak: SIGSEGV on the WebCore:AudioWorklet thread during rapid worklet teardown
-#   (corrupted pointer; other AudioWorklet tests pass). Skipped so the crash doesn't disrupt the run.
 webaudio/MediaStreamAudioSource/mediastreamaudiosourcenode.html [ Failure ]
 webaudio/audiomix-bufferingpolicy.html [ Failure ]
 
@@ -43,9 +39,6 @@ storage/storageinfo-no-callbacks.html [ Failure ]
 storage/storageinfo-missing-arguments.html [ Failure ]
 storage/storagequota-query-usage.html [ Failure ]
 storage/storagequota-request-quota.html [ Failure ]
-# IndexedDB blob tests intermittently trip an objc cache-corruption crash during test teardown (deep,
-# pre-existing heap-corruption class); skip so they don't destabilize the run while it's investigated.
-
 # JS-correctness suites (dumpAsText assertion tests — not render-tree/baseline-sensitive). Re-enable to
 # exercise real engine behavior on this WebKit1 backport.
 js [ Pass ]
@@ -69,7 +62,11 @@ http/tests/navigation [ Pass ]
 # public-suffix rules), so the WPT cookie suites run here rather than under mac-wk1's blanket
 # `imported [ Skip ]`.
 imported/w3c/web-platform-tests/cookies [ Pass ]
-imported/w3c/web-platform-tests/cookiestore [ Pass ]
+
+# The Cookie Store API is not part of WebKit1: UnifiedWebPreferences.yaml gives CookieStoreAPIEnabled
+# the default `false` for WebKitLegacy, so `window.cookieStore` is absent and every test in the suite
+# fails on the interface rather than on cookie behavior. These run under mac-mavericks-wk2.
+imported/w3c/web-platform-tests/cookiestore [ Skip ]
 
 # --- Non-Mac platform tests that leaked in via the broad un-skips above -------------------------------
 # These exercise iOS/GTK/Win-specific behavior (touch events, UIKit text interaction, ATK, etc.) that

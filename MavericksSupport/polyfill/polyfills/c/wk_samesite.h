@@ -120,6 +120,15 @@ wk_samesite_header_disposition wk_sameSiteRewriteSetCookieHeader(CFStringRef hea
 // The caller owns the result; *outCount is the number of ranges.
 CFRange *wk_copySetCookieRanges(CFStringRef header, CFIndex *outCount);
 
+// RFC 6265 5.1.4: whether a cookie of |cookiePath| is served for |requestPath|. 10.9 tests only that
+// the cookie-path is a prefix, so a cookie whose Path is /cook is served at /cookies/anything; see the
+// definition. |requestPath| is what wk_requestPathCreate answers for the URL being read.
+bool wk_cookiePathMatchesRequestPath(CFStringRef cookiePath, CFStringRef requestPath);
+
+// The path a read is for, as a cookie-path is written: a URL with no path names the root. The caller
+// owns the result.
+CFStringRef wk_requestPathCreate(CFURLRef url);
+
 // Whether |text| carries a CTL other than HTAB, which is what makes a set-cookie-string one RFC 6265bis
 // 5.5 ignores.
 bool wk_hasControlCharacter(CFStringRef text);

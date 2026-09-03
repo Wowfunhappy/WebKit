@@ -627,6 +627,7 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
 {
     (void)mainDocumentURL; (void)partition;
     NSArray<NSHTTPCookie *> *cookies = [self cookiesForURL:url];
+
     // policyProperties carries this read's SameSite context. 10.13+ CFNetwork withholds a Strict or Lax
     // cookie from a cross-site read here; the same rule is applied from what the cookie carries. Which
     // site this read is for is derived from SiteForCookies against the URL being read rather than read
@@ -1499,6 +1500,34 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
         WK_ORIGINAL_METHOD(void, (NSHTTPCookieAcceptPolicy), policy);
     if (store)
         CFHTTPCookieStorageSetCookieAcceptPolicy(store, (CFIndex)policy);
+}
+@end
+
+// RFC 6265 5.1.4 holds a cookie to a request-path on a path-segment boundary; 10.9 tests only that the
+// cookie-path is a prefix (HTTPCookieStorage::lookupAndCopyCookies is a strlen bound and a strncmp), so
+// a cookie whose Path is /cook is answered here for /cookies/anything. This is the read every other
+// answer is built from -- _getCookiesForURL: above, NetworkStorageSession::getCookies, and through it
+// WKHTTPCookieStore and the extension cookies API.
+WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
+- (NSArray<NSHTTPCookie *> *)cookiesForURL:(NSURL *)url
+{
+    NSArray<NSHTTPCookie *> *cookies = WK_ORIGINAL_METHOD(NSArray *, (NSURL *), url);
+    CFStringRef requestPath = wk_requestPathCreate((CFURLRef)url);
+    NSMutableArray<NSHTTPCookie *> *onPath = nil;
+    for (NSUInteger i = 0; i < cookies.count; ++i) {
+        NSHTTPCookie *cookie = cookies[i];
+        if (wk_cookiePathMatchesRequestPath((CFStringRef)cookie.path, requestPath)) {
+            [onPath addObject:cookie];
+            continue;
+        }
+        if (!onPath) {
+            onPath = [NSMutableArray arrayWithCapacity:cookies.count];
+            for (NSUInteger kept = 0; kept < i; ++kept)
+                [onPath addObject:cookies[kept]];
+        }
+    }
+    CFRelease(requestPath);
+    return onPath ?: cookies;
 }
 @end
 

@@ -631,6 +631,39 @@ static bool wk_rangeHasControlCharacter(CFStringRef header, CFRange range)
     return false;
 }
 
+// RFC 6265 5.1.4: a cookie-path matches a request-path when the two are equal, or when the cookie-path
+// is a prefix of the request-path and either the cookie-path ends in '/' or the request-path continues
+// with one. 10.9 tests only the prefix -- HTTPCookieStorage::lookupAndCopyCookies is a strlen bound and
+// a strncmp -- so a cookie whose Path is /cook is served at /cookies/anything.
+bool wk_cookiePathMatchesRequestPath(CFStringRef cookiePath, CFStringRef requestPath)
+{
+    if (!cookiePath || !requestPath)
+        return true;
+    CFIndex cookieLength = CFStringGetLength(cookiePath);
+    CFIndex requestLength = CFStringGetLength(requestPath);
+    // No path names the root, which every request-path is under.
+    if (!cookieLength)
+        return true;
+    if (cookieLength > requestLength)
+        return false;
+    if (CFStringCompare(cookiePath, requestPath, 0) == kCFCompareEqualTo)
+        return true;
+    if (CFStringGetCharacterAtIndex(cookiePath, cookieLength - 1) == '/')
+        return true;
+    return CFStringGetCharacterAtIndex(requestPath, cookieLength) == '/';
+}
+
+// The path a read is for, as a cookie-path is written: a URL with no path names the root.
+CFStringRef wk_requestPathCreate(CFURLRef url)
+{
+    CFStringRef path = url ? CFURLCopyPath(url) : NULL;
+    if (path && CFStringGetLength(path))
+        return path;
+    if (path)
+        CFRelease(path);
+    return (CFStringRef)CFRetain(CFSTR("/"));
+}
+
 // A CTL other than HTAB: %x00-08, %x0A-1F or %x7F.
 bool wk_hasControlCharacter(CFStringRef text)
 {
