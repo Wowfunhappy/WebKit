@@ -36,6 +36,15 @@ typedef enum {
 // encoding: that cookie is stored as it came, carrying the restriction 10.9 carries for every cookie.
 CFStringRef wk_sameSiteCommentCreate(CFStringRef sameSite, CFStringRef comment);
 
+// The ceiling RFC 6265bis 4.1.2.1 puts on a cookie's lifetime, in seconds: 400 days from the moment it
+// is set. Both seams that hold a cookie to it -- this file's Set-Cookie field pass and the property
+// dictionary pass in methods/Foundation.m -- take the number and the text they emit from here.
+#define WK_MAXIMUM_COOKIE_LIFETIME_SECONDS (400 * 24 * 60 * 60)
+
+// The same field with every cookie in it held to that ceiling, or NULL when none of them exceeds it.
+// See the definition for how the cap is expressed.
+CFStringRef wk_cookieLifetimeCappedHeaderCreate(CFStringRef header, CFURLRef url);
+
 // The same blob with a creation time in it as well: a cookie carries the SameSite attribute and the
 // creation time its maker asked for in the one Comment field 10.9 does keep, alongside the server's own
 // comment. Any of the three may be NULL.

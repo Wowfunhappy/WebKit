@@ -557,9 +557,15 @@ static void wk_setCookiesWithResponseHeaderFields(const void *storage, CFURLRef 
         header = withoutControls;
     }
 
+    // The 400-day ceiling first, so the attribute the SameSite pass may add lands after it and the
+    // ranges each pass measures are the ones it edits.
+    CFStringRef capped = wk_cookieLifetimeCappedHeaderCreate((CFStringRef)header, url);
+    if (capped)
+        header = capped;
+
     CFStringRef rewritten = NULL;
     wk_samesite_header_disposition disposition = wk_sameSiteRewriteSetCookieHeader((CFStringRef)header, url, &rewritten);
-    if (disposition == WK_SAMESITE_HEADER_UNCHANGED && !withoutControls) {
+    if (disposition == WK_SAMESITE_HEADER_UNCHANGED && !withoutControls && !capped) {
         original(storage, url, headerFields, mainDocumentURL, acceptPolicy);
         return;
     }
@@ -571,6 +577,8 @@ static void wk_setCookiesWithResponseHeaderFields(const void *storage, CFURLRef 
     CFRelease(replaced);
     if (rewritten)
         CFRelease(rewritten);
+    if (capped)
+        CFRelease(capped);
     if (withoutControls)
         CFRelease(withoutControls);
 }
@@ -807,8 +815,10 @@ static const void *wk_vptrOfVTable(const wk_image *image, const char *vtableSymb
 
 __attribute__((constructor)) static void wk_installSameSiteCookieHooks(void)
 {
-    // A cookie storage class the request's cookies are read from. Only the two the response-storing path
-    // reaches carry a storing symbol; the third is the in-memory storage that path never writes to.
+    // Each cookie storage class a request's cookies are read from and a response's are stored to. The
+    // in-memory one is the storage an ephemeral session gets -- private browsing, and the session the
+    // layout-test harness runs on -- and it stores a response's cookies through its own method like the
+    // other two.
     struct wk_storage_class {
         const char *vtable;
         const char *copyCookiesForURL;
@@ -819,7 +829,8 @@ __attribute__((constructor)) static void wk_installSameSiteCookieHooks(void)
           "__ZNK16CFXCookieStorage34setCookiesWithResponseHeaderFieldsEPK7__CFURLPK14__CFDictionaryS2_i" },
         { "__ZTV16NSXCookieStorage", "__ZNK16NSXCookieStorage17copyCookiesForURLEPK7__CFURLh",
           "__ZNK16NSXCookieStorage34setCookiesWithResponseHeaderFieldsEPK7__CFURLPK14__CFDictionaryS2_i" },
-        { "__ZTV17MemXCookieStorage", "__ZNK17MemXCookieStorage17copyCookiesForURLEPK7__CFURLh", NULL },
+        { "__ZTV17MemXCookieStorage", "__ZNK17MemXCookieStorage17copyCookiesForURLEPK7__CFURLh",
+          "__ZNK17MemXCookieStorage34setCookiesWithResponseHeaderFieldsEPK7__CFURLPK14__CFDictionaryS2_i" },
     };
     const long classCount = (long)(sizeof(classes) / sizeof(classes[0]));
 

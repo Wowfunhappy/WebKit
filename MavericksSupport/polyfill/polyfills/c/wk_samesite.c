@@ -17,6 +17,7 @@
 typedef const struct OpaqueCFHTTPCookie *WKHTTPCookieRef;
 WK_SYSTEM_FN("CFNetwork", CFArrayRef, CFHTTPCookieCreateWithResponseHeaderFields, (CFAllocatorRef, CFDictionaryRef, CFURLRef));
 WK_SYSTEM_FN("CFNetwork", CFStringRef, CFHTTPCookieCopyComment, (WKHTTPCookieRef));
+WK_SYSTEM_FN("CFNetwork", double, CFHTTPCookieGetExpirationTime, (CFTypeRef));
 
 // ---------------------------------------------------------------------------------------------------
 // The encoded Comment.
@@ -433,9 +434,9 @@ static bool wk_rangeEqualsLowercase(CFStringInlineBuffer *buffer, CFRange range,
     return true;
 }
 
-// Every attribute of a Set-Cookie header field opens with ';'. A ';' inside a quoted value opens one
-// too as far as this scan is concerned -- 10.9's parser keeps such a value whole (measured) -- and the
-// attribution below is what tells the two apart, by asking the parser. The caller owns the result.
+// Every attribute of a Set-Cookie header field opens with a ';' outside a double-quoted value: 10.9's
+// parser reads a="x;y" as one cookie whose value holds the semicolon (measured), so a ';' inside the
+// quotes opens nothing here either. The caller owns the result.
 static struct wk_attribute *wk_copyAttributes(CFStringRef header, long *outCount)
 {
     CFIndex length = CFStringGetLength(header);
@@ -721,6 +722,165 @@ static bool wk_headerNamesSameSite(CFStringRef header)
             return true;
     }
     return false;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The ceiling on a cookie's lifetime.
+//
+// RFC 6265bis 4.1.2.1 caps a cookie at 400 days from the moment it is set, and modern CFNetwork
+// enforces it; 10.9 keeps whatever the field names, so a response can plant a cookie that outlives the
+// machine. The cap is expressed by appending Max-Age to the set-cookie-string that exceeds it: Max-Age
+// takes precedence over Expires (RFC 6265 5.3), so one appended attribute caps a cookie however its
+// lifetime was written, and the cookie's own bytes are otherwise left exactly as the server sent them.
+//
+// Which cookies exceed it is answered by 10.9's own parser rather than by reading the attributes here:
+// the parser resolves Max-Age against Expires, tolerates the date formats it tolerates, and reports one
+// expiration time. A cookie with no expiry at all is a session cookie, which has no lifetime to cap.
+static const double kMaximumCookieLifetime = WK_MAXIMUM_COOKIE_LIFETIME_SECONDS;
+
+// Does the field name a lifetime at all? Runs on every cookie-setting response, so it is a byte scan.
+static bool wk_headerNamesALifetime(CFStringRef header)
+{
+    static const char * const wanted[] = { "max-age", "expires" };
+    CFIndex length = CFStringGetLength(header);
+    CFStringInlineBuffer buffer;
+    CFStringInitInlineBuffer(header, &buffer, CFRangeMake(0, length));
+    for (int w = 0; w < 2; ++w) {
+        CFIndex wantedLength = (CFIndex)strlen(wanted[w]);
+        for (CFIndex i = 0; i + wantedLength <= length; ++i) {
+            CFIndex j = 0;
+            while (j < wantedLength) {
+                UniChar c = CFStringGetCharacterFromInlineBuffer(&buffer, i + j);
+                if (c >= 'A' && c <= 'Z')
+                    c += 'a' - 'A';
+                if (c != (UniChar)wanted[w][j])
+                    break;
+                ++j;
+            }
+            if (j == wantedLength)
+                return true;
+        }
+    }
+    return false;
+}
+
+// The value bytes of the cookie's first Max-Age attribute, or a location of kCFNotFound when it has
+// none. The first rather than the last: 10.9's parser keeps the first Max-Age a set-cookie-string
+// carries and ignores the ones after it (measured), so that is the one whose value decides the lifetime.
+static CFRange wk_firstMaxAgeValue(CFStringRef header, CFRange cookie)
+{
+    static const char wanted[] = "max-age";
+    static const CFIndex wantedLength = 7;
+    CFRange none = CFRangeMake(kCFNotFound, 0);
+    CFStringInlineBuffer buffer;
+    CFStringInitInlineBuffer(header, &buffer, cookie);
+#define WK_COOKIE_AT(index) CFStringGetCharacterFromInlineBuffer(&buffer, (index))
+
+    bool quoted = false;
+    for (CFIndex i = 0; i < cookie.length; ++i) {
+        UniChar here = WK_COOKIE_AT(i);
+        if (here == '"') {
+            quoted = !quoted;
+            continue;
+        }
+        // A ';' inside a double-quoted value begins no attribute: 10.9 reads a="x;y" as one cookie whose
+        // value holds the semicolon, so a scan that anchored there would rewrite bytes of the value.
+        if (here != ';' || quoted)
+            continue;
+        CFIndex name = i + 1;
+        while (name < cookie.length && wk_isHeaderSpace(WK_COOKIE_AT(name)))
+            ++name;
+        CFIndex j = 0;
+        while (j < wantedLength && name + j < cookie.length) {
+            UniChar c = WK_COOKIE_AT(name + j);
+            if (c >= 'A' && c <= 'Z')
+                c += 'a' - 'A';
+            if (c != (UniChar)wanted[j])
+                break;
+            ++j;
+        }
+        if (j < wantedLength)
+            continue;
+        CFIndex equals = name + wantedLength;
+        while (equals < cookie.length && wk_isHeaderSpace(WK_COOKIE_AT(equals)))
+            ++equals;
+        if (equals >= cookie.length || WK_COOKIE_AT(equals) != '=')
+            continue;
+        CFIndex value = equals + 1;
+        while (value < cookie.length && wk_isHeaderSpace(WK_COOKIE_AT(value)))
+            ++value;
+        CFIndex end = value;
+        bool valueQuoted = false;
+        while (end < cookie.length) {
+            UniChar c = WK_COOKIE_AT(end);
+            if (c == '"')
+                valueQuoted = !valueQuoted;
+            else if (c == ';' && !valueQuoted)
+                break;
+            ++end;
+        }
+        while (end > value && wk_isHeaderSpace(WK_COOKIE_AT(end - 1)))
+            --end;
+        return CFRangeMake(cookie.location + value, end - value);
+    }
+    return none;
+#undef WK_COOKIE_AT
+}
+
+CFStringRef wk_cookieLifetimeCappedHeaderCreate(CFStringRef header, CFURLRef url)
+{
+    if (!header || !CFStringGetLength(header) || !url || !wk_headerNamesALifetime(header))
+        return NULL;
+
+    CFIndex cookieCount = 0;
+    CFRange *cookies = wk_copySetCookieRanges(header, &cookieCount);
+    if (!cookieCount) {
+        free(cookies);
+        return NULL;
+    }
+
+    struct wk_edit *edits = (struct wk_edit *)calloc((size_t)cookieCount, sizeof(struct wk_edit));
+    if (!edits)
+        wk_patch_fail(kSameSiteEncoding, "a Set-Cookie field's lifetime edits did not fit in memory");
+
+    double ceiling = CFAbsoluteTimeGetCurrent() + kMaximumCookieLifetime;
+    CFStringRef cappedSeconds = CFStringCreateWithFormat(NULL, NULL, CFSTR("%d"), (int)WK_MAXIMUM_COOKIE_LIFETIME_SECONDS);
+    CFStringRef cappedAttribute = cappedSeconds ? CFStringCreateWithFormat(NULL, NULL, CFSTR("; Max-Age=%@"), cappedSeconds) : NULL;
+    if (!cappedSeconds || !cappedAttribute)
+        wk_patch_fail(kSameSiteEncoding, "the lifetime ceiling could not be written");
+    long editCount = 0;
+    for (CFIndex c = 0; c < cookieCount; ++c) {
+        CFStringRef one = CFStringCreateWithSubstring(NULL, header, cookies[c]);
+        CFArrayRef parsed = one ? wk_parseSetCookieHeader(one, url) : NULL;
+        CFTypeRef cookie = parsed && CFArrayGetCount(parsed) == 1 ? CFArrayGetValueAtIndex(parsed, 0) : NULL;
+        if (cookie && WK_SYSTEM(CFHTTPCookieGetExpirationTime)(cookie) > ceiling) {
+            // A cookie that already names a Max-Age has that value replaced, because a second one is
+            // ignored; one whose lifetime comes from Expires takes an appended Max-Age, which decides
+            // the lifetime over the date it carries (RFC 6265 5.3, and measured on this parser).
+            CFRange maxAge = wk_firstMaxAgeValue(header, cookies[c]);
+            if (maxAge.location != kCFNotFound) {
+                edits[editCount].range = maxAge;
+                edits[editCount].replacement = (CFStringRef)CFRetain(cappedSeconds);
+            } else {
+                edits[editCount].range = CFRangeMake(cookies[c].location + cookies[c].length, 0);
+                edits[editCount].replacement = (CFStringRef)CFRetain(cappedAttribute);
+            }
+            ++editCount;
+        }
+        if (parsed)
+            CFRelease(parsed);
+        if (one)
+            CFRelease(one);
+    }
+
+    CFStringRef capped = editCount ? wk_copyHeaderWithEdits(header, edits, editCount) : NULL;
+    for (long i = 0; i < editCount; ++i)
+        CFRelease(edits[i].replacement);
+    CFRelease(cappedAttribute);
+    CFRelease(cappedSeconds);
+    free(edits);
+    free(cookies);
+    return capped;
 }
 
 wk_samesite_header_disposition wk_sameSiteRewriteSetCookieHeader(CFStringRef header, CFURLRef url, CFStringRef *rewritten)

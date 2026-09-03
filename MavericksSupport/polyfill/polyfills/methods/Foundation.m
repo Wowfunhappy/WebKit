@@ -556,6 +556,38 @@ static NSString *wk_createdFieldOfProperties(NSDictionary *properties)
     return nil;
 }
 
+// A cookie's lifetime has a ceiling of 400 days from the moment it is created -- the limit RFC 6265bis
+// 4.1.2.1 sets and modern CFNetwork enforces, on a cookie a script sets and on one a response sends
+// alike. 10.9 keeps whatever the cookie names, so a page can plant one that outlives the machine. The
+// number and the text come from wk_samesite.h, which is where the Set-Cookie field pass takes them from.
+//
+// A property dictionary can spell the lifetime two ways, and NSHTTPCookieMaximumAge ("Max-Age") decides
+// over NSHTTPCookieExpires when it carries both (measured), so it is the one held to the ceiling.
+static NSDictionary *wk_propertiesWithCappedExpiry(NSDictionary *properties)
+{
+    // The key by its value rather than by NSHTTPCookieMaximumAge: 10.9 exports that constant from
+    // Foundation and the build SDK's stub library places it in CFNetwork, so a reference to it does not
+    // bind here (measured: "Symbol not found: _NSHTTPCookieMaximumAge, expected in CFNetwork").
+    id maximumAge = properties[@"Max-Age"];
+    if ([maximumAge isKindOfClass:[NSString class]] || [maximumAge isKindOfClass:[NSNumber class]]) {
+        if ([maximumAge doubleValue] <= WK_MAXIMUM_COOKIE_LIFETIME_SECONDS)
+            return properties;
+        NSMutableDictionary *capped = [[properties mutableCopy] autorelease];
+        capped[@"Max-Age"] = [NSString stringWithFormat:@"%d", (int)WK_MAXIMUM_COOKIE_LIFETIME_SECONDS];
+        return capped;
+    }
+
+    id expires = properties[NSHTTPCookieExpires];
+    if (![expires isKindOfClass:[NSDate class]])
+        return properties;
+    NSDate *ceiling = [NSDate dateWithTimeIntervalSinceNow:WK_MAXIMUM_COOKIE_LIFETIME_SECONDS];
+    if ([(NSDate *)expires compare:ceiling] != NSOrderedDescending)
+        return properties;
+    NSMutableDictionary *capped = [[properties mutableCopy] autorelease];
+    capped[NSHTTPCookieExpires] = ceiling;
+    return capped;
+}
+
 static NSDictionary *wk_propertiesWithSameSiteEncoded(NSDictionary *properties)
 {
     id policy = properties[NSHTTPCookieSameSitePolicy];
@@ -733,11 +765,11 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookie)
 }
 + (NSHTTPCookie *)cookieWithProperties:(NSDictionary<NSHTTPCookiePropertyKey, id> *)properties
 {
-    return WK_ORIGINAL_METHOD(id, (NSDictionary *), wk_propertiesWithSameSiteEncoded(properties));
+    return WK_ORIGINAL_METHOD(id, (NSDictionary *), wk_propertiesWithSameSiteEncoded(wk_propertiesWithCappedExpiry(properties)));
 }
 - (instancetype)initWithProperties:(NSDictionary<NSHTTPCookiePropertyKey, id> *)properties
 {
-    return WK_ORIGINAL_METHOD(id, (NSDictionary *), wk_propertiesWithSameSiteEncoded(properties));
+    return WK_ORIGINAL_METHOD(id, (NSDictionary *), wk_propertiesWithSameSiteEncoded(wk_propertiesWithCappedExpiry(properties)));
 }
 // Used directly by WebKit as well as by the cookie jar (SOAuthorizationSession), so the attribute is
 // put into the Comment field here too, before the parser this stands in for sees the header.
@@ -754,17 +786,26 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookie)
     if (![header isKindOfClass:[NSString class]] || !url)
         return WK_ORIGINAL_METHOD(NSArray *, (NSDictionary *, NSURL *), headerFields, url);
 
+    // The lifetime ceiling first, so the attribute the SameSite pass may add lands after it and each
+    // pass edits the ranges it measured -- the order c/CFNetwork.c's storage hook uses.
+    NSString *capped = [(NSString *)wk_cookieLifetimeCappedHeaderCreate((CFStringRef)header, (CFURLRef)url) autorelease];
+    if (capped)
+        header = capped;
+
     CFStringRef rewritten = NULL;
     switch (wk_sameSiteRewriteSetCookieHeader((CFStringRef)header, (CFURLRef)url, &rewritten)) {
     case WK_SAMESITE_HEADER_UNCHANGED:
         break;
-    case WK_SAMESITE_HEADER_REWRITTEN: {
-        NSMutableDictionary *replaced = [[headerFields mutableCopy] autorelease];
-        replaced[name] = [(NSString *)rewritten autorelease];
-        return WK_ORIGINAL_METHOD(NSArray *, (NSDictionary *, NSURL *), replaced, url);
+    case WK_SAMESITE_HEADER_REWRITTEN:
+        header = [(NSString *)rewritten autorelease];
+        break;
     }
-    }
-    return WK_ORIGINAL_METHOD(NSArray *, (NSDictionary *, NSURL *), headerFields, url);
+    if (header == (id)headerFields[name])
+        return WK_ORIGINAL_METHOD(NSArray *, (NSDictionary *, NSURL *), headerFields, url);
+
+    NSMutableDictionary *replaced = [[headerFields mutableCopy] autorelease];
+    replaced[name] = header;
+    return WK_ORIGINAL_METHOD(NSArray *, (NSDictionary *, NSURL *), replaced, url);
 }
 @end
 

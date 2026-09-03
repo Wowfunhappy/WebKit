@@ -342,6 +342,48 @@ int main(void)
     if (asComment)
         CFRelease(asComment);
     CFRelease(foreign);
+    // The 400-day ceiling, expressed by appending Max-Age to the cookies that exceed it.
+    {
+        CFURLRef url = CFURLCreateWithString(NULL, CFSTR("https://example.com/"), NULL);
+        CFStringRef longOne = wk_cookieLifetimeCappedHeaderCreate(
+            CFSTR("a=1; max-age=99999999999999999999999999999; path=/"), url);
+        check(longOne && CFStringFind(longOne, CFSTR("max-age=34560000"), 0).location != kCFNotFound
+              && CFStringFind(longOne, CFSTR("99999"), 0).location == kCFNotFound,
+              "a cookie past the ceiling has its Max-Age replaced");
+        CFStringRef byDate = wk_cookieLifetimeCappedHeaderCreate(
+            CFSTR("a=1; expires=Wed, 01 Jan 2094 00:00:00 GMT; path=/"), url);
+        check(byDate && CFStringHasSuffix(byDate, CFSTR("; Max-Age=34560000")),
+              "a cookie dated past the ceiling takes a Max-Age that decides its lifetime");
+        if (byDate)
+            CFRelease(byDate);
+        check(wk_cookieLifetimeCappedHeaderCreate(CFSTR("a=1; max-age=60; path=/"), url) == NULL,
+              "a short-lived cookie is left alone");
+        check(wk_cookieLifetimeCappedHeaderCreate(CFSTR("a=1; path=/"), url) == NULL,
+              "a session cookie has no lifetime to cap");
+        // A quoted value carries its own semicolons and its own "max-age": the scan must not anchor
+        // inside it, and no byte of the value may be rewritten.
+        CFStringRef quoted = wk_cookieLifetimeCappedHeaderCreate(
+            CFSTR("a=\"; max-age=1\"; expires=Wed, 01 Jan 2094 00:00:00 GMT"), url);
+        check(quoted && CFStringFind(quoted, CFSTR("a=\"; max-age=1\""), 0).location != kCFNotFound,
+              "a quoted cookie value survives the cap byte for byte");
+        check(quoted && CFStringHasSuffix(quoted, CFSTR("; Max-Age=34560000")),
+              "and the cookie is capped by an appended Max-Age");
+        if (quoted)
+            CFRelease(quoted);
+
+        CFStringRef pair = wk_cookieLifetimeCappedHeaderCreate(
+            CFSTR("a=1; max-age=60, b=2; max-age=99999999999"), url);
+        check(pair && CFStringFind(pair, CFSTR("a=1; max-age=60"), 0).location != kCFNotFound
+              && CFStringFind(pair, CFSTR("b=2; max-age=34560000"), 0).location != kCFNotFound,
+              "one cookie of a folded field is capped and the other is left alone");
+        if (longOne)
+            CFRelease(longOne);
+        if (pair)
+            CFRelease(pair);
+        if (url)
+            CFRelease(url);
+    }
+
     check(wk_sameSiteCopyServerComment(NULL) == NULL, "no comment stays no comment");
     check(wk_sameSiteCommentCreate(NULL, NULL) == NULL, "nothing to carry encodes to nothing");
 
