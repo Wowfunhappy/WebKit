@@ -393,8 +393,34 @@ static void updateIgnoreStrictTransportSecuritySetting(RetainPtr<NSURLRequest>& 
     }
 }
 
+// MAVERICKS_BACKPORT: the same request, served from the session's cookie storage. 10.9 attaches that
+// storage to the request a task is created from, and a continuing request built here carries no such
+// attachment -- the hop made from it reads and writes the process's default jar instead. Measured
+// against 10.9's own NSURLSession: a delegate handing the PROPOSED request back keeps the session's
+// jar, and one handing back a freshly built request with the same URL, method, headers, main-document
+// URL and HTTPShouldHandleCookies loses it. The storage travels on the request.
+static RetainPtr<NSURLRequest> requestOnSessionCookieStorage(NSURLSession *session, NSURLRequest *request)
+{
+    if (!request)
+        return request;
+    CFHTTPCookieStorageRef storage = [session.configuration.HTTPCookieStorage _cookieStorage];
+    if (!storage)
+        return request;
+    RetainPtr stamped = adoptNS([request mutableCopy]);
+    if (CFMutableURLRequestRef cfRequest = [stamped.get() _CFURLRequest])
+        CFURLRequestSetHTTPCookieStorage(cfRequest, storage);
+    return stamped;
+}
+
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completionHandler
 {
+    // MAVERICKS_BACKPORT: every request this method hands over is one it built, so each is put back on
+    // the session's cookie storage -- see requestOnSessionCookieStorage above.
+    auto stampingHandler = makeBlockPtr([session = RetainPtr { session }, handler = makeBlockPtr(completionHandler)](NSURLRequest *continuing) {
+        handler(requestOnSessionCookieStorage(session.get(), continuing).get());
+    });
+    completionHandler = stampingHandler.get();
+
     auto taskIdentifier = task.taskIdentifier;
     LOG(NetworkSession, "%zu willPerformHTTPRedirection from %s to %s", taskIdentifier, response.URL.absoluteString.UTF8String, request.URL.absoluteString.UTF8String);
 

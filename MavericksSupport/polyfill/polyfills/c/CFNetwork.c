@@ -252,6 +252,8 @@ WK_SYSTEM_FN("CFNetwork", CFStringRef, CFHTTPCookieCopyName, (CFTypeRef));
 WK_SYSTEM_FN("CFNetwork", CFStringRef, CFHTTPCookieCopyDomain, (CFTypeRef));
 WK_SYSTEM_FN("CFNetwork", CFStringRef, CFHTTPCookieCopyPath, (CFTypeRef));
 WK_SYSTEM_FN("CFNetwork", Boolean, CFHTTPCookieIsHTTPOnly, (CFTypeRef));
+WK_SYSTEM_FN("CFNetwork", Boolean, CFHTTPCookieIsSecure, (CFTypeRef));
+WK_SYSTEM_FN("CFNetwork", CFStringRef, CFHTTPCookieCopyValue, (CFTypeRef));
 
 static bool wk_stringsMatch(CFStringRef a, CFStringRef b, CFStringCompareFlags flags)
 {
@@ -372,6 +374,12 @@ WK_SYSTEM_FN("CFNetwork", CFTypeRef, _CFURLRequestCopyProtocolPropertyForKey, (W
 WK_SYSTEM_FN("CFNetwork", CFStringRef, CFURLRequestCopyHTTPRequestMethod, (WKCFURLRequestRef));
 WK_SYSTEM_FN("CFNetwork", CFURLRef, CFURLRequestGetURL, (WKCFURLRequestRef));
 
+// A CF object's payload -- the C++ object CFObject::Allocate answers with, and the `this` a CFNetwork
+// C++ method takes -- begins one CF header into the object.
+static const size_t kCFPayloadOffset = 2 * sizeof(void *);
+typedef CFTypeID (*wk_type_id_fn)(void);
+static wk_type_id_fn wk_CFHTTPCookieStorageGetTypeID;
+
 static const char kSameSiteHooks[] = "CFNetwork SameSite cookie hooks";
 
 // The context one composition runs under. The inner replacement is handed a storage and a URL and no
@@ -435,6 +443,9 @@ struct wk_storage_hook {
     const void *vtable;
     void *copyCookiesForURL;
     void *setCookiesWithResponseHeaderFields;
+    // Where the class keeps the CFHTTPCookieStorage its store method hands the work to, or 0 for a
+    // class that does the work itself and reaches no HTTPCookieStorage.
+    long cookieStorageField;
 };
 static struct wk_storage_hook wk_storageHooks[3];
 static long wk_storageHookCount;
@@ -465,6 +476,50 @@ static CFDictionaryRef wk_copyCookiesForRequest(const void *session, WKCFURLRequ
     // would let a Strict cookie ride the next read made on it.
     wk_cookieContext = enclosing;
     return fields;
+}
+
+// RFC 6265bis 5.5's send order, applied where CFNetwork composes a request's Cookie header. A stable
+// pass, so cookies of equal path length keep the order the storage gave; |cookies| is consumed.
+static CFArrayRef wk_cookiesInSendOrderCreate(CFArrayRef cookies)
+{
+    CFIndex count = CFArrayGetCount(cookies);
+    bool ordered = true;
+    for (CFIndex i = 1; i < count && ordered; ++i) {
+        CFStringRef path = WK_SYSTEM(CFHTTPCookieCopyPath)(CFArrayGetValueAtIndex(cookies, i));
+        CFStringRef before = WK_SYSTEM(CFHTTPCookieCopyPath)(CFArrayGetValueAtIndex(cookies, i - 1));
+        ordered = !wk_cookiePathSortsFirst(path, before);
+        if (path)
+            CFRelease(path);
+        if (before)
+            CFRelease(before);
+    }
+    if (ordered)
+        return cookies;
+
+    CFMutableArrayRef sorted = CFArrayCreateMutable(NULL, count, &kCFTypeArrayCallBacks);
+    if (!sorted)
+        wk_patch_fail(kSameSiteHooks, "a read's cookies did not fit in memory to be ordered");
+    // Insertion by the rule: each cookie goes after every one whose path is not shorter, which keeps
+    // equal-length paths in the order they arrived however many of them there are.
+    for (CFIndex i = 0; i < count; ++i) {
+        const void *cookie = CFArrayGetValueAtIndex(cookies, i);
+        CFStringRef path = WK_SYSTEM(CFHTTPCookieCopyPath)(cookie);
+        CFIndex at = CFArrayGetCount(sorted);
+        while (at > 0) {
+            CFStringRef seated = WK_SYSTEM(CFHTTPCookieCopyPath)(CFArrayGetValueAtIndex(sorted, at - 1));
+            bool goesBefore = wk_cookiePathSortsFirst(path, seated);
+            if (seated)
+                CFRelease(seated);
+            if (!goesBefore)
+                break;
+            --at;
+        }
+        if (path)
+            CFRelease(path);
+        CFArrayInsertValueAtIndex(sorted, at, cookie);
+    }
+    CFRelease(cookies);
+    return sorted;
 }
 
 static CFArrayRef wk_copyCookiesForURL(const void *storage, CFURLRef url, unsigned char secure)
@@ -510,10 +565,11 @@ static CFArrayRef wk_copyCookiesForURL(const void *storage, CFURLRef url, unsign
         }
     }
     CFRelease(requestPath);
-    if (!allowed)
-        return cookies;
-    CFRelease(cookies);
-    return allowed;
+    if (allowed) {
+        CFRelease(cookies);
+        cookies = allowed;
+    }
+    return wk_cookiesInSendOrderCreate(cookies);
 }
 
 // The field name a response carries Set-Cookie under, in whatever case it arrived in.
@@ -541,12 +597,48 @@ static CFStringRef wk_setCookieFieldName(CFDictionaryRef fields)
     return name;
 }
 
+// NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain, as the accept policy reaches the slots below.
+enum { kOnlyFromMainDocumentDomain = 2 };
+
+// HTTPCookieStorage::someCookiesAreSetForURL, the question itself rather than one shaped like it: it
+// takes the URL's host, lowercases it and asks someCookiesAreSetForDomain, where the read slot above
+// would also have matched the path (lookupAndCopyCookies is a strlen bound and a strncmp). It takes the
+// C++ storage, which begins one CF header into the CFHTTPCookieStorage the class holds.
+typedef unsigned char (*wk_some_cookies_are_set_fn)(const void *storage, CFURLRef url);
+static wk_some_cookies_are_set_fn wk_someCookiesAreSetForURL;
+
+static bool wk_storageHoldsCookiesForURL(const void *storage, CFURLRef url)
+{
+    long field = wk_hookForStorage(storage)->cookieStorageField;
+    if (!field)
+        return true;
+    CFTypeRef cookieStorage = *(CFTypeRef *)((const char *)storage + field);
+    if (!cookieStorage || !wk_CFHTTPCookieStorageGetTypeID
+        || CFGetTypeID(cookieStorage) != wk_CFHTTPCookieStorageGetTypeID())
+        wk_patch_fail(kSameSiteHooks, "a cookie storage class does not hold a cookie storage where this reads one");
+    return wk_someCookiesAreSetForURL((const char *)cookieStorage + kCFPayloadOffset, url);
+}
+
 static void wk_setCookiesWithResponseHeaderFields(const void *storage, CFURLRef url, CFDictionaryRef headerFields,
                                                   CFURLRef mainDocumentURL, int acceptPolicy)
 {
     wk_set_cookies_fn original = (wk_set_cookies_fn)wk_hookForStorage(storage)->setCookiesWithResponseHeaderFields;
     if (!original)
         wk_patch_fail(kSameSiteHooks, "a cookie storage class this only reads through was stored to");
+
+    // NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain, the policy Safari's "Block cookies: from third
+    // parties and advertisers" sets, holds a response's cookies to the main document's own domain:
+    // HTTPCookieStorage::setCookiesWithResponseHeaderFields takes them when the storage already holds
+    // cookies for the URL, when there is no main document, or when isURLInMainDocumentDomain says the
+    // two hosts share more than a top-level domain. That last answer comes from a 2013 table of
+    // top-level domains, so a third party under any label registered since is read as the main
+    // document's own domain. Only the hosts 10.9's table cannot know about are answered here
+    // (wk_hostsShareOnlyATopLevelDomain), and only where 10.9 would have taken the cookies, so this
+    // subtracts from what is stored and never adds.
+    if (acceptPolicy == kOnlyFromMainDocumentDomain && mainDocumentURL
+        && wk_hostsShareOnlyATopLevelDomain(url, mainDocumentURL)
+        && !wk_storageHoldsCookiesForURL(storage, url))
+        return;
 
     CFStringRef name = headerFields ? wk_setCookieFieldName(headerFields) : NULL;
     CFTypeRef header = name ? CFDictionaryGetValue(headerFields, name) : NULL;
@@ -583,9 +675,15 @@ static void wk_setCookiesWithResponseHeaderFields(const void *storage, CFURLRef 
 // a response's Set-Cookie fields, -setCookies:forURL:mainDocumentURL:, -setCookie:, -deleteCookie:,
 // CFHTTPCookieStorageDeleteAllCookies -- ends in one of those three. A file-backed storage also takes
 // in what another process wrote to its file, in bulk, when syncStorageWithCompletionLocked merges the
-// file and replays its journal; that boundary is reported from below. The per-cookie slots answer whether
-// the jar changed, and HTTPCookieStorage notifies its own observers on that answer, so the report is
-// made on it too. The cookie is rebuilt from the header and handed to WKPolyfillCookieWatcher
+// file and replays its journal; that boundary is reported from below. Neither mutation slot answers
+// what a subscriber is told: the set slot answers that the write was accepted, which a store over an
+// identical cookie is too, and the delete slot answers whether a cookie was there to remove only on
+// DiskCookieStorage and MemoryCookieStorage -- ExternalCookieStorage, the backend the process's own jar
+// is built on, and NSCFPrivateCookieStorage both return a hardcoded 1. wk_backendStoredCookieCreate
+// asks the storage itself, before either slot, for the cookie it holds under this one's identity. That
+// read costs External a synchronous cookied round trip, since its set and delete both invalidate the
+// per-domain cache, so it is made only when a subscriber is there to be told and the answer is used.
+// The cookie is rebuilt from the header and handed to WKPolyfillCookieWatcher
 // (methods/Foundation.m) through the runtime: the framework whose copy of this claimed the slots is not
 // necessarily the one carrying the watcher. NSCFPrivateCookieStorage::setCookieInternalLocked builds a
 // cookie and sends it to a delegate from inside this same slot, so an Objective-C call made here is one
@@ -597,6 +695,8 @@ struct wk_backend_hook {
     void *setCookieInternalLocked;
     void *deleteCookieInternalLocked;
     void *deleteAllCookiesLocked;
+    // The cookies the storage holds for one domain, which is the answer the delete slots withhold.
+    void *copyDomainCookieArrayLocked;
     // Set only for the backends whose sync merges a file another process may have written.
     void *visitCookiesLocked;
     void *syncStorageWithCompletionLocked;
@@ -621,19 +721,13 @@ typedef void (*wk_sync_storage_fn)(const void *backend, unsigned char flags, voi
 typedef const void *(*wk_cf_class_fn)(void);
 typedef void *(*wk_cf_object_allocate_fn)(unsigned long size, const void *cfClass, CFAllocatorRef allocator);
 typedef void (*wk_compact_cookie_ctor_fn)(void *payload, const void *header);
-typedef CFTypeID (*wk_type_id_fn)(void);
 typedef CFAbsoluteTime (*wk_cookie_time_fn)(CFTypeRef cookie);
 
 static wk_cf_class_fn wk_HTTPCookieClass;
 static wk_cf_object_allocate_fn wk_CFObjectAllocate;
 static wk_compact_cookie_ctor_fn wk_constructCompactHTTPCookieWithData;
-static wk_type_id_fn wk_CFHTTPCookieStorageGetTypeID;
 static wk_cookie_time_fn wk_CFHTTPCookieGetCreationTime;
 static wk_cookie_time_fn wk_CFHTTPCookieGetExpirationTime;
-
-// A CF object's payload -- the C++ object CFObject::Allocate answers with, and the `this` its methods
-// take -- follows its CFRuntimeBase.
-static const size_t kCFPayloadOffset = 2 * sizeof(void *);
 
 // The cookie a stored header describes, built the way NSCFPrivateCookieStorage::setCookieInternalLocked
 // builds the one it hands its delegate: CFObject::Allocate(0x18, HTTPCookie::Class(), allocator), the
@@ -719,38 +813,174 @@ static bool wk_cookieExpiredWhenStored(CFTypeRef cookie)
     return expires && expires <= wk_CFHTTPCookieGetCreationTime(cookie);
 }
 
+// A CompactCookieHeader is a size-prefixed record of offsets to its NUL-terminated strings. The guards
+// are the ones MemoryCookies::setCookie applies to the same fields.
+enum { kCompactSizeField = 0x00, kCompactDomainField = 0x10, kCompactNameField = 0x14, kCompactPathField = 0x18 };
+
+static const char *wk_compactField(const void *header, uint32_t field)
+{
+    uint32_t size = *(const uint32_t *)((const char *)header + kCompactSizeField) + 1;
+    if (size < field + 4)
+        return NULL;
+    uint32_t offset = *(const uint32_t *)((const char *)header + field);
+    if (!offset || offset >= size)
+        return NULL;
+    return (const char *)header + offset;
+}
+
+// copyDomainCookieArrayLocked answers the storage's bucket for one domain -- the key is the domain bytes
+// the header itself carries, leading dot and all, so a header's own domain needs no normalising. It
+// answers a CompactCookieArray's payload, whose CF object begins 0x10 bytes before it, and an empty one
+// rather than NULL for a domain it holds nothing for. It takes no lock of its own on any of the four
+// implementing classes, so it is callable from inside a slot the storage's mutex is already held across.
+typedef const void *(*wk_copy_domain_cookies_fn)(const void *backend, const unsigned char *domain, unsigned char keepSecure);
+typedef void (*wk_visit_compact_array_fn)(const void *array, void (^visitor)(const void *header));
+static wk_visit_compact_array_fn wk_CompactCookieArrayVisitCookies;
+
+// The cookie the storage already holds under this one's identity -- name, domain and path, which is what
+// RFC 6265 5.3 replaces a cookie by and what the delete slots match on -- or NULL for none. The caller
+// owns the result. A stored cookie always carries a non-empty name, domain and path: 10.9's parser
+// refuses "Set-Cookie: bare" and "Set-Cookie: =novalue" outright and rewrites an empty path to the
+// default one, so a zero offset in any of those three fields is a record this does not understand.
+static CFTypeRef wk_backendStoredCookieCreate(const struct wk_backend_hook *hook, const void *backend, const void *header)
+{
+    const char *domain = wk_compactField(header, kCompactDomainField);
+    const char *name = wk_compactField(header, kCompactNameField);
+    const char *path = wk_compactField(header, kCompactPathField);
+    if (!domain || !name || !path)
+        wk_patch_fail(kCookieChangeHooks, "a cookie being stored carries no name, domain or path to match on");
+
+    const void *array = ((wk_copy_domain_cookies_fn)hook->copyDomainCookieArrayLocked)(backend,
+        (const unsigned char *)domain, 1);
+    if (!array)
+        wk_patch_fail(kCookieChangeHooks, "a cookie storage answered no array for a domain it was asked about");
+
+    __block CFTypeRef held = NULL;
+    wk_CompactCookieArrayVisitCookies(array, ^(const void *stored) {
+        if (held)
+            return;
+        const char *storedName = wk_compactField(stored, kCompactNameField);
+        const char *storedPath = wk_compactField(stored, kCompactPathField);
+        if (!storedName || !storedPath)
+            wk_patch_fail(kCookieChangeHooks, "a cookie the storage holds carries no name or path");
+        if (!strcmp(storedName, name) && !strcmp(storedPath, path))
+            held = wk_copyCookieFromCompactHeader(stored);
+    });
+    CFRelease((CFTypeRef)((const char *)array - 0x10));
+    return held;
+}
+
+// Whether two strings either side of a cookie field differ, a missing one differing from a present one.
+static bool wk_cookieStringsDiffer(CFStringRef one, CFStringRef other)
+{
+    if (!one || !other)
+        return one != other;
+    return !CFEqual(one, other);
+}
+
+// What a subscriber is told a change is: the cookie's value or any attribute it carries, the comment
+// among them -- this port keeps SameSite there (wk_sameSiteCommentCreate). Not the record itself: its
+// creation time is rewritten on every store, so no two records of one cookie are equal.
+static bool wk_storedCookieDiffers(CFTypeRef stored, CFTypeRef cookie)
+{
+    if (WK_SYSTEM(CFHTTPCookieIsSecure)(stored) != WK_SYSTEM(CFHTTPCookieIsSecure)(cookie)
+        || WK_SYSTEM(CFHTTPCookieIsHTTPOnly)(stored) != WK_SYSTEM(CFHTTPCookieIsHTTPOnly)(cookie)
+        || wk_CFHTTPCookieGetExpirationTime(stored) != wk_CFHTTPCookieGetExpirationTime(cookie))
+        return true;
+    CFStringRef storedValue = WK_SYSTEM(CFHTTPCookieCopyValue)(stored);
+    CFStringRef value = WK_SYSTEM(CFHTTPCookieCopyValue)(cookie);
+    bool differs = wk_cookieStringsDiffer(storedValue, value);
+    if (storedValue)
+        CFRelease(storedValue);
+    if (value)
+        CFRelease(value);
+    if (differs)
+        return true;
+    CFStringRef storedComment = WK_SYSTEM(CFHTTPCookieCopyComment)((WKHTTPCookieRef)stored);
+    CFStringRef comment = WK_SYSTEM(CFHTTPCookieCopyComment)((WKHTTPCookieRef)cookie);
+    differs = wk_cookieStringsDiffer(storedComment, comment);
+    if (storedComment)
+        CFRelease(storedComment);
+    if (comment)
+        CFRelease(comment);
+    return differs;
+}
+
+// Whether anyone is subscribed to changes for this cookie's domain on this storage. Asking the storage
+// what it already holds costs ExternalCookieStorage a synchronous cookied round trip -- its set and
+// delete both invalidate the per-domain cache first -- so it is asked only when a subscriber is there
+// to be told, which is the only time the answer is used.
+static bool wk_backendIsWatchedForCookie(const void *backend, const void *header)
+{
+    static SEL wants;
+    static Class watcherClass;
+    if (!watcherClass) {
+        Class found = objc_getClass("WKPolyfillCookieWatcher");
+        if (!found)
+            return false;
+        wants = sel_registerName("wantsReportsForStorage:domain:");
+        watcherClass = found;
+    }
+    const char *domain = wk_compactField(header, kCompactDomainField);
+    if (!domain)
+        return false;
+    return ((BOOL (*)(id, SEL, const void *, const char *))objc_msgSend)((id)watcherClass, wants, backend, domain);
+}
+
 static unsigned char wk_setCookieInternalLocked(const void *backend, const void *header)
 {
     const struct wk_backend_hook *hook = wk_backendHookOrFail(backend);
-    unsigned char changed = ((wk_compact_cookie_fn)hook->setCookieInternalLocked)(backend, header);
-    if (!changed)
-        return changed;
-
     CFTypeRef cookie = wk_copyCookieFromCompactHeader(header);
-    if (!cookie)
-        return changed;
 
-    if (wk_cookieExpiredWhenStored(cookie)) {
-        // 10.9 keeps a cookie whose expiry is the instant it was stored, and goes on sending it with
-        // requests, until the clock passes that instant -- so a cookie written to delete another is
-        // still sent for the rest of that second. The storage's own delete is what takes it out, which
-        // is where modern CFNetwork has it gone by.
-        ((wk_compact_cookie_fn)hook->deleteCookieInternalLocked)(backend, header);
-        wk_reportCookieChange(backend, cookie, WK_COOKIE_DELETED);
-    } else
+    bool watched = cookie && wk_backendIsWatchedForCookie(backend, header);
+
+    if (cookie && wk_cookieExpiredWhenStored(cookie)) {
+        // A cookie that arrives already expired names one to remove and keeps nothing. 10.9 takes it in
+        // and goes on sending it until the clock passes that instant, so the storage's own delete is
+        // what takes it out; the delete matches on name, domain and path, so it reaches the stored
+        // cookie whatever value this one carries. Whether there was one to remove is asked of the
+        // storage rather than of the delete's answer, which two of the four backends hardcode --
+        // writing an expired cookie over nothing changes nothing, and raises no change event.
+        CFTypeRef stored = watched ? wk_backendStoredCookieCreate(hook, backend, header) : NULL;
+        unsigned char answered = ((wk_compact_cookie_fn)hook->deleteCookieInternalLocked)(backend, header);
+        if (stored) {
+            wk_reportCookieChange(backend, cookie, WK_COOKIE_DELETED);
+            CFRelease(stored);
+        }
+        CFRelease(cookie);
+        // HTTPCookieStorage::setCookie notifies its own observers on this answer, so it stays the
+        // delete slot's own word.
+        return answered;
+    }
+
+    CFTypeRef stored = watched ? wk_backendStoredCookieCreate(hook, backend, header) : NULL;
+    unsigned char changed = ((wk_compact_cookie_fn)hook->setCookieInternalLocked)(backend, header);
+    // The slot answers that the write was accepted, not that the jar differs -- storing a cookie over
+    // an identical one answers 1 on every backend. A subscriber is told about a change, so a store that
+    // left the jar as it was is not one.
+    if (changed && cookie && (!watched || !stored || wk_storedCookieDiffers(stored, cookie)))
         wk_reportCookieChange(backend, cookie, WK_COOKIE_SET);
-
-    CFRelease(cookie);
+    if (stored)
+        CFRelease(stored);
+    if (cookie)
+        CFRelease(cookie);
     return changed;
 }
 
 static unsigned char wk_deleteCookieInternalLocked(const void *backend, const void *header)
 {
-    wk_compact_cookie_fn original = (wk_compact_cookie_fn)wk_backendHookOrFail(backend)->deleteCookieInternalLocked;
-    unsigned char changed = original(backend, header);
-    if (changed)
+    const struct wk_backend_hook *hook = wk_backendHookOrFail(backend);
+    // Asked of the storage, not of the slot's answer: ExternalCookieStorage and NSCFPrivateCookieStorage
+    // return a hardcoded 1. HTTPCookieStorage::deleteCookie reaches this slot twice for one delete, and
+    // the second finds nothing left to remove, so the same question also keeps that to one report.
+    CFTypeRef stored = wk_backendIsWatchedForCookie(backend, header)
+        ? wk_backendStoredCookieCreate(hook, backend, header) : NULL;
+    unsigned char answered = ((wk_compact_cookie_fn)hook->deleteCookieInternalLocked)(backend, header);
+    if (stored) {
         wk_reportCompactCookie(backend, header, WK_COOKIE_DELETED);
-    return changed;
+        CFRelease(stored);
+    }
+    return answered;
 }
 
 // The cookies a storage holds, as the records it holds them as. visitCookiesLocked is the storage's own
@@ -812,18 +1042,25 @@ __attribute__((constructor)) static void wk_installSameSiteCookieHooks(void)
     // in-memory one is the storage an ephemeral session gets -- private browsing, and the session the
     // layout-test harness runs on -- and it stores a response's cookies through its own method like the
     // other two.
+    //
+    // CFXCookieStorage and MemXCookieStorage hand a response's fields to the CFHTTPCookieStorage they
+    // hold -- at +0x18 and +0x20 -- which is where HTTPCookieStorage::setCookiesWithResponseHeaderFields
+    // applies the cookie accept policy. NSXCookieStorage reaches no HTTPCookieStorage at all: it parses
+    // the fields itself and hands the cookies to Foundation, so 10.9 applies no accept policy on its
+    // store path and neither does the replacement.
     struct wk_storage_class {
         const char *vtable;
         const char *copyCookiesForURL;
         const char *setCookiesWithResponseHeaderFields;
+        long cookieStorageField;
     };
     static const struct wk_storage_class classes[] = {
         { "__ZTV16CFXCookieStorage", "__ZNK16CFXCookieStorage17copyCookiesForURLEPK7__CFURLh",
-          "__ZNK16CFXCookieStorage34setCookiesWithResponseHeaderFieldsEPK7__CFURLPK14__CFDictionaryS2_i" },
+          "__ZNK16CFXCookieStorage34setCookiesWithResponseHeaderFieldsEPK7__CFURLPK14__CFDictionaryS2_i", 0x18 },
         { "__ZTV16NSXCookieStorage", "__ZNK16NSXCookieStorage17copyCookiesForURLEPK7__CFURLh",
-          "__ZNK16NSXCookieStorage34setCookiesWithResponseHeaderFieldsEPK7__CFURLPK14__CFDictionaryS2_i" },
+          "__ZNK16NSXCookieStorage34setCookiesWithResponseHeaderFieldsEPK7__CFURLPK14__CFDictionaryS2_i", 0 },
         { "__ZTV17MemXCookieStorage", "__ZNK17MemXCookieStorage17copyCookiesForURLEPK7__CFURLh",
-          "__ZNK17MemXCookieStorage34setCookiesWithResponseHeaderFieldsEPK7__CFURLPK14__CFDictionaryS2_i" },
+          "__ZNK17MemXCookieStorage34setCookiesWithResponseHeaderFieldsEPK7__CFURLPK14__CFDictionaryS2_i", 0x20 },
     };
     const long classCount = (long)(sizeof(classes) / sizeof(classes[0]));
 
@@ -842,11 +1079,16 @@ __attribute__((constructor)) static void wk_installSameSiteCookieHooks(void)
     wk_originalCopyCookiesForRequest = (wk_copy_cookies_for_request_fn)wk_symbol_in_image(&image, kOuterFunction);
     if (!wk_originalCopyCookiesForRequest)
         wk_patch_fail(kSameSiteHooks, "CFNetwork's symbol table does not name the cookie composer this stands in for");
+    wk_someCookiesAreSetForURL = (wk_some_cookies_are_set_fn)wk_symbol_in_image(&image,
+        "__ZN17HTTPCookieStorage23someCookiesAreSetForURLEPK7__CFURL");
+    if (!wk_someCookiesAreSetForURL)
+        wk_patch_fail(kSameSiteHooks, "CFNetwork's symbol table does not name the storage question the accept policy asks");
     for (long i = 0; i < classCount; ++i) {
         wk_storageHooks[i].vtable = wk_vptrOfVTable(&image, classes[i].vtable);
         wk_storageHooks[i].copyCookiesForURL = wk_symbol_in_image(&image, classes[i].copyCookiesForURL);
         wk_storageHooks[i].setCookiesWithResponseHeaderFields = classes[i].setCookiesWithResponseHeaderFields
             ? wk_symbol_in_image(&image, classes[i].setCookiesWithResponseHeaderFields) : NULL;
+        wk_storageHooks[i].cookieStorageField = classes[i].cookieStorageField;
         if (!wk_storageHooks[i].copyCookiesForURL
             || (classes[i].setCookiesWithResponseHeaderFields && !wk_storageHooks[i].setCookiesWithResponseHeaderFields))
             wk_patch_fail(kSameSiteHooks, "CFNetwork's symbol table does not name a cookie storage method this stands in for");
@@ -899,10 +1141,12 @@ __attribute__((constructor)) static void wk_installSameSiteCookieHooks(void)
         const char *setCookieInternalLocked;
         const char *deleteCookieInternalLocked;
         const char *deleteAllCookiesLocked;
+        const char *copyDomainCookieArrayLocked;
         // Only the file-backed pair merges on sync; the rest hold no file to merge.
         const char *visitCookiesLocked;
         const char *syncStorageWithCompletionLocked;
     };
+    static const char kDiskCopyDomain[] = "__ZN17DiskCookieStorage27copyDomainCookieArrayLockedEPKhh";
     static const char kDiskSet[] = "__ZN17DiskCookieStorage23setCookieInternalLockedEPK19CompactCookieHeader";
     static const char kDiskDelete[] = "__ZN17DiskCookieStorage26deleteCookieInternalLockedEPK19CompactCookieHeader";
     static const char kDiskDeleteAll[] = "__ZN17DiskCookieStorage22deleteAllCookiesLockedEv";
@@ -912,17 +1156,20 @@ __attribute__((constructor)) static void wk_installSameSiteCookieHooks(void)
         { "__ZTV21ExternalCookieStorage",
           "__ZN21ExternalCookieStorage23setCookieInternalLockedEPK19CompactCookieHeader",
           "__ZN21ExternalCookieStorage26deleteCookieInternalLockedEPK19CompactCookieHeader",
-          "__ZN21ExternalCookieStorage22deleteAllCookiesLockedEv", NULL, NULL },
+          "__ZN21ExternalCookieStorage22deleteAllCookiesLockedEv",
+          "__ZN21ExternalCookieStorage27copyDomainCookieArrayLockedEPKhh", NULL, NULL },
         { "__ZTV19MemoryCookieStorage",
           "__ZN19MemoryCookieStorage23setCookieInternalLockedEPK19CompactCookieHeader",
           "__ZN19MemoryCookieStorage26deleteCookieInternalLockedEPK19CompactCookieHeader",
-          "__ZN19MemoryCookieStorage22deleteAllCookiesLockedEv", NULL, NULL },
+          "__ZN19MemoryCookieStorage22deleteAllCookiesLockedEv",
+          "__ZN19MemoryCookieStorage27copyDomainCookieArrayLockedEPKhh", NULL, NULL },
         { "__ZTV24NSCFPrivateCookieStorage",
           "__ZN24NSCFPrivateCookieStorage23setCookieInternalLockedEPK19CompactCookieHeader",
           "__ZN24NSCFPrivateCookieStorage26deleteCookieInternalLockedEPK19CompactCookieHeader",
-          "__ZN24NSCFPrivateCookieStorage22deleteAllCookiesLockedEv", NULL, NULL },
-        { "__ZTV16XMLCookieStorage", kDiskSet, kDiskDelete, kDiskDeleteAll, kDiskVisit, kDiskSync },
-        { "__ZTV19BinaryCookieStorage", kDiskSet, kDiskDelete, kDiskDeleteAll, kDiskVisit, kDiskSync },
+          "__ZN24NSCFPrivateCookieStorage22deleteAllCookiesLockedEv",
+          "__ZN24NSCFPrivateCookieStorage27copyDomainCookieArrayLockedEPKhh", NULL, NULL },
+        { "__ZTV16XMLCookieStorage", kDiskSet, kDiskDelete, kDiskDeleteAll, kDiskCopyDomain, kDiskVisit, kDiskSync },
+        { "__ZTV19BinaryCookieStorage", kDiskSet, kDiskDelete, kDiskDeleteAll, kDiskCopyDomain, kDiskVisit, kDiskSync },
     };
     const long backendCount = (long)(sizeof(backends) / sizeof(backends[0]));
 
@@ -930,6 +1177,10 @@ __attribute__((constructor)) static void wk_installSameSiteCookieHooks(void)
     wk_CFObjectAllocate = (wk_cf_object_allocate_fn)wk_symbol_in_image(&image, "__ZN8CFObject8AllocateEmRK7CFClassPK13__CFAllocator");
     wk_constructCompactHTTPCookieWithData = (wk_compact_cookie_ctor_fn)wk_symbol_in_image(&image, "__ZN25CompactHTTPCookieWithDataC1EPK19CompactCookieHeader");
     wk_CFHTTPCookieStorageGetTypeID = (wk_type_id_fn)wk_symbol_in_image(&image, "_CFHTTPCookieStorageGetTypeID");
+    wk_CompactCookieArrayVisitCookies = (wk_visit_compact_array_fn)wk_symbol_in_image(&image,
+        "__ZNK18CompactCookieArray12visitCookiesEU13block_pointerFvPK19CompactCookieHeaderE");
+    if (!wk_CompactCookieArrayVisitCookies)
+        wk_patch_fail(kCookieChangeHooks, "CFNetwork's symbol table does not name the cookie array this reads a domain's cookies from");
     wk_CFHTTPCookieGetCreationTime = (wk_cookie_time_fn)wk_symbol_in_image(&image, "_CFHTTPCookieGetCreationTime");
     wk_CFHTTPCookieGetExpirationTime = (wk_cookie_time_fn)wk_symbol_in_image(&image, "_CFHTTPCookieGetExpirationTime");
     if (!wk_CFHTTPCookieGetCreationTime || !wk_CFHTTPCookieGetExpirationTime)
@@ -941,8 +1192,9 @@ __attribute__((constructor)) static void wk_installSameSiteCookieHooks(void)
         wk_backendHooks[i].setCookieInternalLocked = wk_symbol_in_image(&image, backends[i].setCookieInternalLocked);
         wk_backendHooks[i].deleteCookieInternalLocked = wk_symbol_in_image(&image, backends[i].deleteCookieInternalLocked);
         wk_backendHooks[i].deleteAllCookiesLocked = wk_symbol_in_image(&image, backends[i].deleteAllCookiesLocked);
+        wk_backendHooks[i].copyDomainCookieArrayLocked = wk_symbol_in_image(&image, backends[i].copyDomainCookieArrayLocked);
         if (!wk_backendHooks[i].setCookieInternalLocked || !wk_backendHooks[i].deleteCookieInternalLocked
-            || !wk_backendHooks[i].deleteAllCookiesLocked)
+            || !wk_backendHooks[i].deleteAllCookiesLocked || !wk_backendHooks[i].copyDomainCookieArrayLocked)
             wk_patch_fail(kCookieChangeHooks, "CFNetwork's symbol table does not name a cookie storage mutation slot this stands in for");
         if (!backends[i].syncStorageWithCompletionLocked)
             continue;

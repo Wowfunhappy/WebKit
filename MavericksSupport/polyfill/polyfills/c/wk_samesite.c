@@ -323,15 +323,18 @@ CFStringRef wk_sameSiteCopyServerComment(CFStringRef comment)
     return wk_copyDecodedField(comment, range);
 }
 
-// The policy |value| names: a value the modern constants do not name is unspecified, which is
-// permissive (RFC 6265bis 5.3.7), and so is "None" itself.
+// The policy |value| names. "None" is permissive; a value the modern constants do not name leaves the
+// attribute with no meaning, and RFC 6265bis 5.4.7 hands such a cookie the default enforcement, which
+// is Lax. A cookie carrying no SameSite attribute at all never reaches here -- its comment has no
+// policy field and wk_sameSitePolicyOfComment answers None -- so this is only about a value that was
+// written and is not one of the three.
 static wk_same_site_policy wk_policyOfValueBytes(const char *value)
 {
     if (!strcasecmp(value, "strict"))
         return WK_SAME_SITE_STRICT;
-    if (!strcasecmp(value, "lax"))
-        return WK_SAME_SITE_LAX;
-    return WK_SAME_SITE_NONE;
+    if (!strcasecmp(value, "none"))
+        return WK_SAME_SITE_NONE;
+    return WK_SAME_SITE_LAX;
 }
 
 // Longer than the longest value the modern constants name, so a longer one is unrecognised either way.
@@ -383,6 +386,63 @@ bool wk_sameSiteMethodIsSafe(CFStringRef method)
 // URL changes host, so the stamp says what the first hop was, not what this one is. Only the comparison
 // answers for this hop.
 // ---------------------------------------------------------------------------------------------------
+
+// The longest suffix of |host| and |otherHost| that begins at a label boundary in both, as a count of
+// labels. Two hosts that share nothing answer 0, and a host and a subdomain of it answer the shorter
+// one's label count.
+static CFIndex wk_sharedLabelCount(CFStringRef host, CFStringRef otherHost)
+{
+    CFIndex length = CFStringGetLength(host);
+    CFIndex otherLength = CFStringGetLength(otherHost);
+    CFIndex shared = 0;
+    CFIndex i = length, j = otherLength;
+    while (i > 0 && j > 0) {
+        CFIndex labelStart = i, otherLabelStart = j;
+        while (labelStart > 0 && CFStringGetCharacterAtIndex(host, labelStart - 1) != '.')
+            --labelStart;
+        while (otherLabelStart > 0 && CFStringGetCharacterAtIndex(otherHost, otherLabelStart - 1) != '.')
+            --otherLabelStart;
+        if (i - labelStart != j - otherLabelStart)
+            break;
+        CFStringRef label = CFStringCreateWithSubstring(NULL, host, CFRangeMake(labelStart, i - labelStart));
+        CFStringRef otherLabel = CFStringCreateWithSubstring(NULL, otherHost, CFRangeMake(otherLabelStart, j - otherLabelStart));
+        bool same = label && otherLabel && CFStringCompare(label, otherLabel, kCFCompareCaseInsensitive) == kCFCompareEqualTo;
+        if (label)
+            CFRelease(label);
+        if (otherLabel)
+            CFRelease(otherLabel);
+        if (!same)
+            break;
+        ++shared;
+        i = labelStart ? labelStart - 1 : 0;
+        j = otherLabelStart ? otherLabelStart - 1 : 0;
+        if (!labelStart || !otherLabelStart)
+            break;
+    }
+    return shared;
+}
+
+// Whether two hosts have nothing in common but a top-level domain.
+//
+// HTTPCookieStorage::setCookies and ::setCookiesWithResponseHeaderFields take a cookie under
+// NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain when isURLInMainDocumentDomain says so, which is
+// "the two hosts' common ancestor is not a top-level domain" answered from a 2013 table: `test`, `app`
+// and `dev` are not in it, so a third party under any of them is read as the main document's own
+// domain and its cookie is stored. A common ancestor of one label is a top-level domain whatever the
+// table holds, so that is the answer given here; a longer ancestor is left to 10.9's own reading.
+bool wk_hostsShareOnlyATopLevelDomain(CFURLRef url, CFURLRef mainDocumentURL)
+{
+    CFStringRef host = url ? CFURLCopyHostName(url) : NULL;
+    CFStringRef mainHost = mainDocumentURL ? CFURLCopyHostName(mainDocumentURL) : NULL;
+    bool onlyATopLevelDomain = false;
+    if (host && mainHost && CFStringCompare(host, mainHost, kCFCompareCaseInsensitive) != kCFCompareEqualTo)
+        onlyATopLevelDomain = wk_sharedLabelCount(host, mainHost) <= 1;
+    if (host)
+        CFRelease(host);
+    if (mainHost)
+        CFRelease(mainHost);
+    return onlyATopLevelDomain;
+}
 
 bool wk_sameSiteURLsAreSameSite(CFURLRef siteForCookies, CFURLRef url)
 {
@@ -555,12 +615,14 @@ static CFArrayRef wk_parseSetCookieHeader(CFStringRef header, CFURLRef url)
 
 // The set-cookie-strings a folded Set-Cookie field carries, as ranges over the field.
 //
-// CFNetwork folds several Set-Cookie headers into one field joined with ", ", and a cookie-value may
-// itself hold a comma, so a comma divides two cookies only where a new cookie-pair begins after it: a
-// name, then '='. Measured against 10.9's own parser, which reads "a=1,2, b=3" as the two cookies
-// "a=1,2" and "b=3", and "a=1; Expires=Wed, 09 Jun 2027 10:18:14 GMT" as one -- the date's comma is
-// followed by no name=value, so it divides nothing. A comma inside a double-quoted value divides
-// nothing either; 10.9 reads "a=\"x,y\"" as one cookie. The caller owns the result.
+// CFNetwork folds several Set-Cookie headers into one field joined with ", " -- the fold happens in the
+// HTTP message parser, so by the time any cookie code runs the field is one string and the boundary is
+// a comma like any other. A cookie-value may itself hold a comma, so these are the boundaries 10.9's
+// own parser reads, measured against it: a comma outside double quotes, followed by at least one SP
+// (an HTAB there divides nothing), then a non-empty token that reaches an '=' before any ';', ',' or
+// '"'. So "a=1,2, b=3" is the two cookies "a=1,2" and "b=3"; "a=1,b=2" is one, the comma carrying no
+// space; "a=1; Expires=Wed, 09 Jun 2027 10:18:14 GMT" is one, the date's comma reaching no '='; and
+// "a=\"x, y=z\"" is one, the comma being quoted. The caller owns the result.
 CFRange *wk_copySetCookieRanges(CFStringRef header, CFIndex *outCount)
 {
     *outCount = 0;
@@ -589,9 +651,9 @@ CFRange *wk_copySetCookieRanges(CFStringRef header, CFIndex *outCount)
             continue;
         }
 
-        // What follows: a cookie-name and its '=' begin a new cookie, anything else is part of this one.
+        // What follows: the fold's SP, then a cookie-name and its '=', begin a new cookie.
         CFIndex after = i + 1;
-        while (after < length && wk_isHeaderSpace(CFStringGetCharacterFromInlineBuffer(&buffer, after)))
+        while (after < length && CFStringGetCharacterFromInlineBuffer(&buffer, after) == ' ')
             ++after;
         CFIndex token = after;
         while (token < length) {
@@ -600,7 +662,7 @@ CFRange *wk_copySetCookieRanges(CFStringRef header, CFIndex *outCount)
                 break;
             ++token;
         }
-        bool beginsACookie = token > after && token < length
+        bool beginsACookie = after > i + 1 && token > after && token < length
             && CFStringGetCharacterFromInlineBuffer(&buffer, token) == '=';
         if (!beginsACookie) {
             ++i;
@@ -662,6 +724,19 @@ CFStringRef wk_requestPathCreate(CFURLRef url)
     if (path)
         CFRelease(path);
     return (CFStringRef)CFRetain(CFSTR("/"));
+}
+
+// RFC 6265bis 5.5 sends the cookie with the longer path first. 10.9 answers host-only cookies ahead of
+// the ones carrying a Domain attribute and orders by path length only within each of those groups, so
+// a /cookies/attributes cookie with a Domain follows a /cookies one without. Answers whether |path|
+// must precede |otherPath|; equal lengths answer false both ways, which leaves the caller's existing
+// order among them -- 10.9 sorts those by name where the RFC wants creation order, and its creation
+// time is whole seconds, so that much it cannot express.
+bool wk_cookiePathSortsFirst(CFStringRef path, CFStringRef otherPath)
+{
+    CFIndex length = path ? CFStringGetLength(path) : 0;
+    CFIndex otherLength = otherPath ? CFStringGetLength(otherPath) : 0;
+    return length > otherLength;
 }
 
 // A CTL other than HTAB: %x00-08, %x0A-1F or %x7F.

@@ -191,6 +191,38 @@ static void checkPolicy(const char *sameSite, wk_same_site_policy expected, cons
     CFRelease(policy);
 }
 
+// Whether a response's cookies are held to the main document's domain under
+// NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain, where 10.9's own table would take them.
+static void checkOnlyATopLevelDomain(const char *url, const char *mainDocumentURL, bool expected, const char *what)
+{
+    CFStringRef urlText = str(url), mainText = str(mainDocumentURL);
+    CFURLRef a = CFURLCreateWithString(NULL, urlText, NULL);
+    CFURLRef b = CFURLCreateWithString(NULL, mainText, NULL);
+    check(wk_hostsShareOnlyATopLevelDomain(a, b) == expected, what);
+    if (a)
+        CFRelease(a);
+    if (b)
+        CFRelease(b);
+    CFRelease(urlText);
+    CFRelease(mainText);
+}
+
+// The registrable domain of a host, which decides what is same-site.
+static void checkRegistrableDomain(const char *host, const char *expected, const char *what)
+{
+    CFStringRef hostText = str(host);
+    CFStringRef domain = wk_copyRegistrableDomain(hostText);
+    char *actual = domain ? utf8(domain) : NULL;
+    if (!actual || strcmp(actual, expected)) {
+        printf("  FAIL: %s\n        host %s -> %s, expected %s\n", what, host, actual ? actual : "(null)", expected);
+        ++failures;
+    }
+    free(actual);
+    if (domain)
+        CFRelease(domain);
+    CFRelease(hostText);
+}
+
 static void checkSameSite(const char *site, const char *url, bool expected, const char *what)
 {
     CFStringRef siteText = str(site), urlText = str(url);
@@ -207,11 +239,21 @@ static void checkSameSite(const char *site, const char *url, bool expected, cons
 
 
 // ---------------------------------------------------------------------------------------------------
+// A cookie this file wrote, and only that: sharedHTTPCookieStorage is the account's own jar.
+static void forgetCookiesOfDomain(NSHTTPCookieStorage *storage, NSString *domain)
+{
+    for (NSHTTPCookie *held in [[storage.cookies copy] autorelease]) {
+        if ([held.domain rangeOfString:domain].location != NSNotFound)
+            [storage deleteCookie:held];
+    }
+}
+
 // The bulk-merge report (polyfills/c/CFNetwork.c). A file-backed cookie storage takes in whatever
 // another process wrote to its file when it syncs, naming none of it; the hook snapshots the storage
 // either side of that merge and the watcher reports the difference. Driven here with two storages over
 // one file: the second writes, the first syncs, and the handlers say what moved.
 typedef CFHTTPCookieStorageRef (*CreateFromFileFn)(CFAllocatorRef, CFURLRef, CFDictionaryRef);
+typedef CFHTTPCookieStorageRef (*CreateInMemoryFn)(CFAllocatorRef, CFDictionaryRef);
 typedef void (*SyncNowFn)(CFHTTPCookieStorageRef);
 typedef void (*StorageSetCookieFn)(CFHTTPCookieStorageRef, CookieRef);
 typedef void (*StorageDeleteCookieFn)(CFHTTPCookieStorageRef, CookieRef);
@@ -257,6 +299,148 @@ static void checkMerge(const char *label, NSString *gotAdded, const char *wantAd
                label, wantAdded, [gotAdded UTF8String], wantRemoved, [gotRemoved UTF8String]);
         ++failures;
     }
+}
+
+// The per-mutation report (polyfills/c/CFNetwork.c, wk_setCookieInternalLocked). A Set-Cookie whose
+// expiry has already passed names a cookie to remove; 10.9 takes it in and keeps it until the clock
+// passes that instant, so the hook deletes it. A subscriber is owed a removal only when there was a
+// cookie to remove -- an expired write over nothing changes nothing.
+static void checkExpiredWriteReport(void)
+{
+    CreateFromFileFn createFromFile = (CreateFromFileFn)cfnetwork("CFHTTPCookieStorageCreateFromFile");
+    NSString *path = [NSString stringWithFormat:@"/tmp/wk-expired-%d.cookies", (int)getpid()];
+    [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
+    CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)[path UTF8String],
+                                                           (CFIndex)strlen([path UTF8String]), false);
+    CFHTTPCookieStorageRef store = createFromFile(NULL, url, NULL);
+    if (!store) {
+        printf("  FAIL: a cookie storage for the expired-write report could not be made\n");
+        ++failures;
+        CFRelease(url);
+        return;
+    }
+
+    gAdded = [NSMutableArray array];
+    gRemoved = [NSMutableArray array];
+    NSHTTPCookieStorage *watched = wrapStorage(store);
+    ((void (*)(id, SEL, id, dispatch_queue_t))objc_msgSend)(watched, sel_getUid("wk__setCookiesChangedHandler:onQueue:"),
+        ^(NSArray *cookies, NSString *host) { (void)host; [gAdded addObjectsFromArray:cookies]; }, dispatch_get_main_queue());
+    ((void (*)(id, SEL, id, dispatch_queue_t))objc_msgSend)(watched, sel_getUid("wk__setCookiesRemovedHandler:onQueue:"),
+        ^(NSArray *cookies, NSString *host, BOOL all) { (void)host; (void)all; [gRemoved addObjectsFromArray:cookies]; }, dispatch_get_main_queue());
+    ((void (*)(id, SEL, id))objc_msgSend)(watched, sel_getUid("wk__setSubscribedDomainsForCookieChanges:"),
+        [NSSet setWithObject:@"merge.test"]);
+
+    NSHTTPCookie *(^expired)(NSString *) = ^NSHTTPCookie *(NSString *value) {
+        return [NSHTTPCookie cookieWithProperties:@{ NSHTTPCookieName: @"gone", NSHTTPCookieValue: value,
+            NSHTTPCookieDomain: @"merge.test", NSHTTPCookiePath: @"/",
+            NSHTTPCookieExpires: [NSDate dateWithTimeIntervalSinceNow:-10] }];
+    };
+
+    // (1) an expired write over a cookie the store does not hold
+    [watched setCookie:expired(@"x")];
+    drain();
+    checkMerge("an expired write over nothing raises no change", describe(gAdded), "", describe(gRemoved), "");
+    check(watched.cookies.count == 0, "and stores nothing");
+
+    // (2) an expired write over a stored cookie, carrying a different value than the stored one
+    [gAdded removeAllObjects]; [gRemoved removeAllObjects];
+    [watched setCookie:[NSHTTPCookie cookieWithProperties:@{ NSHTTPCookieName: @"gone",
+        NSHTTPCookieValue: @"here", NSHTTPCookieDomain: @"merge.test", NSHTTPCookiePath: @"/" }]];
+    drain();
+    [gAdded removeAllObjects]; [gRemoved removeAllObjects];
+    [watched setCookie:expired(@"different")];
+    drain();
+    checkMerge("an expired write over a stored cookie removes it", describe(gAdded), "", describe(gRemoved), "gone=different");
+    check(watched.cookies.count == 0, "and the stored cookie is gone");
+
+    ((void (*)(id, SEL, id))objc_msgSend)(watched, sel_getUid("wk__setSubscribedDomainsForCookieChanges:"), nil);
+    CFRelease(store);
+    CFRelease(url);
+    [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
+
+    // The same two cases on the process's own jar. That storage is ExternalCookieStorage, whose delete
+    // slot answers with a constant, so this is the configuration WebKit runs and the one a report made
+    // on the slot's answer alone gets wrong.
+    NSHTTPCookieStorage *shared = [NSHTTPCookieStorage sharedHTTPCookieStorage];
+    NSHTTPCookie *(^onShared)(NSString *, NSDate *) = ^NSHTTPCookie *(NSString *value, NSDate *expires) {
+        NSMutableDictionary *properties = [@{ NSHTTPCookieName: @"wkgone", NSHTTPCookieValue: value,
+            NSHTTPCookieDomain: @"expired.test", NSHTTPCookiePath: @"/" } mutableCopy];
+        if (expires)
+            properties[NSHTTPCookieExpires] = expires;
+        return [NSHTTPCookie cookieWithProperties:properties];
+    };
+    forgetCookiesOfDomain(shared, @"expired.test");
+
+    gAdded = [NSMutableArray array];
+    gRemoved = [NSMutableArray array];
+    ((void (*)(id, SEL, id, dispatch_queue_t))objc_msgSend)(shared, sel_getUid("wk__setCookiesChangedHandler:onQueue:"),
+        ^(NSArray *cookies, NSString *host) { (void)host; [gAdded addObjectsFromArray:cookies]; }, dispatch_get_main_queue());
+    ((void (*)(id, SEL, id, dispatch_queue_t))objc_msgSend)(shared, sel_getUid("wk__setCookiesRemovedHandler:onQueue:"),
+        ^(NSArray *cookies, NSString *host, BOOL all) { (void)host; (void)all; [gRemoved addObjectsFromArray:cookies]; }, dispatch_get_main_queue());
+    ((void (*)(id, SEL, id))objc_msgSend)(shared, sel_getUid("wk__setSubscribedDomainsForCookieChanges:"),
+        [NSSet setWithObject:@"expired.test"]);
+
+    [shared setCookie:onShared(@"x", [NSDate dateWithTimeIntervalSinceNow:-10])];
+    drain();
+    checkMerge("on the process's own jar, an expired write over nothing raises no change",
+               describe(gAdded), "", describe(gRemoved), "");
+
+    [gAdded removeAllObjects]; [gRemoved removeAllObjects];
+    [shared setCookie:onShared(@"here", nil)];
+    drain();
+    [gAdded removeAllObjects]; [gRemoved removeAllObjects];
+    [shared setCookie:onShared(@"different", [NSDate dateWithTimeIntervalSinceNow:-10])];
+    drain();
+    checkMerge("and an expired write over a stored cookie removes it once",
+               describe(gAdded), "", describe(gRemoved), "wkgone=different");
+
+    ((void (*)(id, SEL, id))objc_msgSend)(shared, sel_getUid("wk__setSubscribedDomainsForCookieChanges:"), nil);
+    forgetCookiesOfDomain(shared, @"expired.test");
+
+    // And on MemoryCookieStorage, which is the third patched family WebKit reaches: an ephemeral or
+    // private session runs on it.
+    CreateInMemoryFn createInMemory = (CreateInMemoryFn)cfnetwork("CFHTTPCookieStorageCreateInMemory");
+    CFHTTPCookieStorageRef memory = createInMemory ? createInMemory(NULL, NULL) : NULL;
+    if (!memory) {
+        printf("  FAIL: an in-memory cookie storage could not be made\n");
+        ++failures;
+        return;
+    }
+    NSHTTPCookieStorage *inMemory = wrapStorage(memory);
+    gAdded = [NSMutableArray array];
+    gRemoved = [NSMutableArray array];
+    ((void (*)(id, SEL, id, dispatch_queue_t))objc_msgSend)(inMemory, sel_getUid("wk__setCookiesChangedHandler:onQueue:"),
+        ^(NSArray *cookies, NSString *host) { (void)host; [gAdded addObjectsFromArray:cookies]; }, dispatch_get_main_queue());
+    ((void (*)(id, SEL, id, dispatch_queue_t))objc_msgSend)(inMemory, sel_getUid("wk__setCookiesRemovedHandler:onQueue:"),
+        ^(NSArray *cookies, NSString *host, BOOL all) { (void)host; (void)all; [gRemoved addObjectsFromArray:cookies]; }, dispatch_get_main_queue());
+    ((void (*)(id, SEL, id))objc_msgSend)(inMemory, sel_getUid("wk__setSubscribedDomainsForCookieChanges:"),
+        [NSSet setWithObject:@"expired.test"]);
+
+    [inMemory setCookie:onShared(@"x", [NSDate dateWithTimeIntervalSinceNow:-10])];
+    drain();
+    checkMerge("in memory, an expired write over nothing raises no change",
+               describe(gAdded), "", describe(gRemoved), "");
+
+    [gAdded removeAllObjects]; [gRemoved removeAllObjects];
+    [inMemory setCookie:onShared(@"here", nil)];
+    drain();
+    checkMerge("in memory, a new cookie is a change", describe(gAdded), "wkgone=here", describe(gRemoved), "");
+
+    // The same cookie again: the slot answers that the write was accepted, which is not a change.
+    [gAdded removeAllObjects]; [gRemoved removeAllObjects];
+    [inMemory setCookie:onShared(@"here", nil)];
+    drain();
+    checkMerge("in memory, storing an identical cookie raises no change",
+               describe(gAdded), "", describe(gRemoved), "");
+
+    [gAdded removeAllObjects]; [gRemoved removeAllObjects];
+    [inMemory setCookie:onShared(@"different", [NSDate dateWithTimeIntervalSinceNow:-10])];
+    drain();
+    checkMerge("in memory, an expired write over a stored cookie removes it once",
+               describe(gAdded), "", describe(gRemoved), "wkgone=different");
+
+    ((void (*)(id, SEL, id))objc_msgSend)(inMemory, sel_getUid("wk__setSubscribedDomainsForCookieChanges:"), nil);
+    CFRelease(memory);
 }
 
 static void checkBulkMergeReport(void)
@@ -554,8 +738,7 @@ int main(void)
         };
         NSHTTPCookieStorage *storage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
         for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
-            for (NSHTTPCookie *held in [[storage.cookies copy] autorelease])
-                [storage deleteCookie:held];
+            forgetCookiesOfDomain(storage, @"path.test");
             NSString *cookiePath = [NSString stringWithUTF8String:cases[i].cookiePath];
             NSURL *readURL = [NSURL URLWithString:[NSString stringWithFormat:@"http://path.test%s", cases[i].readPath]];
             NSHTTPCookie *cookie = [NSHTTPCookie cookieWithProperties:@{
@@ -567,9 +750,44 @@ int main(void)
             snprintf(label, sizeof(label), "Path=%s %s served at %s", cases[i].cookiePath,
                      cases[i].served ? "is" : "is not", cases[i].readPath);
             check(served == cases[i].served, label);
-            for (NSHTTPCookie *held in [[storage.cookies copy] autorelease])
-                [storage deleteCookie:held];
+            forgetCookiesOfDomain(storage, @"path.test");
         }
+    }
+
+    // RFC 6265bis 5.5 sends the longer cookie-path first. 10.9 answers host-only cookies ahead of the
+    // ones carrying a Domain attribute and orders by path length only inside each group.
+    {
+        NSHTTPCookieStorage *storage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
+        forgetCookiesOfDomain(storage, @"order.test");
+        // The shape of ordering.sub.html's first case: two host-only cookies and two with a Domain.
+        struct { const char *name; const char *path; bool withDomain; } written[] = {
+            { "testB", "/cookies",             false },
+            { "testC", "/",                    false },
+            { "testE", "/",                    true  },
+            { "testF", "/cookies/attributes",  true  },
+        };
+        for (size_t i = 0; i < sizeof(written) / sizeof(written[0]); ++i) {
+            NSMutableDictionary *properties = [@{
+                NSHTTPCookieName: [NSString stringWithUTF8String:written[i].name],
+                NSHTTPCookieValue: @"1",
+                NSHTTPCookiePath: [NSString stringWithUTF8String:written[i].path] } mutableCopy];
+            properties[NSHTTPCookieDomain] = written[i].withDomain ? @".order.test" : @"order.test";
+            [storage setCookie:[NSHTTPCookie cookieWithProperties:properties]];
+        }
+        NSArray<NSHTTPCookie *> *answered = [storage cookiesForURL:[NSURL URLWithString:@"http://order.test/cookies/attributes/x.html"]];
+        NSMutableArray *names = [NSMutableArray array];
+        bool descending = true;
+        for (NSUInteger i = 0; i < answered.count; ++i) {
+            [names addObject:answered[i].name];
+            if (i && answered[i].path.length > answered[i - 1].path.length)
+                descending = false;
+        }
+        NSString *got = [names componentsJoinedByString:@","];
+        // The two /-path cookies tie, and the order among them is the one 10.9 gave: the RFC breaks that
+        // tie by creation time, which this platform records only to the second.
+        check(descending && answered.count == 4 && [names[0] isEqualToString:@"testF"] && [names[1] isEqualToString:@"testB"],
+              [[NSString stringWithFormat:@"longer cookie-paths are sent first (got %@)", got] UTF8String]);
+        forgetCookiesOfDomain(storage, @"order.test");
     }
 
     check(wk_sameSiteCopyServerComment(NULL) == NULL, "no comment stays no comment");
@@ -631,8 +849,9 @@ int main(void)
     checkPolicy("strict", WK_SAME_SITE_STRICT, "strict reads as Strict");
     checkPolicy("LAX", WK_SAME_SITE_LAX, "LAX reads as Lax");
     checkPolicy("None", WK_SAME_SITE_NONE, "None reads as unspecified");
-    checkPolicy("whatever", WK_SAME_SITE_NONE, "an unrecognised value reads as unspecified");
-    checkPolicy("", WK_SAME_SITE_NONE, "an empty value reads as unspecified");
+    checkPolicy("whatever", WK_SAME_SITE_LAX, "an unrecognised value takes the default enforcement");
+    checkPolicy("", WK_SAME_SITE_LAX, "an empty value takes the default enforcement");
+    checkPolicy("Unsupported", WK_SAME_SITE_LAX, "the value WPT writes takes the default enforcement");
 
     // RFC 6265bis 5.5.
     check(wk_sameSiteAllows(WK_SAME_SITE_STRICT, true, false, false), "Strict rides a same-site request");
@@ -648,6 +867,27 @@ int main(void)
     checkSameSite("http://www.example.com/a", "http://api.example.com/b", true, "one registrable domain");
     checkSameSite("http://example.com/a", "http://example.org/b", false, "two registrable domains");
     checkSameSite("", "http://example.com/b", false, "an empty site is same-site with nothing");
+    checkSameSite("https://www1.web-platform.test:9443/a", "https://web-platform.test:9443/b", true,
+        "a subdomain of a host under a label 10.9's table predates is same-site with it");
+
+    // 10.9's table holds com, org, net, xyz, io and co.uk, and not test, app or dev.
+    checkRegistrableDomain("www1.web-platform.test", "web-platform.test", "a newer label is a public suffix");
+    checkRegistrableDomain("www.example.com", "example.com", "a label the table holds still answers");
+    checkRegistrableDomain("a.b.example.co.uk", "example.co.uk", "a two-label public suffix still answers");
+    checkRegistrableDomain("web-platform.test", "web-platform.test", "a two-label host is its own domain");
+    checkRegistrableDomain("localhost", "localhost", "localhost is its own domain");
+    checkRegistrableDomain("127.0.0.1", "127.0.0.1", "an address is its own domain");
+
+    checkOnlyATopLevelDomain("https://not-web-platform.test/a", "https://web-platform.test/b", true,
+        "two hosts sharing only a label the table predates");
+    checkOnlyATopLevelDomain("https://evil.app/a", "https://victim.app/b", true, "the same under .app");
+    checkOnlyATopLevelDomain("https://evil.com/a", "https://victim.com/b", true, "the same under .com");
+    checkOnlyATopLevelDomain("https://www1.web-platform.test/a", "https://web-platform.test/b", false,
+        "a subdomain shares more than a top-level domain");
+    checkOnlyATopLevelDomain("https://a.example.co.uk/x", "https://b.example.co.uk/y", false,
+        "two hosts under one registrable domain");
+    checkOnlyATopLevelDomain("https://web-platform.test/a", "https://web-platform.test/b", false,
+        "one host with itself");
 
     // The rewrite, stated as the cookies that reach the jar.
     checkRewrite("no attribute", "a=1; Path=/", "[a=1|-]");
@@ -668,10 +908,12 @@ int main(void)
                  "trap=\"x; SameSite=Lax y\"; Path=/, q=2; Path=/; SameSite=Strict",
                  "[trap=\"x; SameSite=Lax y\"|-][q=2|wk:1 ss=Strict]");
 
-    // A value that restricts nothing is left for 10.9 to drop, so the cookie is stored exactly as it
-    // would have been without this layer.
+    // None restricts nothing, so that cookie is left for 10.9 to drop and is stored exactly as it would
+    // have been without this layer. A value the constants do not name takes the default enforcement
+    // (RFC 6265bis 5.4.7), which does restrict, so it is carried.
     checkRewrite("none", "a=1; Path=/; SameSite=None", "[a=1|-]");
-    checkRewrite("a value the constants do not name", "a=1; Path=/; SameSite=Sometimes", "[a=1|-]");
+    checkRewrite("a value the constants do not name", "a=1; Path=/; SameSite=Sometimes",
+                 "[a=1|wk:1 ss=Sometimes]");
     checkRewrite("none alongside a comment", "a=1; Path=/; Comment=mine; SameSite=None", "[a=1|mine]");
     checkRewrite("none and a restriction in one field",
                  "p=1; Path=/; SameSite=None, q=2; Path=/; SameSite=Lax", "[p=1|-][q=2|wk:1 ss=Lax]");
@@ -696,6 +938,25 @@ int main(void)
     checkRangeCountMatchesParser("a=\"x,y\"; Path=/");
     checkRangeCountMatchesParser("a=\"x,y\"; Path=/, b=2");
     checkRangeCountMatchesParser("a=1; Path=/; SameSite=Lax, b=2; SameSite=Strict");
+    checkRangeCountMatchesParser("a=1,b=2");
+    checkRangeCountMatchesParser("a=1 ,b=2");
+    checkRangeCountMatchesParser("a=1,\tb=2");
+    checkRangeCountMatchesParser("a=1,  b=2");
+    checkRangeCountMatchesParser("a=1, b=2,c=3");
+    checkRangeCountMatchesParser("a=1, b");
+    checkRangeCountMatchesParser("a=1, b;c=2");
+    checkRangeCountMatchesParser("a=1, =2");
+    checkRangeCountMatchesParser("a=1, \"b\"=2");
+    checkRangeCountMatchesParser("t=1; b,az=qux");
+    checkRangeCountMatchesParser("t=1; baz=q,ux");
+    checkRangeCountMatchesParser("t=1; foo=bar,a=b");
+    checkRangeCountMatchesParser("t=1; foo=bar, a=b");
+    checkRangeCountMatchesParser("t=1; foo, a=b");
+    checkRangeCountMatchesParser("t=1; Path=/,a=b");
+    checkRangeCountMatchesParser("t=1; Secure, a=b");
+    checkRangeCountMatchesParser("t=1; foo=bar, a");
+    checkRangeCountMatchesParser("t=1,a=b; Path=/");
+    checkRangeCountMatchesParser("t=1; max-age=3600, c=d; path=/");
 
     checkControlSplit("a quoted comma is not a boundary",
                       "a=\"x,y\"; Path=/, b=2\x01", "a=\"x,y\"; Path=/");
@@ -738,6 +999,35 @@ int main(void)
         CFRelease(longComment);
         CFRelease(header);
         CFRelease(expected);
+    }
+
+    // RFC 6265 5.3's domain rules, over 10.9's storage spelling: it writes an explicit Domain= back with
+    // a leading dot ADDED, so the host-only carve-out has to be read off the canonicalised name or a
+    // dotless host loses every cookie that names its own host.
+    {
+        SEL parse = sel_getUid("wk__cookieForSetCookieString:forURL:partition:");
+        if (![NSHTTPCookie respondsToSelector:parse]) {
+            printf("  FAIL: the layer's +_cookieForSetCookieString:forURL:partition: is not installed\n");
+            ++failures;
+        } else {
+            struct { const char *url; const char *field; bool kept; const char *what; } cases[] = {
+                { "http://myserver/x", "a=1", true, "a dotless host keeps its host-only cookie" },
+                { "http://myserver/x", "a=1; Domain=myserver", true, "a dotless host keeps a cookie naming itself" },
+                { "http://myserver/x", "a=1; Domain=.myserver", true, "the same written with the dot" },
+                { "http://www.example.com/x", "a=1; Domain=example.com", true, "a registrable domain is kept" },
+                { "http://www.example.com/x", "a=1; Domain=com", false, "a public suffix is refused" },
+                { "http://www.evil.app/x", "a=1; Domain=app", false, "a suffix 10.9's table predates is refused" },
+                { "http://a.web-platform.test/x", "a=1; Domain=test", false, "a reserved top-level domain is refused" },
+                { "http://127.0.0.1/x", "a=1", true, "an address keeps its host-only cookie" },
+                { "http://127.0.0.1/x", "a=1; Domain=0.0.1", false, "an address refuses a suffix of itself" },
+            };
+            for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+                NSURL *url = [NSURL URLWithString:[NSString stringWithUTF8String:cases[i].url]];
+                id built = ((id (*)(id, SEL, id, id, id))objc_msgSend)([NSHTTPCookie class], parse,
+                    [NSString stringWithUTF8String:cases[i].field], url, nil);
+                check((built != nil) == cases[i].kept, cases[i].what);
+            }
+        }
     }
 
     // The constructors this layer replaces: a property dictionary's attribute travels into the Comment
@@ -799,6 +1089,7 @@ int main(void)
     }
 
     checkBulkMergeReport();
+    checkExpiredWriteReport();
 
     printf(failures ? "  %d FAILED\n" : "  ok\n", failures);
     return failures ? 1 : 0;

@@ -8,10 +8,47 @@
 #include <stdlib.h>
 #include <string.h>
 
-// The public-suffix oracle, exported on 10.9 but absent from the build SDK's stub library, and
-// resolved through the layer because libpolyfill.a is force-loaded into images that do not link
-// CFNetwork.
-WK_SYSTEM_FN("CFNetwork", Boolean, _CFHostIsDomainTopLevel, (CFStringRef));
+static bool wk_nameIsTopLevelDomain(CFStringRef domain);
+
+// The public-suffix oracle every consumer asks -- WebCore's PublicSuffixStore, SecurityOrigin's
+// document.domain relaxation, the Cookie Store API's domain check, CSP source lists, extension match
+// patterns, and this file -- answering from a table of top-level domains that was current in 2013. A
+// name delegated or reserved since reads as an ordinary label there, so two hosts under it read as one
+// registrable domain: a page on evil.app could relax document.domain to "app", a cookie could name
+// Domain=app, and a subdomain's request was stamped cross-site to its own site.
+//
+// The public-suffix list's default rule supplies what the table lacks: a name no rule matches is a
+// suffix of one label. That answers a top-level domain delegated after 2013, and one reserved rather
+// than delegated (RFC 6761's test, example and invalid, which every WPT host is under and which no
+// registry list names). `localhost` is the exception a list-driven browser makes by name, and an
+// address is not a name at all. Additive: every answer 10.9 gives, co.uk and the internationalised
+// U-labels included, is still its own.
+WK_POLYFILL_REPLACES("CFNetwork", Boolean, _CFHostIsDomainTopLevel, (CFStringRef domain))
+{
+    return wk_nameIsTopLevelDomain(domain);
+}
+
+// A name of one label, ignoring a leading or trailing dot.
+static bool wk_nameIsOneLabel(CFStringRef domain)
+{
+    CFIndex length = domain ? CFStringGetLength(domain) : 0;
+    CFIndex start = length && CFStringGetCharacterAtIndex(domain, 0) == '.' ? 1 : 0;
+    CFIndex end = length && CFStringGetCharacterAtIndex(domain, length - 1) == '.' ? length - 1 : length;
+    if (end <= start)
+        return false;
+    CFRange dot;
+    return !CFStringFindWithOptions(domain, CFSTR("."), CFRangeMake(start, end - start), 0, &dot);
+}
+
+// The same answer for this library's own readers, which reach the body above only in an image the
+// replacement was installed into.
+static bool wk_nameIsTopLevelDomain(CFStringRef domain)
+{
+    if (WK_ORIGINAL(_CFHostIsDomainTopLevel)(domain))
+        return true;
+    return wk_nameIsOneLabel(domain) && !wk_hostIsIPAddress(domain)
+        && CFStringCompare(domain, CFSTR("localhost"), kCFCompareCaseInsensitive) != kCFCompareEqualTo;
+}
 
 bool wk_hostIsIPAddress(CFStringRef host)
 {
@@ -61,8 +98,7 @@ CFStringRef wk_copyDecodedHostName(CFStringRef name)
 bool wk_domainIsPublicSuffix(CFStringRef domain)
 {
     CFStringRef decoded = wk_copyDecodedHostName(domain);
-    bool isPublicSuffix = decoded && WK_SYSTEM(_CFHostIsDomainTopLevel)
-        && WK_SYSTEM(_CFHostIsDomainTopLevel)(decoded);
+    bool isPublicSuffix = decoded && wk_nameIsTopLevelDomain(decoded);
     if (decoded)
         CFRelease(decoded);
     return isPublicSuffix;

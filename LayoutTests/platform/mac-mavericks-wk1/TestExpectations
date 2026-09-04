@@ -63,6 +63,40 @@ http/tests/navigation [ Pass ]
 # `imported [ Skip ]`.
 imported/w3c/web-platform-tests/cookies [ Pass ]
 
+# 10.9 records a cookie's creation time to the whole second -- CFHTTPCookieGetCreationTime and
+# CFHTTPCookieGetCreateDate both answer the same value for cookies made a millisecond apart -- so the
+# tie RFC 6265bis 5.5 breaks by creation time among equal-length paths cannot be expressed here, and
+# "For equal length paths, list the cookie with an earlier creation time first" fails. The rest of the
+# suite's ordering, which is by path length, passes. Jonathan's call: a test failing for that reason
+# stays recorded rather than chased.
+imported/w3c/web-platform-tests/cookies/ordering/ordering.sub.html [ Failure ]
+
+# 10.9's CFNetwork folds repeated Set-Cookie headers into one comma-joined field inside its HTTP message
+# parser -- CFHTTPMessageCopyAllHeaderFields and CFHTTPMessageCopySerializedMessage both give back one
+# line for two headers, so the boundary is gone before any cookie code runs. A comma inside a single
+# Set-Cookie is then indistinguishable from that fold: "test=18; foo=bar, a=b" is byte-identical to the
+# fold of "test=18; foo=bar" and "a=b". These two tests want the first reading; a real response's two
+# headers want the second, so the division stays the one 10.9's own parser makes.
+imported/w3c/web-platform-tests/cookies/attributes/expires.html [ Failure ]
+imported/w3c/web-platform-tests/cookies/attributes/invalid.html [ Failure ]
+
+# 10.9's HTTP message parser ends a header field at a bare CR and drops the rest of the line, so
+# "Set-Cookie: test13\rname=13" reaches WebCore as "test13" -- neither an invalid header value modern
+# WebKit would reject nor a cookie 10.9's parser will store. Upstream's mac expectations carry both as
+# [ Pass Failure ] and the blanket un-skip above is what removed that here, but the failure is 5-of-5
+# deterministic on this port, so it is recorded as one: a run that starts passing must surface.
+imported/w3c/web-platform-tests/cookies/name/name-ctl.html [ Failure ]
+imported/w3c/web-platform-tests/cookies/value/value-ctl.html [ Failure ]
+
+# Document::m_cachedDOMCookies lives until a 0-second run-loop timer expires. testRunner.removeAllCookies
+# reaches NetworkStorageSession::deleteAllCookies, whose completion lands on the main queue's dispatch
+# port -- which CFRunLoop polls before it runs timers -- so the read in the completion's own microtask is
+# one turn stale and the emptied jar is not yet visible. Measured: the very next read, after a
+# setTimeout(0), is correct. WK2 wins the same race only because its removeAllCookies crosses two
+# processes. Upstream mac-wk1 runs no WPT at all; the ports that do run this test, glib and win, both
+# record it as flaky (webkit.org/b/307989, webkit.org/b/261308).
+imported/w3c/web-platform-tests/cookies/path/default.html [ Failure ]
+
 # The Cookie Store API is not part of WebKit1: UnifiedWebPreferences.yaml gives CookieStoreAPIEnabled
 # the default `false` for WebKitLegacy, so `window.cookieStore` is absent and every test in the suite
 # fails on the interface rather than on cookie behavior. These run under mac-mavericks-wk2.

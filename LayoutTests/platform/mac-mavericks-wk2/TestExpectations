@@ -57,3 +57,20 @@ fast/frames/iframe-translucent-background.html [ Pass ImageOnlyFailure ]
 # expectations' per-test skips.
 imported/w3c/web-platform-tests/cookies [ Pass ]
 imported/w3c/web-platform-tests/cookiestore [ Pass ]
+
+# 10.9 records a cookie's creation time to the whole second -- CFHTTPCookieGetCreationTime and
+# CFHTTPCookieGetCreateDate both answer the same value for cookies made a millisecond apart -- so the
+# tie RFC 6265bis 5.5 breaks by creation time among equal-length paths cannot be expressed here, and
+# "For equal length paths, list the cookie with an earlier creation time first" fails. The rest of the
+# suite's ordering, which is by path length, passes. Jonathan's call: a test failing for that reason
+# stays recorded rather than chased.
+imported/w3c/web-platform-tests/cookies/ordering/ordering.sub.html [ Failure ]
+
+# 10.9's CFNetwork folds repeated Set-Cookie headers into one comma-joined field inside its HTTP message
+# parser -- CFHTTPMessageCopyAllHeaderFields and CFHTTPMessageCopySerializedMessage both give back one
+# line for two headers, so the boundary is gone before any cookie code runs. A comma inside a single
+# Set-Cookie is then indistinguishable from that fold: "test=18; foo=bar, a=b" is byte-identical to the
+# fold of "test=18; foo=bar" and "a=b". These two tests want the first reading; a real response's two
+# headers want the second, so the division stays the one 10.9's own parser makes.
+imported/w3c/web-platform-tests/cookies/attributes/expires.html [ Failure ]
+imported/w3c/web-platform-tests/cookies/attributes/invalid.html [ Failure ]

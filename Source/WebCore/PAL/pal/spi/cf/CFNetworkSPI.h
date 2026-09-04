@@ -506,6 +506,9 @@ void _CFURLRequestSetProtocolProperty(CFURLRequestRef, CFStringRef, CFTypeRef);
 void CFURLRequestSetRequestPriority(CFURLRequestRef, CFURLRequestPriority);
 void CFURLRequestSetShouldPipelineHTTP(CFURLRequestRef, Boolean, Boolean);
 void _CFURLRequestSetStorageSession(CFMutableURLRequestRef, CFURLStorageSessionRef);
+// MAVERICKS_BACKPORT: the cookie storage a request is served from, which on 10.9 is what carries a
+// session's jar onto the hops CFNetwork follows after it. See NetworkSessionCocoa.mm's redirect delegate.
+void CFURLRequestSetHTTPCookieStorage(CFMutableURLRequestRef, CFHTTPCookieStorageRef);
 CFStringRef CFURLResponseCopySuggestedFilename(CFURLResponseRef);
 CFHTTPMessageRef CFURLResponseGetHTTPResponse(CFURLResponseRef);
 CFStringRef CFURLResponseGetMIMEType(CFURLResponseRef);

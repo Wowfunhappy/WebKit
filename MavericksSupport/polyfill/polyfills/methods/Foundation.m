@@ -183,24 +183,31 @@ static NSHTTPCookie *wk_cookieWithUsableDomain(NSHTTPCookie *cookie, NSURL *url)
         return cookie;
 
     NSString *host = [url host];
-    // A host-only cookie is named after the host it came from and needs neither test.
-    if (host.length && [domain caseInsensitiveCompare:host] == NSOrderedSame)
-        return cookie;
-
     if (!host.length)
         return nil;
-    if (wk_hostIsIPLiteral(host))
-        return nil;
 
+    // RFC 6265 5.3 canonicalises the domain-attribute by stripping a leading dot before anything else
+    // is asked of it, and 10.9 stores one the other way round -- it ADDS the dot, so a cookie that
+    // named its own host arrives here as ".myserver" against a host of "myserver". The name a cookie
+    // is being held to is therefore the bare one, and the tests below are in the RFC's order.
     NSString *bare = [domain hasPrefix:@"."] ? [domain substringFromIndex:1] : domain;
     if (!bare.length)
+        return nil;
+
+    // A cookie whose domain-attribute is its own host is a host-only cookie, which 5.3 keeps rather
+    // than refuses however the public-suffix rule would answer for that name.
+    if ([bare caseInsensitiveCompare:host] == NSOrderedSame)
+        return cookie;
+
+    // An address domain-matches only itself (5.1.3), which the line above already answered, so nothing
+    // else a cookie names for one can be right.
+    if (wk_hostIsIPLiteral(host))
         return nil;
 
     if (_CFHostIsDomainTopLevel((__bridge CFStringRef)wk_decodedHostName(bare)))
         return nil;
 
-    if ([host caseInsensitiveCompare:bare] != NSOrderedSame
-        && ![[host lowercaseString] hasSuffix:[[@"." stringByAppendingString:bare] lowercaseString]])
+    if (![[host lowercaseString] hasSuffix:[[@"." stringByAppendingString:bare] lowercaseString]])
         return nil;
 
     return cookie;
@@ -297,6 +304,7 @@ static NSDictionary<NSString *, NSHTTPCookie *> *wk_cookiesForHost(NSArray<NSHTT
     NSSet<NSString *> *_hosts;
 }
 + (void)reportCookie:(CFTypeRef)cookie ofStorage:(const void *)backend change:(int)change;
++ (BOOL)wantsReportsForStorage:(const void *)backend domain:(const char *)domain;
 + (void)reportMergeOfStorage:(const void *)backend before:(CFArrayRef)before after:(CFArrayRef)after;
 - (instancetype)initWithBackend:(const void *)backend;
 - (void)reportCookie:(CFTypeRef)cookie change:(int)change;
@@ -398,6 +406,41 @@ static NSArray<NSHTTPCookie *> *wk_cookiesFromCFCookies(CFArrayRef cfCookies)
     [_hosts release];
     _hosts = copied;
     [self retireIfIdle];
+}
+
+// Whether a report for this domain would reach anyone. c/CFNetwork.c asks this before it asks the
+// storage what it already holds, which is the expensive half of deciding whether a write changed
+// anything: ExternalCookieStorage invalidates its per-domain cache on every write, so that question
+// costs a synchronous cookied round trip.
++ (BOOL)wantsReportsForStorage:(const void *)backend domain:(const char *)domain
+{
+    if (!domain)
+        return NO;
+    @autoreleasepool {
+        pthread_mutex_lock(&wk_cookieWatcherLock);
+        WKPolyfillCookieWatcher *watcher = [[[wk_cookieWatchers objectForKey:[NSValue valueWithPointer:backend]] retain] autorelease];
+        pthread_mutex_unlock(&wk_cookieWatcherLock);
+        if (!watcher)
+            return NO;
+
+        pthread_mutex_lock(&wk_cookieWatcherLock);
+        BOOL anyHandler = watcher->_changedHandler || watcher->_removedHandler;
+        NSSet<NSString *> *hosts = [watcher->_hosts retain];
+        pthread_mutex_unlock(&wk_cookieWatcherLock);
+
+        BOOL wanted = NO;
+        if (anyHandler) {
+            NSString *text = [NSString stringWithUTF8String:domain];
+            for (NSString *host in hosts) {
+                if (text && wk_cookieDomainMatchesHost(text, host)) {
+                    wanted = YES;
+                    break;
+                }
+            }
+        }
+        [hosts release];
+        return wanted;
+    }
 }
 
 + (void)reportCookie:(CFTypeRef)cookie ofStorage:(const void *)backend change:(int)change
@@ -660,6 +703,14 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
         if (wk_cookieWithUsableDomain(cookie, url))
             [usable addObject:cookie];
     }
+    // -setCookies:forURL:mainDocumentURL: holds these to the main document's domain under
+    // NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain, and answers "same domain" from a 2013 table of
+    // top-level domains, so a third party under a label registered since is read as the main document's
+    // own. Two hosts sharing only one label share only a top-level domain whatever that table holds.
+    if (self.cookieAcceptPolicy == NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain && mainDocumentURL
+        && wk_hostsShareOnlyATopLevelDomain((__bridge CFURLRef)url, (__bridge CFURLRef)mainDocumentURL)
+        && ![[self cookiesForURL:url] count])
+        return;
     [self setCookies:usable forURL:url mainDocumentURL:mainDocumentURL];
 }
 - (NSArray<NSHTTPCookie *> *)_getCookiesForDomain:(NSString *)domain
@@ -1503,6 +1554,37 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
 }
 @end
 
+// The cookies of |cookies| in the order RFC 6265bis 5.5 sends them, which is a stable sort by path
+// length: a cookie 10.9 ordered by name among equal-length paths keeps that place, because the creation
+// time the RFC breaks those ties by is whole seconds here. Answers |cookies| itself when it already
+// reads that way, which is the common case and costs one scan and no allocation.
+static NSArray<NSHTTPCookie *> *wk_cookiesInSendOrder(NSArray<NSHTTPCookie *> *cookies)
+{
+    NSUInteger count = cookies.count;
+    bool ordered = true;
+    for (NSUInteger i = 1; i < count && ordered; ++i)
+        ordered = !wk_cookiePathSortsFirst((CFStringRef)cookies[i].path, (CFStringRef)cookies[i - 1].path);
+    if (ordered)
+        return cookies;
+
+    NSMutableArray<NSNumber *> *slots = [NSMutableArray arrayWithCapacity:count];
+    for (NSUInteger i = 0; i < count; ++i)
+        [slots addObject:@(i)];
+    // The slot decides every tie, so the sort is stable however the sort itself is implemented.
+    [slots sortUsingComparator:^NSComparisonResult(NSNumber *a, NSNumber *b) {
+        NSUInteger first = a.unsignedIntegerValue, second = b.unsignedIntegerValue;
+        if (wk_cookiePathSortsFirst((CFStringRef)cookies[first].path, (CFStringRef)cookies[second].path))
+            return NSOrderedAscending;
+        if (wk_cookiePathSortsFirst((CFStringRef)cookies[second].path, (CFStringRef)cookies[first].path))
+            return NSOrderedDescending;
+        return first < second ? NSOrderedAscending : NSOrderedDescending;
+    }];
+    NSMutableArray<NSHTTPCookie *> *sorted = [NSMutableArray arrayWithCapacity:count];
+    for (NSNumber *slot in slots)
+        [sorted addObject:cookies[slot.unsignedIntegerValue]];
+    return sorted;
+}
+
 // RFC 6265 5.1.4 holds a cookie to a request-path on a path-segment boundary; 10.9 tests only that the
 // cookie-path is a prefix (HTTPCookieStorage::lookupAndCopyCookies is a strlen bound and a strncmp), so
 // a cookie whose Path is /cook is answered here for /cookies/anything. This is the read every other
@@ -1527,7 +1609,7 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
         }
     }
     CFRelease(requestPath);
-    return onPath ?: cookies;
+    return wk_cookiesInSendOrder(onPath ?: cookies);
 }
 @end
 

@@ -102,6 +102,7 @@ bool wk_sameSiteMethodIsSafe(CFStringRef method);
 // the one that has to be made again at every hop because CFNetwork carries the request's cookie-policy
 // properties across an internal redirect verbatim while the URL changes host.
 bool wk_sameSiteURLsAreSameSite(CFURLRef siteForCookies, CFURLRef url);
+bool wk_hostsShareOnlyATopLevelDomain(CFURLRef url, CFURLRef mainDocumentURL);
 
 // What a Set-Cookie header field becomes on its way into the jar.
 typedef enum {
@@ -119,6 +120,10 @@ wk_samesite_header_disposition wk_sameSiteRewriteSetCookieHeader(CFStringRef hea
 // two cookies only where a cookie-name and its '=' follow it, and never inside a double-quoted value.
 // The caller owns the result; *outCount is the number of ranges.
 CFRange *wk_copySetCookieRanges(CFStringRef header, CFIndex *outCount);
+
+// RFC 6265bis 5.5: whether a cookie of |path| is sent before one of |otherPath|. See the definition for
+// the order 10.9 answers in instead.
+bool wk_cookiePathSortsFirst(CFStringRef path, CFStringRef otherPath);
 
 // RFC 6265 5.1.4: whether a cookie of |cookiePath| is served for |requestPath|. 10.9 tests only that
 // the cookie-path is a prefix, so a cookie whose Path is /cook is served at /cookies/anything; see the
