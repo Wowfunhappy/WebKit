@@ -276,13 +276,7 @@ static RetainPtr<CFStringRef> toUTI(NSString *type)
     for (const auto& typeAndData : _data) {
         NSData *data = (__bridge NSData *)typeAndData.value.get();
         NSString *type = (__bridge NSString *)typeAndData.key.get();
-        // MAVERICKS_BACKPORT: +[NSPasteboard _modernPasteboardType:] (legacy->UTI type mapping) is a 10.10+
-        // SPI; calling it on 10.9 throws an unrecognized-selector exception that aborts the process, crashing
-        // every clipboard/pasteboard test. Fall back to the type as-is — 10.9's NSPasteboardItem accepts the
-        // legacy pasteboard type string directly.
-        NSString *modernType = [NSPasteboard respondsToSelector:@selector(_modernPasteboardType:)]
-            ? [NSPasteboard _modernPasteboardType:type] : type;
-        [item setData:data forType:modernType];
+        [item setData:data forType:[NSPasteboard _modernPasteboardType:type]];
     }
 
     _cachedPasteboardItems = @[ item.get() ];

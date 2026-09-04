@@ -87,12 +87,14 @@ list(APPEND DumpRenderTree_ObjCpp_SOURCES
     mac/WorkQueueItemMac.mm
     ${WebKitTestRunner_SHARED_DIR}/cocoa/ClassMethodSwizzler.mm
     ${WebKitTestRunner_SHARED_DIR}/cocoa/LayoutTestSpellChecker.mm
-    # MAVERICKS_BACKPORT: these shared TestRunnerShared cocoa sources are compiled per-consumer (the
+    # MAVERICKS_BACKPORT: these shared TestRunnerShared sources are compiled per-consumer (the
     # TestRunnerShared object library only carries the cross-platform sources); DumpRenderTree references
-    # their symbols (poseAsClass, InstanceMethodSwizzler, ModifierKeys) but did not list them.
+    # their symbols (poseAsClass, InstanceMethodSwizzler, ModifierKeys, +_modernPasteboardType:) but did
+    # not list them.
     ${WebKitTestRunner_SHARED_DIR}/cocoa/PoseAsClass.mm
     ${WebKitTestRunner_SHARED_DIR}/cocoa/InstanceMethodSwizzler.mm
     ${WebKitTestRunner_SHARED_DIR}/cocoa/ModifierKeys.mm
+    ${WebKitTestRunner_SHARED_DIR}/mac/NSPasteboardAdditions.mm
 )
 
 set(DumpRenderTree_SOURCES

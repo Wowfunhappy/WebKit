@@ -13,21 +13,7 @@ fast/canvas [ Pass ]
 css1 [ Pass ]
 cssom [ Pass ]
 
-# --- Known Web Audio codec limitations on 10.9 (CoreAudio/ExtAudioFile) ----------------------------------
-# 10.9's CoreAudio decodes WAV/MP3/AAC but NOT FLAC/Opus/Vorbis, and (unlike modern macOS) does not trim
-# AAC encoder-delay "priming" frames. These are real platform limitations, not harness defects. The ones
-# that hang decodeAudioData (no error callback) are Skipped to avoid the 30s timeout; the rest fail the
-# value comparison. (decodeAudioData migration to GStreamer would lift these — see project task #100.)
-webaudio/decode-audio-data-aac.html [ Failure ]
-webaudio/decode-audio-data-flac.html [ Failure ]
-webaudio/decode-audio-data-mp4-opus.html [ Failure ]
-webaudio/decode-audio-data-webm-opus.html [ Failure ]
-webaudio/decode-audio-data-webm-opus-resample.html [ Failure ]
-webaudio/decode-audio-data-webm-vorbis.html [ Failure ]
-webaudio/codec-tests/vorbis [ Skip ]
-
 webaudio/MediaStreamAudioSource/mediastreamaudiosourcenode.html [ Failure ]
-webaudio/audiomix-bufferingpolicy.html [ Failure ]
 
 # --- Storage: feature gaps + deep-flaky on this 10.9 WebKit1 backport -----------------------------------
 # File System Access API / OPFS (navigator.storage.getDirectory) is not enabled here.
@@ -71,6 +57,23 @@ imported/w3c/web-platform-tests/cookies [ Pass ]
 # stays recorded rather than chased.
 imported/w3c/web-platform-tests/cookies/ordering/ordering.sub.html [ Failure ]
 
+# Upstream skips this test on every port -- LayoutTests/TestExpectations names it [ Skip ], added by the
+# same commit that imported it and its baseline -- so no bot has ever verified that baseline, and this
+# port runs the test only because of the blanket un-skip above. It cannot pass anywhere: a child frame's
+# parse-time postMessage is delivered to the parent AND replayed by testharness.js's getmessages handler,
+# so RemoteContext.test_done runs twice per remote test while Tests.push counted it once. num_pending
+# reaches zero while the local promise_test is still running, remote_done calls tests.complete(), and
+# Tests.complete force-finishes the live test through cleanup_done rather than Test.done -- which leaves
+# the provisional "Test timed out" that Test.step stamps in place of PASS. Measured here: every hop does
+# send `complete`, and the top-level promise resolves one microtask turn after the harness emits.
+imported/w3c/web-platform-tests/cookies/partitioned-cookies/partitioned-cookies-a-b-a-embed.tentative.https.html [ Skip ]
+
+# The Cookie Store API is WebKit2-only in upstream WebKit: CookieJar::getCookiesAsync and
+# ::setCookieAsync answer failure in WebCore's base class and the only override is WebKit2's
+# WebCookieJar, so under WebKit1 every operation rejects with an empty-message TypeError before any
+# subtest registers. This file is a cookie test that reaches the API in its prologue.
+imported/w3c/web-platform-tests/cookies/partitioned-cookies/partitioned-cookies.tentative.https.html [ Skip ]
+
 # 10.9's CFNetwork folds repeated Set-Cookie headers into one comma-joined field inside its HTTP message
 # parser -- CFHTTPMessageCopyAllHeaderFields and CFHTTPMessageCopySerializedMessage both give back one
 # line for two headers, so the boundary is gone before any cookie code runs. A comma inside a single
@@ -97,9 +100,11 @@ imported/w3c/web-platform-tests/cookies/value/value-ctl.html [ Failure ]
 # record it as flaky (webkit.org/b/307989, webkit.org/b/261308).
 imported/w3c/web-platform-tests/cookies/path/default.html [ Failure ]
 
-# The Cookie Store API is not part of WebKit1: UnifiedWebPreferences.yaml gives CookieStoreAPIEnabled
-# the default `false` for WebKitLegacy, so `window.cookieStore` is absent and every test in the suite
-# fails on the interface rather than on cookie behavior. These run under mac-mavericks-wk2.
+# The Cookie Store API is WebKit2-only in upstream WebKit: CookieJar::getCookiesAsync and
+# ::setCookieAsync answer failure in WebCore's base class, and WebKit2's WebCookieJar is the only
+# override. DumpRenderTree turns every experimental feature on, so `window.cookieStore` is present here
+# and each of its operations rejects instead -- the suite fails on the interface, not on cookie
+# behavior. These run under mac-mavericks-wk2.
 imported/w3c/web-platform-tests/cookiestore [ Skip ]
 
 # --- Non-Mac platform tests that leaked in via the broad un-skips above -------------------------------
@@ -115,6 +120,12 @@ editing/execCommand/ios [ Skip ]
 editing/find/ios [ Skip ]
 editing/input/ios [ Skip ]
 editing/pasteboard/gtk [ Skip ]
+# LayoutTests/TestExpectations skips editing/pasteboard/dom-paste on every port; the broad
+# `editing [ Pass ]` above is more specific and re-enables it here. These tests reach
+# uiController.isShowingMenu, and UIScriptController answers an unimplemented method with
+# RELEASE_ASSERT_NOT_REACHED -- DumpRenderTree has no override, so each one aborts. WebKitTestRunner
+# implements it, and mac-mavericks-wk2 leaves upstream's skip in place.
+editing/pasteboard/dom-paste [ Skip ]
 editing/selection/ios [ Skip ]
 fast/css/ios [ Skip ]
 fast/css/variables/env/ios [ Skip ]

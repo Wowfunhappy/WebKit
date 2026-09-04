@@ -1001,6 +1001,56 @@ int main(void)
         CFRelease(expected);
     }
 
+    // A cookie's name and value are byte sequences, not ASCII. The constructors this layer replaces
+    // rebuild the property dictionary, so they are the place a non-ASCII name or value could be lost.
+    {
+        SEL cookieWithProperties = sel_getUid("wk_cookieWithProperties:");
+        struct { NSString *name; NSString *value; const char *what; } cases[] = {
+            { @"ascii", @"ok", "an ASCII cookie survives the constructor" },
+            { @"latin", @"h\u00e9llo", "a Latin-1 value survives the constructor" },
+            { @"\U0001F36A", @"\U0001F535", "a name and value outside the BMP survive the constructor" },
+        };
+        for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+            NSDictionary *properties = @{ NSHTTPCookieName: cases[i].name, NSHTTPCookieValue: cases[i].value,
+                                          NSHTTPCookieDomain: @"encoding.test", NSHTTPCookiePath: @"/",
+                                          NSHTTPCookieVersion: @"1" };
+            NSHTTPCookie *built = ((id (*)(id, SEL, id))objc_msgSend)([NSHTTPCookie class],
+                cookieWithProperties, properties);
+            bool kept = built && [[built name] isEqualToString:cases[i].name]
+                && [[built value] isEqualToString:cases[i].value];
+            check(kept, cases[i].what);
+            if (!kept)
+                printf("        built=%s name=[%s] value=[%s]\n", built ? "yes" : "no",
+                       built ? [[built name] UTF8String] : "-", built ? [[built value] UTF8String] : "-");
+        }
+    }
+
+    // The seam the Cookie Store API's set reaches in the network process, over a non-ASCII name and
+    // value: a cookie's name and value are byte sequences and must survive it whole.
+    {
+        SEL setCookies = sel_getUid("wk__setCookies:forURL:mainDocumentURL:policyProperties:");
+        CFTypeRef jar = ((CFTypeRef (*)(CFAllocatorRef, CFDictionaryRef))
+            cfnetwork("CFHTTPCookieStorageCreateInMemory"))(NULL, NULL);
+        NSHTTPCookieStorage *store = ((id (*)(id, SEL, CFTypeRef))objc_msgSend)([NSHTTPCookieStorage alloc],
+            sel_getUid("_initWithCFHTTPCookieStorage:"), jar);
+        NSURL *url = [NSURL URLWithString:@"http://encoding.test/x"];
+        NSMutableArray *cookies = [NSMutableArray array];
+        for (NSArray *pair in @[ @[@"ascii", @"ok"], @[@"latin", @"h\u00e9llo"], @[@"\U0001F36A", @"\U0001F535"] ]) {
+            [cookies addObject:[NSHTTPCookie cookieWithProperties:@{
+                NSHTTPCookieName: pair[0], NSHTTPCookieValue: pair[1],
+                NSHTTPCookieDomain: @"encoding.test", NSHTTPCookiePath: @"/", NSHTTPCookieVersion: @"1" }]];
+        }
+        if (![store respondsToSelector:setCookies]) {
+            printf("  FAIL: the layer's -_setCookies:forURL:mainDocumentURL:policyProperties: is not installed\n");
+            ++failures;
+        } else {
+            ((void (*)(id, SEL, id, id, id, id))objc_msgSend)(store, setCookies, cookies, url, url, nil);
+            check([[store cookiesForURL:url] count] == 3, "a non-ASCII name and value survive the set seam");
+            for (NSHTTPCookie *k in [store cookiesForURL:url])
+                printf("    [stored %s=%s]\n", [[k name] UTF8String], [[k value] UTF8String]);
+        }
+    }
+
     // RFC 6265 5.3's domain rules, over 10.9's storage spelling: it writes an explicit Domain= back with
     // a leading dot ADDED, so the host-only carve-out has to be read off the canonicalised name or a
     // dotless host loses every cookie that names its own host.

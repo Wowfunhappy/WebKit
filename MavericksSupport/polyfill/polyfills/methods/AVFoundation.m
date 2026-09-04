@@ -5,6 +5,7 @@
 #import "wk_polyfill.h"
 #import "wk_selref_scope.h"
 #import <AVFoundation/AVFoundation.h>
+#import "avf-resource-loader-drain.h"
 #import <objc/runtime.h>
 
 #pragma clang diagnostic push
@@ -122,6 +123,52 @@ WK_POLYFILL_ADD_METHODS_ON(NSObject, "AVAssetResourceLoadingDataRequest")
 - (BOOL)requestsAllDataToEndOfResource
 {
     return NO;
+}
+@end
+
+// -[AVAssetResourceLoadingContentInformationRequest setContentType:] takes a uniform type identifier.
+// Modern AVFoundation also accepts a MIME type there; 10.9's finds no tracks in a resource described
+// that way. A value that is already an identifier passes through, so a caller handing over a UTI is
+// unaffected.
+WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "AVAssetResourceLoadingContentInformationRequest")
+- (void)setContentType:(NSString *)contentType
+{
+    WK_ORIGINAL_METHOD(void, (NSString *), wkAVFContentTypeAsUTI(contentType));
+}
+@end
+
+// The options an asset was made with, for the local asset the reader polyfill below builds from it.
+// Only an asset at a non-local URL can reach that path, so only those carry the association.
+WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "AVURLAsset")
+- (instancetype)initWithURL:(NSURL *)URL options:(NSDictionary *)options
+{
+    id asset = WK_ORIGINAL_METHOD(id, (NSURL *, NSDictionary *), URL, options);
+    if (asset && options && !URL.isFileURL)
+        objc_setAssociatedObject(asset, wkAVFAssetOptionsKey, options, OBJC_ASSOCIATION_COPY);
+    return asset;
+}
+@end
+
+// -[AVAssetReader initWithAsset:error:] reads an asset served by a resource loader delegate. 10.9's
+// raises NSInvalidArgumentException for an asset at any non-local URL, so the delegate is asked for the
+// bytes and the reader is given an asset over a local file holding them, carrying the options the
+// original was made with. The file lives as long as that asset.
+WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "AVAssetReader")
+- (instancetype)initWithAsset:(AVAsset *)asset error:(NSError **)error
+{
+    AVURLAsset *local = wkAVFLocalAssetFor(asset);
+    return WK_ORIGINAL_METHOD(id, (AVAsset *, NSError **), local ?: asset, error);
+}
+@end
+
+// A reader reads its own asset's tracks. The caller took this track from the asset it asked to read, so
+// where that asset was served by a resource loader delegate, the track to read is the one with the same
+// trackID on the local asset the reader was given.
+WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "AVAssetReaderTrackOutput")
+- (instancetype)initWithTrack:(AVAssetTrack *)track outputSettings:(NSDictionary *)outputSettings
+{
+    AVAssetTrack *local = wkAVFLocalTrackFor(track);
+    return WK_ORIGINAL_METHOD(id, (AVAssetTrack *, NSDictionary *), local ?: track, outputSettings);
 }
 @end
 

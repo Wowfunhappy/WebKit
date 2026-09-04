@@ -24,6 +24,9 @@
 
 #include "AudioSampleFormat.h"
 #include "GStreamerCommon.h"
+// MAVERICKS_BACKPORT: this TU forms GUniquePtr<GstAudioInfo>, whose WTF::GPtrDeleter
+// specialization lives here.
+#include "GUniquePtrGStreamer.h"
 #include "MediaSampleGStreamer.h"
 #include "SharedBuffer.h"
 #include "WebCodecsAudioDataAlgorithms.h"

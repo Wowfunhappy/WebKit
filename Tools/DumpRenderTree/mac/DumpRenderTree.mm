@@ -749,18 +749,29 @@ RetainPtr<WebView> createWebViewAndOffscreenWindow()
     // Put it at -10000, -10000 in "flipped coordinates", since WebCore and the DOM use flipped coordinates.
     NSScreen *firstScreen = [[NSScreen screens] firstObject];
     NSRect windowRect = (showWebView) ? NSOffsetRect(rect, 100, 100) : NSOffsetRect(rect, -10000, [firstScreen frame].size.height - rect.size.height + 10000);
-    mainWindow = adoptNS([[DumpRenderTreeWindow alloc] initWithContentRect:windowRect styleMask:NSBorderlessWindowMask backing:NSBackingStoreBuffered defer:YES]);
-    [mainWindow setReleasedWhenClosed:NO];
-    [mainWindow setColorSpace:[firstScreen colorSpace]];
-    [mainWindow setCollectionBehavior:NSWindowCollectionBehaviorStationary];
-    [[mainWindow contentView] addSubview:webView.get()];
+    // MAVERICKS_BACKPORT: the window this creates is owned until it is closed, and the mainWindow global
+    // names only the main one. Assigning every window here made each window.open() drop the sole
+    // reference to the previous popup's window; nothing else on 10.9 retains an off-screen borderless
+    // window, so it was deallocated along with its contentView -- and with it the popup's WebView and
+    // Page. A script that opened two windows in one turn was then holding a window whose document could
+    // no longer load anything, and the re-parenting below could put the main WebView into a popup's
+    // window. setReleasedWhenClosed:YES makes -close the release, and every window already reaches one:
+    // -[UIDelegate webViewClose:], the per-test loop over DumpRenderTreeWindow.openWindows, and
+    // destroyGlobalWebViewAndOffscreenWindow.
+    RetainPtr<NSWindow> window = adoptNS([[DumpRenderTreeWindow alloc] initWithContentRect:windowRect styleMask:NSBorderlessWindowMask backing:NSBackingStoreBuffered defer:YES]);
+    [window setReleasedWhenClosed:YES];
+    [window setColorSpace:[firstScreen colorSpace]];
+    [window setCollectionBehavior:NSWindowCollectionBehaviorStationary];
+    [[window contentView] addSubview:webView.get()];
     if (showWebView)
-        [mainWindow orderFront:nil];
+        [window orderFront:nil];
     else
-        [mainWindow orderBack:nil];
-    [mainWindow setAutodisplay:NO];
+        [window orderBack:nil];
+    [window setAutodisplay:NO];
 
-    [(DumpRenderTreeWindow *)mainWindow.get() startListeningForAcceleratedCompositingChanges];
+    [(DumpRenderTreeWindow *)window.get() startListeningForAcceleratedCompositingChanges];
+    // MAVERICKS_BACKPORT: the window owns itself from here until -close, per the note above.
+    (void)window.leakRef();
 #else
     auto drtWindow = adoptNS([[DumpRenderTreeWindow alloc] initWithLayer:[webBrowserView layer]]);
     [drtWindow setContentView:webView.get()];
@@ -841,6 +852,9 @@ static void createGlobalWebViewAndOffscreenWindow()
     destroyGlobalWebViewAndOffscreenWindow();
     globalWebView() = createWebViewAndOffscreenWindow();
     mainFrame = [globalWebView() mainFrame];
+    // MAVERICKS_BACKPORT: the one window this global is for, set where the main WebView is made rather
+    // than by every window.open() (see createWebViewAndOffscreenWindow).
+    mainWindow = [globalWebView() window];
 }
 
 static NSString *libraryPathForDumpRenderTree()
@@ -1861,11 +1875,7 @@ static NSURL *computeTestURL(NSString *pathOrURLString, NSString **relativeTestP
 
     if ([pathOrURLString hasPrefix:@"http://"] || [pathOrURLString hasPrefix:@"https://"] || [pathOrURLString hasPrefix:@"file://"]) {
         // Use this instead of [NSURL URLWithString:] to properly handle special characters in the input string.
-        // MAVERICKS_BACKPORT: +[NSURL URLWithDataRepresentation:relativeToURL:] is 10.10+; on 10.9 fall back to
-        // +[NSURL URLWithString:] (run-webkit-tests already percent-encodes the URLs it passes).
-        if ([NSURL respondsToSelector:@selector(URLWithDataRepresentation:relativeToURL:)])
-            return [NSURL URLWithDataRepresentation:[pathOrURLString dataUsingEncoding:NSUTF8StringEncoding] relativeToURL:nil];
-        return [NSURL URLWithString:pathOrURLString];
+        return [NSURL URLWithDataRepresentation:[pathOrURLString dataUsingEncoding:NSUTF8StringEncoding] relativeToURL:nil];
     }
 
     NSString *absolutePath = [[[NSURL fileURLWithPath:pathOrURLString] absoluteURL] path];

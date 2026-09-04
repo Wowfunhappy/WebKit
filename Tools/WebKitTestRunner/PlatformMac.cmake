@@ -105,6 +105,9 @@ list(APPEND WebKitTestRunner_SOURCES
     ${WebKitTestRunner_SHARED_DIR}/cocoa/ClassMethodSwizzler.mm
     ${WebKitTestRunner_SHARED_DIR}/cocoa/PlatformViewHelpers.mm
     ${WebKitTestRunner_SHARED_DIR}/cocoa/PoseAsClass.mm
+    # MAVERICKS_BACKPORT: WebKitTestRunnerPasteboard.mm calls +[NSPasteboard _modernPasteboardType:],
+    # which this shared source defines.
+    ${WebKitTestRunner_SHARED_DIR}/mac/NSPasteboardAdditions.mm
     # MAVERICKS_BACKPORT: shared cocoa sources defining InstanceMethodSwizzler, ModifierKeys and
     # LayoutTestSpellChecker, referenced by EventSenderProxy/TestController but missing from the Mac list.
     ${WebKitTestRunner_SHARED_DIR}/cocoa/InstanceMethodSwizzler.mm

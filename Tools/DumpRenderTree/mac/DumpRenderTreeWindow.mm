@@ -71,35 +71,12 @@ static CFArrayCallBacks NonRetainingArrayCallbacks = {
     CFArrayAppendValue(openWindowsRef, (__bridge CFTypeRef)self);
 }
 
-// MAVERICKS_BACKPORT: openWindowsRef is a NON-retaining array, so a window MUST remove itself before it is
-// deallocated — otherwise +openWindows (which CFRetains every element while copying) dereferences a freed
-// window and crashes the next test's window-cleanup loop. Removal used to live only in -close, which misses
-// a popup torn down without -close (e.g. when its WebView is released by the test). Centralize it here and
-// call it from both -close and -dealloc.
-- (void)_removeFromOpenWindows
-{
-    if (!openWindowsRef)
-        return;
-    CFIndex i = CFArrayGetFirstIndexOfValue(openWindowsRef, CFRangeMake(0, CFArrayGetCount(openWindowsRef)), (__bridge CFTypeRef)self);
-    if (i != kCFNotFound)
-        CFArrayRemoveValueAtIndex(openWindowsRef, i);
-}
-
 #if !PLATFORM(IOS_FAMILY)
 - (id)initWithContentRect:(NSRect)contentRect styleMask:(NSUInteger)styleMask backing:(NSBackingStoreType)bufferingType defer:(BOOL)deferCreation
 {
     if ((self = [super initWithContentRect:contentRect styleMask:styleMask backing:bufferingType defer:deferCreation]))
         [self _addToOpenWindows];
     return self;
-}
-
-// MAVERICKS_BACKPORT: ensure a window deallocated without -close still removes itself from the
-// non-retaining openWindowsRef (see -_removeFromOpenWindows). Without this, the same-site cookie tests
-// (which open and tear down popups) left a dangling window pointer -> deterministic crash in the next test.
-- (void)dealloc
-{
-    [self _removeFromOpenWindows];
-    [super dealloc];
 }
 #else
 - (id)initWithLayer:(CALayer *)layer
@@ -124,7 +101,10 @@ static CFArrayCallBacks NonRetainingArrayCallbacks = {
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 
-    [self _removeFromOpenWindows];
+    CFRange arrayRange = CFRangeMake(0, CFArrayGetCount(openWindowsRef));
+    CFIndex i = CFArrayGetFirstIndexOfValue(openWindowsRef, arrayRange, (__bridge CFTypeRef)self);
+    if (i != kCFNotFound)
+        CFArrayRemoveValueAtIndex(openWindowsRef, i);
 
     [super close];
 

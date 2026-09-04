@@ -3063,3 +3063,17 @@ WK_POLYFILL_ADD_METHODS(NSURLRequest)
 @end
 
 #pragma clang diagnostic pop
+
+// ---------------------------------------------------------------------------------------------------
+// +[NSURL URLWithDataRepresentation:relativeToURL:] (10.11+) builds a URL out of the bytes as written,
+// rather than out of a string. CFURLCreateWithBytes is that same construction one layer down, and 10.9
+// has it: it parses the bytes in the given encoding against the base URL.
+WK_POLYFILL_ADD_METHODS(NSURL)
++ (NSURL *)URLWithDataRepresentation:(NSData *)data relativeToURL:(NSURL *)baseURL
+{
+    if (!data)
+        return nil;
+    return CFBridgingRelease(CFURLCreateWithBytes(kCFAllocatorDefault, (const UInt8 *)data.bytes,
+        (CFIndex)data.length, kCFStringEncodingUTF8, (__bridge CFURLRef)baseURL));
+}
+@end

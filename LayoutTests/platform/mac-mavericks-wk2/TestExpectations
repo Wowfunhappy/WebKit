@@ -29,8 +29,7 @@ fast/attachment [ Skip ]
 # neither exists on 10.9, so the item never materializes.
 fast/events/contextmenu-lookup-action-for-image.html [ Skip ]
 
-# AVIF / HEICS / MP4-as-animated-image are undecodable by 10.9 ImageIO and there is no
-# CoreMedia-based ImageDecoderAVFObjC path here (WebP is vendored; AVIF/HEIC/JXL are not).
+# 10.9's ImageIO decodes neither AVIF nor HEIC (WebP is vendored; AVIF/HEIC/JXL are not).
 fast/images/animated-avif.html [ Skip ]
 fast/images/avif-as-image.html [ Skip ]
 fast/images/avif-heif-container-as-image.html [ Skip ]
@@ -38,7 +37,7 @@ fast/images/avif-image-decoding.html [ Skip ]
 fast/images/avif-image-document.html [ Skip ]
 fast/images/animated-heics-draw.html [ Skip ]
 fast/images/animated-heics-verify.html [ Skip ]
-fast/images/animated-image-mp4.html [ Skip ]
+
 
 # NOT an IDB hang: this fuzzer-derived test touches navigator.mediaSession mid-script, and
 # ENABLE_MEDIA_SESSION is OFF in the upstream CMake Mac port config (WebKitFeatures.cmake
@@ -65,6 +64,17 @@ imported/w3c/web-platform-tests/cookiestore [ Pass ]
 # suite's ordering, which is by path length, passes. Jonathan's call: a test failing for that reason
 # stays recorded rather than chased.
 imported/w3c/web-platform-tests/cookies/ordering/ordering.sub.html [ Failure ]
+
+# Upstream skips this test on every port -- LayoutTests/TestExpectations names it [ Skip ], added by the
+# same commit that imported it and its baseline -- so no bot has ever verified that baseline, and this
+# port runs the test only because of the blanket un-skip above. It cannot pass anywhere: a child frame's
+# parse-time postMessage is delivered to the parent AND replayed by testharness.js's getmessages handler,
+# so RemoteContext.test_done runs twice per remote test while Tests.push counted it once. num_pending
+# reaches zero while the local promise_test is still running, remote_done calls tests.complete(), and
+# Tests.complete force-finishes the live test through cleanup_done rather than Test.done -- which leaves
+# the provisional "Test timed out" that Test.step stamps in place of PASS. Measured here: every hop does
+# send `complete`, and the top-level promise resolves one microtask turn after the harness emits.
+imported/w3c/web-platform-tests/cookies/partitioned-cookies/partitioned-cookies-a-b-a-embed.tentative.https.html [ Skip ]
 
 # 10.9's CFNetwork folds repeated Set-Cookie headers into one comma-joined field inside its HTTP message
 # parser -- CFHTTPMessageCopyAllHeaderFields and CFHTTPMessageCopySerializedMessage both give back one

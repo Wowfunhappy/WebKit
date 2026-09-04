@@ -259,12 +259,6 @@ void TestController::platformInitializeDataStore(WKPageConfigurationRef, const T
 
 static bool currentGPUProcessConfigurationCompatibleWithOptions(const TestOptions& options)
 {
-    // MAVERICKS_BACKPORT: the Metal debug-device/shader-validation testing SPIs do not exist on 10.9 (no Metal).
-    // With no way to enable or query them, the running configuration is trivially compatible -- no GPU process
-    // reconfiguration is needed -- so report compatible instead of messaging the absent selectors.
-    if (![WKProcessPool respondsToSelector:@selector(_isMetalDebugDeviceEnabledInGPUProcessForTesting)])
-        return true;
-
     if ([WKProcessPool _isMetalDebugDeviceEnabledInGPUProcessForTesting] != options.enableMetalDebugDevice())
         return false;
 
@@ -276,13 +270,8 @@ static bool currentGPUProcessConfigurationCompatibleWithOptions(const TestOption
 
 void TestController::platformEnsureGPUProcessConfiguredForOptions(const TestOptions& options)
 {
-    // MAVERICKS_BACKPORT: these +[WKProcessPool _setEnableMetal*...ForTesting:] SPIs gate the GPU process's
-    // Metal debug device/shader validation, which do not exist on 10.9 (no Metal); guard so the absent
-    // selectors do not raise. The GPU-process compatibility check below is a no-op when the GPU process is off.
-    if ([WKProcessPool respondsToSelector:@selector(_setEnableMetalDebugDeviceInNewGPUProcessesForTesting:)])
-        [WKProcessPool _setEnableMetalDebugDeviceInNewGPUProcessesForTesting:options.enableMetalDebugDevice()];
-    if ([WKProcessPool respondsToSelector:@selector(_setEnableMetalShaderValidationInNewGPUProcessesForTesting:)])
-        [WKProcessPool _setEnableMetalShaderValidationInNewGPUProcessesForTesting:options.enableMetalShaderValidation()];
+    [WKProcessPool _setEnableMetalDebugDeviceInNewGPUProcessesForTesting:options.enableMetalDebugDevice()];
+    [WKProcessPool _setEnableMetalShaderValidationInNewGPUProcessesForTesting:options.enableMetalShaderValidation()];
 
     if (!currentGPUProcessConfigurationCompatibleWithOptions(options))
         terminateGPUProcess();
@@ -374,10 +363,7 @@ void TestController::platformCreateWebView(WKPageConfigurationRef configuration,
         m_mainWebView->setDrawsBackground(false);
 
     m_mainWebView->platformView().allowsLinkPreview = options.allowsLinkPreview();
-    // MAVERICKS_BACKPORT: -[WKWebView _setShareSheetCompletesImmediatelyWithResolutionForTesting:] is not present
-    // in this build; guard the SPI so the absent selector does not raise. (No share-sheet tests run here.)
-    if ([m_mainWebView->platformView() respondsToSelector:@selector(_setShareSheetCompletesImmediatelyWithResolutionForTesting:)])
-        [m_mainWebView->platformView() _setShareSheetCompletesImmediatelyWithResolutionForTesting:YES];
+    [m_mainWebView->platformView() _setShareSheetCompletesImmediatelyWithResolutionForTesting:YES];
 }
 
 UniqueRef<PlatformWebView> TestController::platformCreateOtherPage(PlatformWebView* parentView, WKPageConfigurationRef configuration, const TestOptions& options)
@@ -522,22 +508,14 @@ void TestController::cocoaResetStateToConsistentValues(const TestOptions& option
         platformView.allowsMagnification = NO;
         [platformView setMagnification:1 centeredAtPoint:CGPointZero];
 #endif
-        // MAVERICKS_BACKPORT: these *ForTesting / text-extraction SPIs are not all present in this build (e.g.
-        // continuous-spell-checking-for-testing, navigation-gesture reset, the Swift-only text extraction
-        // preference); guard each so an absent selector does not raise during state reset.
-        if ([platformView respondsToSelector:@selector(_setContinuousSpellCheckingEnabledForTesting:)])
-            [platformView _setContinuousSpellCheckingEnabledForTesting:options.shouldShowSpellCheckingDots()];
-        if ([platformView respondsToSelector:@selector(_setGrammarCheckingEnabledForTesting:)])
-            [platformView _setGrammarCheckingEnabledForTesting:YES];
+        [platformView _setContinuousSpellCheckingEnabledForTesting:options.shouldShowSpellCheckingDots()];
+        [platformView _setGrammarCheckingEnabledForTesting:YES];
         [platformView resetInteractionCallbacks];
-        if ([platformView respondsToSelector:@selector(_resetNavigationGestureStateForTesting)])
-            [platformView _resetNavigationGestureStateForTesting];
+        [platformView _resetNavigationGestureStateForTesting];
 
         auto configuration = platformView.configuration;
-        if ([configuration.preferences respondsToSelector:@selector(setTextInteractionEnabled:)])
-            configuration.preferences.textInteractionEnabled = options.textInteractionEnabled();
-        if ([configuration.preferences respondsToSelector:@selector(_setTextExtractionEnabled:)])
-            configuration.preferences._textExtractionEnabled = options.textExtractionEnabled();
+        configuration.preferences.textInteractionEnabled = options.textInteractionEnabled();
+        configuration.preferences._textExtractionEnabled = options.textExtractionEnabled();
     }
 
     [LayoutTestSpellChecker uninstallAndReset];

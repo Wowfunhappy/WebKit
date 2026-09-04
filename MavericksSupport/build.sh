@@ -286,6 +286,19 @@ _ninja_log | grep -E 'error:|file not found|FAILED:' | grep -vE 'warning:' | sed
 if [ "$RC" = 0 ]; then
     echo "==================== STAGING ===================="
     bash "$ROOT/MavericksSupport/scripts/stage-frameworks.sh" || RC=$?
+
+    # The layout-test drivers run the frameworks in $BUILD/lib, not the staged product, and a
+    # sandboxed WebContent reaches GStreamer's plugins only through the copy that ships inside
+    # WebCore.framework. Mirror the staged copy -- the one whose install names staging has already
+    # rewritten -- into the built framework, so a test exercises the same lookup the installed product
+    # does and the next run's staging audit sees bundle-relative dependencies.
+    GST_PLUGINS_SRC="$BUILD/staged/System/Library/Frameworks/WebKit.framework/Versions/A/Frameworks/WebCore.framework/Versions/A/Frameworks/gstreamer/lib/gstreamer-1.0"
+    GST_PLUGINS_DST="$BUILD/lib/WebCore.framework/Versions/A/Frameworks/gstreamer/lib/gstreamer-1.0"
+    if [ "$RC" = 0 ] && [ -d "$GST_PLUGINS_SRC" ]; then
+        mkdir -p "$GST_PLUGINS_DST"
+        rsync -a --delete "$GST_PLUGINS_SRC/" "$GST_PLUGINS_DST/"
+        echo "  GSTREAMER PLUGINS mirrored into the built WebCore.framework"
+    fi
 else
     echo "### staging skipped: the link failed, so there is nothing complete to stage"
 fi

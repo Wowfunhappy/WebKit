@@ -47,3 +47,13 @@ WK_POLYFILL_CONST("AVFoundation", NSString * const, AVSampleBufferAudioRendererW
                   @"AVSampleBufferAudioRendererWasFlushedAutomaticallyNotification");
 WK_POLYFILL_CONST("AVFoundation", NSString * const, AVSampleBufferAudioRendererFlushTimeKey,
                   @"AVSampleBufferAudioRendererFlushTimeKey");
+
+// The option key AVURLAsset takes a MIME type under when the URL itself cannot say what the bytes are,
+// which is how WebCore reads an in-memory buffer: AudioFileReader::demuxAVFData builds an AVURLAsset
+// over a custom scheme and answers the loading delegate from the buffer. 10.9's AVFoundation exports no
+// such symbol, and PAL reaches it through the non-failing SOFT_LINK_CONSTANT, whose accessor traps when
+// the lookup fails -- so every decodeAudioData call crashed the WebContent process on the first line of
+// the demux. 10.9 has no MIME-type option to honour, so it ignores the key and the demux answers for
+// itself; what this restores is the answer, not a crash.
+WK_POLYFILL_CONST("AVFoundation", NSString * const, AVURLAssetOutOfBandMIMETypeKey,
+                  @"AVURLAssetOutOfBandMIMETypeKey");

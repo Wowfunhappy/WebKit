@@ -304,6 +304,13 @@ set(MAVERICKS_WITHHELD_GSTREAMER_SOURCES
     "platform/mediastream/gstreamer/MockRealtimeVideoSourceGStreamer.cpp"
     "Modules/webaudio/MediaStreamAudioSourceGStreamer.cpp"
     "platform/mediastream/gstreamer/RealtimeMediaSourceCenterGStreamer.cpp"
+    # Web Audio runs on the Cocoa backend here: AudioFileReaderCocoa, FFTFrameMac and
+    # AudioDestinationCocoa define createBusFromInMemoryAudioFile, class FFTFrame and
+    # AudioDestination::create, so their GStreamer counterparts are a second definition of each.
+    "platform/audio/gstreamer/AudioFileReaderGStreamer.cpp"
+    "platform/audio/gstreamer/FFTFrameGStreamer.cpp"
+    "platform/audio/gstreamer/AudioDestinationGStreamer.cpp"
+    "platform/audio/gstreamer/WebKitWebAudioSourceGStreamer.cpp"
 )
 
 # Added to SourcesCocoa.txt: the GCrypt crypto backend that replaces the withheld CommonCrypto one,
@@ -397,6 +404,7 @@ if (USE_GSTREAMER)
     list(APPEND WebCore_SOURCES
         ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/VideoLayerGStreamerCocoa.mm
         ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/VideoFrameGStreamerCocoa.mm
+        ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/GStreamerPackagingMavericks.cpp
     )
 endif ()
 

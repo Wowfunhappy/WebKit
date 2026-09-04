@@ -19,7 +19,7 @@
 
 #include "config.h"
 
-#if ENABLE(WEB_AUDIO) && !PLATFORM(COCOA) // MAVERICKS_BACKPORT: Cocoa AudioDestinationCocoa provides AudioDestination::create on Cocoa
+#if ENABLE(WEB_AUDIO)
 
 #include "AudioDestinationGStreamer.h"
 

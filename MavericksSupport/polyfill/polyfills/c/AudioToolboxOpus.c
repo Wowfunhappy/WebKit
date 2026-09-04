@@ -408,11 +408,48 @@ WK_POLYFILL_REPLACES("AudioToolbox", OSStatus, AudioConverterGetPropertyInfo, (A
     return noErr;
 }
 
+// A constant-bytes-per-packet source has no packet descriptions to hand back, so a caller describes a
+// whole block of them as one -- AudioFileReaderCocoa's passthroughInputDataCallback reports a single
+// packet for a buffer holding every frame of an LPCM sample buffer. The byte count is what modern
+// AudioToolbox reads there; 10.9's reads the count and answers kAudioConverterErr_InvalidInputSize for
+// a buffer larger than it. This takes the byte count as the answer whenever the input format fixes the
+// packet size; a variable-bitrate source describes its own packets and passes straight through.
+struct wkConstantPacketInput {
+    AudioConverterComplexInputDataProc proc;
+    void *userData;
+    UInt32 bytesPerPacket;
+};
+
+static OSStatus wkConstantPacketInputProc(AudioConverterRef converter, UInt32 *ioNumberDataPackets,
+    AudioBufferList *ioData, AudioStreamPacketDescription **outDataPacketDescription, void *inUserData)
+{
+    struct wkConstantPacketInput *shim = (struct wkConstantPacketInput *)inUserData;
+    OSStatus status = shim->proc(converter, ioNumberDataPackets, ioData, outDataPacketDescription, shim->userData);
+    if (status != noErr || !ioNumberDataPackets || !*ioNumberDataPackets || !ioData || !ioData->mNumberBuffers)
+        return status;
+
+    UInt32 packets = ioData->mBuffers[0].mDataByteSize / shim->bytesPerPacket;
+    if (packets > *ioNumberDataPackets) {
+        *ioNumberDataPackets = packets;
+        if (outDataPacketDescription)
+            *outDataPacketDescription = NULL;
+    }
+    return status;
+}
+
 WK_POLYFILL_REPLACES("AudioToolbox", OSStatus, AudioConverterFillComplexBuffer, (AudioConverterRef inAudioConverter, AudioConverterComplexInputDataProc inInputDataProc, void *inInputDataProcUserData, UInt32 *ioOutputDataPacketSize, AudioBufferList *outOutputData, AudioStreamPacketDescription *outPacketDescription))
 {
     WKOpusConverter *c = wkOpusConverter(inAudioConverter);
-    if (!c)
+    if (!c) {
+        AudioStreamBasicDescription inputFormat;
+        UInt32 formatSize = sizeof(inputFormat);
+        if (AudioConverterGetProperty(inAudioConverter, kAudioConverterCurrentInputStreamDescription,
+                &formatSize, &inputFormat) == noErr && inputFormat.mBytesPerPacket) {
+            struct wkConstantPacketInput shim = { inInputDataProc, inInputDataProcUserData, inputFormat.mBytesPerPacket };
+            return WK_ORIGINAL(AudioConverterFillComplexBuffer)(inAudioConverter, wkConstantPacketInputProc, &shim, ioOutputDataPacketSize, outOutputData, outPacketDescription);
+        }
         return WK_ORIGINAL(AudioConverterFillComplexBuffer)(inAudioConverter, inInputDataProc, inInputDataProcUserData, ioOutputDataPacketSize, outOutputData, outPacketDescription);
+    }
 
     if (!ioOutputDataPacketSize || !outOutputData || !outOutputData->mNumberBuffers)
         return kAudioConverterErr_UnspecifiedError;

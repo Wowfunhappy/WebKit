@@ -372,6 +372,24 @@ PROBE_LIBS="$OUT/libpolyfill.a -framework Foundation -framework CoreFoundation -
     -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
     $PROBE_LIBS
 "$T/secure_coding"
+# +[NSURL URLWithDataRepresentation:relativeToURL:], the same way.
+"$CLANG" $MODERN $INC -fno-objc-arc -o "$T/url_data_representation" "$TBEHAV/Foundation-url-data-representation.m" \
+    "$OBJ/methods/Foundation.o" "$OBJ/mech/wk_selref_scope.o" \
+    -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+    -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+    $PROBE_LIBS
+"$T/url_data_representation"
+# The AVAssetReader drain, driven through an asynchronous delegate and one that declines.
+"$CLANG" $MODERN $INC -fno-objc-arc -o "$T/avf_resource_loader_drain" "$TBEHAV/AVFoundation-resource-loader-drain.m" \
+    "$OBJ/methods/AVFoundation.o" "$OBJ/mech/wk_selref_scope.o" \
+    -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+    -framework AVFoundation -framework CoreMedia -framework AppKit -framework Foundation \
+    -framework CoreServices -Wl,-rpath,"$OUT" "$OUT/libpolyfill_classes.dylib" $PROBE_LIBS
+"$T/avf_resource_loader_drain"
+# The constant-bytes-per-packet input shim inside the AudioConverterFillComplexBuffer replacement.
+"$CLANG" $MODERN $INC -o "$T/constant_packet_input" "$TBEHAV/AudioToolbox-constant-packet-input.c" \
+    $PROBE_LIBS -framework AudioToolbox -framework AudioUnit
+"$T/constant_packet_input"
 # -lc++: realizing a font reaches the variable-font instancer, which is C++.
 "$CLANG" $MODERN $INC -o "$T/optical_size" "$TBEHAV/CoreText-optical-size.c" $PROBE_LIBS \
     -framework CoreText -framework CoreGraphics -lc++

@@ -19,6 +19,7 @@
 // all; AudioComponentFindNext answers NULL, which is its documented "no such component".
 #include "wk_polyfill.h"
 
+#include <AudioToolbox/AudioToolbox.h>
 #include <AudioUnit/AudioUnit.h>
 
 WK_SYSTEM_FN("AudioUnit", AudioComponent, AudioComponentFindNext, (AudioComponent, const AudioComponentDescription *));
