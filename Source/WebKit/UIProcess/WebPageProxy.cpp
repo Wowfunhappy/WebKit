@@ -13820,7 +13820,11 @@ void WebPageProxy::willStartCapture(UserMediaPermissionRequestProxy& request, Co
 
 #if ENABLE(GPU_PROCESS)
     Ref preferences = m_preferences;
-    if (!preferences->captureVideoInGPUProcessEnabled() && !preferences->captureAudioInGPUProcessEnabled())
+    // MAVERICKS_BACKPORT: display capture is routed to the GPU process on its own preference, and here
+    // it is the only kind that is: camera and microphone capture stay in the web process, so the two
+    // terms upstream reads would skip the grant the GPU process checks in willStartCapture.
+    // if (!preferences->captureVideoInGPUProcessEnabled() && !preferences->captureAudioInGPUProcessEnabled())
+    if (!preferences->captureVideoInGPUProcessEnabled() && !preferences->captureAudioInGPUProcessEnabled() && !preferences->useGPUProcessForDisplayCapture())
         return callback();
 
     Ref gpuProcess = protect(configuration().processPool())->ensureGPUProcess();

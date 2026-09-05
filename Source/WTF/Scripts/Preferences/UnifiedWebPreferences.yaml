@@ -8737,7 +8737,11 @@ UseGPUProcessForDisplayCapture:
   humanReadableName: "GPU Process: Screen and Window capture"
   humanReadableDescription: "Display capture in GPU Process"
   webcoreBinding: none
-  condition: HAVE(SCREEN_CAPTURE_KIT)
+  # MAVERICKS_BACKPORT: without ScreenCaptureKit, DisplayCaptureSourceCocoa captures a Mac display through
+  # the CGDisplayStream capturer (ScreenDisplayCapturerMac), which the GPU process hosts like any other
+  # display source.
+  # condition: HAVE(SCREEN_CAPTURE_KIT)
+  condition: HAVE(SCREEN_CAPTURE_KIT) || PLATFORM(MAC)
   exposed: [ WebKit ]
   defaultValue:
     WebKit:

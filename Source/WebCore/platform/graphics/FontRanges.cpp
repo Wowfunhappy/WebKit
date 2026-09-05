@@ -28,6 +28,8 @@
 
 #include "Font.h"
 #include "FontSelector.h"
+// MAVERICKS_BACKPORT: this TU returns GlyphData by value; Font.h only forward-declares it.
+#include "GlyphPage.h"
 #include <wtf/Assertions.h>
 #include <wtf/text/CharacterProperties.h>
 #include <wtf/text/WTFString.h>

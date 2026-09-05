@@ -417,7 +417,10 @@
 #include "NavigatorMediaSession.h"
 #endif
 
-#if ENABLE(MEDIA_SESSION) && USE(GLIB)
+// MAVERICKS_BACKPORT: PlatformMediaSessionManager::create() answers MediaSessionManagerCocoa on
+// PLATFORM(MAC), so USE(GLIB) alone does not identify the manager on a GStreamer-on-Cocoa port.
+// #if ENABLE(MEDIA_SESSION) && USE(GLIB)
+#if ENABLE(MEDIA_SESSION) && USE(GLIB) && !PLATFORM(COCOA)
 #include "MediaSessionManagerGLib.h"
 #endif
 
@@ -736,7 +739,10 @@ void Internals::resetToConsistentState(Page& page)
     WebCore::setContentSizeCategory(kCTFontContentSizeCategoryL);
 #endif
 
-#if ENABLE(MEDIA_SESSION) && USE(GLIB)
+// MAVERICKS_BACKPORT: see the MediaSessionManagerGLib include above -- this cast is to the wrong type
+// on a port whose manager is MediaSessionManagerCocoa.
+// #if ENABLE(MEDIA_SESSION) && USE(GLIB)
+#if ENABLE(MEDIA_SESSION) && USE(GLIB) && !PLATFORM(COCOA)
     MediaSessionManagerGLib* glibSessionManager = static_cast<MediaSessionManagerGLib*>(sessionManager.get());
     glibSessionManager->setDBusNotificationsEnabled(false);
 #endif

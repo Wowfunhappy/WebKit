@@ -2,10 +2,8 @@
 # Run a TestWebKitAPI binary against the build-dir frameworks on macOS 10.9, without installing
 # anything over the system.
 #
-# Prereqs (one-time): configure with the API tests enabled and build the binary —
-#   cmake -S . -B WebKitBuild/Release -DDEVELOPER_MODE=ON -DENABLE_API_TESTS=ON \
-#         -DDEVELOPER_MODE_FATAL_WARNINGS=OFF
-#   ninja -C WebKitBuild/Release TestWebKitCocoa
+# The binaries are part of every build.sh run (ENABLE_API_TESTS is a port default in
+# MavericksSupport/cmake/OptionsMacMavericks.cmake), so a green build has them matched to its frameworks.
 #
 # Usage:  bash MavericksSupport/scripts/run-api-tests.sh <binary> [gtest args...]
 #   e.g.  bash MavericksSupport/scripts/run-api-tests.sh TestWebKitCocoa --gtest_filter='WKHTTPCookieStore.*'
@@ -20,7 +18,7 @@ if [ $# -lt 1 ]; then
 fi
 BINARY="$1"; shift
 if [ ! -x "$BINDIR/$BINARY" ]; then
-    echo "$BINARY not built — see the prereqs at the top of $0" >&2
+    echo "$BINARY not built — run MavericksSupport/build.sh" >&2
     exit 1
 fi
 

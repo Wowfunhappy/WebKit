@@ -39,7 +39,14 @@ macro(_MAVERICKS_FINALIZE_WEBCORE_TARGET _target)
             VERBATIM)
     endif ()
 
+    # WEB_UI_STRING looks its strings up in the WebCore bundle (copyLocalizedString ->
+    # CFBundleCopyLocalizedString) and answers "localized string not found" where the table is absent, so
+    # the build-dir framework carries en.lproj and the test drivers render the strings the staged product does.
     add_custom_command(TARGET ${_target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${_target}>/Resources/en.lproj"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${WEBCORE_DIR}/en.lproj/Localizable.strings"
+            "$<TARGET_FILE_DIR:${_target}>/Resources/en.lproj/Localizable.strings"
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${_target}>/Resources/modern-media-controls/images"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${WEBCORE_DIR}/en.lproj/modern-media-controls-localized-strings.js"
@@ -241,6 +248,15 @@ list(REMOVE_ITEM WebCore_SOURCES
 # GStreamer backend this port selects for media and WebCodecs, or built on frameworks, SPI and
 # languages this deployment target and toolchain do not have.
 set(MAVERICKS_WITHHELD_COCOA_SOURCES
+    # decodeAudioData decodes through GStreamer here, as it does on the glib port. The Cocoa reader
+    # decodes compressed data with AudioToolbox's AudioConverter, demuxing a WebM container itself
+    # through libwebm first; 10.9's AudioConverter answers kAudioFormatProperty_DecodeFormatIDs with 28
+    # formats, and FLAC, Opus and Vorbis are none of them, so those decode nowhere -- bare or inside
+    # WebM. It also opens a raw ADTS stream without yielding a sample buffer. GStreamer decodes all of
+    # them and WAV byte-identically, so one decoder serves every format rather than two whose float
+    # conversions would have to agree.
+    # AudioFileReaderGStreamer.cpp defines the same createBusFromInMemoryAudioFile.
+    "platform/audio/cocoa/AudioFileReaderCocoa.mm @nonARC"
     "JSApplePayDisbursementRequest.cpp"
     "crypto/cocoa/CommonCryptoDERUtilities.cpp"
     "crypto/cocoa/CryptoAlgorithmAESCBCCocoa.cpp"
@@ -304,10 +320,10 @@ set(MAVERICKS_WITHHELD_GSTREAMER_SOURCES
     "platform/mediastream/gstreamer/MockRealtimeVideoSourceGStreamer.cpp"
     "Modules/webaudio/MediaStreamAudioSourceGStreamer.cpp"
     "platform/mediastream/gstreamer/RealtimeMediaSourceCenterGStreamer.cpp"
-    # Web Audio runs on the Cocoa backend here: AudioFileReaderCocoa, FFTFrameMac and
-    # AudioDestinationCocoa define createBusFromInMemoryAudioFile, class FFTFrame and
-    # AudioDestination::create, so their GStreamer counterparts are a second definition of each.
-    "platform/audio/gstreamer/AudioFileReaderGStreamer.cpp"
+    # FFTFrameMac and AudioDestinationCocoa define class FFTFrame and AudioDestination::create, so
+    # their GStreamer counterparts are a second definition of each. (The GStreamer audio file
+    # reader is NOT withheld -- it is this port's decodeAudioData decoder; the Cocoa one it would
+    # collide with is withheld from SourcesCocoa.txt instead.)
     "platform/audio/gstreamer/FFTFrameGStreamer.cpp"
     "platform/audio/gstreamer/AudioDestinationGStreamer.cpp"
     "platform/audio/gstreamer/WebKitWebAudioSourceGStreamer.cpp"

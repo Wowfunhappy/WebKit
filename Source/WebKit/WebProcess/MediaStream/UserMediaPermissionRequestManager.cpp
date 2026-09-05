@@ -163,7 +163,11 @@ void UserMediaPermissionRequestManager::enumerateMediaDevices(Document& document
     protect(m_page)->sendWithAsyncReply(Messages::WebPageProxy::EnumerateMediaDevicesForFrame { WebFrame::fromCoreFrame(*frame)->frameID(), document.securityOrigin().data(), document.topOrigin().data() }, WTF::move(completionHandler));
 }
 
-#if USE(GSTREAMER)
+// MAVERICKS_BACKPORT: USE(GSTREAMER) stands in for "device changes are watched in the web process", which is
+// untrue here -- this port enumerates through the UI process like every Cocoa port, and the UI process is
+// what watches the capture centre and sends CaptureDevicesChanged.
+// #if USE(GSTREAMER)
+#if USE(GSTREAMER) && !PLATFORM(COCOA)
 void UserMediaPermissionRequestManager::updateCaptureDevices(ShouldNotify shouldNotify)
 {
     WebCore::RealtimeMediaSourceCenter::singleton().getMediaStreamDevices([weakThis = WeakPtr { *this }, this, shouldNotify](auto&& newDevices) mutable {
@@ -192,7 +196,9 @@ UserMediaClient::DeviceChangeObserverToken UserMediaPermissionRequestManager::ad
 
     if (!m_monitoringDeviceChange) {
         m_monitoringDeviceChange = true;
-#if USE(GSTREAMER)
+// MAVERICKS_BACKPORT: same term as the gate above.
+// #if USE(GSTREAMER)
+#if USE(GSTREAMER) && !PLATFORM(COCOA)
         updateCaptureDevices(ShouldNotify::No);
         WebCore::RealtimeMediaSourceCenter::singleton().addDevicesChangedObserver(*this);
 #else

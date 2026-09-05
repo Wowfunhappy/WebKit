@@ -84,3 +84,133 @@ imported/w3c/web-platform-tests/cookies/partitioned-cookies/partitioned-cookies-
 # headers want the second, so the division stays the one 10.9's own parser makes.
 imported/w3c/web-platform-tests/cookies/attributes/expires.html [ Failure ]
 imported/w3c/web-platform-tests/cookies/attributes/invalid.html [ Failure ]
+# The same fold splits a comma inside a single value: "test=1, baz=qux" is stored as two cookies.
+imported/w3c/web-platform-tests/cookies/value/value.html [ Failure ]
+
+# LayoutTests/TestExpectations skips these on every port; the broad
+# `imported/w3c/web-platform-tests/cookies [ Pass ]` above is more specific and re-enables them
+# here. Upstream's expectation is restored rather than overridden.
+imported/w3c/web-platform-tests/cookies/domain/domain-attribute-host-with-and-without-leading-period.sub.https.html [ Skip ]
+imported/w3c/web-platform-tests/cookies/domain/domain-attribute-host-with-leading-period.sub.https.html [ Skip ]
+imported/w3c/web-platform-tests/cookies/domain/domain-attribute-idn-host.sub.https.html [ Skip ]
+imported/w3c/web-platform-tests/cookies/domain/domain-attribute-matches-host.sub.https.html [ Skip ]
+imported/w3c/web-platform-tests/cookies/domain/domain-attribute-missing.sub.html [ Skip ]
+imported/w3c/web-platform-tests/cookies/samesite/fetch.https.html [ Skip ]
+imported/w3c/web-platform-tests/cookies/samesite/form-get-blank-reload.https.html [ Skip ]
+imported/w3c/web-platform-tests/cookies/samesite/form-get-blank.https.html [ Skip ]
+imported/w3c/web-platform-tests/cookies/samesite/form-post-blank-reload.https.html [ Skip ]
+imported/w3c/web-platform-tests/cookies/samesite/form-post-blank.https.html [ Skip ]
+imported/w3c/web-platform-tests/cookies/samesite/iframe-reload.https.html [ Skip ]
+imported/w3c/web-platform-tests/cookies/samesite/iframe.https.html [ Skip ]
+imported/w3c/web-platform-tests/cookies/samesite/img.https.html [ Skip ]
+imported/w3c/web-platform-tests/cookies/samesite/window-open-reload.https.html [ Skip ]
+imported/w3c/web-platform-tests/cookies/samesite/window-open.https.html [ Skip ]
+imported/w3c/web-platform-tests/cookiestore/change_eventhandler_for_already_expired.https.window.html [ Skip ]
+imported/w3c/web-platform-tests/cookiestore/cookieStore_delete.sub.https.html [ Skip ]
+imported/w3c/web-platform-tests/cookiestore/cookieStore_get_set_across_origins.sub.https.html [ Skip ]
+imported/w3c/web-platform-tests/cookiestore/cookieStore_set_domain_parsing.sub.https.html [ Skip ]
+imported/w3c/web-platform-tests/cookiestore/serviceworker_cookieStore_cross_origin.https.sub.html [ Skip ]
+
+# Upstream marks these `[ Failure Pass ]`, and the broad un-skip above overrode that. The text can
+# never match on any port, this one included: each test generates a random cookie value per run and the
+# checked-in baseline quotes it inside a FAIL line. Measured here across two runs -- `samesite_strict=
+# 0.6923024653526889` then `0.997830765415224` -- and glib's own platform rebaseline carries a third
+# (`0.13312858800749006`), so rebaselining cannot fix it either. The PASS/FAIL shape matches the
+# baseline subtest for subtest. Recorded as `[ Failure ]` rather than upstream's permissive spelling
+# because Pass is unreachable, not because anything here differs from other ports.
+imported/w3c/web-platform-tests/cookies/name/name.html [ Failure ]
+imported/w3c/web-platform-tests/cookies/prefix/__secure.header.https.html [ Failure ]
+imported/w3c/web-platform-tests/cookies/prefix/document-cookie.non-secure.html [ Failure ]
+imported/w3c/web-platform-tests/cookies/samesite-none-secure/cookies-without-samesite-must-be-secure.https.html [ Failure ]
+imported/w3c/web-platform-tests/cookies/samesite/about-blank-subresource.https.html [ Failure ]
+imported/w3c/web-platform-tests/cookies/samesite/iframe.document.https.html [ Failure ]
+imported/w3c/web-platform-tests/cookies/samesite/multiple-samesite-attributes.https.html [ Failure ]
+imported/w3c/web-platform-tests/cookies/samesite/sandbox-iframe-nested.https.html [ Failure ]
+imported/w3c/web-platform-tests/cookies/samesite/sandbox-iframe-subresource.https.html [ Failure ]
+imported/w3c/web-platform-tests/cookies/samesite/setcookie-lax.https.html [ Failure ]
+imported/w3c/web-platform-tests/cookies/samesite/setcookie-navigation.https.html [ Failure ]
+imported/w3c/web-platform-tests/cookies/schemeful-same-site/schemeful-iframe-subresource.tentative.html [ Failure ]
+imported/w3c/web-platform-tests/cookies/schemeful-same-site/schemeful-navigation.tentative.html [ Failure ]
+imported/w3c/web-platform-tests/cookies/schemeful-same-site/schemeful-subresource.tentative.html [ Failure ]
+imported/w3c/web-platform-tests/cookiestore/change_eventhandler_for_http_cookie_and_set_cookie_headers.https.window.html [ Failure ]
+
+# This test's checked-in baseline is itself a harness timeout: upstream records `Harness Error
+# (TIMEOUT)` after one subtest. It runs further here -- four subtests pass -- and then times out at the
+# first one needing a cookie returned for a first-level-subdomain host. Both ports time out; the point
+# of divergence differs, so the text cannot match.
+imported/w3c/web-platform-tests/cookies/attributes/domain.sub.html [ Failure Timeout ]
+
+# A cookie whose value carries a BOM is not retrievable here: cookieStore.get() answers null, so the
+# test's first property read throws. Upstream fails both subtests too -- it retrieves the cookie and
+# reads the BOM back as mojibake (`Ã¯Â»Â¿value`) -- so no port passes this; ours fails one step
+# earlier. The underlying gap is that a non-ASCII cookie set through the HTTP path does not survive to
+# a Cookie Store read.
+imported/w3c/web-platform-tests/cookiestore/encoding.https.any.html [ Failure ]
+imported/w3c/web-platform-tests/cookiestore/encoding.https.any.serviceworker.html [ Failure ]
+
+# decodeAudioData returns every frame the GStreamer decode path emits. aac.aac is raw ADTS, a format
+# that carries no priming metadata, so the 2112-frame AAC encoder delay this test subtracts is never
+# signalled and the buffer comes back 49152 frames where the test wants 47040. half-a-second-8000.mp3
+# resamples 8000 -> 48000 and lands 5 frames short of 24000. Both counts are the decoder's own shape,
+# measured identically on WK1 and WK2; upstream's GStreamer port records the same two under this bug.
+webkit.org/b/307727 webaudio/decode-audio-data-aac.html [ Failure ]
+webkit.org/b/307727 webaudio/decode-audio-data-mp3-8000.html [ Failure ]
+
+# These three force CaptureAudioInGPUProcessEnabled/CaptureVideoInGPUProcessEnabled in their own
+# headers, so the harness default cannot reach them. This build provisions the GPU process for
+# rasterization only -- its sandbox profile grants no camera, microphone or AVFoundation -- and
+# UseGPUProcessForMediaEnabled is off because the media engine is GStreamer in the web process, which
+# leaves the GPU process refusing every capture message gated on it. Measured: captureInGPUProcess
+# sends RemoteAudioMediaStreamTrackRendererInternalUnitManager_CreateUnit, the GPU process answers
+# didReceiveInvalidMessage and has the web process terminated; the other two end their tracks with
+# "A MediaStreamTrack ended due to a capture failure". Audio capture in the GPU process is a capability
+# this build does not have.
+fast/mediastream/captureInGPUProcess.html [ Skip ]
+fast/mediastream/media-stream-track-interrupted.html [ Skip ]
+fast/mediastream/media-stream-video-track-interrupted-from-audio.html [ Skip ]
+
+# MediaRecorder's MP4 writer is the segment-emitting AVAssetWriter behind HAVE(AVASSETWRITER_DELEGATE),
+# macOS 11+. 10.9's AVFoundation carries no AVAssetWriterDelegate protocol and none of the
+# setPreferredOutputSegmentInterval:, flushSegment or initWithContentType: selectors (initWithURL:fileType:
+# error: is present), so isTypeSupported("video/mp4") is false and the test's MP4 recording throws
+# NotSupportedError.
+fast/mediastream/mediaStream-with-rotation.html [ Failure ]
+
+# The now-playing identifier these two tests read back is recorded by MediaSessionManagerCocoa::
+# updateNowPlayingInfo after its isMediaRemoteFrameworkAvailable() check, and
+# /System/Library/PrivateFrameworks/MediaRemote.framework does not exist on 10.9 (MediaControlSender.framework
+# beside it does), so the function returns before the bookkeeping. navigator.mediaSession itself is live;
+# it is the system now-playing registration that has no framework to register with.
+fast/mediastream/now-playing-and-mediastream.html [ Failure ]
+fast/mediastream/now-playing-and-mediastream-2.html [ Failure ]
+
+# MediaStreamTrack's destructor logs "A capture MediaStreamTrack was destroyed without having been
+# stopped explicitly" to its own document when the collector finalizes a live capture track. The second
+# and third subtests here discard their streams without stopping them, and a live track with no event
+# listeners has no pending activity, so whether one of them is collected before the test ends -- and the
+# line lands in the output -- depends on when garbage collection happens.
+fast/mediastream/enumerateDevices-camera-denied-expose-with-capture.html [ Pass Failure ]
+
+# The first microphone capture in a WebContent process starts late here: CoreAudioCaptureUnit prewarms
+# a VoiceProcessingIO unit before the mock unit starts, and on 10.9 AudioComponentInstanceNew for that unit
+# takes 565-600 ms in a process that already runs an output AudioUnit (150-190 ms in one that does not;
+# measured in a standalone probe, and 596 ms in WebContent, whose AudioContext destination is running by
+# then). The unit is created once per process (3 ms afterwards). This test connects the track to an
+# AudioContext, waits 200 ms, stops it and expects the PlayAndRecord category to persist, which needs the
+# context to have become audible before the stop, so it fails only as the first capture of a process and
+# passes whenever an earlier test in the same process has created the unit.
+fast/mediastream/audio-session-category-capture-audio-context.html [ Pass Failure ]
+
+
+# This test allocates until allocation fails: its array has a getter at index 0 that constructs a
+# Uint8Array over the same array, which re-enters the getter, so each level maps another ~80MB, and
+# index 80000000 sets the length. Those large allocations drain the primitive Gigacage's reserved
+# region, and freeing them returns the memory to the large heap's free list rather than to the region.
+# The region is handed to pas_reserved_memory_provider once at construction and never refilled --
+# its config carries null_aligned_allocator, and pas_megapage_cache carries deallocator = NULL -- so
+# once drained it cannot be replenished. Measured at the refusal: entries=2 total_free=12337152
+# against a 16777216 request. Every later size class that needs a fresh 16MB megapage then fails for
+# the life of the driver process, which is how this test's collateral reaches unrelated tests that run
+# after it. Upstream records the same test as a flaky timeout on mac, ios and gtk
+# (webkit.org/b/227845, webkit.org/b/252878).
+webaudio/audioworket-out-of-memory.html [ Skip ]

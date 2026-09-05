@@ -167,6 +167,10 @@ export CCACHE_COMPILERCHECK="string:$(shasum -a 256 \
     | awk '{print $1}' | shasum -a 256 | awk '{print $1}')"
 
 # --- Configure (fresh build dir) ---------------------------------------------------------------
+# DEVELOPER_MODE is a plain cache variable, not a WebKit option, so every configure passes it:
+# WebKitFeatures.cmake forces ENABLE_LAYOUT_TESTS off without it, and it is what selects lld
+# (USE_LD_LLD in OptionsCommon.cmake). Warnings stay warnings.
+DEV_FLAGS="-DDEVELOPER_MODE=ON -DDEVELOPER_MODE_FATAL_WARNINGS=OFF"
 CACHE_FILE="$BUILD/CMakeCache.txt"
 if [ ! -f "$CACHE_FILE" ]; then
     echo "### no build dir -> configuring $BUILD"
@@ -174,7 +178,7 @@ if [ ! -f "$CACHE_FILE" ]; then
             -DCMAKE_MAKE_PROGRAM="$NINJA" \
             -DCMAKE_TOOLCHAIN_FILE="$ROOT/MavericksSupport/cmake/mac10.9-toolchain.cmake" \
             -DPORT=Mac -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-            -DCMAKE_NINJA_FORCE_RESPONSE_FILE=1; then
+            -DCMAKE_NINJA_FORCE_RESPONSE_FILE=1 $DEV_FLAGS; then
         echo "==================== CONFIGURE FAILED — ABORTING ===================="
         tail -20 "$LOG"; exit 1
     fi
@@ -194,7 +198,7 @@ if [ -f "$OPT_HASH_FILE" ] && [ "$_opt_hash" != "$(cat "$OPT_HASH_FILE")" ]; the
         | grep -oE '[A-Z0-9_]+$' | sort -u)
     echo "### option file content changed -> re-deriving $(echo $_names | wc -w | tr -d ' ') feature options from port defaults"
     _uargs=""; for _n in $_names; do _uargs="$_uargs -U $_n"; done
-    if ! "$CMAKE" $_uargs "$BUILD"; then
+    if ! "$CMAKE" $_uargs $DEV_FLAGS "$BUILD"; then
         echo "==================== RECONFIGURE FAILED — ABORTING ===================="
         tail -20 "$LOG"; exit 1
     fi
@@ -247,7 +251,7 @@ fi
 # every later run dead at the same error; heal that with a plain reconfigure.
 if [ ! -f "$BUILD/build.ninja" ] || ! "$NINJA" -C "$BUILD" -t targets >/dev/null 2>&1; then
     echo "### build.ninja is missing or does not parse -> reconfiguring to recover"
-    if ! "$CMAKE" "$BUILD"; then
+    if ! "$CMAKE" $DEV_FLAGS "$BUILD"; then
         echo "==================== RECOVERY RECONFIGURE FAILED — ABORTING ===================="
         tail -20 "$LOG"; exit 1
     fi

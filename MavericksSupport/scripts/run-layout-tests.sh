@@ -5,13 +5,8 @@
 #   --wk1   WebKit1, driver = DumpRenderTree      (run-webkit-tests -1)
 #   --wk2   WebKit2, driver = WebKitTestRunner    (run-webkit-tests -2)
 #
-# Prereqs (one-time): build the drivers with the layout-test config enabled —
-#   cmake -S . -B WebKitBuild/Release -DDEVELOPER_MODE=ON -DENABLE_LAYOUT_TESTS=ON \
-#         -DDEVELOPER_MODE_FATAL_WARNINGS=OFF
-#   --wk1:  ninja -C WebKitBuild/Release DumpRenderTree ImageDiff LayoutTestHelper
-#   --wk2:  ninja -C WebKitBuild/Release WebKitTestRunner TestRunnerInjectedBundle ImageDiff
-# (Flip ENABLE_LAYOUT_TESTS back OFF + rebuild before install.sh: the test build instruments WebCore
-#  with Internals and must not be shipped over the system.)
+# The drivers are part of every build.sh run (ENABLE_LAYOUT_TESTS is a port default in
+# MavericksSupport/cmake/OptionsMacMavericks.cmake), so a green build has them matched to its frameworks.
 #
 # The WPT suites under imported/w3c/web-platform-tests are served from web-platform.test and
 # not-web-platform.test, which have to resolve to 127.0.0.1 -- this port has no Network.framework and
@@ -32,15 +27,14 @@ usage() {
 }
 
 case "${1-}" in
-    --wk1) PORT_FLAG="-1"; DRIVER="DumpRenderTree";   NINJA_TARGETS="DumpRenderTree ImageDiff LayoutTestHelper" ;;
-    --wk2) PORT_FLAG="-2"; DRIVER="WebKitTestRunner"; NINJA_TARGETS="WebKitTestRunner TestRunnerInjectedBundle ImageDiff" ;;
+    --wk1) PORT_FLAG="-1"; DRIVER="DumpRenderTree" ;;
+    --wk2) PORT_FLAG="-2"; DRIVER="WebKitTestRunner" ;;
     *)     usage; exit 2 ;;
 esac
 shift
 
 if [ ! -x "$ROOT/WebKitBuild/Release/bin/$DRIVER" ]; then
-    echo "$DRIVER not built — see the prereqs at the top of $0" >&2
-    echo "  ninja -C WebKitBuild/Release $NINJA_TARGETS" >&2
+    echo "$DRIVER not built — run MavericksSupport/build.sh" >&2
     exit 1
 fi
 

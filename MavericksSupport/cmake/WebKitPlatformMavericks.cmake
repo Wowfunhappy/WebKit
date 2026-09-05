@@ -252,10 +252,6 @@ target_link_options(WebKit PRIVATE "SHELL:-weak_framework Metal")
 # --------------------------------------------------------------------------
 list(REMOVE_ITEM WebKit_MESSAGES_IN_FILES
     UIProcess/Cocoa/VideoFullscreenManagerProxy
-    # ENABLE_ROUTING_ARBITRATION is off (AVAudioRoutingArbiter is absent at this deployment target),
-    # so AudioSessionRoutingArbitratorProxy is withheld from Sources.txt below and there is nothing
-    # for the generated receiver to call.
-    UIProcess/Media/AudioSessionRoutingArbitratorProxy
     WebProcess/cocoa/VideoFullscreenManager
 )
 
@@ -501,11 +497,8 @@ list(APPEND WebKit_SERIALIZATION_IN_FILES
 # (MAVERICKS_FILTER_SOURCE_LIST, from cmake/MavericksSourceLists.cmake).
 # --------------------------------------------------------------------------
 
-# Withheld from Sources.txt: AudioSessionRoutingArbitratorProxy is built on AVAudioSession routing
-# arbitration, which this deployment target has no equivalent of.
-set(MAVERICKS_WITHHELD_WEBKIT_SOURCES
-    "UIProcess/Media/AudioSessionRoutingArbitratorProxy.cpp"
-)
+# Withheld from Sources.txt: nothing.
+set(MAVERICKS_WITHHELD_WEBKIT_SOURCES)
 
 # Added to Sources.txt: the legacy WK2 icon database Safari 7's favicon client drives, the FIDO/WebAuthn
 # sources upstream's list drops (WEB_AUTHN is on here), the WK109 injected-bundle page-group user content
@@ -528,7 +521,7 @@ set(MAVERICKS_ADDED_WEBKIT_SOURCES
 
 # Withheld from SourcesCocoa.txt. WKWebView.mm comes back below with @no-unify; WKView.mm's place is
 # taken by WKViewMavericks.mm, appended to WebKit_SOURCES near the top of this file. The rest are the
-# VideoPresentationMode, AudioSession routing arbitration, model-process, os_log streaming,
+# VideoPresentationMode, model-process, os_log streaming,
 # smart-magnification and device-orientation paths, none of which exist at this deployment target, plus
 # _WKUserContentExtensionStore/_WKUserContentFilter, which need WKContentRuleListStore's enums.
 set(MAVERICKS_WITHHELD_WEBKIT_COCOA_SOURCES
@@ -541,9 +534,7 @@ set(MAVERICKS_WITHHELD_WEBKIT_COCOA_SOURCES
     "UIProcess/API/Cocoa/WKWebView.mm @nonARC"
     "UIProcess/API/mac/WKView.mm @nonARC"
     "UIProcess/Cocoa/VideoPresentationManagerProxy.mm @nonARC"
-    "UIProcess/Media/cocoa/AudioSessionRoutingArbitratorProxyCocoa.mm @nonARC"
     "WebProcess/cocoa/VideoPresentationManager.mm @nonARC"
-    "AudioSessionRoutingArbitratorProxyMessageReceiver.cpp"
     "LogStreamMessageReceiver.cpp"
     "ModelProcessModelPlayerProxyMessageReceiver.cpp"
     "SmartMagnificationControllerMessageReceiver.cpp"

@@ -56,11 +56,6 @@ add_compile_definitions(WEBKIT_BUNDLE_VERSION="${WEBKIT_MAC_VERSION}")
 #                                 defaultUseGPUProcessForDOMRenderingEnabled); this port pins the
 #                                 drawing area, so it pins the paired half too. The GPU process still
 #                                 serves WebGL and canvas, upstream's own shape for its TCA Macs.
-#   ROUTING_ARBITRATION           SharedRoutingArbitrator drives AVAudioRoutingArbiter, a class 10.9's
-#                                 AVFoundation does not export (verified with nm), reached through a
-#                                 non-optional SOFT_LINK_CLASS_FOR_SOURCE. The proxy and its Cocoa
-#                                 implementation are withheld from the source lists for the same
-#                                 reason (WebKitPlatformMavericks.cmake).
 #   SERVER_PRECONNECT             10.9 cannot warm a connection without transferring: a task flagged
 #                                 _preconnect performs a full GET when resumed, fetching every main
 #                                 resource twice and rotating a per-response Set-Cookie session out
@@ -77,7 +72,6 @@ add_compile_definitions(
     ENABLE_PREDEFINED_COLOR_SPACE_DISPLAY_P3=0
     ENABLE_REMOTE_LAYER_TREE_ON_MAC_BY_DEFAULT=0
     ENABLE_GPU_PROCESS_DOM_RENDERING_BY_DEFAULT=0
-    ENABLE_ROUTING_ARBITRATION=0
     ENABLE_SERVER_PRECONNECT=0
     ENABLE_DNS_SERVER_FOR_TESTING=0
     ENABLE_DNS_SERVER_FOR_TESTING_IN_NETWORKING_PROCESS=0
@@ -85,9 +79,10 @@ add_compile_definitions(
 
 # This port's own flag, not an upstream one. The GPU process here is provisioned for rasterization:
 # its profile (MavericksSupport/sandbox/com.apple.WebKit.GPUProcess.sb.in) grants DOM and canvas
-# rasterization and WebGL, and no camera, microphone or AVFoundation access. Capture and the WebRTC
-# platform codecs therefore run in the web process, which holds those grants, and the GPU-process
-# defaults for them key on this flag.
+# rasterization and WebGL, and no camera, microphone or AVFoundation access. Camera and microphone
+# capture and the WebRTC platform codecs therefore run in the web process, which holds those grants, and
+# the GPU-process defaults for them key on this flag. Display capture needs only the window server, which
+# that profile grants, so it runs in the GPU process as on every Mac.
 add_compile_definitions(ENABLE_GPU_PROCESS_RASTERIZATION_ONLY=1)
 
 # PlatformHave.h turns the Cookie Store API on by default from a macOS 15.4 deployment target, which
@@ -124,6 +119,14 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_ACCESSIBILITY_ISOLATED_TREE PRIVATE ON)
 
 # OFF — parental-controls content filtering uses the 10.9-absent WebFilterEvaluator/NEFilter SPI.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_CONTENT_FILTERING PRIVATE OFF)
+
+# ON — DumpRenderTree, WebKitTestRunner and its injected bundle, ImageDiff, LayoutTestHelper and the
+# TestWebKitAPI binaries build with the frameworks, so every build leaves the test drivers matched to the
+# frameworks and WebCoreTestSupport they load. The options reach Tools/ and Source/ThirdParty/gtest;
+# install.sh stages the four frameworks alone. WebKitFeatures.cmake forces ENABLE_LAYOUT_TESTS OFF without
+# DEVELOPER_MODE, which build.sh passes.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_API_TESTS PRIVATE ON)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_LAYOUT_TESTS PRIVATE ON)
 
 # ON — 10.9 Dashboard widgets need -apple-dashboard-region control regions
 # (subsystem removed upstream in 2d364c6; restored for the backport). The flag is declared here, inside
@@ -169,15 +172,12 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_LEGACY_ENCRYPTED_MEDIA PRIVATE OFF)
 # SourceBufferPrivateAVFObjC.mm:795 reads unguarded, so that TU cannot compile without this.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_RECORDER PRIVATE ON)
 
-# OFF — on a USE(GLIB) port, which this is because it uses GStreamer,
-# ENABLE(MEDIA_SESSION) selects MediaSessionManagerGLib as the platform manager (Internals.cpp:421,
-# `#if ENABLE(MEDIA_SESSION) && USE(GLIB)`). That class is an MPRIS implementation over D-Bus
-# (GDBusNodeInfo, mprisInterface, dbusNotificationsEnabled — platform/audio/glib/
-# MediaSessionManagerGLib.h). MPRIS is the Linux desktop media-controls protocol; macOS has no session
-# D-Bus bus for it to talk to, and there is no Cocoa MediaSession manager to select instead. ON would
-# mean either a manager that cannot function or the API with no platform backend — the same
-# advertises-what-it-cannot-deliver problem as ENABLE_APPLE_PAY above.
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_SESSION PRIVATE OFF)
+# ON — PlatformMediaSessionManager::create() answers MediaSessionManagerCocoa on PLATFORM(MAC)
+# (platform/audio/cocoa/MediaSessionManagerCocoa.mm), so this port gets the Cocoa now-playing backend
+# rather than the MPRIS-over-D-Bus MediaSessionManagerGLib that USE(GLIB) alone would suggest. The GLib
+# session sources are in no source list this port builds; the one place that assumed USE(GLIB) implied
+# the GLib manager is gated in Internals.cpp.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_SESSION PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_SESSION_COORDINATOR PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_SESSION_PLAYLIST PRIVATE OFF)
 # Right-click menu on <video>/<audio>. Complements the restored classic Aqua media controls (#68).

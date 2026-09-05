@@ -278,9 +278,17 @@ CXX_VANILLA="$VBIN/cxx"
 
 mkdir -p "$SRC" "$STAGE" "$DEST/include" "$DEST/lib"
 
-# fetch <url> <dest-file>. Lands via .part so an interrupted transfer cannot leave a truncated
-# file at the cache path, which get() would then trust forever.
-fetch() { curl -fsSL -m 600 -o "$2.part" "$1" && mv "$2.part" "$2"; }
+# fetch <url> <dest-file>. Lands via a .part file carrying this run's pid, so an interrupted transfer
+# cannot leave a truncated file at the cache path (which get() would then trust forever), and concurrent
+# runs fetching the same URL each own their temp path.
+fetch() {
+  local url="$1" out="$2" tmp="$2.$$.part" rc
+  curl -fsSL -m 600 -o "$tmp" "$url"; rc=$?
+  if [ $rc -eq 0 ] && [ -s "$tmp" ]; then mv "$tmp" "$out"; return 0; fi
+  echo "fetch: $url curl rc=$rc bytes=$(/usr/bin/stat -f%z "$tmp" 2>/dev/null || echo none)" >&2
+  rm -f "$tmp"
+  return 1
+}
 
 # fetch_cached <url> <dest>: fetch into the tarball cache and copy from there, so a rerun
 # reuses it. For the pinned subproject sources below, whose hosts rate-limit a repeated run.
@@ -325,12 +333,12 @@ get() {
   key="$(recipe_key "${BASH_LINENO[0]}")"
   # NB: this function's stdout is captured by the caller ($(get ...)) as the build dir,
   # so the progress line must go to stderr or it corrupts the returned path.
-  [ -f "$f" ] || ( echo "download $(basename "$url")" >&2 && fetch "$url" "$f" )
+  [ -f "$f" ] || ( echo "download $(basename "$url")" >&2 && fetch "$url" "$f" ) || return 1
   if [ -f "$d/.prepared" ] && [ "$(cat "$d/.recipe" 2>/dev/null)" = "$key" ]; then
     echo "$d"; return 0
   fi
   rm -rf "${d:?}"; mkdir -p "$d"
-  tar xf "$f" -C "$d" --strip-components=1
+  tar xf "$f" -C "$d" --strip-components=1 || return 1
   printf '%s\n' "$key" > "$d/.recipe"
   echo "$d"
 }
@@ -710,7 +718,7 @@ echo "==== GLib $GLIB_VER ===="
 # into subprojects/packagecache (meson verifies their hashes); the wrap-git ones
 # land as plain directories at a pinned revision (gvdb/proxy-libintl by upstream URL,
 # libffi by $LIBFFI_REV because its upstream wrap floats on a branch).
-d=$(get https://download.gnome.org/sources/glib/${GLIB_VER%.*}/glib-$GLIB_VER.tar.xz glib)
+d=$(get https://download.gnome.org/sources/glib/${GLIB_VER%.*}/glib-$GLIB_VER.tar.xz glib) || exit 1
 if prepare "$d"; then
     ( cd "$d/subprojects" && mkdir -p packagecache && cd packagecache \
       && fetch_cached https://github.com/PhilipHazel/pcre2/releases/download/pcre2-10.42/pcre2-10.42.tar.bz2 pcre2-10.42.tar.bz2 \
@@ -732,8 +740,8 @@ fi
 ( cd "$d" && "$MESON" compile -C b -j 2 \
   && "$MESON" install -C b ) || exit 1
 
-echo "==== orc / ogg / vorbis / opus / flac ===="
-d=$(get https://gstreamer.freedesktop.org/src/orc/orc-0.4.41.tar.xz orc)
+echo "==== orc / ogg / vorbis / mpg123 / opus / flac ===="
+d=$(get https://gstreamer.freedesktop.org/src/orc/orc-0.4.41.tar.xz orc) || exit 1
 if prepare "$d"; then
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release -Dtests=disabled \
         -Dexamples=disabled ) || exit 1
@@ -741,26 +749,40 @@ if prepare "$d"; then
 fi
 ( cd "$d" && "$MESON" compile -C b -j 2 \
   && "$MESON" install -C b ) || exit 1
-d=$(get https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.gz ogg)
+d=$(get https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.gz ogg) || exit 1
 if prepare "$d"; then
     ( cd "$d" && ./configure -q --prefix="$STAGE" --disable-static ) || exit 1
     prepared "$d"
 fi
 ( cd "$d" && make -s -j2 && make -s install ) || exit 1
-d=$(get https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.gz vorbis)
+d=$(get https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.gz vorbis) || exit 1
 if prepare "$d"; then
     ( cd "$d" && ./configure -q --prefix="$STAGE" --disable-static ) || exit 1
     prepared "$d"
 fi
 ( cd "$d" && make -s -j2 && make -s install ) || exit 1
-d=$(get https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz opus)
+# gst-plugins-good's mpg123 decoder. decodebin inserts a parser only when the decoder asks for one:
+# avdec_mp3's sink caps are plain audio/mpeg with no parsed=true, so decodebin wires the typefinder
+# straight to it and mpegaudioparse never runs -- the Xing/LAME gapless header goes unread and an mp3
+# decodes with its encoder delay and padding still in it. mpg123audiodec demands parsed=true, which puts
+# mpegaudioparse back in the chain. Measured on half-a-second-48000.mp3: decodebin alone answers 26496
+# frames where mpegaudioparse ! avdec_mp3 answers the correct 24000.
+d=$(get https://www.mpg123.de/download/mpg123-1.32.10.tar.bz2 mpg123) || exit 1
+if prepare "$d"; then
+    # libgstmpg123 links libmpg123 alone, so that is the only component built.
+    ( cd "$d" && ./configure -q --prefix="$STAGE" --disable-static --enable-shared \
+        --disable-components --enable-libmpg123 ) || exit 1
+    prepared "$d"
+fi
+( cd "$d" && make -s -j2 && make -s install ) || exit 1
+d=$(get https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz opus) || exit 1
 if prepare "$d"; then
     ( cd "$d" && ./configure -q --prefix="$STAGE" --disable-static --disable-doc \
         --disable-extra-programs ) || exit 1
     prepared "$d"
 fi
 ( cd "$d" && make -s -j2 && make -s install ) || exit 1
-d=$(get https://downloads.xiph.org/releases/flac/flac-1.4.3.tar.xz flac)
+d=$(get https://downloads.xiph.org/releases/flac/flac-1.4.3.tar.xz flac) || exit 1
 if prepare "$d"; then
     ( cd "$d" && ./configure -q --prefix="$STAGE" --disable-static --disable-programs \
         --disable-examples --disable-cpplibs --enable-ogg ) || exit 1
@@ -772,7 +794,7 @@ echo "==== libvpx 1.14.1 ===="
 # VP8/VP9 encode + decode for the gst vpx plugin: WebRTC sends VP8/VP9 through vpxenc,
 # which gst-libav does not provide (FFmpeg carries no VP8/VP9 encoder of its own).
 # darwin13 is the 10.9 target triple; nasm assembles the SIMD code from the PATH.
-d=$(get https://github.com/webmproject/libvpx/archive/refs/tags/v1.14.1.tar.gz vpx)
+d=$(get https://github.com/webmproject/libvpx/archive/refs/tags/v1.14.1.tar.gz vpx) || exit 1
 if prepare "$d"; then
     ( cd "$d" && mkdir -p b && cd b \
       && ../configure --target=x86_64-darwin13-gcc --prefix="$STAGE" \
@@ -802,7 +824,7 @@ echo "==== libxml2 2.13.6 ===="
 # Ambient CFLAGS/LDFLAGS apply: the gap archive supplies getentropy (10.12+, which
 # configure detects against the modern SDK and xmlInitRandom then calls) as a DEFINED
 # symbol, the same way it does for every other media dylib.
-d=$(get https://download.gnome.org/sources/libxml2/2.13/libxml2-2.13.6.tar.xz libxml2)
+d=$(get https://download.gnome.org/sources/libxml2/2.13/libxml2-2.13.6.tar.xz libxml2) || exit 1
 if prepare "$d"; then
     ( cd "$d" && ./configure -q --prefix="$STAGE" --disable-static --without-python --without-lzma ) || exit 1
     prepared "$d"
@@ -814,7 +836,7 @@ echo "==== dav1d 1.4.3 ===="
 # FFmpeg links it (--enable-libdav1d) for AV1 via the libdav1d wrapper codec, which
 # gst-libav registers as avdec_libdav1d (see the libdav1d patch in the gst-libav
 # section) -- the runtime's AV1 decoder, also serving libavif below.
-d=$(get https://downloads.videolan.org/pub/videolan/dav1d/1.4.3/dav1d-1.4.3.tar.xz dav1d)
+d=$(get https://downloads.videolan.org/pub/videolan/dav1d/1.4.3/dav1d-1.4.3.tar.xz dav1d) || exit 1
 if prepare "$d"; then
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release \
         -Denable_tools=false -Denable_tests=false ) || exit 1
@@ -878,7 +900,7 @@ fi
 
 echo "==== OpenSSL 3.0.16 ===="
 # HLS AES-128 key decryption: libgsthls and libgstadaptivedemux2 link libcrypto.
-d=$(get https://www.openssl.org/source/openssl-3.0.16.tar.gz openssl)
+d=$(get https://www.openssl.org/source/openssl-3.0.16.tar.gz openssl) || exit 1
 if prepare "$d"; then
     ( cd "$d" && ./Configure darwin64-x86_64-cc shared --prefix="$STAGE" --libdir=lib \
         no-tests -mmacosx-version-min=10.9 > /dev/null ) || exit 1
@@ -894,7 +916,7 @@ echo "==== GStreamer $GST_VER (core) ===="
 GSTOPTS="-Dbuildtype=release -Dtests=disabled -Dexamples=disabled -Ddoc=disabled -Dc_std=gnu11"
 # -Dtools=enabled: gst-inspect-1.0/gst-launch-1.0 deploy into deps/build/bin for
 # on-box verification of the shipped runtime (plugins load, pipelines run).
-d=$(get https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-$GST_VER.tar.xz gstcore)
+d=$(get https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-$GST_VER.tar.xz gstcore) || exit 1
 if prepare "$d"; then
     # multiqueue: report the queue's current buffering level. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gstreamer-multiqueue-report-current-buffering-level.patch" \
@@ -919,7 +941,7 @@ fi
 # corresponding meson setup loudly instead of silently dropping the plugin from the
 # shipped runtime.
 echo "==== gst-plugins-base ===="
-d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-$GST_VER.tar.xz gstbase)
+d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-$GST_VER.tar.xz gstbase) || exit 1
 if prepare "$d"; then
     # urisourcebin owns the parsebin in a playbin3 pipeline, and nothing resets it
     # when a stream's media type changes mid-play, so an MSE SourceBuffer handed a clear period and then
@@ -940,10 +962,11 @@ fi
   && "$MESON" install -C b ) || exit 1
 
 echo "==== gst-plugins-good ===="
-d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-$GST_VER.tar.xz gstgood)
+d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-$GST_VER.tar.xz gstgood) || exit 1
 if prepare "$d"; then
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS \
-        -Dvpx=enabled -Dflac=enabled -Dosxaudio=enabled -Dosxvideo=enabled -Dorc=enabled ) || exit 1
+        -Dvpx=enabled -Dflac=enabled -Dmpg123=enabled -Dosxaudio=enabled -Dosxvideo=enabled \
+        -Dorc=enabled ) || exit 1
     prepared "$d"
 fi
 ( cd "$d" && "$MESON" compile -C b -j 2 \
@@ -953,7 +976,7 @@ echo "==== gst-plugins-bad ===="
 # webp is off because the plugin has no caller: WebP images decode in WebCore's own
 # WEBPImageDecoder. The WebRTC plugin set (webrtc, dtls, srtp, sctp, webrtcdsp) is off: WebRTC is
 # libwebrtc, inside WebCore.
-d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-$GST_VER.tar.xz gstbad)
+d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-$GST_VER.tar.xz gstbad) || exit 1
 if prepare "$d"; then
     # vtdec_hw advertises codecs the machine cannot hardware-decode; the -8973
     # session failure then lands outside decodebin3's candidate window and kills playbin3 (MSE)
@@ -1004,7 +1027,7 @@ echo "==== FFmpeg 8.1.2 ===="
 # surfaced as gst-libav's avdec_libdav1d (see the dav1d note above).
 # FFmpeg's configure ignores the LDFLAGS environment, so the gap archive rides in
 # --extra-ldflags here.
-d=$(get https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz ffmpeg)
+d=$(get https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz ffmpeg) || exit 1
 if prepare "$d"; then
     # The hevc decoder's VPS-extension parser answers the non-standard extension Apple's
     # VideoToolbox writes for HEVC-with-alpha with AVERROR_INVALIDDATA, which drops the VPS
@@ -1026,7 +1049,7 @@ fi
 ( cd "$d" && make -s -j2 > /dev/null && make -s install > /dev/null ) || exit 1
 
 echo "==== gst-libav ===="
-d=$(get https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-$GST_VER.tar.xz gstlibav)
+d=$(get https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-$GST_VER.tar.xz gstlibav) || exit 1
 if prepare "$d"; then
     # gst-libav skips FFmpeg's external-library ("lib*") decoders on the
     # premise that native GStreamer elements cover them; this runtime has no native AV1
@@ -1258,6 +1281,9 @@ require_glob "$DEST/lib/libavcodec.*.dylib"
 require_glob "$DEST/lib/libvpx.*.dylib"
 require_glob "$DEST/lib/libxml2.*.dylib"
 require_glob "$DEST/lib/libdav1d.*.dylib"
+require_glob "$DEST/lib/libmpg123.*.dylib"
+# Without this plugin decodebin skips mpegaudioparse and every mp3 keeps its encoder delay.
+require_glob "$DEST/lib/gstreamer-1.0/libgstmpg123.dylib"
 require_glob "$DEST/lib/libc++.1.dylib"
 require_glob "$DEST/lib/libc++abi.1.dylib"
 # The static link libraries WebKit's CMake resolves out of this tree by exact path

@@ -191,6 +191,11 @@ void ScreenDisplayCapturerMac::stop()
     if (m_displayStream)
         CGDisplayStreamStop(m_displayStream.get());
 
+    // 10.9's CGDisplayStream delivers no frames once it has been stopped and started again (measured:
+    // 87 frames, CGDisplayStreamStop, one second on the run loop, CGDisplayStreamStart, 0 frames in four
+    // seconds), so the stopped stream is released here and start() creates a new one.
+    m_displayStream = nullptr;
+
     m_isRunning = false;
 }
 

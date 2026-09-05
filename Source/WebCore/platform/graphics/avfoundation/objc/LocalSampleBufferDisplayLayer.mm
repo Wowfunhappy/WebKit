@@ -373,7 +373,12 @@ static inline CGAffineTransform transformationMatrixForVideoFrame(VideoFrame& vi
     if (!width || !height)
         return CGAffineTransformIdentity;
 
-#if PLATFORM(MAC)
+// MAVERICKS_BACKPORT: the negated Mac angle is calibrated for a layer hosted in the GPU process's
+// CAContext, whose geometry is not flipped. Here the layer lives in the web process, inside the
+// TiledCoreAnimationDrawingArea hosting layer (and WebKitLegacy's flipped hosting view), whose flipped
+// geometry mirrors a rotation, so the angle keeps the frame's own sign.
+// #if PLATFORM(MAC)
+#if PLATFORM(MAC) && !ENABLE(GPU_PROCESS_RASTERIZATION_ONLY)
     int rotationAngle = -static_cast<int>(videoFrame.rotation());
 #else
     int rotationAngle = static_cast<int>(videoFrame.rotation());

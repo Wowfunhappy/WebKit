@@ -332,6 +332,18 @@ static NSString *addLeadingSpaceStripTrailingSpaces(NSString *string)
     return TRUE;
 }
 
+// MAVERICKS_BACKPORT: WebUserMediaClient asks this delegate before it presents its consent sheet, so
+// DumpRenderTree answers it from testRunner.setUserMediaPermission() and the mediastream and Web Audio
+// suites this port runs on WebKit1 can obtain a stream. WebKitTestRunner answers the equivalent
+// WKPageUIClient callback.
+- (void)webView:(WebView *)webView decidePolicyForUserMediaRequestFromOrigin:(WebSecurityOrigin *)origin listener:(id<WebAllowDenyPolicyListener>)listener
+{
+    if (gTestRunner && gTestRunner->isUserMediaPermissionAllowed())
+        [listener allow];
+    else
+        [listener deny];
+}
+
 - (void)webView:(WebView *)webView decidePolicyForNotificationRequestFromOrigin:(WebSecurityOrigin *)origin listener:(id<WebAllowDenyPolicyListener>)listener
 {
     MockWebNotificationProvider *provider = (MockWebNotificationProvider *)[webView _notificationProvider];

@@ -2479,7 +2479,11 @@ void WebProcessPool::addMockMediaDevice(const MockMediaDevice& device)
 #if ENABLE(MEDIA_STREAM)
     MockRealtimeMediaSourceCenter::addDevice(device);
     sendToAllProcesses(Messages::WebProcess::AddMockMediaDevice { device });
-#if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)
+// MAVERICKS_BACKPORT: !USE(GSTREAMER) stands in for "this port captures in the web process", which is
+// untrue here -- the media engine is GStreamer but capture runs through the Cocoa factories, and video
+// capture is routed to the GPU process, whose mock centre therefore has to receive these updates.
+// #if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)
+#if ENABLE(GPU_PROCESS)
     protect(ensureGPUProcess())->addMockMediaDevice(device);
 #endif
 #endif
@@ -2490,7 +2494,11 @@ void WebProcessPool::clearMockMediaDevices()
 #if ENABLE(MEDIA_STREAM)
     MockRealtimeMediaSourceCenter::setDevices({ });
     sendToAllProcesses(Messages::WebProcess::ClearMockMediaDevices { });
-#if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)
+// MAVERICKS_BACKPORT: !USE(GSTREAMER) stands in for "this port captures in the web process", which is
+// untrue here -- the media engine is GStreamer but capture runs through the Cocoa factories, and video
+// capture is routed to the GPU process, whose mock centre therefore has to receive these updates.
+// #if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)
+#if ENABLE(GPU_PROCESS)
     protect(ensureGPUProcess())->clearMockMediaDevices();
 #endif
 #endif
@@ -2501,7 +2509,11 @@ void WebProcessPool::removeMockMediaDevice(const String& persistentId)
 #if ENABLE(MEDIA_STREAM)
     MockRealtimeMediaSourceCenter::removeDevice(persistentId);
     sendToAllProcesses(Messages::WebProcess::RemoveMockMediaDevice { persistentId });
-#if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)
+// MAVERICKS_BACKPORT: !USE(GSTREAMER) stands in for "this port captures in the web process", which is
+// untrue here -- the media engine is GStreamer but capture runs through the Cocoa factories, and video
+// capture is routed to the GPU process, whose mock centre therefore has to receive these updates.
+// #if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)
+#if ENABLE(GPU_PROCESS)
     protect(ensureGPUProcess())->removeMockMediaDevice(persistentId);
 #endif
 #endif
@@ -2513,7 +2525,11 @@ void WebProcessPool::setMockMediaDeviceIsEphemeral(const String& persistentId, b
 #if ENABLE(MEDIA_STREAM)
     MockRealtimeMediaSourceCenter::setDeviceIsEphemeral(persistentId, isEphemeral);
     sendToAllProcesses(Messages::WebProcess::SetMockMediaDeviceIsEphemeral { persistentId, isEphemeral });
-#if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)
+// MAVERICKS_BACKPORT: !USE(GSTREAMER) stands in for "this port captures in the web process", which is
+// untrue here -- the media engine is GStreamer but capture runs through the Cocoa factories, and video
+// capture is routed to the GPU process, whose mock centre therefore has to receive these updates.
+// #if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)
+#if ENABLE(GPU_PROCESS)
     protect(ensureGPUProcess())->setMockMediaDeviceIsEphemeral(persistentId, isEphemeral);
 #endif
 #endif
@@ -2524,7 +2540,11 @@ void WebProcessPool::resetMockMediaDevices()
 #if ENABLE(MEDIA_STREAM)
     MockRealtimeMediaSourceCenter::resetDevices();
     sendToAllProcesses(Messages::WebProcess::ResetMockMediaDevices { });
-#if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)
+// MAVERICKS_BACKPORT: !USE(GSTREAMER) stands in for "this port captures in the web process", which is
+// untrue here -- the media engine is GStreamer but capture runs through the Cocoa factories, and video
+// capture is routed to the GPU process, whose mock centre therefore has to receive these updates.
+// #if ENABLE(GPU_PROCESS) && !USE(GSTREAMER)
+#if ENABLE(GPU_PROCESS)
     protect(ensureGPUProcess())->resetMockMediaDevices();
 #endif
 #endif

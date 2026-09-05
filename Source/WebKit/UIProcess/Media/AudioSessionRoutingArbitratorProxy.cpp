@@ -33,6 +33,8 @@
 #if ENABLE(ROUTING_ARBITRATION)
 
 #include "AudioSessionRoutingArbitratorProxyMessages.h"
+// MAVERICKS_BACKPORT: the !HAVE(AVAUDIO_ROUTING_ARBITER) bodies below call notImplemented().
+#include <WebCore/NotImplemented.h>
 
 namespace WebKit {
 

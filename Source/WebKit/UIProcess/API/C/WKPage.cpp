@@ -3678,7 +3678,11 @@ void WKPageSetMockCaptureDevicesInterrupted(WKPageRef pageRef, bool isCameraInte
     CRASH_IF_SUSPENDED;
 #if ENABLE(MEDIA_STREAM) && ENABLE(GPU_PROCESS)
     Ref preferences = toImpl(pageRef)->preferences();
-    if (preferences->useGPUProcessForMediaEnabled()) {
+    // MAVERICKS_BACKPORT: the GPU process hosts the mock sources of the capture kinds routed to it, which
+    // this port decides per kind through the capture preferences; UseGPUProcessForMediaEnabled is off here
+    // because the media engine is GStreamer in the web process.
+    // if (preferences->useGPUProcessForMediaEnabled()) {
+    if (preferences->captureAudioInGPUProcessEnabled() || preferences->captureVideoInGPUProcessEnabled()) {
         Ref gpuProcess = protect(protect(toImpl(pageRef))->configuration().processPool())->ensureGPUProcess();
         gpuProcess->setMockCaptureDevicesInterrupted(isCameraInterrupted, isMicrophoneInterrupted);
     }
@@ -3694,13 +3698,19 @@ void WKPageTriggerMockCaptureConfigurationChange(WKPageRef pageRef, bool forCame
 #if ENABLE(MEDIA_STREAM)
 #if USE(GSTREAMER)
     toImpl(pageRef)->triggerMockCaptureConfigurationChange(forCamera, forMicrophone, forDisplay);
-#else
+#endif
+// MAVERICKS_BACKPORT: the web process holds the mock sources of the capture kinds this port keeps in-process,
+// and device enumeration is the UI process's on Cocoa, so both centres take the change.
+// #else
+#if !USE(GSTREAMER) || PLATFORM(COCOA)
     MockRealtimeMediaSourceCenter::singleton().triggerMockCaptureConfigurationChange(forCamera, forMicrophone, forDisplay);
-#endif // USE(GSTREAMER)
+#endif // MAVERICKS_BACKPORT: closes the UI-process centre branch above.
 
 #if ENABLE(GPU_PROCESS)
     Ref preferences = toImpl(pageRef)->preferences();
-    if (!preferences->useGPUProcessForMediaEnabled())
+    // MAVERICKS_BACKPORT: same per-kind routing term as WKPageSetMockCaptureDevicesInterrupted above.
+    // if (!preferences->useGPUProcessForMediaEnabled())
+    if (!preferences->captureAudioInGPUProcessEnabled() && !preferences->captureVideoInGPUProcessEnabled() && !preferences->useGPUProcessForDisplayCapture())
         return;
 
     Ref gpuProcess = protect(protect(toImpl(pageRef))->configuration().processPool())->ensureGPUProcess();

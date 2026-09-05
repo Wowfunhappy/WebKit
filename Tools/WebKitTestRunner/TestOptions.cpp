@@ -31,11 +31,22 @@
 
 namespace WTR {
 
-#if PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: audio capture stays in the web process here. This port's media engine is GStreamer
+// in the web process, so UseGPUProcessForMediaEnabled is off, and
+// RemoteAudioMediaStreamTrackRendererInternalUnitManager's messages are gated on it -- routing audio
+// capture to the GPU process makes the web process send CreateUnit to a receiver that refuses it, and the
+// GPU process then has the web process terminated. This is the same term
+// defaultCaptureAudioInGPUProcessEnabled() uses. Video capture is left at upstream's value: the mock
+// video sources the layout tests use draw with CoreGraphics inside the GPU process and need none of the
+// camera grants this port's rasterization-only GPU process lacks.
+#if PLATFORM(COCOA) && !ENABLE(GPU_PROCESS_RASTERIZATION_ONLY)
 static constexpr bool captureAudioInGPUProcessEnabledValue = true;
-static constexpr bool captureVideoInGPUProcessEnabledValue = true;
 #else
 static constexpr bool captureAudioInGPUProcessEnabledValue = false;
+#endif
+#if PLATFORM(COCOA)
+static constexpr bool captureVideoInGPUProcessEnabledValue = true;
+#else
 static constexpr bool captureVideoInGPUProcessEnabledValue = false;
 #endif
 

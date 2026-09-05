@@ -293,6 +293,12 @@ public:
     bool isPrinting() const { return m_isPrinting; }
     void setIsPrinting(bool isPrinting) { m_isPrinting = isPrinting; }
 
+    // MAVERICKS_BACKPORT: the webaudio and fast/mediastream suites this port runs on WebKit1 grant
+    // getUserMedia through testRunner.setUserMediaPermission(); WebKitTestRunner has it and
+    // DumpRenderTree does not. UIDelegate answers WebKit1's user-media policy delegates from this.
+    bool isUserMediaPermissionAllowed() const { return m_userMediaPermissionAllowed; }
+    void setUserMediaPermission(bool allowed) { m_userMediaPermissionAllowed = allowed; }
+
     const std::string& authenticationUsername() const { return m_authenticationUsername; }
     void setAuthenticationUsername(std::string username) { m_authenticationUsername = username; }
     
@@ -469,6 +475,8 @@ private:
     bool m_rejectsProtectionSpaceAndContinueForAuthenticationChallenges { false };
     bool m_handlesAuthenticationChallenges { false };
     bool m_isPrinting { false };
+    // MAVERICKS_BACKPORT: see isUserMediaPermissionAllowed() above.
+    bool m_userMediaPermissionAllowed { false };
     bool m_useDeferredFrameLoading { false };
     bool m_shouldPaintBrokenImage { true };
     bool m_shouldStayOnPageAfterHandlingBeforeUnload { false };
