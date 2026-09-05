@@ -322,14 +322,6 @@ void NetworkProcessProxy::processWillShutDown(IPC::Connection& connection)
 void NetworkProcessProxy::getNetworkProcessConnection(WebProcessProxy& webProcessProxy, CompletionHandler<void(NetworkProcessConnectionInfo&&)>&& reply)
 {
     RELEASE_LOG(ProcessSuspension, "%p - NetworkProcessProxy::getNetworkProcessConnection: Taking a background assertion because web process pid %i (core identifier %" PRIu64 ") is requesting a connection", this, webProcessProxy.processID(), webProcessProxy.coreProcessIdentifier().toUInt64());
-    // MAVERICKS_BACKPORT: the NetworkProcess erases its per-process cookie registrations
-    // (NetworkProcess::removeNetworkConnectionToWebProcess) whenever this web process's previous
-    // connection closes, and a web process re-requests a connection here without its proxy dying.
-    // m_allowedFirstPartiesForCookies mirrors what the NetworkProcess knows, so forget this
-    // process's entry when brokering it a connection: the next addAllowedFirstPartyForCookies then
-    // re-sends (madeChange is true for a fresh entry) instead of trusting a registration the
-    // NetworkProcess no longer holds, which it answers with AllowCookieAccess::Terminate.
-    m_allowedFirstPartiesForCookies.remove(webProcessProxy);
     startResponsivenessTimer(UseLazyStop::No);
     NetworkProcessConnectionParameters parameters;
 #if ENABLE(IPC_TESTING_API)
