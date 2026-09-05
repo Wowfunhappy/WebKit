@@ -47,10 +47,6 @@ fast/images/animated-heics-verify.html [ Skip ]
 # destruction.html, passes since the shared-heap timer fix).
 storage/indexeddb/abort-while-committing-crash.html [ Skip ]
 
-# HiDPI iframe pixel tests are flaky at 2x on the VM (no real Retina hardware).
-fast/frames/hidpi-position-iframe-on-device-pixel.html [ Pass ImageOnlyFailure ]
-fast/frames/iframe-translucent-background.html [ Pass ImageOnlyFailure ]
-
 # Cookie behavior is a backport-critical area (NSHTTPCookieStorage on 10.9 predates SameSite and the
 # public-suffix rules), so the WPT cookie suites run here in full rather than under the generic
 # expectations' per-test skips.
@@ -183,13 +179,6 @@ fast/mediastream/mediaStream-with-rotation.html [ Failure ]
 # it is the system now-playing registration that has no framework to register with.
 fast/mediastream/now-playing-and-mediastream.html [ Failure ]
 fast/mediastream/now-playing-and-mediastream-2.html [ Failure ]
-
-# MediaStreamTrack's destructor logs "A capture MediaStreamTrack was destroyed without having been
-# stopped explicitly" to its own document when the collector finalizes a live capture track. The second
-# and third subtests here discard their streams without stopping them, and a live track with no event
-# listeners has no pending activity, so whether one of them is collected before the test ends -- and the
-# line lands in the output -- depends on when garbage collection happens.
-fast/mediastream/enumerateDevices-camera-denied-expose-with-capture.html [ Pass Failure ]
 
 # The first microphone capture in a WebContent process starts late here: CoreAudioCaptureUnit prewarms
 # a VoiceProcessingIO unit before the mock unit starts, and on 10.9 AudioComponentInstanceNew for that unit

@@ -300,6 +300,7 @@ static NSString * const WKMediaExitFullScreenItem = @"WKMediaExitFullScreenItem"
 - (instancetype)initWithView:(NSView *)view impl:(WebKit::WebViewImpl&)impl;
 - (void)startObserving:(NSWindow *)window;
 - (void)stopObserving;
+- (void)stopObservingWindow:(NSWindow *)outgoingWindow; // MAVERICKS_BACKPORT: see the implementation.
 - (void)enableObservingFontPanel;
 - (void)startObservingFontPanel;
 - (void)startObservingLookupDismissalIfNeeded;
@@ -399,6 +400,14 @@ static void* keyValueObservingContext = &keyValueObservingContext;
 
 - (void)stopObserving
 {
+    [self stopObservingWindow:nil];
+}
+
+// MAVERICKS_BACKPORT: 10.9's -[NSWindow dealloc] sends -viewWillMoveToWindow:nil down the content view tree
+// while the window is deallocating, when a weak reference to it already loads as nil; the outgoing window
+// AppKit still reports for the view at that point is what the observers are removed from.
+- (void)stopObservingWindow:(NSWindow *)outgoingWindow
+{
     RELEASE_ASSERT(isMainRunLoop());
 
     if (_isObservingFontPanel) {
@@ -408,6 +417,8 @@ static void* keyValueObservingContext = &keyValueObservingContext;
     }
 
     RetainPtr<NSWindow> window = std::exchange(_window, nil).get();
+    if (!window)
+        window = outgoingWindow; // MAVERICKS_BACKPORT: the deallocating window, see above.
     if (!window)
         return;
 
@@ -2352,8 +2363,11 @@ void WebViewImpl::viewWillMoveToWindowImpl(NSWindow *window)
 
     clearAllEditCommands();
 
-    if (!m_isPreparingToUnparentView)
+    if (!m_isPreparingToUnparentView) {
+        if (!window) // MAVERICKS_BACKPORT: see -[WKWindowVisibilityObserver stopObservingWindow:].
+            [m_windowVisibilityObserver stopObservingWindow:currentWindow.get()];
         [m_windowVisibilityObserver startObserving:window];
+    }
 
     if (m_isRegisteredScrollViewSeparatorTrackingAdapter) {
         [currentWindow unregisterScrollViewSeparatorTrackingAdapter:(NSObject<NSScrollViewSeparatorTrackingAdapter> *)m_view.get().get()];

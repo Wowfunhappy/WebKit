@@ -468,6 +468,7 @@ void MediaPlayerPrivateMediaStreamAVFObjC::destroyLayers()
     Locker locker { m_sampleBufferDisplayLayerLock };
 
     m_canEnqueueDisplayLayer = false;
+    [m_boundsChangeListener stop]; // MAVERICKS_BACKPORT: the root layer's bounds observation ends with its layer set.
     if (m_sampleBufferDisplayLayer)
         m_sampleBufferDisplayLayer = nullptr;
 
