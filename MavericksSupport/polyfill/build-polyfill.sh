@@ -348,6 +348,8 @@ PROBE_LIBS="$OUT/libpolyfill.a -framework Foundation -framework CoreFoundation -
 "$T/task_vm_info"
 "$CLANG" $MODERN $INC -Wno-unguarded-availability-new -o "$T/unfair_lock" "$TBEHAV/libSystem-unfair-lock.c" $PROBE_LIBS
 "$T/unfair_lock"
+"$CLANG" $MODERN $INC -Wno-four-char-constants -o "$T/stroke_line_segments" "$TBEHAV/CoreGraphics-stroke-line-segments.c" $PROBE_LIBS -framework CoreGraphics -framework IOSurface
+"$T/stroke_line_segments"
 # SameSite: the encoding a cookie carries the attribute in, the rule, and the Set-Cookie rewrite, all
 # against 10.9's own cookie parser.
 # The cookie blocks install their private selectors on NSHTTPCookie here, which is how the constructors

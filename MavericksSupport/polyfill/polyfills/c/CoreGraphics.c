@@ -218,6 +218,21 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGContextDrawPathDirect,
     CGContextDrawPath(context, mode);
 }
 
+// CGContextStrokeLineSegments: drawing into an IOSurface-backed context under a CTM with a rotation or
+// skew component, 10.9's implementation strokes the segments at the wrong place or not at all. This is
+// the function's documented equivalent, which rasterizes through the general path route on every
+// context type.
+WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextStrokeLineSegments,
+    (CGContextRef context, const CGPoint *points, size_t count))
+{
+    CGContextBeginPath(context);
+    for (size_t i = 0; i + 1 < count; i += 2) {
+        CGContextMoveToPoint(context, points[i].x, points[i].y);
+        CGContextAddLineToPoint(context, points[i + 1].x, points[i + 1].y);
+    }
+    CGContextStrokePath(context);
+}
+
 // CGGradientCreateWithColorComponentsAndOptions (10.12+). The only option is
 // kCGGradientInterpolatesPremultiplied, and it is not a nicety: CSS requires gradient stops to be
 // interpolated with premultiplied alpha, which is what makes `linear-gradient(transparent, #fff)`
