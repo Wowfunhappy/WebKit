@@ -2,6 +2,7 @@
 // export -- libc, dyld, xpc, dispatch, os_log / os_signpost / os_variant, pthread,
 // mach, voucher, sandbox, os_state and CommonCrypto.
 #include "wk_polyfill.h"
+#include "wk_audit_token.h"
 #include "dispatch-activate-once.h"
 
 #import <Foundation/Foundation.h>
@@ -1147,20 +1148,12 @@ WK_POLYFILL_REPLACES(NULL, int, dlclose, (void *handle))
 // Diagnostics + audit-token sandbox checks absent on 10.9.
 // ---------------------------------------------------------------------------------------------------
 
-typedef struct { unsigned int val[8]; } mav_audit_token_t;
-
 // The pid-keyed sandbox check: present on 10.9 in libsystem_sandbox.dylib, which every process has
 // loaded through libSystem, but SPI that this SDK's <sandbox.h> does not declare and its libSystem
 // stub library does not necessarily list. Soft-linked through RTLD_DEFAULT so a link-time reference
 // cannot fail in the host tools that force-load this archive. The signature matches
 // Source/WTF/wtf/spi/darwin/SandboxSPI.h, with the filter-type enum spelled as the int it promotes to.
 WK_SYSTEM_FN(NULL, int, sandbox_check, (pid_t, const char *operation, int type, ...));
-
-// audit_token_to_pid() is soft-linked rather than linked: it lives in libbsm, which this archive's
-// consumers do not otherwise pull in, and a link-time reference would make every small host tool
-// that force-loads libpolyfill (LLIntSettingsExtractor and friends) need -lbsm. audit_token_t is
-// laid out identically to mav_audit_token_t, so it is passed by value unchanged.
-WK_SYSTEM_FN("/usr/lib/libbsm.dylib", pid_t, audit_token_to_pid, (mav_audit_token_t));
 
 // State-dump (sysdiagnose) handler registration. None on 10.9; return a null handle.
 WK_POLYFILL_ABSENT(NULL, unsigned long, os_state_add_handler, (void *queue, void *handler))

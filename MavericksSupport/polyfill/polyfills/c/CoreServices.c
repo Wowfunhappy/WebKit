@@ -2,6 +2,7 @@
 // export. LSCopyApplicationURLsForBundleIdentifier and LSCopyDefaultApplicationURLForContentType live in
 // polyfills/shared/launchservices.c, which the deps builds compile too.
 #include "wk_polyfill.h"
+#include "wk_audit_token.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreServices/CoreServices.h>
@@ -99,4 +100,20 @@ WK_POLYFILL_ABSENT("CoreServices", CFURLRef, LSCopyDefaultApplicationURLForURL,
         return NULL;
     }
     return applicationURL;
+}
+
+// _LSCopyLSASNForAuditToken (10.10+): the ASN of the process an audit token names, +1 matching the
+// Copy naming. 10.9's LaunchServices builds an ASN from a pid (_LSASNCreateWithPid), and the pid is
+// what the token carries. The session id has no 10.9 counterpart: _LSASNCreateWithPid takes none.
+WK_SYSTEM_FN("CoreServices", const void *, _LSASNCreateWithPid, (CFAllocatorRef, pid_t));
+
+WK_POLYFILL_ABSENT("CoreServices", const void *, _LSCopyLSASNForAuditToken, (int sessionID, mav_audit_token_t token))
+{
+    (void)sessionID;
+    if (!WK_SYSTEM(audit_token_to_pid) || !WK_SYSTEM(_LSASNCreateWithPid))
+        return NULL;
+    pid_t pid = WK_SYSTEM(audit_token_to_pid)(token);
+    if (pid <= 0)
+        return NULL;
+    return WK_SYSTEM(_LSASNCreateWithPid)(kCFAllocatorDefault, pid);
 }
