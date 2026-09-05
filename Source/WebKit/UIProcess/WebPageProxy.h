@@ -742,6 +742,11 @@ class WebPageProxy final : public API::ObjectImpl<API::Object::Type::Page>, publ
 public:
     static Ref<WebPageProxy> create(PageClient&, WebProcessProxy&, Ref<API::PageConfiguration>&&);
     virtual ~WebPageProxy();
+#if PLATFORM(MAC)
+    // MAVERICKS_BACKPORT: the configuration createNewPage() prepared for the page its legacy (V0/V1
+    // WKPageUIClient) client is constructing; consumed by the C-ref WKView initializer (WKViewMavericks.mm).
+    static RefPtr<API::PageConfiguration> takeConfigurationOfPageBeingOpened();
+#endif
 
     void ref() const final { API::ObjectImpl<API::Object::Type::Page>::ref(); }
     void deref() const final { API::ObjectImpl<API::Object::Type::Page>::deref(); }

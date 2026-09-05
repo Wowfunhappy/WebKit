@@ -850,29 +850,23 @@ static std::optional<API::PageConfiguration::OpenerInfo>& NODELETE openerInfoOfP
 }
 #endif
 
-// MAVERICKS_BACKPORT: Safari 7 opens auxiliary browsing contexts (window.open) through the legacy
-// V0/V1 WKPageUIClient createNewPage callback. Unlike the modern configuration-based callback, that
-// path never hands our PageConfiguration — the one createNewPage() populated with openerInfo — to the
-// client, so Safari constructs the popup's WebPageProxy from its own configuration, which carries no
-// openerInfo and therefore gives the popup no opener frame. The popup's initial about:blank document
-// then receives a fresh opaque origin instead of inheriting the opener's, so the opener is cross-origin
-// to the popup: window.opener is null and any later `popupWindow.location = url` (or DOM access) throws
-// a SecurityError. Sites that open a blank tab and then redirect it to the real target — e.g. itch.io's
-// "No thanks, just take me to the downloads" — never navigate, so their download never starts.
-//
-// createNewPage() stashes the correct openerInfo in openerInfoOfPageBeingOpened() for the synchronous
-// span in which the client constructs the popup; recover it here whenever the configuration itself
-// carries none. The modern/Cocoa path is unaffected because its configuration already carries openerInfo
-// (so the stash is never consulted), and outside a createNewPage() the stash is empty (so an ordinary
-// new page is unaffected too).
-static const std::optional<API::PageConfiguration::OpenerInfo>& openerInfoForNewPage(const API::PageConfiguration& configuration)
-{
 #if PLATFORM(MAC)
-    if (!configuration.openerInfo() && openerInfoOfPageBeingOpened())
-        return openerInfoOfPageBeingOpened();
-#endif
-    return configuration.openerInfo();
+// MAVERICKS_BACKPORT: Safari 7 answers createNewPage() through the V0/V1 WKPageUIClient callback, which
+// receives no configuration; it builds the popup through the C-ref WKView initializer instead. A copy of
+// the configuration createNewPage() prepared (window features, opened main-frame name, opener, initial
+// sandbox flags and referrer policy, opened site, related page, delayed launch) is held here for the span
+// of that callback so the initializer can start from it, as a configuration-based client would.
+static RefPtr<API::PageConfiguration>& NODELETE configurationOfPageBeingOpened()
+{
+    static NeverDestroyed<RefPtr<API::PageConfiguration>> configuration;
+    return configuration.get();
 }
+
+RefPtr<API::PageConfiguration> WebPageProxy::takeConfigurationOfPageBeingOpened()
+{
+    return std::exchange(configurationOfPageBeingOpened(), nullptr);
+}
+#endif
 
 static HashMap<WebPageProxyIdentifier, WeakPtr<WebPageProxy>>& NODELETE webPageProxyMap()
 {
@@ -904,9 +898,7 @@ static Ref<BrowsingContextGroup> getOrCreateBrowsingContextGroup(const API::Page
 }
 
 WebPageProxy::WebPageProxy(PageClient& pageClient, WebProcessProxy& process, Ref<API::PageConfiguration>&& configuration)
-    // MAVERICKS_BACKPORT: openerInfoForNewPage() (vs upstream's direct configuration->openerInfo()) recovers the
-    // opener for Safari 7's legacy createNewPage path — see openerInfoForNewPage's definition for the full rationale.
-    : m_internals(makeUniqueRefWithoutRefCountedCheck<Internals>(*this, openerInfoForNewPage(configuration.get()).transform([](API::PageConfiguration::OpenerInfo info) { return info.securityOrigin; } )))
+    : m_internals(makeUniqueRefWithoutRefCountedCheck<Internals>(*this, configuration->openerInfo().transform([](API::PageConfiguration::OpenerInfo info) { return info.securityOrigin; } )))
     , m_identifier(Identifier::generate())
     , m_webPageID(PageIdentifier::generate())
     , m_pageClient(pageClient)
@@ -955,20 +947,13 @@ WebPageProxy::WebPageProxy(PageClient& pageClient, WebProcessProxy& process, Ref
 #if ENABLE(REMOTE_INSPECTOR)
     , m_inspectorDebuggable(WebPageDebuggable::create(*this))
 #endif
-    // MAVERICKS_BACKPORT: 2013 MailUI predates API::PageConfiguration's corsDisablingPatterns, the
-    // configuration modern MailUI passes so a message's remote subresources load under the app's
-    // own remote-content consent rather than web CORS/CORP rules (a message document's x-webdoc://
-    // origin can never satisfy them; the app's load delegate is the arbiter of remote content).
-    // Supply on Mail's behalf what its modern counterpart sets itself; everything downstream --
-    // the web-process origin-access grants and the network-process pattern sync -- is upstream
-    // machinery. Keyed on the host app exactly as WebPreferencesDefaultValues does.
-    , m_corsDisablingPatterns(!configuration->corsDisablingPatterns().isEmpty() ? configuration->corsDisablingPatterns() : (WTF::MacApplication::isAppleMail() ? Vector<String> { "*://*/*"_s } : Vector<String> { }))
+    , m_corsDisablingPatterns(configuration->corsDisablingPatterns())
 #if ENABLE(APP_BOUND_DOMAINS)
     , m_ignoresAppBoundDomains(m_configuration->ignoresAppBoundDomains())
     , m_limitsNavigationsToAppBoundDomains(m_configuration->limitsNavigationsToAppBoundDomains())
 #endif
     , m_browsingContextGroup(getOrCreateBrowsingContextGroup(m_configuration))
-    , m_openerFrameIdentifier(openerInfoForNewPage(configuration.get()) ? std::optional(openerInfoForNewPage(configuration.get())->frameID) : std::nullopt) // MAVERICKS_BACKPORT: recover opener for Safari 7's legacy createNewPage path (see openerInfoForNewPage)
+    , m_openerFrameIdentifier(configuration->openerInfo() ? std::optional(configuration->openerInfo()->frameID) : std::nullopt)
 #if HAVE(AUDIT_TOKEN)
     , m_presentingApplicationAuditToken(process.processPool().configuration().presentingApplicationProcessToken())
 #endif
@@ -981,12 +966,6 @@ WebPageProxy::WebPageProxy(PageClient& pageClient, WebProcessProxy& process, Ref
     webPageProxyMap().set(m_identifier, this);
 
 #if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: when we recovered the opener from the stash above (Safari 7's legacy
-    // createNewPage path, see openerInfoForNewPage), mirror it onto m_configuration so the state is
-    // coherent: the diagnostic below does not misfire and consumeOpenerInfo() clears the right thing.
-    if (!m_configuration->openerInfo() && openerInfoOfPageBeingOpened())
-        m_configuration->setOpenerInfo(std::optional<API::PageConfiguration::OpenerInfo> { *openerInfoOfPageBeingOpened() });
-
     if (openerInfoOfPageBeingOpened() && openerInfoOfPageBeingOpened() != m_configuration->openerInfo())
         RELEASE_LOG_FAULT(Process, "Created WebPageProxy with wrong configuration");
 #endif
@@ -9808,6 +9787,7 @@ void WebPageProxy::createNewPage(IPC::Connection& connection, WindowFeatures&& w
 
 #if PLATFORM(MAC)
         openerInfoOfPageBeingOpened() = std::nullopt;
+        configurationOfPageBeingOpened() = nullptr; // MAVERICKS_BACKPORT: the legacy-client span ends here (see configurationOfPageBeingOpened).
 #endif
 
         m_isCallingCreateNewPage = false;
@@ -9902,6 +9882,11 @@ void WebPageProxy::createNewPage(IPC::Connection& connection, WindowFeatures&& w
 #if PLATFORM(MAC)
     if (WTF::MacApplication::isSafari())
         openerInfoOfPageBeingOpened() = configuration->openerInfo();
+    // MAVERICKS_BACKPORT: the legacy client's copy (see configurationOfPageBeingOpened). A page the completion
+    // handler below loads through loadRequest launches its process at that load, once the client has placed its view.
+    Ref legacyClientConfiguration = configuration->copy();
+    legacyClientConfiguration->setDelaysWebProcessLaunchUntilFirstLoad(!navigationActionData.hasOpener && (protect(preferences())->siteIsolationEnabled() || !openedBlobURL));
+    configurationOfPageBeingOpened() = WTF::move(legacyClientConfiguration);
 #endif
 
     trySOAuthorization(configuration.copyRef(), WTF::move(navigationAction), *this, WTF::move(completionHandler), [this, protectedThis = Ref { *this }, configuration] (Ref<API::NavigationAction>&& navigationAction, CompletionHandler<void(RefPtr<WebPageProxy>&&)>&& completionHandler) mutable {

@@ -33,6 +33,7 @@
 #import "WebPageProxy.h"
 #import "WebPreferences.h"
 #import "WebProcessPool.h"
+#import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 // LOG_ERROR, used by the spelling/substitutions panel actions below.
 #import "Logging.h"
 // process-global TextChecker state, which the automatic quote/dash
@@ -245,14 +246,21 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     // ensure WebKit2 globals are initialized before creating the page proxy.
     WebKit::InitializeWebKit2();
 
+    // 2013 MailUI predates API::PageConfiguration's corsDisablingPatterns, which modern MailUI sets so a
+    // message's remote subresources load under the app's own remote-content consent rather than web
+    // CORS/CORP rules (a message document's x-webdoc:// origin can never satisfy them).
+    if (WTF::MacApplication::isAppleMail() && configuration->corsDisablingPatterns().isEmpty())
+        configuration->setCORSDisablingPatterns({ "*://*/*"_s });
+
     // allocate the per-view state holding the page proxy and page client.
     _wkState = new WKViewState;
     _wkState->pageClient = createMavericksPageClient(self);
     _wkState->page = processPool.get().createWebPage(*_wkState->pageClient, WTF::move(configuration));
     setMavericksPageClientPage(*_wkState->pageClient, _wkState->page.get());
 
-    // bring up the WebPage now that the page proxy + client are wired (no Site/sandbox yet).
-    _wkState->page->initializeWebPage(WebCore::Site(WTF::HashTableEmptyValue), WebCore::SandboxFlags {}, WebCore::ReferrerPolicy::Default);
+    // bring up the WebPage now that the page proxy + client are wired.
+    auto& pageConfiguration = _wkState->page->configuration();
+    _wkState->page->initializeWebPage(pageConfiguration.openedSite(), pageConfiguration.initialSandboxFlags(), pageConfiguration.initialReferrerPolicy());
 
     // legacy WebKit2 launched the context's web process as soon as a page
     // existed, and embedders sequence on the resulting connection callback — WKProcessGroup's
@@ -262,8 +270,10 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     // pattern (no load -> no launch -> no callback -> iBooks' 60s watchdog). Launch eagerly, as
     // 537 did via ensureSharedWebProcess at page creation (no-op if a real process already runs;
     // launchProcess re-runs initializeWebPage against the launched process via
-    // finishAttachingToWebProcess, replacing the drawing area created above).
-    _wkState->page->launchInitialProcessIfNecessary();
+    // finishAttachingToWebProcess, replacing the drawing area created above). A createNewPage()-prepared
+    // page that launches at its first load keeps that launch (see the C-ref initializer).
+    if (!(pageConfiguration.windowFeatures() && pageConfiguration.delaysWebProcessLaunchUntilFirstLoad()))
+        _wkState->page->launchInitialProcessIfNecessary();
 
     // tell AppKit which pasteboard types this view can supply from / accept into the
     // selection, so the Services machinery offers services for the web selection (app-menu Services submenu
@@ -389,7 +399,12 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
 // build an API::PageConfiguration from the C refs and route through the designated initializer.
 - (id)initWithFrame:(NSRect)frame contextRef:(WKContextRef)contextRef pageGroupRef:(WKPageGroupRef)pageGroupRef relatedToPage:(WKPageRef)relatedPage
 {
-    auto configuration = API::PageConfiguration::create();
+    // A view built inside a createNewPage() callback hosts the page that callback opens: start from the
+    // configuration createNewPage() prepared for it (window features, opened main-frame name, opener,
+    // initial sandbox flags and referrer policy), as a configuration-based client would.
+    RefPtr<API::PageConfiguration> configuration = WebKit::WebPageProxy::takeConfigurationOfPageBeingOpened();
+    if (!configuration)
+        configuration = API::PageConfiguration::create();
     configuration->setProcessPool(WebKit::toImpl(contextRef));
     // honor the page group Safari passes — its identifier is
     // how the injected bundle scopes extension content scripts
@@ -414,7 +429,22 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     if (relatedPage)
         configuration->setRelatedPage(protect(WebKit::toImpl(relatedPage)));
 
-    return [self initWithFrame:frame processPool:*WebKit::toImpl(contextRef) configuration:WTF::move(configuration)];
+    // Safari 7 builds this view at a zero frame and places it after this initializer returns, and the
+    // WebPage sizes a popup against the view size it is created with, so a createNewPage()-prepared page
+    // that launches at its first load keeps that launch: WebProcessPool::createWebPage takes a related
+    // page's running process ahead of a delayed launch, so the page is created without its related page
+    // and takes it back for launchProcess, which honors it.
+    RefPtr<WebKit::WebPageProxy> relatedPageForLaunch;
+    if (configuration->windowFeatures() && configuration->delaysWebProcessLaunchUntilFirstLoad()) {
+        relatedPageForLaunch = configuration->relatedPage();
+        configuration->setRelatedPage({ });
+    }
+
+    RefPtr<API::PageConfiguration> pageConfiguration = configuration;
+    self = [self initWithFrame:frame processPool:*WebKit::toImpl(contextRef) configuration:configuration.releaseNonNull()];
+    if (self && relatedPageForLaunch)
+        pageConfiguration->setRelatedPage(WeakPtr { *relatedPageForLaunch });
+    return self;
 }
 
 - (id)initWithFrame:(NSRect)frame configurationRef:(WKPageConfigurationRef)configurationRef { [self release]; return nil; }
