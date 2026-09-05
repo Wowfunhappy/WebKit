@@ -203,3 +203,9 @@ fast/mediastream/audio-session-category-capture-audio-context.html [ Pass Failur
 # after it. Upstream records the same test as a flaky timeout on mac, ios and gtk
 # (webkit.org/b/227845, webkit.org/b/252878).
 webaudio/audioworket-out-of-memory.html [ Skip ]
+
+# JavaScriptCore's conservative stack scan roots the second video element's wrapper from a stale word
+# in live native dispatch frames (a movb-only bool slot in ScheduledAction::executeFunctionInContext,
+# and the microtask band above the awaiting test function), which no script can rewrite; measured with
+# a GCDebuggingSnapshot in failing runs. Fails in about 1 directory run in 10, never alone.
+fast/mediastream/mediaElement-gc.html [ Pass Failure ]
