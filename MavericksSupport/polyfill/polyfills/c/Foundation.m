@@ -48,6 +48,15 @@ WK_POLYFILL_CONST("Foundation", PolyNSStringConst, NSLanguageIdentifierAttribute
 WK_POLYFILL_CONST("Foundation", PolyNSStringConst, NSHTTPCookieSameSiteLax, @"lax");
 WK_POLYFILL_CONST("Foundation", PolyNSStringConst, NSHTTPCookieSameSiteStrict, @"strict");
 
+// --- NSURLAuthenticationMethodHTTPBasic ----------------------------------
+// 10.9's Foundation exports this constant with the VALUE of NSURLAuthenticationMethodDefault, so the
+// two are one string and no caller can tell a Basic challenge from a default one. Every macOS from
+// 10.10 on gives it @"NSURLAuthenticationMethodHTTPBasic", which is the value carried here; the
+// CFNetwork scheme number under an NSURLProtectionSpace (Basic 2, Default 1) is what
+// -[NSURLProtectionSpace authenticationMethod] and the two designated initializers in
+// methods/Foundation.m read and write to keep this value and CFNetwork's answer in step.
+WK_POLYFILL_CONST_REPLACES("Foundation", PolyNSStringConst, NSURLAuthenticationMethodHTTPBasic, @"NSURLAuthenticationMethodHTTPBasic");
+
 // --- NSURLSessionTask priority constants (float, macos(10.10)) -----------
 // Absent on 10.9's Foundation/CFNetwork. WebKit uses them as plain KVC float
 // values (NetworkSessionCocoa/NetworkDataTaskCocoa). The values are the

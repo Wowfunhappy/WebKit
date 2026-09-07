@@ -412,14 +412,54 @@ static RetainPtr<NSURLRequest> requestOnSessionCookieStorage(NSURLSession *sessi
     return stamped;
 }
 
+// MAVERICKS_BACKPORT: the same request carrying the fragment a redirect inherits. A Location without a
+// fragment of its own takes the fragment of the URL that produced the redirect -- the step
+// ResourceRequestBase::redirectedRequest names as "additional processing like done by CFNetwork layer",
+// and performs itself for the redirects WebKit builds. 10.9's CFNetwork omits it: measured against its
+// own NSURLSession, a task for /r1#foo answered with `Location: /success.html` is proposed
+// /success.html, while a fragment written into the Location header is carried. The response URL is the
+// one that carries the fragment on every hop, which is the URL upstream's rule reads it from.
+static RetainPtr<NSURLRequest> requestWithInheritedFragment(NSHTTPURLResponse *response, NSURLRequest *request)
+{
+    RetainPtr<NSURL> proposedURL = request.URL;
+    RetainPtr<NSURL> redirectingURL = response.URL;
+    if (!proposedURL || !redirectingURL)
+        return request;
+
+    URL proposed { proposedURL.get() };
+    URL redirecting { redirectingURL.get() };
+    if (!proposed.fragmentIdentifier().isEmpty() || redirecting.fragmentIdentifier().isEmpty())
+        return request;
+
+    proposed.setFragmentIdentifier(redirecting.fragmentIdentifier());
+    RetainPtr withFragment = adoptNS([request mutableCopy]);
+    [withFragment.get() setURL:proposed.createNSURL().get()];
+    return withFragment;
+}
+
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completionHandler
 {
+    // MAVERICKS_BACKPORT: 10.9's CFNetwork proposes a hop for any 3xx that carries a Location -- 305,
+    // 306, 309, 310, 350 and 399 as well as the five statuses Fetch calls redirects. A response with any
+    // other status is the load's result, and 305 "Use Proxy" points the load at a server-named proxy.
+    // Answering nil hands that response back with its own status, URL and body, which is what this
+    // delegate sees on a system whose CFNetwork proposes only redirect statuses.
+    if (!WebCore::ResourceResponse::isRedirectionStatusCode(response.statusCode)) {
+        completionHandler(nil);
+        return;
+    }
+
     // MAVERICKS_BACKPORT: every request this method hands over is one it built, so each is put back on
     // the session's cookie storage -- see requestOnSessionCookieStorage above.
     auto stampingHandler = makeBlockPtr([session = RetainPtr { session }, handler = makeBlockPtr(completionHandler)](NSURLRequest *continuing) {
         handler(requestOnSessionCookieStorage(session.get(), continuing).get());
     });
     completionHandler = stampingHandler.get();
+
+    // MAVERICKS_BACKPORT: the fragment this hop inherits, before anything reads the URL -- see
+    // requestWithInheritedFragment above.
+    RetainPtr redirectRequest = requestWithInheritedFragment(response, request);
+    request = redirectRequest.get();
 
     auto taskIdentifier = task.taskIdentifier;
     LOG(NetworkSession, "%zu willPerformHTTPRedirection from %s to %s", taskIdentifier, response.URL.absoluteString.UTF8String, request.URL.absoluteString.UTF8String);

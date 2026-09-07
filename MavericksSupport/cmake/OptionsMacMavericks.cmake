@@ -48,8 +48,6 @@ add_compile_definitions(WEBKIT_BUNDLE_VERSION="${WEBKIT_MAC_VERSION}")
 #   IMAGE_ANALYSIS_ENHANCEMENTS   builds on VisionKit's VKCImageAnalysis (macOS 13+).
 #   LEGACY_PDFKIT_PLUGIN/         the inline PDF plugins need PDFKit SPI 10.9 lacks; PDFs take the
 #   UNIFIED_PDF/PDF_PLUGIN        download path instead.
-#   PREDEFINED_COLOR_SPACE_       10.9 CoreGraphics has no Display-P3 named color space, so canvas
-#   DISPLAY_P3                    must not advertise 'display-p3' either.
 #   REMOTE_LAYER_TREE_ON_MAC_     compositing goes through TiledCoreAnimation here, and DOM painting
 #   BY_DEFAULT, GPU_PROCESS_DOM_   stays in the web process with it. Upstream couples these two choices
 #   RENDERING_BY_DEFAULT           through one >= 4-core heuristic (WebViewImpl's drawing-area pick and
@@ -69,7 +67,6 @@ add_compile_definitions(
     ENABLE_LEGACY_PDFKIT_PLUGIN=0
     ENABLE_UNIFIED_PDF=0
     ENABLE_PDF_PLUGIN=0
-    ENABLE_PREDEFINED_COLOR_SPACE_DISPLAY_P3=0
     ENABLE_REMOTE_LAYER_TREE_ON_MAC_BY_DEFAULT=0
     ENABLE_GPU_PROCESS_DOM_RENDERING_BY_DEFAULT=0
     ENABLE_SERVER_PRECONNECT=0
@@ -117,9 +114,6 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_WOFF2 PRIVATE ON)
 # built, while the Mac accessibility sources compile as upstream writes them.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_ACCESSIBILITY_ISOLATED_TREE PRIVATE ON)
 
-# OFF — parental-controls content filtering uses the 10.9-absent WebFilterEvaluator/NEFilter SPI.
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_CONTENT_FILTERING PRIVATE OFF)
-
 # ON — DumpRenderTree, WebKitTestRunner and its injected bundle, ImageDiff, LayoutTestHelper and the
 # TestWebKitAPI binaries build with the frameworks, so every build leaves the test drivers matched to the
 # frameworks and WebCoreTestSupport they load. The options reach Tools/ and Source/ThirdParty/gtest;
@@ -149,6 +143,22 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_ENCRYPTED_MEDIA PRIVATE ON)
 # it in FEATURE_DEFINES, so both sides of that union agree.
 WEBKIT_OPTION_DEFINE(ENABLE_MEDIA_SOURCE_IN_WORKERS "Toggle MediaSource in Workers support" PRIVATE ON)
 
+# ON, the value PlatformEnableCocoa.h gives the C++ side. Same split as MediaSource-in-Workers above:
+# an undeclared flag reaches the headers but not preprocess-idls.pl, so PredefinedColorSpace.idl drops
+# the "display-p3" enum value and WebGLRenderingContextBase.idl drops drawingBufferColorSpace, and the
+# canvas advertises no wide-gamut colour space however real the space behind it is. Declaring it puts
+# it in FEATURE_DEFINES, so the bindings and the C++ implementation agree. CGColorSpaceCreateWithName
+# answers kCGColorSpaceDisplayP3 with P3's own primaries (polyfills/c/CoreGraphics.c).
+WEBKIT_OPTION_DEFINE(ENABLE_PREDEFINED_COLOR_SPACE_DISPLAY_P3 "Toggle predefined display-p3 color space support" PRIVATE ON)
+
+# ON once deps/build_deps.sh has produced libpng: WebCore's PNGImageDecoder decodes the animated PNGs
+# 10.9's ImageIO renders as a single static frame. The value follows the artifact because the decoder
+# includes <png.h>, so a tree whose deps predate the libpng recipe compiles as it did before, and the
+# deps run's own required-artifacts gate is what fails loudly when the library is meant to be there.
+if (EXISTS "${MAVERICKS_DEPS}/lib/libpng16.a")
+    SET_AND_EXPOSE_TO_BUILD(USE_PNG TRUE)
+endif ()
+
 # OFF — Web Inspector extensions are not part of the 10.9 drop-in scope.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_INSPECTOR_EXTENSIONS PRIVATE OFF)
 
@@ -167,7 +177,7 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_LEGACY_ENCRYPTED_MEDIA PRIVATE OFF)
 # fires `#if !defined(ENABLE_MEDIA_RECORDER)`, and WebKitFeatures.cmake already defines it as 0 for ports
 # that do not opt in — so the CMake Mac port silently ends up with it OFF. Two consequences of leaving
 # it off: MediaRecorder (a real web API, served here by MediaRecorderPrivateAVFImpl with the libwebm
-# writer) is missing, and ENABLE_MEDIA_RECORDER_WEBM stays off with it, which
+# and fragmented-MP4 writers) is missing, and ENABLE_MEDIA_RECORDER_WEBM stays off with it, which
 # removes MediaSourceConfiguration::supportsLimitedMatroska — a member upstream's own byte-upstream
 # SourceBufferPrivateAVFObjC.mm:795 reads unguarded, so that TU cannot compile without this.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_RECORDER PRIVATE ON)
@@ -313,20 +323,35 @@ SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER TRUE)
 # Cocoa run loop / file system. USE(GLIB) is referenced by exactly one Cocoa-built WTF file otherwise.
 SET_AND_EXPOSE_TO_BUILD(USE_GLIB TRUE)
 SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER_GL FALSE)
+# MediaPlayerPrivateGStreamer reads in-band metadata tracks out of the MPEG-TS sections tsdemux
+# posts on the bus, behind USE(GSTREAMER_MPEGTS). deps/build carries libgstmpegts-1.0 and its
+# headers, and the HLS support this port enables delivers MPEG-TS segments.
+SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER_MPEGTS TRUE)
 SET_AND_EXPOSE_TO_BUILD(USE_TEXTURE_MAPPER FALSE)
 SET_AND_EXPOSE_TO_BUILD(USE_COORDINATED_GRAPHICS FALSE)
 include("${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/OptionsMacGStreamer.cmake")
 
-# link the libxml2 2.13 from deps/build (@rpath install name, shipped
-# alongside GStreamer) instead of the SDK tbd. The SDK tbd binds /usr/lib/libxml2.2.dylib,
-# which on 10.9 is libxml2 2.9.0 — its __xmlRaiseError crashes on fatal parse errors from
-# SVG/XML payloads, and its runtime behavior diverges from the 2.9.13 SDK headers WebCore
-# compiles against. Headers and dylib match here. libxslt stays on the system copy: it uses
-# the system libxml 2.9.0 internally, which is safe across the boundary — libxml2 keeps
-# xmlDoc/xmlNode struct ABI stable across 2.x, and WebCore intercepts libxslt's document
-# loading at the libxslt layer (xsltSetLoaderFunc), so no uncontrolled 2.9 parsing happens.
+# The libxml2 2.13 from deps/build (@rpath install name, shipped alongside GStreamer) instead of the
+# SDK tbd, which binds /usr/lib/libxml2.2.dylib — libxml2 2.9.0 on 10.9, whose __xmlRaiseError crashes
+# on fatal parse errors from SVG/XML payloads.
+#
+# libxslt comes from deps/build for one reason: it has to be the same libxml2. WebCore parses a
+# stylesheet with libxml2 and hands the document to libxslt, which frees it again through
+# xsltFreeStylesheet. 10.9's /usr/lib/libxslt.1.dylib binds the system libxml2, so the WebContent
+# process held two libxml2 images and that free crossed between them: measured on this host it faults,
+# while the same sequence against a single libxml2 — either version — completes.
+# WebCorePlatformMavericks puts both include directories ahead of the SDK's, so the headers each
+# library is compiled against are the ones deployed beside it.
 set(LIBXML2_INCLUDE_DIR "${MAVERICKS_DEPS}/include/libxml2" CACHE PATH "" FORCE)
 set(LIBXML2_LIBRARY "${MAVERICKS_DEPS}/lib/libxml2.2.dylib" CACHE FILEPATH "" FORCE)
+set(LIBXSLT_INCLUDE_DIR "${MAVERICKS_DEPS}/include" CACHE PATH "" FORCE)
+set(LIBXSLT_LIBRARY "${MAVERICKS_DEPS}/lib/libxslt.1.dylib" CACHE FILEPATH "" FORCE)
+set(LIBXSLT_LIBRARIES "${MAVERICKS_DEPS}/lib/libxslt.1.dylib" CACHE FILEPATH "" FORCE)
+# PlatformMac.cmake finds the XML2 framework separately, into its own XML2_LIBRARY, and appends that to
+# WebCore_LIBRARIES; left alone it resolves to the SDK tbd and puts /usr/lib/libxml2.2.dylib on WebCore
+# beside the deps copy, which is the second image this whole arrangement exists to avoid. Seeding the
+# cache here answers its find_library(), which no-ops on a variable that already has a value.
+set(XML2_LIBRARY "${MAVERICKS_DEPS}/lib/libxml2.2.dylib" CACHE FILEPATH "" FORCE)
 
 # Polyfill libraries for macOS 10.9
 #

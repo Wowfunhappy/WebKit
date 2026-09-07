@@ -113,6 +113,11 @@ Expected<Ref<GStreamerVideoEncoder>, String> GStreamerVideoEncoder::create(const
     std::call_once(debugRegisteredFlag, [] {
         GST_DEBUG_CATEGORY_INIT(webkit_video_encoder_debug, "webkitvideoencoder", 0, "WebKit WebCodecs Video Encoder");
     });
+    // MAVERICKS_BACKPORT: paired the way GStreamerWebRTCProvider::initializeVideoEncodingCapabilities()
+    // pairs it. Registering the encoder element runs its class_init, which resolves every encoder
+    // factory out of the registry; reached before gst_init, all of them answer absent and the table
+    // stays empty for the life of the process.
+    ensureGStreamerInitialized();
     registerWebKitGStreamerVideoEncoder();
     auto& scanner = GStreamerRegistryScanner::singleton();
     if (!scanner.isCodecSupported(GStreamerRegistryScanner::Configuration::Encoding, codecName))
@@ -320,8 +325,28 @@ bool GStreamerInternalVideoEncoder::encode(VideoEncoder::RawFrame&& rawFrame, bo
         m_harness->pushEvent(gst_video_event_new_downstream_force_key_unit(GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE, FALSE, 1));
     }
 
-    auto& gstVideoFrame = downcast<VideoFrameGStreamer>(rawFrame.frame.get());
-    GRefPtr sample = gstVideoFrame.sample();
+    // MAVERICKS_BACKPORT: this build's WebCodecs frames are CoreVideo-backed, so the downcast upstream
+    // makes unconditionally traps here. A GStreamer frame still uses its own sample; a CoreVideo one is
+    // wrapped, carrying the source frame's rotation and mirroring so the orientation tag below is the
+    // one the caller supplied.
+    // auto& gstVideoFrame = downcast<VideoFrameGStreamer>(rawFrame.frame.get());
+    // GRefPtr sample = gstVideoFrame.sample();
+    RefPtr<VideoFrameGStreamer> wrappedFrame;
+    if (!rawFrame.frame->isGStreamer()) {
+        auto presentationTime = MediaTime(rawFrame.timestamp, 1000000);
+        auto convertedSample = gstSampleFromCVPixelBuffer(rawFrame.frame->pixelBuffer(), presentationTime);
+        if (!convertedSample) {
+            GST_WARNING_OBJECT(m_harness->element(), "Unsupported video frame backing for encoding");
+            return false;
+        }
+        VideoFrameGStreamer::CreateOptions options { rawFrame.frame->presentationSize() };
+        options.rotation = rawFrame.frame->rotation();
+        options.isMirrored = rawFrame.frame->isMirrored();
+        options.presentationTime = presentationTime;
+        wrappedFrame = VideoFrameGStreamer::createWrappedSample(convertedSample, WTF::move(options));
+    }
+    auto& gstVideoFrame = wrappedFrame ? *wrappedFrame : downcast<VideoFrameGStreamer>(rawFrame.frame.get());
+    GRefPtr sample = gstVideoFrame.sample(); // MAVERICKS_BACKPORT: closes the CoreVideo wrapping above.
 
     auto orientation = makeString(gstVideoFrame.isMirrored() ? "flip-"_s : ""_s, "rotate-"_s, gstVideoFrame.rotation());
     if (orientation != m_orientation) {

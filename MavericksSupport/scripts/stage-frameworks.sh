@@ -10,7 +10,7 @@
 #
 # Step order is load-bearing, top to bottom:
 #   1 copy + layout + rename    2 resources    3 runtime/polyfill/GStreamer deploys
-#   4 install names    5 demangler guard    6 XPC clones    7 single-unwinder gate    8 i386 graft
+#   4 install names    5 demangler guard    6 XPC clones    7 runtime-binding gate    8 i386 graft
 # The graft is LAST because install_name_tool and the demangler guard operate on THIN x86_64
 # binaries: run against a fat file they risk header-padding failures, and they would put the
 # stock i386 slice through a rewrite it must never receive. Grafting after all binary mutation
@@ -395,13 +395,15 @@ cp -f "$REPO/Source/WebCore/platform/audio/resources/Composite.wav" "$RES/audio/
     || { echo "ERROR: HRTF Composite.wav not found — an HRTF PannerNode would abort the WebContent process." >&2; exit 1; }
 echo "  staged HRTF database (audio/Composite.wav)"
 
-# linearSRGB.icc: 10.9 CG has no kCGColorSpaceLinearSRGB, so WebCore's
-# linearSRGBColorSpaceSingleton() builds the linear sRGB space from this
-# profile (the classic pre-10.12 mechanism; stock 10.9 WebCore shipped the
-# same file). With it, SVG filters run in linear space.
-cp -f "$REPO/Source/WebCore/Resources/linearSRGB.icc" "$RES/" \
-    || { echo "ERROR: linearSRGB.icc not found — SVG filters would have no linear sRGB color space." >&2; exit 1; }
-echo "  staged linearSRGB.icc"
+# WebCore's own bundled resources, looked up by name at runtime: missingImage[@2x,@3x] for a failed
+# <img> (ImageAdapter::loadPlatformResource), textAreaResizeCorner[@2x] for a resizable <textarea>
+# (RenderTheme::paintPlatformResizer), panIcon for pan scrolling, ContentFilterBlockedPage.html, and
+# linearSRGB.icc, which linearSRGBColorSpaceSingleton() builds the linear sRGB space from.
+cp -Rf "$REPO/Source/WebCore/Resources/." "$RES/" \
+    || { echo "ERROR: Source/WebCore/Resources could not be staged." >&2; exit 1; }
+[ -f "$RES/missingImage.png" ] && [ -f "$RES/textAreaResizeCorner.png" ] && [ -f "$RES/linearSRGB.icc" ] \
+    || { echo "ERROR: WebCore resources missing from the staged bundle." >&2; exit 1; }
+echo "  staged WebCore resources ($(ls "$RES" | wc -l | tr -d ' ') entries)"
 
 # Localizable.strings: WEB_UI_STRING looks localized UI strings up in the WebCore
 # bundle (copyLocalizedString → CFBundleCopyLocalizedString). With the table every
@@ -477,30 +479,36 @@ else
 fi
 
 # GStreamer (#90), the sole media engine: deploy the dylibs + plugins into WebCore.framework. They
-# are self-contained via their own LC_RPATH @loader_path/../lib, so they ship as-is; only the WebKit
-# frameworks' @rpath/libg*/libgst*/etc. deps are rewritten to these absolute paths (step 4).
+# resolve one another via their own LC_RPATH @loader_path/../lib, so they ship as-is apart from the
+# C++ runtime binding below; the WebKit frameworks' @rpath/libg*/libgst*/etc. deps are rewritten to
+# these absolute paths in step 4.
 echo "### Deploying GStreamer libs into WebCore.framework ($GST_DEPLOY)"
 if [ -d "$GST_SRC" ]; then
     # The runtime is built from source for 10.9 (MavericksSupport/deps/build_deps.sh)
     # and proved self-contained by that script's resolution gate: every strong undefined symbol in
     # every dylib/plugin resolves on this host, no NULL-binding weak imports beyond the documented
-    # allow-list, no compat/reexport shim dylibs, and the C++17 runtime ships alongside
-    # (libc++.1.dylib / libc++abi.1.dylib).
+    # allow-list, no compat/reexport shim dylibs, every @rpath load present in the tree, and no
+    # libunwind in it (its unwinder references name the system one).
     #
     # The static libraries in the same directory are link-time inputs to the WebKit frameworks; the
     # product carries only the runtime, so they stay out of the copy.
     mkdir -p "$(s "$GST_DEPLOY")"
     cp -Rp "$GST_SRC/." "$(s "$GST_DEPLOY")/"
     rm -f "$(s "$GST_DEPLOY")"/*.a
-    # Single-unwinder rule: the tree carries @rpath references to the toolchain's libunwind
-    # (resolved via the libs' @loader_path/../lib LC_RPATH). Bind every reference to the system
-    # unwinder and leave that copy out of the product.
-    find "$(s "$GST_DEPLOY")" -type f -name '*.dylib' | while read -r gstlib; do
-        if "$OTOOL" -L "$gstlib" 2>/dev/null | grep -q '@rpath/libunwind.1.dylib'; then
-            "$INSTALL_NAME_TOOL" -change @rpath/libunwind.1.dylib "$SYSTEM_UNWINDER" "$gstlib"
-        fi
-    done
-    rm -f "$(s "$GST_DEPLOY")/libunwind.1.dylib"
+    # Single-runtime rule (framework-layout.sh): the tree's C++ users (libvpx, the decklink plugin)
+    # load @rpath/libc++.1.dylib and @rpath/libc++abi.1.dylib, which their @loader_path/../lib
+    # LC_RPATH resolves to the pair the tree carries beside them -- the same build as the pair in
+    # $PRIVLIBCXX. Bind those loads to the PRIVLIBCXX pair by absolute path, exactly as the WebKit
+    # binaries are bound in step 4, and leave the tree's own pair out of the product.
+    rm -f "$(s "$GST_DEPLOY")/libc++.1.dylib" "$(s "$GST_DEPLOY")/libc++abi.1.dylib"
+    while read -r gstlib; do
+        while read -r dep; do
+            case "$dep" in
+                @rpath/libc++.1.dylib|@rpath/libc++abi.1.dylib|@rpath/libunwind.1.dylib)
+                    int_or_die -change "$dep" "$(absolute_for_rpath_dep "$dep")" "$gstlib";;
+            esac
+        done < <("$OTOOL" -L "$gstlib" | awk 'NR>1{print $1}')
+    done < <(find "$(s "$GST_DEPLOY")" -type f -name '*.dylib')
 else
     echo "ERROR: GStreamer source tree $GST_SRC missing — the product would have no media engine." >&2
     exit 1
@@ -636,24 +644,14 @@ $WK_XPC_VARIANTS
 EOF
 
 # ---------------------------------------------------------------------------
-# Step 7: single-unwinder gate over everything staged so far, while every binary is still thin and
+# Step 7: runtime-binding gate over everything staged so far, while every binary is still thin and
 # a violation is cheap to fix. wk_verify_tree runs the same check again at the end, once the tree is
 # complete; this one pins the failure to the rewriting steps above rather than to the graft.
-echo "### Verifying single-unwinder rule (no libunwind.1.dylib references)"
-UNWIND_VIOLATIONS=0
-for root in $WK_INSTALL_ROOTS; do
-    while read -r bin; do
-        [ -n "$bin" ] || continue
-        if "$OTOOL" -L "$bin" 2>/dev/null | grep -q 'libunwind\.1\.dylib'; then
-            echo "  VIOLATION: $bin references a private libunwind.1.dylib" >&2
-            UNWIND_VIOLATIONS=$((UNWIND_VIOLATIONS + 1))
-        fi
-    done < <(find "$(s "$root")" \( -type f -perm +111 \) -o \( -type f -name '*.dylib' \) 2>/dev/null)
-done
-if [ "$UNWIND_VIOLATIONS" -ne 0 ]; then
-    echo "### FAILED: $UNWIND_VIOLATIONS binaries reference a private libunwind (mixed-unwinder hazard)" >&2
+echo "### Verifying single-runtime rule ($SYSTEM_UNWINDER, one libc++/libc++abi pair in $PRIVLIBCXX)"
+wk_check_runtime_bindings "$STAGE" || {
+    echo "### FAILED: staged binaries would load a second C++ runtime or a second unwinder (mixed-runtime hazard)" >&2
     exit 1
-fi
+}
 
 # ---------------------------------------------------------------------------
 # Step 8, last: 32-bit (i386) compatibility — graft the STOCK 10.9 i386 slices back in.

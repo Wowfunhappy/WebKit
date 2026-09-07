@@ -40,8 +40,32 @@ endmacro()
 # SecKeyCreateWithData), and an ordinary archive link never pulls those -- they are compiled
 # -fvisibility=hidden, so they do not satisfy a reference from another object. The reference then binds
 # to the SDK's stub for a symbol this OS does not have, and the process dies at first use.
+
+# WebKitTestRunner's bundle identity. WebKit derives the default website data store's directories from
+# the main bundle's identifier, and DefaultWebBrowserChecks' isRunningTest() answers on that identifier --
+# NetworkSession::setPrivateClickMeasurementAppBundleIDForTesting RELEASE_ASSERTs on it, and the private
+# click measurement store keys its rows by it, so a driver without one both shares the login session's
+# storage and disagrees with itself across a process relaunch. Upstream's Xcode target takes the
+# identifier from Tools/WebKitTestRunner/Info.plist; a command-line tool carries that plist in a
+# __TEXT,__info_plist section rather than a Contents/Info.plist, the same way TestWebKitCocoa does.
+macro(_MAVERICKS_STAMP_DRIVER_IDENTITY _target)
+    if ("${_target}" STREQUAL "WebKitTestRunner")
+        set(PRODUCT_NAME WebKitTestRunner)
+        set(PRODUCT_BUNDLE_IDENTIFIER com.apple.WebKit.WebKitTestRunner)
+        configure_file(${CMAKE_SOURCE_DIR}/Tools/WebKitTestRunner/Info.plist
+            ${CMAKE_CURRENT_BINARY_DIR}/WebKitTestRunnerInfo.plist)
+        unset(PRODUCT_NAME)
+        unset(PRODUCT_BUNDLE_IDENTIFIER)
+        target_link_options(${_target} PRIVATE
+            "-Wl,-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_BINARY_DIR}/WebKitTestRunnerInfo.plist")
+        set_property(TARGET ${_target} APPEND PROPERTY LINK_DEPENDS
+            "${CMAKE_CURRENT_BINARY_DIR}/WebKitTestRunnerInfo.plist")
+    endif ()
+endmacro()
+
 macro(_MAVERICKS_APPLY_TARGET_POLICY _target)
     _MAVERICKS_LINK_POLYFILL_CLASSES(${_target})
+    _MAVERICKS_STAMP_DRIVER_IDENTITY(${_target})
     foreach (_mavShipped WebProcess NetworkProcess GPUProcess
                          DumpRenderTree WebKitTestRunner TestRunnerInjectedBundle
                          TestWTF TestWebCore TestWebKit TestWebKitLegacy)

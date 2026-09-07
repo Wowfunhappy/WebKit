@@ -1,0 +1,94 @@
+# A compression session that has been told its color -- vtenc sets
+# kVTCompressionPropertyKey_ColorPrimaries, _TransferFunction and _YCbCrMatrix from the negotiated
+# caps -- needs the source frame's color to decide whether a conversion stands between the two. On
+# 10.9 VideoToolbox reads that from the source CVPixelBuffer's own
+# kCVImageBufferColorPrimariesKey / _TransferFunctionKey / _YCbCrMatrixKey attachments, and for a
+# property the session declares that the buffer leaves unstated it answers
+# kVTInsufficientSourceColorDataErr (-12917) in the output callback, per frame, forever. vtenc
+# tags no source buffer anywhere and encodes on the systems it ships for, so the requirement is
+# 10.9's.
+#
+# gst_vtenc_encode_frame builds its source buffer with CVPixelBufferCreateWithPlanarBytes over the
+# GstBuffer's own memory, passing NULL for the pixel buffer attributes and setting no attachments,
+# so on this OS every vtenc_h264 frame failed and the element emitted nothing: measured per frame,
+# at every size and in NV12, I420 and UYVY alike. A buffer that arrives already CoreVideo-backed
+# and already tagged -- what WebKit hands the encoder for a canvas or an ArrayBuffer VideoFrame --
+# takes the other branch and was never affected, which is why WebCodecs H.264 looked healthy while
+# a frame decoded into system memory could not be encoded at all.
+#
+# Measured, with a bare VTCompressionSession over CVPixelBufferCreateWithPlanarBytes: with no color
+# property set on the session every frame encodes; with any one of the three set and no attachment
+# on the buffer every frame answers -12917; and with the buffer carrying an attachment for each
+# property the session was told, every frame encodes again. The requirement is per property, so the
+# patch attaches exactly the set gst_vtenc_set_colorimetry declared and invents nothing for a
+# component the caps leave unknown. The values are the ones the session already has, which makes
+# the source color and the target color identical and the conversion an identity. Where the
+# session holds no color property -- 10.9 refuses the BT.2020 values outright, -12902 -- the
+# attachments change nothing: the emitted SPS is byte-identical with the buffer untagged, tagged
+# BT.601 or tagged BT.2020.
+#
+# Applied by build_deps with patch -p1.
+--- a/sys/applemedia/vtenc.c
++++ b/sys/applemedia/vtenc.c
+@@ -1442,6 +1442,10 @@
+       GST_WARNING_OBJECT (self, "Unsupported color primaries %u", cm.primaries);
+   }
+ 
++  self->color_primaries = primaries;
++  self->transfer_function = transfer;
++  self->ycbcr_matrix = matrix;
++
+   if (primaries) {
+     status = VTSessionSetProperty (session,
+         kVTCompressionPropertyKey_ColorPrimaries, primaries);
+@@ -1464,6 +1468,27 @@
+   }
+ }
+ 
++/* Tell the source pixel buffer the color its content is in. 10.9's
++ * VideoToolbox reads the source frame's color from the buffer rather than
++ * taking it to match the session, and answers
++ * kVTInsufficientSourceColorDataErr for a color property the session declares
++ * and the buffer leaves unstated. */
++static void
++gst_vtenc_attach_colorimetry (GstVTEnc * self, CVPixelBufferRef pbuf)
++{
++  if (self->color_primaries)
++    CVBufferSetAttachment (pbuf, kCVImageBufferColorPrimariesKey,
++        self->color_primaries, kCVAttachmentMode_ShouldPropagate);
++
++  if (self->transfer_function)
++    CVBufferSetAttachment (pbuf, kCVImageBufferTransferFunctionKey,
++        self->transfer_function, kCVAttachmentMode_ShouldPropagate);
++
++  if (self->ycbcr_matrix)
++    CVBufferSetAttachment (pbuf, kCVImageBufferYCbCrMatrixKey,
++        self->ycbcr_matrix, kCVAttachmentMode_ShouldPropagate);
++}
++
+ static VTCompressionSessionRef
+ gst_vtenc_create_session (GstVTEnc * self)
+ {
+@@ -2224,6 +2249,8 @@
+   }
+ #endif
+ 
++  gst_vtenc_attach_colorimetry (self, pbuf);
++
+   /* We need to unlock the stream lock here because
+    * the encode call can wait for gst_vtenc_enqueue_buffer()
+    * to handle a buffer... which will take the stream lock
+--- a/sys/applemedia/vtenc.h
++++ b/sys/applemedia/vtenc.h
+@@ -101,6 +101,11 @@
+   gboolean have_field_order;
+   GstVideoCodecState *input_state;
+   GstVideoInfo video_info;
++  /* The color the session was told its frames are in, so every source
++   * pixel buffer can say the same. */
++  CFStringRef color_primaries;
++  CFStringRef transfer_function;
++  CFStringRef ycbcr_matrix;
+   VTCompressionSessionRef session;
+   CFDictionaryRef keyframe_props;
+ 

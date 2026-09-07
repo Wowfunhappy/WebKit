@@ -8,10 +8,14 @@
 #   woff2 (decoder)                     -> WOFF2 web font decompression
 #   libwebp 1.3.2 (static)              -> WebCore's WEBPImageDecoder (10.9's ImageIO
 #                                          cannot decode WebP)
+#   libpng 1.6.43 (static)              -> WebCore's PNGImageDecoder, for animated PNG (10.9's
+#                                          ImageIO decodes only the first frame)
 #   libavif 1.3.0 (static, on dav1d)    -> WebCore's AVIFImageDecoder (10.9's ImageIO
 #                                          predates AVIF)
 #   libxml2 2.13.6 (shared)             -> WebCore XML/SVG parsing, in place of 10.9's
 #                                          crash-prone system libxml2 2.9.0
+#   libxslt 1.1.43 (shared)             -> WebCore XSLT, built against the libxml2 above so one
+#                                          process never holds two libxml2 images
 #   GLib + GStreamer (GLIB_VER/GST_VER)  -> the media runtime (core, plugins-base/
 #     (+ codecs, OpenSSL for HLS keys)      good/bad, gst-libav on FFmpeg 8.1.2 with
 #                                          dav1d AV1 decode, libvpx VP8/VP9) that
@@ -34,28 +38,35 @@
 # symbols resolve DEFINED at link time instead. A fail-fast gate at the end proves the
 # shipped runtime resolves completely on this 10.9 host (see "fail-fast gate").
 #
-# Usage: MavericksSupport/deps/build_deps.sh [--clean]   (or via MavericksSupport/bootstrap.sh)
+# Usage: MavericksSupport/deps/build_deps.sh [--clean | --check-recipes]
+#        (or via MavericksSupport/bootstrap.sh)
 #
 # Sources, build trees and the install prefix persist in work/, so a rerun extracts and configures
 # nothing it already has and each package's build system picks up where it left off. --clean discards
 # work/trees; the tarball and ccache caches sit beside it and survive.
+#
+# --check-recipes asks whether deps/build was published by a completed run of this script and the
+# patches beside it (see recipes_key).
 set -euo pipefail
 # NB: the 10.9 system bash (3.2) does NOT abort when a ( ... ) section subshell fails,
 # even under set -e / trap ERR -- hence the explicit `|| exit 1` on every section.
 
 CLEAN=""
+CHECK=""
 for arg in "$@"; do
     case "$arg" in
         --clean) CLEAN=1 ;;
-        *) echo "usage: build_deps.sh [--clean]" >&2; exit 2 ;;
+        --check-recipes) CHECK=1 ;;
+        *) echo "usage: build_deps.sh [--clean | --check-recipes]" >&2; exit 2 ;;
     esac
 done
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SELF="$HERE/$(basename "${BASH_SOURCE[0]}")"
 LOG=/tmp/wk_build.log
 # The one build log. One fd carries this script's package headers and every package's compile
-# output, in order.
-exec >> "$LOG" 2>&1
+# output, in order. --check-recipes answers on stdout, which under build.sh is this same log.
+[ -n "$CHECK" ] || exec >> "$LOG" 2>&1
 REPO="$(cd "$HERE/../.." && pwd)"                   # repo root
 . "$REPO/MavericksSupport/scripts/cctools.sh"
 TC="${MAVERICKS_CLANG:-$REPO/MavericksSupport/toolchain/build/clang}"
@@ -121,6 +132,26 @@ SCRATCH="$WORK/trees"
 # does not re-download everything.
 SRC="$WORK/tarballs"
 STAGE="$SCRATCH/install"                            # full autotools install prefix
+
+# recipes_key: this whole script and every patch beside it -- what a run of it builds from. The
+# collect step drops deps/build's copy and the end of the run writes it back, so the key is in the
+# tree only when a run carried every package, gate and manifest through to the end.
+recipes_key() {
+  local p
+  { /usr/bin/shasum -a 256 < "$SELF"
+    for p in "$HERE"/patches/*.patch; do printf '%s\n' "$p"; done | LC_ALL=C sort \
+      | while read -r p; do printf '%s\n' "${p##*/}"; /usr/bin/shasum -a 256 < "$p"; done
+  } | /usr/bin/shasum -a 256 | awk '{ print $1 }'
+}
+if [ -n "$CHECK" ]; then
+    if [ "$(cat "$DEST/.recipes" 2>/dev/null)" = "$(recipes_key)" ]; then
+        echo "### deps recipes: deps/build carries this script and these patches"
+        exit 0
+    fi
+    echo "### deps recipes: deps/build was not published from this script and these patches"
+    exit 1
+fi
+
 mkdir -p "$SCRATCH"
 
 # One run owns the workspace, and it holds the lock before it reads or discards anything in it.
@@ -306,15 +337,21 @@ fetch_cached() {
 # commands are all in it), the content of every patch it names, the ambient compile flags, and the
 # values behind the shared setting names the section carries. The stamps below hold a build dir to
 # this key.
-SELF="$HERE/$(basename "${BASH_SOURCE[0]}")"
 recipe_key() {
-  local start end section
+  local start end section names p
   start=$(awk -v n="$1" 'NR <= n && /^echo "==== /{ s = NR } END { print s + 0 }' "$SELF")
   end=$(awk -v n="$start" 'NR > n && /^echo "==== /{ print NR - 1; exit } END { print NR }' "$SELF" | head -1)
   section=$(sed -n "${start},${end}p" "$SELF")
+  # The patches the section applies, named in the one form every application below is written in, so
+  # a patch path belonging to another tree is not one of them. Each must be in the checkout: a name
+  # that resolves to nothing otherwise hashes to a key stating a recipe the tree does not hold.
+  names=$(printf '%s\n' "$section" | { grep -oE '\$HERE/patches/[A-Za-z0-9._-]+\.patch' || true; } \
+          | sed 's|^\$HERE/||' | sort -u)
+  for p in $names; do
+    [ -f "$HERE/$p" ] || { echo "recipe_key: $p is applied by a recipe and is not in the checkout" >&2; return 1; }
+  done
   { printf '%s\n' "$section"
-    printf '%s\n' "$section" | { grep -oE 'patches/[A-Za-z0-9._-]+\.patch' || true; } | sort -u \
-      | while read -r p; do /usr/bin/shasum -a 256 "$HERE/$p"; done
+    for p in $names; do /usr/bin/shasum -a 256 "$HERE/$p"; done
     printf '%s\n' "$CFLAGS" "$CXXFLAGS" "$OBJCFLAGS" "$LDFLAGS"
     # A setting a section reads by name, hashed for the sections that name it. Two are reached
     # through another name: the vanilla compiler wrappers carry $LENIENT, and "$MESON" is the pin.
@@ -360,7 +397,9 @@ built() {
   echo "  already built"
 }
 finished() {
-  mkdir -p "$SCRATCH/stamps" && recipe_key "${BASH_LINENO[0]}" > "$SCRATCH/stamps/$1" && rm -rf "${2:?}"
+  local k
+  k=$(recipe_key "${BASH_LINENO[0]}") || return 1
+  mkdir -p "$SCRATCH/stamps" && printf '%s\n' "$k" > "$SCRATCH/stamps/$1" && rm -rf "${2:?}"
 }
 
 echo "==== ICU 74.2 ===="
@@ -470,6 +509,27 @@ if ! built libwebp install/lib/libwebp.a; then
            -DCMAKE_INSTALL_PREFIX="$STAGE" .. \
       && "$NINJA" -j2 && "$NINJA" install ) || exit 1
     finished libwebp "$d"
+fi
+
+echo "==== libpng 1.6.43 ===="
+# WebCore's own PNGImageDecoder (USE_PNG), which ScalableImageDecoder::create routes files
+# carrying acTL to: 10.9's ImageIO reports an animated PNG as a single frame, so APNGs render
+# static. Decode only, static, beside libwebp; zlib comes from the SDK. The command-line tools
+# and the test programs are off.
+u=https://download.sourceforge.net/libpng/libpng-1.6.43.tar.xz
+if ! built libpng install/lib/libpng16.a; then
+    d=$(get "$u" libpng)
+    ( cd "$d" && mkdir -p out && cd out \
+      && "$CMAKE" -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
+           -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+           -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_CXX_COMPILER="$CXX_BIN" \
+           ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE" -DCMAKE_CXX_COMPILER_LAUNCHER="$CCACHE"} \
+           -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
+           -DPNG_SHARED=OFF -DPNG_STATIC=ON -DPNG_FRAMEWORK=OFF \
+           -DPNG_TESTS=OFF -DPNG_TOOLS=OFF \
+           -DCMAKE_INSTALL_PREFIX="$STAGE" .. \
+      && "$NINJA" -j2 && "$NINJA" install ) || exit 1
+    finished libpng "$d"
 fi
 
 # ============================ GStreamer media runtime ============================
@@ -832,6 +892,23 @@ fi
 ( cd "$d" && make -s -j2 \
   && make -s install ) || exit 1
 
+echo "==== libxslt 1.1.43 ===="
+# Built against the libxml2 above, and that is the whole reason it is here. WebCore parses an XSLT
+# stylesheet with libxml2 and hands the document to libxslt, which frees it again through
+# xsltFreeStylesheet. 10.9's /usr/lib/libxslt.1.dylib binds the system libxml2 2.9.0, so linking it puts
+# two libxml2 images in one process: measured on this host, a document allocated by one and freed by the
+# other faults in xsltFreeStylesheet, while the same sequence against a single libxml2 -- either version
+# -- completes. --without-crypto keeps the EXSLT crypto module (and its libgcrypt dependency) out; WebCore
+# uses none of it. Not a GStreamer dependency -- it rides the same staging/collect/gate pipeline.
+d=$(get https://download.gnome.org/sources/libxslt/1.1/libxslt-1.1.43.tar.xz libxslt) || exit 1
+if prepare "$d"; then
+    ( cd "$d" && ./configure -q --prefix="$STAGE" --disable-static --without-python \
+        --without-crypto --with-libxml-prefix="$STAGE" ) || exit 1
+    prepared "$d"
+fi
+( cd "$d" && make -s -j2 \
+  && make -s install ) || exit 1
+
 echo "==== dav1d 1.4.3 ===="
 # FFmpeg links it (--enable-libdav1d) for AV1 via the libdav1d wrapper codec, which
 # gst-libav registers as avdec_libdav1d (see the libdav1d patch in the gst-libav
@@ -964,6 +1041,16 @@ fi
 echo "==== gst-plugins-good ===="
 d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-$GST_VER.tar.xz gstgood) || exit 1
 if prepare "$d"; then
+    # matroskademux: post DURATION_CHANGED as a parsed duration grows and once when it is
+    # final, not only for the first block. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-matroskademux-post-parsed-duration.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-matroskademux-post-parsed-duration.patch" ) \
+      || { echo "gst-plugins-good matroskademux duration patch failed to apply"; exit 1; }
+    # qtdemux: expose the video track of an ISO/IEC 23008-12 image sequence, whose media handler is
+    # 'pict'. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-qtdemux-heif-image-sequence.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-qtdemux-heif-image-sequence.patch" ) \
+      || { echo "gst-plugins-good qtdemux HEIF image sequence patch failed to apply"; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS \
         -Dvpx=enabled -Dflac=enabled -Dmpg123=enabled -Dosxaudio=enabled -Dosxvideo=enabled \
         -Dorc=enabled ) || exit 1
@@ -978,10 +1065,11 @@ echo "==== gst-plugins-bad ===="
 # libwebrtc, inside WebCore.
 d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-$GST_VER.tar.xz gstbad) || exit 1
 if prepare "$d"; then
-    # vtdec_hw advertises codecs the machine cannot hardware-decode; the -8973
-    # session failure then lands outside decodebin3's candidate window and kills playbin3 (MSE)
-    # pipelines that avdec could have played. This gates its getcaps on a per-codec RequireHardware
-    # session probe. See patches/README.md.
+    # vtdec_hw inherits a sink template advertising codecs the machine cannot
+    # hardware-decode, and the template is what picks the decoder for every caller that does not
+    # instantiate the element -- WebKit's registry scanner among them, which hands the doomed
+    # factory to ImageDecoderGStreamer's harness. This gives vtdec_hw its own sink template, built
+    # from a per-codec RequireHardware session probe. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtdec-hw-hardware-caps-probe.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-vtdec-hw-hardware-caps-probe.patch" ) \
       || { echo "gst-plugins-bad vtdec_hw caps-probe patch failed to apply"; exit 1; }
@@ -1002,6 +1090,19 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtenc-hardware-encoder-probe.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-vtenc-hardware-encoder-probe.patch" ) \
       || { echo "gst-plugins-bad vtenc encoder-probe patch failed to apply"; exit 1; }
+    # vtenc tells the compression session the color of its frames but hands it source
+    # pixel buffers carrying no color attachments; 10.9's VideoToolbox reads the source color from
+    # the buffer and answers kVTInsufficientSourceColorDataErr (-12917) for every frame. This
+    # attaches the colorimetry the session was told. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtenc-source-colorimetry.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-vtenc-source-colorimetry.patch" ) \
+      || { echo "gst-plugins-bad vtenc source-colorimetry patch failed to apply"; exit 1; }
+    # hlsdemux: create an output stream for a SUBTITLES rendition, convert the cue times of its
+    # WebVTT fragments into stream time, and carry each rendition's name, language and flags.
+    # See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-hlsdemux-subtitle-renditions.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-hlsdemux-subtitle-renditions.patch" ) \
+      || { echo "gst-plugins-bad hlsdemux subtitle-rendition patch failed to apply"; exit 1; }
     # hlsdemux: resync a variant switch to the nearest fragment start. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-hlsdemux-variant-switch-nearest-fragment.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-hlsdemux-variant-switch-nearest-fragment.patch" ) \
@@ -1102,6 +1203,7 @@ echo "  ok: all $(wc -l < "$RUN/linked" | tr -d ' ') images carrying the archive
 echo "==== collect into deps/build ===="
 # Asked again immediately before the collect step replaces the tree those links read from.
 _refuse_under_webkit_build
+rm -f "$DEST/.recipes"
 rm -rf "$DEST/include" "$DEST/lib" "$DEST/bin"
 mkdir -p "$DEST/include" "$DEST/lib/gstreamer-1.0" "$DEST/bin"
 # headers (WebKit's own link deps + the GStreamer/GLib trees WebCore compiles against).
@@ -1116,11 +1218,25 @@ cp -Rp "$STAGE/include/brotli"     "$DEST/include/"
 cp -Rp "$STAGE/include/woff2"      "$DEST/include/"
 cp -Rp "$STAGE/include/webp"       "$DEST/include/"
 cp -Rp "$STAGE/include/avif"       "$DEST/include/"
+# libpng installs its headers at the include root and again under libpng16/; PNGImageDecoder
+# includes <png.h>, and png.h includes pngconf.h, which includes pnglibconf.h.
+cp -p "$STAGE/include/png.h" "$STAGE/include/pngconf.h" "$STAGE/include/pnglibconf.h" "$DEST/include/"
 # libxml2 headers: WebCore compiles against these. OptionsMac.cmake points
 # LIBXML2_INCLUDE_DIR here so the headers match the 2.13 dylib deployed alongside them.
 cp -Rp "$STAGE/include/libxml2"    "$DEST/include/"
+# libxslt headers, from the same build and for the same reason: WebCore compiles its XSLT against these
+# rather than the SDK's, so the declarations match the dylib deployed beside them.
+cp -Rp "$STAGE/include/libxslt"    "$DEST/include/"
+[ -d "$STAGE/include/libexslt" ] && cp -Rp "$STAGE/include/libexslt" "$DEST/include/"
 for inc in glib-2.0 gio-unix-2.0 gstreamer-1.0 orc-0.4 openssl; do
   [ -d "$STAGE/include/$inc" ] && cp -Rp "$STAGE/include/$inc" "$DEST/include/"
+done
+# FFmpeg headers: WebCore's MediaRecorder MP4 writer (MediaRecorderPrivateWriterMP4.cpp) compiles
+# against libavformat's ISO base media muxer, beside the three dylibs the media runtime already
+# deploys for gst-libav. The required-artifacts gate below names avformat.h, so a tree that did not
+# install stops the run here rather than at the gate.
+for inc in libavformat libavcodec libavutil; do
+  cp -Rp "$STAGE/include/$inc" "$DEST/include/" || { echo "  FATAL: $STAGE/include/$inc did not install"; exit 1; }
 done
 mkdir -p "$DEST/lib/glib-2.0/include"
 cp -p "$STAGE/lib/glib-2.0/include/glibconfig.h" "$DEST/lib/glib-2.0/include/"
@@ -1128,7 +1244,7 @@ cp -p "$STAGE/lib/glib-2.0/include/glibconfig.h" "$DEST/lib/glib-2.0/include/"
 for l in libicuuc.a libicui18n.a libicudata.a \
          libgpg-error.a libgcrypt.a libtasn1.a \
          libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a \
-         libwebp.a libwebpdemux.a libsharpyuv.a libavif.a libyuv.a; do
+         libwebp.a libwebpdemux.a libsharpyuv.a libavif.a libyuv.a libpng16.a; do
   cp -p "$STAGE/lib/$l" "$DEST/lib/"
 done
 
@@ -1278,8 +1394,13 @@ require_glob "$DEST/include/cdm/content_decryption_module.h"
 require_glob "$DEST/lib/libglib-2.0.*.dylib"
 require_glob "$DEST/lib/libgstreamer-1.0.*.dylib"
 require_glob "$DEST/lib/libavcodec.*.dylib"
+require_glob "$DEST/lib/libavformat.*.dylib"
+require_glob "$DEST/lib/libavutil.*.dylib"
+# The MediaRecorder MP4 writer includes <libavformat/avformat.h>.
+require_glob "$DEST/include/libavformat/avformat.h"
 require_glob "$DEST/lib/libvpx.*.dylib"
 require_glob "$DEST/lib/libxml2.*.dylib"
+require_glob "$DEST/lib/libxslt.*.dylib"
 require_glob "$DEST/lib/libdav1d.*.dylib"
 require_glob "$DEST/lib/libmpg123.*.dylib"
 # Without this plugin decodebin skips mpegaudioparse and every mp3 keeps its encoder delay.
@@ -1291,12 +1412,14 @@ require_glob "$DEST/lib/libc++abi.1.dylib"
 # dropout now instead of as an unresolved-symbol link failure in WebCore.
 for a in libicuuc.a libicui18n.a libicudata.a libgpg-error.a libgcrypt.a libtasn1.a \
          libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a \
-         libwebp.a libwebpdemux.a libsharpyuv.a libavif.a libyuv.a; do
+         libwebp.a libwebpdemux.a libsharpyuv.a libavif.a libyuv.a libpng16.a; do
   require_glob "$DEST/lib/$a"
 done
 require_glob "$DEST/include/webp/decode.h"
+require_glob "$DEST/include/png.h"
 require_glob "$DEST/include/avif/avif.h"
 require_glob "$DEST/include/libxml2/libxml/parser.h"
+require_glob "$DEST/include/libxslt/xslt.h"
 # single-unwinder rule: no libunwind may exist in the deployed set.
 if [ -e "$DEST/lib/libunwind.1.dylib" ]; then
   echo "  FAIL: $DEST/lib/libunwind.1.dylib exists (mixed-unwinder hazard; must bind /usr/lib/system/libunwind.dylib)"; REQFAIL=1
@@ -1563,5 +1686,8 @@ cp "$GAP_UNLINKED"  "$DEST/gap-unlinked.txt"   || exit 1
 echo "  $(wc -l < "$DEST/gap-sources.sha256" | tr -d ' ') source files, $(wc -l < "$DEST/gap-symbols.txt" | tr -d ' ') defined symbols, $(wc -l < "$DEST/gap-literals.txt" | tr -d ' ') literals, $(wc -l < "$DEST/gap-unlinked.txt" | tr -d ' ') copied-not-linked"
 
 echo "==== done. deps/build: ===="
+# Past every gate: deps/build is now what this script and the patches beside it build.
+RECIPES_KEY=$(recipes_key) || exit 1
+printf '%s\n' "$RECIPES_KEY" > "$DEST/.recipes"
 ls "$DEST/lib" | head -40; ls "$DEST/lib/gstreamer-1.0" | wc -l
 echo "  build tree: $(du -sh "$SCRATCH" | awk '{ print $1 }') at $SCRATCH, $(df -h / | awk 'NR == 2 { print $4 }') free on /"

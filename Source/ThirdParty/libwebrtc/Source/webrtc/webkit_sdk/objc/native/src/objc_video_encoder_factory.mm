@@ -157,10 +157,29 @@ std::vector<SdpVideoFormat> ObjCVideoEncoderFactory::GetImplementations() const 
   return GetSupportedFormats();
 }
 
+// MAVERICKS_BACKPORT: a negotiated codec carries the remote description's spelling of the media
+// subtype (pc/codec_vendor.cc NegotiateCodecs takes `theirs->name`), which SDP allows in any case.
+// WebKit maps a format to a codec case-insensitively where it takes that mapping:
+// LibWebRTCCodecs.cpp's createVideoEncoder reaches VideoCodecType::H264 from "H264" and "h264" alike.
+// That entry point belongs to the GPU process codec path, which this port does not take, so the ObjC
+// factory below is the whole mapping here. Its own -createEncoder: dispatches with -isEqualToString:
+// and RTCVideoEncoderH264's -initWithCodecInfo: RTC_CHECKs the name, so the codec info it is given
+// carries the factory's spelling of the codec the format names.
+static RTCVideoCodecInfo *codecInfoWithFactorySpelling(RTCVideoCodecInfo *info, NSArray<RTCVideoCodecInfo *> *supportedCodecs) {
+  for (RTCVideoCodecInfo *supported in supportedCodecs) {
+    if ([supported.name isEqualToString:info.name])
+      return info;
+    if ([supported.name caseInsensitiveCompare:info.name] == NSOrderedSame)
+      return [[RTCVideoCodecInfo alloc] initWithName:supported.name parameters:info.parameters];
+  }
+  return info;
+}
+
 std::unique_ptr<VideoEncoder> ObjCVideoEncoderFactory::Create(
     const Environment& environment,
     const SdpVideoFormat &format) {
   RTCVideoCodecInfo *info = [[RTCVideoCodecInfo alloc] initWithNativeSdpVideoFormat:format];
+  info = codecInfoWithFactorySpelling(info, [encoder_factory_ supportedCodecs]); // MAVERICKS_BACKPORT: see above.
   id<RTCVideoEncoder> encoder = [encoder_factory_ createEncoder:info];
   // Because of symbol conflict, isKindOfClass doesn't work as expected.
   // See https://bugs.webkit.org/show_bug.cgi?id=198782.

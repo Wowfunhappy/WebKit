@@ -642,11 +642,17 @@ static NSDictionary *wk_propertiesWithSameSiteEncoded(NSDictionary *properties)
         policy = nil;
     }
     NSString *created = wk_createdFieldOfProperties(properties);
-    if (!policy && !created)
+    // 10.9's NSHTTPCookie drops a property it does not know: SetInJavaScript is gone from -properties
+    // before the cookie is stored, and it is what selects the cookies
+    // NetworkStorageSession::deleteCookiesForHostnames(ScriptWrittenCookiesOnly::Yes) removes. It rides
+    // in the blob with the other two.
+    NSString *setInJavaScript = properties[@"SetInJavaScript"] ? @"1" : nil;
+    if (!policy && !created && !setInJavaScript)
         return properties;
 
     NSMutableDictionary *translated = [[properties mutableCopy] autorelease];
     [translated removeObjectForKey:NSHTTPCookieSameSitePolicy];
+    [translated removeObjectForKey:@"SetInJavaScript"];
     // 10.9's own record cannot carry a creation time a caller chose: whatever the key names, the cookie
     // comes back reporting 1, and a cookie whose creation time reads as 1 sorts ahead of every other
     // cookie of its path in the order RFC 6265 5.4 composes the Cookie header in. Dropping the key
@@ -655,7 +661,7 @@ static NSDictionary *wk_propertiesWithSameSiteEncoded(NSDictionary *properties)
     [translated removeObjectForKey:@"Created"];
 
     id comment = properties[NSHTTPCookieComment];
-    CFStringRef encoded = wk_cookieBlobCreate((CFStringRef)policy, (CFStringRef)created,
+    CFStringRef encoded = wk_cookieBlobCreate((CFStringRef)policy, (CFStringRef)created, (CFStringRef)setInJavaScript,
         [comment isKindOfClass:[NSString class]] ? (CFStringRef)comment : NULL);
     // Text with no encoding -- a lone surrogate, which a script can put in a comment -- leaves the
     // cookie as the caller wrote it, carrying what 10.9 carries for every cookie.
@@ -788,7 +794,8 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookie)
         return properties;
     NSString *sameSite = [(NSString *)wk_sameSiteCopyValue((CFStringRef)comment) autorelease];
     NSString *created = [(NSString *)wk_cookieBlobCopyCreated((CFStringRef)comment) autorelease];
-    if (!sameSite && !created)
+    NSString *setInJavaScript = [(NSString *)wk_cookieBlobCopySetInJavaScript((CFStringRef)comment) autorelease];
+    if (!sameSite && !created && !setInJavaScript)
         return properties;
 
     NSMutableDictionary *decoded = [[properties mutableCopy] autorelease];
@@ -801,6 +808,8 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookie)
         decoded[NSHTTPCookieSameSitePolicy] = sameSite;
     if (created)
         decoded[@"Created"] = @([created doubleValue]);
+    if (setInJavaScript)
+        decoded[@"SetInJavaScript"] = @1;
     return decoded;
 #pragma clang diagnostic pop
 }
@@ -2297,6 +2306,76 @@ WK_POLYFILL_ADD_METHODS(NSURLProtectionSpace)
 }
 @end
 
+// -[NSURLProtectionSpace authenticationMethod] and the two designated initializers, in step with the
+// NSURLAuthenticationMethodHTTPBasic value in c/Foundation.m. 10.9's Foundation gives that constant
+// the value of NSURLAuthenticationMethodDefault, so it names a Basic challenge a default one and
+// takes the modern value back as a method it does not know. The CF space underneath carries the
+// scheme the server named as a number -- Default 1, Basic 2 -- so the getter reports Basic from it,
+// and an initializer handed the modern value builds a space that answers 2.
+enum {
+    kWKProtectionSpaceSchemeDefault = 1,
+    kWKProtectionSpaceSchemeHTTPBasic = 2,
+};
+
+static WKURLProtectionSpaceRef wk_cfProtectionSpace(id space)
+{
+    static SEL cfSpaceSelector;
+    if (!cfSpaceSelector)
+        cfSpaceSelector = sel_registerName("_cfurlprtotectionspace");
+    return ((WKURLProtectionSpaceRef (*)(id, SEL))objc_msgSend)(space, cfSpaceSelector);
+}
+
+// `space` with its scheme set to Basic, consuming the reference it was passed.
+static id wk_protectionSpaceAsHTTPBasic(id space)
+{
+    WKURLProtectionSpaceRef cfSpace = space ? wk_cfProtectionSpace(space) : NULL;
+    if (!cfSpace)
+        return space;
+    CFTypeRef basic = wk_createProtectionSpace(CFURLProtectionSpaceGetHost(cfSpace), CFURLProtectionSpaceGetPort(cfSpace),
+        CFURLProtectionSpaceGetServerType(cfSpace), CFURLProtectionSpaceGetRealm(cfSpace), kWKProtectionSpaceSchemeHTTPBasic,
+        NULL, NULL);
+    if (!basic)
+        return space;
+    static SEL initWithCFSpaceSelector;
+    if (!initWithCFSpaceSelector)
+        initWithCFSpaceSelector = sel_registerName("_initWithCFURLProtectionSpace:");
+    id result = ((id (*)(id, SEL, CFTypeRef))objc_msgSend)([NSURLProtectionSpace alloc], initWithCFSpaceSelector, basic);
+    CFRelease(basic);
+    if (!result)
+        return space;
+    [space release];
+    return result;
+}
+
+WK_POLYFILL_REPLACE_METHODS(NSURLProtectionSpace)
+- (NSString *)authenticationMethod
+{
+    WKURLProtectionSpaceRef cfSpace = wk_cfProtectionSpace(self);
+    if (cfSpace && CFURLProtectionSpaceGetAuthenticationScheme(cfSpace) == kWKProtectionSpaceSchemeHTTPBasic)
+        return NSURLAuthenticationMethodHTTPBasic;
+    return WK_ORIGINAL_METHOD(NSString *, ());
+}
+
+- (instancetype)initWithHost:(NSString *)host port:(NSInteger)port protocol:(NSString *)protocol realm:(NSString *)realm authenticationMethod:(NSString *)authenticationMethod
+{
+    id space = WK_ORIGINAL_METHOD(id, (NSString *, NSInteger, NSString *, NSString *, NSString *),
+        host, port, protocol, realm, authenticationMethod);
+    if ([authenticationMethod isEqualToString:NSURLAuthenticationMethodHTTPBasic])
+        return wk_protectionSpaceAsHTTPBasic(space);
+    return space;
+}
+
+- (instancetype)initWithProxyHost:(NSString *)host port:(NSInteger)port type:(NSString *)type realm:(NSString *)realm authenticationMethod:(NSString *)authenticationMethod
+{
+    id space = WK_ORIGINAL_METHOD(id, (NSString *, NSInteger, NSString *, NSString *, NSString *),
+        host, port, type, realm, authenticationMethod);
+    if ([authenticationMethod isEqualToString:NSURLAuthenticationMethodHTTPBasic])
+        return wk_protectionSpaceAsHTTPBasic(space);
+    return space;
+}
+@end
+
+
 WK_POLYFILL_ADD_METHODS(NSURLCredential)
 - (NSDictionary *)_webKitPropertyListData
 {
@@ -2646,6 +2725,7 @@ static void wk_bindDownloadTaskToFile(id task, NSString *path)
 // any OS variant whose concrete tasks do inherit from it.
 static const void *const wk_taskPriorityKey = &wk_taskPriorityKey;
 static const void *wk_taskIsPreconnectKey = &wk_taskIsPreconnectKey;
+static const void *const wk_taskCookieTransformKey = &wk_taskCookieTransformKey;
 
 WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSURLSessionTask", "__NSCFURLSessionTask")
 // -priority/-setPriority: (10.10+). 10.9's URL loading has no per-task scheduling priority, so the value
@@ -2693,15 +2773,26 @@ WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSURLSessionTask", "__NSCFURLSessionTask")
         countSelector = sel_registerName("countOfBytesReceived");
     return ((int64_t (*)(id, SEL))objc_msgSend)(self, countSelector);
 }
-// Per-task cookie controls (10.13+). 10.9's CFNetwork has no per-task cookie storage and no
-// cookie-transform hook, so each of these accepts and discards -- the same thing the real API does on a
-// system without the feature behind it. The visible consequence is that tracking prevention cannot swap
-// a task onto a stateless jar.
+// Per-task cookie controls (10.13+). 10.9's CFNetwork has no per-task cookie storage, so the explicit
+// storage accepts and discards -- the same thing the real API does on a system without the feature
+// behind it. The visible consequence is that tracking prevention cannot swap a task onto a stateless jar.
+//
+// The transform is a real property, because a getter answers what the setter stored whatever the system
+// underneath does with it. 10.13+ CFNetwork runs the block over the cookies a response set before storing
+// them; 10.9's CFNetwork keeps that step to itself, and the block's own inputs are absent here anyway --
+// -_resolvedCNAMEChain below answers nil because 10.9 resolves no CNAME chain, and with no per-task
+// metrics there is no peer address either, so the cap it would decide never has a subject.
 // -_setExplicitCookieStorage: has no polyfill: a 10.9 task cannot be re-pointed at a cookie jar once it
 // exists (measured -- see NetworkTaskCocoa::blockCookies, which withholds cookies on the request
 // instead), and nothing in this port calls it.
-- (void)set_cookieTransformCallback:(id)callback { (void)callback; }
-- (id)_cookieTransformCallback { return nil; }
+- (void)set_cookieTransformCallback:(id)callback
+{
+    objc_setAssociatedObject(self, wk_taskCookieTransformKey, callback, OBJC_ASSOCIATION_COPY_NONATOMIC);
+}
+- (id)_cookieTransformCallback
+{
+    return objc_getAssociatedObject(self, wk_taskCookieTransformKey);
+}
 - (void)set_siteForCookies:(id)site { (void)site; }
 - (void)set_isTopLevelNavigation:(BOOL)value { (void)value; }
 // -_pathToDownloadTaskFile is declared on NSURLSessionTask (CFNetworkSPI.h) and WebKit sets it through
@@ -2723,21 +2814,23 @@ WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSURLSessionTask", "__NSCFURLSessionTask")
 @end
 
 // ---------------------------------------------------------------------------------------------------
-// +[NSLocale matchedLanguagesFromAvailableLanguages:forPreferredLanguages:] (#68) is
-// 10.12+. WTF::indexOfBestMatchingLanguageInList (Source/WTF/wtf/cocoa/LanguageCocoa.mm) calls it
-// UNCONDITIONALLY to pick the best caption/subtitle-track language, so on 10.9 the absent selector throws
-// (unrecognized selector -> SIGILL) the instant any media element's caption menu is built
-// (CaptionUserPreferencesMediaAF::sortedTrackListForMenu).
+// +[NSLocale matchedLanguagesFromAvailableLanguages:forPreferredLanguages:] (#68) is 10.12+.
+// WTF::indexOfBestMatchingLanguageInList (Source/WTF/wtf/cocoa/LanguageCocoa.mm) sends it
+// unconditionally to pick the best caption/subtitle-track language.
 //
 // We reproduce the 10.12+ contract faithfully: return the availableLanguages that GENUINELY match a
 // preferred language (BCP-47 primary language subtag, canonicalized), in preference order, and an EMPTY
-// array when none match. The empty-on-no-match behaviour is load-bearing: callers such as
-// CaptionUserPreferencesMediaAF (matchesDefaultLanguage / sortedTrackListForMenu),
-// AccessibilitySVGObject and WebExtension test `if (![matched count]) return notFound;` (or negate the
-// index) and would otherwise treat a non-matching language as a match. +[NSBundle
-// preferredLocalizationsFromArray:forPreferences:] (10.0+) does the same BCP-47 best-match and returns
-// entries verbatim from availableLanguages, BUT it falls back to the development region (the first
-// available language) when nothing matches, so its result must be filtered down to real language matches.
+// array when none match. Callers read the emptiness as the answer: CaptionUserPreferencesMediaAF
+// (matchesDefaultLanguage / sortedTrackListForMenu), AccessibilitySVGObject and WebExtension all test
+// `if (![matched count]) return notFound;`, or negate the index.
+//
+// +[NSBundle preferredLocalizationsFromArray:forPreferences:] (10.0+) supplies the exact and dialect
+// ranking, and returns entries verbatim from availableLanguages, with two 10.9 behaviours to handle:
+// it falls back to the development region (the first available language) on a total no-match, and it
+// matches a regional preference only against the bare language tag -- for preferred "es-MX" against
+// available ["es-ES"] it answers with the fallback, where 10.12+ answers "es-ES". So its result is
+// filtered down to entries whose primary subtag really is the preferred one, and every remaining
+// available language sharing that subtag follows it, in availableLanguages order.
 static NSString *wk_primaryLanguageSubtag(NSString *languageTag)
 {
     if (![languageTag isKindOfClass:[NSString class]] || !languageTag.length)
@@ -2753,27 +2846,24 @@ static NSString *wk_primaryLanguageSubtag(NSString *languageTag)
 WK_POLYFILL_ADD_METHODS(NSLocale)
 + (NSArray<NSString *> *)matchedLanguagesFromAvailableLanguages:(NSArray<NSString *> *)availableLanguages forPreferredLanguages:(NSArray<NSString *> *)preferredLanguages
 {
-    NSArray *ordered = [NSBundle preferredLocalizationsFromArray:availableLanguages forPreferences:preferredLanguages];
-    if (!ordered.count)
-        return @[];
-    NSMutableSet *preferredCodes = [NSMutableSet set];
-    for (NSString *preferred in preferredLanguages) {
-        NSString *code = wk_primaryLanguageSubtag(preferred);
-        if (code)
-            [preferredCodes addObject:code];
-    }
-    // Keep only entries that are (a) genuine members of availableLanguages and (b) whose primary language
-    // subtag is actually among the preferred languages. (a) drops the value preferredLocalizationsFromArray:
-    // echoes back when availableLanguages is empty (it returns the preferred string itself, which is NOT a
-    // member); (b) drops the development-region fallback it adds on a non-empty total no-match. Together they
-    // reproduce +matchedLanguagesFromAvailableLanguages:'s empty-on-no-match result and guarantee every
-    // returned entry is a member of availableLanguages (WTF::indexOfBestMatchingLanguageInList relies on
-    // languageList.find(firstObject) resolving).
+    // Both filters below also guarantee that every returned entry is a member of availableLanguages,
+    // which WTF::indexOfBestMatchingLanguageInList relies on: it resolves languageList.find(firstObject)
+    // into an index. (preferredLocalizationsFromArray: echoes the preference itself back when
+    // availableLanguages is empty, and that string is not a member.)
     NSMutableArray *matched = [NSMutableArray array];
-    for (NSString *available in ordered) {
-        NSString *code = wk_primaryLanguageSubtag(available);
-        if (code && [preferredCodes containsObject:code] && [availableLanguages containsObject:available])
-            [matched addObject:available];
+    for (NSString *preferred in preferredLanguages) {
+        NSString *preferredCode = wk_primaryLanguageSubtag(preferred);
+        if (!preferredCode)
+            continue;
+        for (NSString *candidate in [NSBundle preferredLocalizationsFromArray:availableLanguages forPreferences:@[ preferred ]]) {
+            if ([preferredCode isEqualToString:wk_primaryLanguageSubtag(candidate)]
+                && [availableLanguages containsObject:candidate] && ![matched containsObject:candidate])
+                [matched addObject:candidate];
+        }
+        for (NSString *candidate in availableLanguages) {
+            if ([preferredCode isEqualToString:wk_primaryLanguageSubtag(candidate)] && ![matched containsObject:candidate])
+                [matched addObject:candidate];
+        }
     }
     return matched;
 }
@@ -2841,15 +2931,30 @@ WK_POLYFILL_ADD_METHODS(NSKeyedUnarchiver)
 // separates the two failures: everything up to the spool file existing leaves the stream untouched and
 // the request is still the caller's to hand on, and only once the stream has been opened does a failure
 // have to become a failed load.
+
+// The caller-set body length, or -1 when the field is absent or is not a run of digits -- a value that
+// does not name a length leaves the request to the implementation this stands in for, whole. Zero is a
+// length like any other: an XHR send("") declares it, and spooling that to an empty file is what puts
+// "Content-Length: 0" on the wire where a zero-length stream body carries nothing at all.
+static long long wk_requestContentLength(NSURLRequest *request)
+{
+    NSString *value = [request valueForHTTPHeaderField:@"Content-Length"];
+    if (![value length])
+        return -1;
+    for (NSUInteger i = 0; i < value.length; i++) {
+        unichar c = [value characterAtIndex:i];
+        if (c < '0' || c > '9')
+            return -1;
+    }
+    return [value longLongValue];
+}
+
 static NSURL *wk_spoolStreamBodyToFile(NSURLRequest *request, NSString **pathOut, BOOL *streamWasRead)
 {
     *streamWasRead = NO;
     NSInputStream *stream = [request HTTPBodyStream];
-    NSString *lengthHeader = [request valueForHTTPHeaderField:@"Content-Length"];
-    if (!stream || ![lengthHeader length])
-        return nil;
-    long long expected = [lengthHeader longLongValue];
-    if (expected <= 0)
+    long long expected = wk_requestContentLength(request);
+    if (!stream || expected < 0)
         return nil;
 
     // mkstemp, not pid+pointer: NSURLRequest addresses are recycled, so a name derived from one can
@@ -2916,8 +3021,7 @@ static id wk_urlSession_spooledUploadTask(id self, NSURLRequest *request, BOOL *
     *spoolFailed = NO;
     // Nothing to substitute (no stream body, or no caller-set length).
     NSInputStream *bodyStream = [request HTTPBodyStream];
-    NSString *lengthHeader = [request valueForHTTPHeaderField:@"Content-Length"];
-    if (!bodyStream || ![lengthHeader length] || [lengthHeader longLongValue] <= 0)
+    if (!bodyStream || wk_requestContentLength(request) < 0)
         return nil;
 
     NSString *path = nil;

@@ -79,11 +79,12 @@ _GST_DEFINE_COMPONENT(GSTREAMER_FFT      libgstfft-1.0.dylib)
 _GST_DEFINE_COMPONENT(GSTREAMER_ALLOCATORS libgstallocators-1.0.dylib)
 _GST_DEFINE_COMPONENT(GSTREAMER_RTP    libgstrtp-1.0.dylib)
 _GST_DEFINE_COMPONENT(GSTREAMER_SDP    libgstsdp-1.0.dylib)
-# Components the Mac/software build does not use are left empty (GL, mpegts, codecparsers, etc.).
+# MPEG-TS section parsing, which the media player reads in-band metadata tracks from; the
+# native HLS support this port ships carries MPEG-TS segments.
+_GST_DEFINE_COMPONENT(GSTREAMER_MPEGTS  libgstmpegts-1.0.dylib)
+# Components the Mac/software build does not use are left empty (GL, codecparsers, etc.).
 set(GSTREAMER_GL_INCLUDE_DIRS "")
 set(GSTREAMER_GL_LIBRARIES "")
-set(GSTREAMER_MPEGTS_INCLUDE_DIRS "")
-set(GSTREAMER_MPEGTS_LIBRARIES "")
 set(GSTREAMER_CODECPARSERS_INCLUDE_DIRS "")
 set(GSTREAMER_CODECPARSERS_LIBRARIES "")
 

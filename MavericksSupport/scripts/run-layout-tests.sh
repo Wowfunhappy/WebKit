@@ -18,6 +18,10 @@
 # Usage:  bash MavericksSupport/scripts/run-layout-tests.sh --wk1|--wk2 [run-webkit-tests args] <test paths...>
 #   e.g.  bash MavericksSupport/scripts/run-layout-tests.sh --wk1 storage/domstorage/localstorage/
 #         bash MavericksSupport/scripts/run-layout-tests.sh --wk2 --child-processes=2 fast/dom/ fast/css/
+#         bash MavericksSupport/scripts/run-layout-tests.sh --wk2 --port-surface
+#
+# --port-surface runs the suite in MavericksSupport/tests/port-surface/layout-tests.txt: the tests
+# whose behaviour crosses into the parts of this port that differ from Apple's.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
@@ -44,14 +48,37 @@ fi
 # compositor race and takes the login session down. So reap stale build-tree test processes before
 # starting AND on every exit (both drivers, whichever port), and refuse more than 2 parallel workers.
 reap_test_orphans() {
-    pkill -9 -f "WebKitBuild/Release/bin/DumpRenderTree" 2>/dev/null
-    pkill -9 -f "WebKitBuild/Release/bin/WebKitTestRunner" 2>/dev/null
+    # Anchored at argv[0]: an unanchored pattern also matches helpers that merely carry a driver's
+    # path in their arguments, and reaping one of those kills another run's setup step.
+    pkill -9 -f "^$ROOT/WebKitBuild/Release/bin/DumpRenderTree" 2>/dev/null
+    pkill -9 -f "^$ROOT/WebKitBuild/Release/bin/WebKitTestRunner" 2>/dev/null
     pkill -9 -f "WebKitBuild/Release/.*com\.apple\.WebKit\.(WebContent|Networking)" 2>/dev/null
     return 0
 }
+
+# One run at a time: the reap above kills every driver on the machine, the http/wpt servers own fixed
+# ports, and the results directory is shared, so a second invocation waits for the first to finish.
+# The lock is a directory (bash 3.2 has no flock) holding the owner's pid, and is stale once that pid
+# is gone.
+LOCK="$ROOT/WebKitBuild/Release/bin/.run-layout-tests.lock"
+until mkdir "$LOCK" 2>/dev/null; do
+    owner=$(cat "$LOCK/pid" 2>/dev/null)
+    if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
+        rm -rf "$LOCK"
+        continue
+    fi
+    echo "waiting: another run-layout-tests.sh (pid ${owner:-?}) is running" >&2
+    sleep 15
+done
+echo $$ > "$LOCK/pid"
+cleanup() {
+    reap_test_orphans
+    rm -rf "$LOCK"
+}
 reap_test_orphans
-trap reap_test_orphans EXIT INT TERM
+trap cleanup EXIT INT TERM
 WORKERS="--child-processes=2"
+ARGS=()
 for arg in "$@"; do
     case "$arg" in
         --child-processes=*)
@@ -60,9 +87,13 @@ for arg in "$@"; do
                 echo "ERROR: --child-processes=$n refused — >2 parallel workers can crash 10.9's WindowServer (grey screen, session logout). Use --child-processes=2." >&2
                 exit 1
             fi
-            WORKERS="";;
+            WORKERS=""; ARGS+=("$arg");;
+        --port-surface)
+            ARGS+=("--test-list=$ROOT/MavericksSupport/tests/port-surface/layout-tests.txt");;
+        *) ARGS+=("$arg");;
     esac
 done
+set -- ${ARGS[@]+"${ARGS[@]}"}
 
 # --- Make the in-place build products loadable ---------------------------------------------------
 if ! bash "$ROOT/MavericksSupport/scripts/make-build-binaries-runnable.sh"; then
@@ -72,13 +103,17 @@ fi
 
 # --- Run ------------------------------------------------------------------------------------------
 
-# point the leaf-name libpolyfill_classes.dylib resolution at OUR repo's polyfill build dir
-# (NOT /usr/local/lib, NOT a system path). This matters only when the Safari 7 backport is ALSO installed
-# system-wide: the test driver links Quartz, which transitively loads the SYSTEM (installed-backport)
-# JavaScriptCore.framework and its bundled libpolyfill_classes.dylib. Without this, the build's @rpath copy and
-# the system framework's bundled copy are two different files => duplicate ObjC class registration => crash. The
-# leaf override unifies both loads onto the single repo copy. Self-contained to the repo; never written to /usr.
-export DYLD_LIBRARY_PATH="$ROOT/MavericksSupport/polyfill/build${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+# The drivers link Quartz, which transitively loads the SYSTEM (installed-backport) WebKit stack. Left
+# alone dyld makes a second image of every framework the build tree also provides -- two JavaScriptCore,
+# two WebCore, two of the private GStreamer runtime -- and two GObject type systems answer GST_TYPE_CAPS
+# differently, so pad templates come back with null caps and the first caps intersection dereferences one.
+#
+# run-webkit-tests puts --root on DYLD_FRAMEWORK_PATH, and this port builds its frameworks into lib/ while
+# --root names bin/ (which holds only WebInspectorUI.framework), so dyld has nothing to substitute. Naming
+# lib/ here gives it the substitution: exactly one image of each framework loads, and the driver appends
+# its own --root path after ours.
+export DYLD_FRAMEWORK_PATH="$ROOT/WebKitBuild/Release/lib${DYLD_FRAMEWORK_PATH:+:$DYLD_FRAMEWORK_PATH}"
+export __XPC_DYLD_FRAMEWORK_PATH="$DYLD_FRAMEWORK_PATH"
 
 # No exec: the runner must stay our child so the EXIT trap can reap orphans even
 # when this wrapper is interrupted.

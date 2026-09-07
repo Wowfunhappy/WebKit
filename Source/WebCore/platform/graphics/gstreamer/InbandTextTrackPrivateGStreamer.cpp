@@ -74,6 +74,22 @@ InbandTextTrackPrivateGStreamer::InbandTextTrackPrivateGStreamer(unsigned index,
     m_kind = doCapsHaveType(caps.get(), "closedcaption/"_s) ? Kind::Captions : Kind::Subtitles;
 }
 
+// MAVERICKS_BACKPORT: the track the container marks to play by default, from the stream-start flags.
+bool InbandTextTrackPrivateGStreamer::isDefault() const
+{
+    auto pad = this->pad();
+    if (!pad)
+        return false;
+
+    auto streamStart = adoptGRef(gst_pad_get_sticky_event(pad.get(), GST_EVENT_STREAM_START, 0));
+    if (!streamStart)
+        return false;
+
+    GstStreamFlags flags = GST_STREAM_FLAG_NONE;
+    gst_event_parse_stream_flags(streamStart.get(), &flags);
+    return flags & GST_STREAM_FLAG_SELECT;
+}
+
 void InbandTextTrackPrivateGStreamer::tagsChanged(GRefPtr<GstTagList>&& tags)
 {
     ASSERT(isMainThread());

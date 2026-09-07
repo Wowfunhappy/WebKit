@@ -1,0 +1,9 @@
+# The port-surface API tests, run by MavericksSupport/scripts/run-api-tests.sh --port-surface.
+#
+#   run <binary>                          the binary runs in full
+#   <binary> <Suite.Test> [ Skip ]        the test is left out of every run
+#   <binary> <Suite.Test> [ Failure ]     a failure is the expected result; a pass is reported
+
+run TestWTF
+run TestWebCore
+run TestWebKitCocoa WKHTTPCookieStore.*:WebSocket.*:Challenge.*:WebKit.Cookie*:WebKit.ServerTrust:WebKit.FastServerTrust:WebKit.ErrorSecureCoding

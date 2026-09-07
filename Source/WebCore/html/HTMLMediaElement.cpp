@@ -1913,7 +1913,13 @@ void HTMLMediaElement::loadResource(const URL& initialURL, const ContentType& in
     }
 
     URL url = initialURL;
-#if PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: which arm applies follows the media engine. The branch below asks the
+    // resource-load delegate about file: URLs only, for the AVFoundation engine that asks its own
+    // loader about the rest; the GStreamer engine this port builds puts every URL to the delegate,
+    // which is what gives a load the delegate refuses the outcome it has on the other GStreamer
+    // ports -- a format error before the engine starts, rather than an engine-level read failure.
+    // #if PLATFORM(COCOA)
+#if PLATFORM(COCOA) && !USE(GSTREAMER)
     if (url.protocolIsFile() && !frame->loader().willLoadMediaElementURL(url, *this)) {
         mediaLoadingFailed(MediaPlayer::NetworkState::FormatError);
         return;

@@ -30,6 +30,8 @@
 
 #include "Logging.h"
 #include "MediaRecorderPrivateWriterAVFObjC.h"
+// MAVERICKS_BACKPORT: the MP4 writer below AVAssetWriterDelegate.
+#include "MediaRecorderPrivateWriterMP4.h"
 #include "MediaRecorderPrivateWriterWebM.h"
 #include "MediaSample.h"
 #include "MediaSamplesBlock.h"
@@ -64,10 +66,11 @@ std::unique_ptr<MediaRecorderPrivateWriter> MediaRecorderPrivateWriter::create(M
 {
     switch (type) {
     case MediaRecorderContainerType::Mp4:
-#if HAVE(AVASSETWRITER_DELEGATE) // MAVERICKS_BACKPORT: the MP4 writer needs the macOS 11+ segment-emitting AVAssetWriter.
+#if HAVE(AVASSETWRITER_DELEGATE) // MAVERICKS_BACKPORT: selects between the two MP4 writers.
         return MediaRecorderPrivateWriterAVFObjC::create(listener);
-#else
-        return nullptr;
+#else // MAVERICKS_BACKPORT: AVAssetWriter emits no segments here, so the fragmented-MP4 writer this
+      // port builds packages the encoder's frames instead.
+        return MediaRecorderPrivateWriterMP4::create(listener);
 #endif
 #if ENABLE(MEDIA_RECORDER_WEBM)
     case MediaRecorderContainerType::WebM:

@@ -1,0 +1,85 @@
+# The port-surface layout-test suite: every suite whose behaviour crosses from WebCore into the
+# parts of this port that differ from Apple's -- the 10.9 system frameworks, the polyfill layer,
+# the vendored dependencies and the process model. Rendering and layout suites are upstream code
+# running unchanged and stay out.
+#
+# Format: run-webkit-tests --test-list (one test or directory per line). Expectations for the
+# tests listed here live in LayoutTests/platform/mac-mavericks-wk1 and mac-mavericks-wk2.
+# Run with:  bash MavericksSupport/scripts/run-layout-tests.sh --wk1|--wk2 --port-surface
+
+# Cookies: NSHTTPCookieStorage on 10.9 and the cookie polyfills
+imported/w3c/web-platform-tests/cookies
+imported/w3c/web-platform-tests/cookiestore
+fast/cookies
+
+# Networking: CFNetwork on 10.9, the network process, the loader. The inspector suites under
+# http/tests are skipped in the platform expectations: this port runs Safari 7's own frontend.
+http/tests
+http/wpt
+imported/w3c/web-platform-tests/fetch
+imported/w3c/web-platform-tests/xhr
+imported/w3c/web-platform-tests/beacon
+imported/w3c/web-platform-tests/eventsource
+imported/w3c/web-platform-tests/resource-timing
+imported/w3c/web-platform-tests/websockets
+imported/w3c/web-platform-tests/url
+imported/w3c/web-platform-tests/compression
+fast/xmlhttprequest
+fast/eventsource
+fast/loader
+fast/url
+
+# Web Audio and media capture: CoreAudio, AudioToolbox, the GStreamer engine, the capture units
+webaudio
+imported/w3c/web-platform-tests/webaudio
+fast/mediastream
+fast/mediacapturefromelement
+fast/mediasession
+imported/w3c/web-platform-tests/mediacapture-streams
+imported/w3c/web-platform-tests/mediacapture-record
+imported/w3c/web-platform-tests/mediacapture-fromelement
+imported/w3c/web-platform-tests/mediasession
+
+# Media playback: GStreamer, MSE, EME, VideoToolbox
+media
+imported/w3c/web-platform-tests/media-source
+imported/w3c/web-platform-tests/encrypted-media
+imported/w3c/web-platform-tests/html/semantics/embedded-content/media-elements
+imported/w3c/web-platform-tests/webcodecs
+fast/webcodecs
+
+# WebRTC: libwebrtc with the Cocoa glue, the capture devices
+webrtc
+imported/w3c/web-platform-tests/webrtc
+imported/w3c/web-platform-tests/webrtc-encoded-transform
+imported/w3c/web-platform-tests/webrtc-extensions
+imported/w3c/web-platform-tests/webrtc-stats
+imported/w3c/web-platform-tests/webrtc-priority
+
+# Crypto: the vendored libraries behind WebCrypto
+crypto
+imported/w3c/web-platform-tests/WebCryptoAPI
+
+# Storage: SQLite, the file system, the storage process paths
+storage
+fast/storage
+fast/files
+imported/w3c/web-platform-tests/IndexedDB
+imported/w3c/web-platform-tests/storage
+imported/w3c/web-platform-tests/FileAPI
+
+# Workers and service workers: the process model
+fast/workers
+imported/w3c/web-platform-tests/workers
+imported/w3c/web-platform-tests/service-workers
+
+# Notifications and push
+imported/w3c/web-platform-tests/notifications
+imported/w3c/web-platform-tests/push-api
+
+# Graphics through the polyfilled CoreGraphics and ImageIO
+fast/canvas
+fast/images
+
+# Text encoding
+fast/encoding

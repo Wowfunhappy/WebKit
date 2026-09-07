@@ -143,10 +143,15 @@ typedef NS_ENUM(NSInteger, WKWSState) {
     BOOL _isTopLevelNavigation;
     NSArray<NSHTTPCookie *> *(^_cookieTransform)(NSArray<NSHTTPCookie *> *);
 
+    NSInteger _maximumMessageSize;  // largest message this task will assemble
+
     NSLock *_lock;                  // guards the receive plumbing below
     NSMutableArray *_incomingMessages;
     void (^_pendingReceive)(NSURLSessionWebSocketMessage *, NSError *);
     NSError *_pendingError;
+    BOOL _hasPendingClose;          // a close held back until the queued messages have been handed out
+    uint16_t _pendingCloseCode;
+    NSData *_pendingCloseReason;
 }
 - (instancetype)initWithRequest:(NSURLRequest *)request protocol:(NSString *)protocol session:(NSURLSession *)session taskIdentifier:(NSUInteger)identifier;
 @end
@@ -421,6 +426,7 @@ static void wsDispatchToCallbackQueue(NSURLSession *session, void (^work)(void))
     _outBuffer = [NSMutableData data];
     _messageBuffer = [NSMutableData data];
     _incomingMessages = [NSMutableArray array];
+    _maximumMessageSize = 1024 * 1024;
     _lock = [[NSLock alloc] init];
     _ioQueue = dispatch_queue_create("com.apple.WebKit.LegacyWebSocket", DISPATCH_QUEUE_SERIAL);
     return self;
@@ -440,7 +446,11 @@ static void wsDispatchToCallbackQueue(NSURLSession *session, void (^work)(void))
 - (NSURLRequest *)originalRequest { return _originalRequest; }
 - (NSURLResponse *)response { return _response; }
 - (NSInteger)closeCode { return _closeCode; }
-- (void)setMaximumMessageSize:(NSInteger)size { (void)size; }
+// The largest message a receive will assemble, 1 MiB by default as NSURLSessionWebSocketTask's is; a
+// frame, or a fragmented message, that would exceed it fails the receive with
+// NSURLErrorDataLengthExceedsMaximum. A limit of 0 or less means no limit.
+- (void)setMaximumMessageSize:(NSInteger)size { _maximumMessageSize = size; }
+- (NSInteger)maximumMessageSize { return _maximumMessageSize; }
 // What the session delegate reads off a task while it answers for it: its state, and the two
 // transfer-detail properties NetworkSessionCocoa consults on a challenge. 10.9 collects no task metrics
 // (see -[NSURLConnection _timingData] in methods/Foundation.m) and this port makes no preconnect, so
@@ -519,21 +529,35 @@ static void wsDispatchToCallbackQueue(NSURLSession *session, void (^work)(void))
     });
 }
 
+// Messages the peer sent are handed out before any close or error that followed them. WebKit stops
+// asking for more the moment either arrives (WebSocketTaskCocoa's readNextMessage), so a queue drained
+// in the other order loses every message that shared a read with the peer's Close frame.
 - (void)receiveMessageWithCompletionHandler:(void (^)(NSURLSessionWebSocketMessage *, NSError *))handler
 {
     [_lock lock];
-    if (_pendingError) {
-        NSError *err = _pendingError;
-        _pendingError = nil;
-        [_lock unlock];
-        wsDispatchToCallbackQueue(_session, ^{ handler(nil, err); });
-        return;
-    }
     if (_incomingMessages.count) {
         NSURLSessionWebSocketMessage *msg = _incomingMessages.firstObject;
         [_incomingMessages removeObjectAtIndex:0];
-        [_lock unlock];
+        BOOL closeFollows = !_incomingMessages.count && _hasPendingClose;
+        uint16_t closeCode = _pendingCloseCode;
+        NSData *closeReason = _pendingCloseReason;
+        if (closeFollows) {
+            _hasPendingClose = NO;
+            _pendingCloseReason = nil;
+        }
+        // Enqueued while the lock is held: a close deciding stash-vs-dispatch in the gap would land on
+        // the delegate queue ahead of this message.
         wsDispatchToCallbackQueue(_session, ^{ handler(msg, nil); });
+        if (closeFollows)
+            [self dispatchDidCloseWithCode:closeCode reason:closeReason];
+        [_lock unlock];
+        return;
+    }
+    if (_pendingError) {
+        NSError *err = _pendingError;
+        _pendingError = nil;
+        wsDispatchToCallbackQueue(_session, ^{ handler(nil, err); });
+        [_lock unlock];
         return;
     }
     _pendingReceive = [handler copy];
@@ -574,11 +598,11 @@ static void wsDispatchToCallbackQueue(NSURLSession *session, void (^work)(void))
     [_lock lock];
     void (^handler)(NSURLSessionWebSocketMessage *, NSError *) = _pendingReceive;
     _pendingReceive = nil;
-    if (!handler)
-        [_incomingMessages addObject:message];
-    [_lock unlock];
     if (handler)
         wsDispatchToCallbackQueue(_session, ^{ handler(message, nil); });
+    else
+        [_incomingMessages addObject:message];
+    [_lock unlock];
 }
 
 - (void)deliverError:(NSError *)error
@@ -586,11 +610,11 @@ static void wsDispatchToCallbackQueue(NSURLSession *session, void (^work)(void))
     [_lock lock];
     void (^handler)(NSURLSessionWebSocketMessage *, NSError *) = _pendingReceive;
     _pendingReceive = nil;
-    if (!handler && !_pendingError)
-        _pendingError = error;
-    [_lock unlock];
     if (handler)
         wsDispatchToCallbackQueue(_session, ^{ handler(nil, error); });
+    else if (!_pendingError)
+        _pendingError = error;
+    [_lock unlock];
 }
 
 - (void)deliverDidOpenWithProtocol:(NSString *)protocol
@@ -606,6 +630,22 @@ static void wsDispatchToCallbackQueue(NSURLSession *session, void (^work)(void))
 }
 
 - (void)deliverDidCloseWithCode:(uint16_t)code reason:(NSData *)reason
+{
+    [_lock lock];
+    if (_incomingMessages.count) {
+        _hasPendingClose = YES;
+        _pendingCloseCode = code;
+        _pendingCloseReason = reason;
+        [_lock unlock];
+        return;
+    }
+    [self dispatchDidCloseWithCode:code reason:reason];
+    [_lock unlock];
+}
+
+// Called with _lock held, so the close keeps its place in the delegate queue relative to the messages
+// that preceded it.
+- (void)dispatchDidCloseWithCode:(uint16_t)code reason:(NSData *)reason
 {
     _closeCode = code;
     __weak id delegate = _delegate;
@@ -987,8 +1027,10 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
     NSString *parameters = (__bridge_transfer NSString *)CFURLCopyParameterString((__bridge CFURLRef)url, NULL);
     if (parameters.length)
         path = [NSString stringWithFormat:@"%@;%@", path, parameters];
+    // CFURLCopyQueryString answers nil for a URL with no '?' and an empty string for one whose query
+    // is empty, and WebSocketHandshake's resourceName() keeps the '?' in the second case.
     NSString *query = (__bridge_transfer NSString *)CFURLCopyQueryString((__bridge CFURLRef)url, NULL);
-    NSString *resource = query.length ? [NSString stringWithFormat:@"%@?%@", path, query] : path;
+    NSString *resource = query ? [NSString stringWithFormat:@"%@?%@", path, query] : path;
     // The port is omitted only when it is the default FOR THIS SCHEME, as WebSocketHandshake's
     // hostName() does: "ws://h:443" must send "Host: h:443", and "wss://h:80" must send "Host: h:80".
     BOOL defaultPort = (url.port == nil) || (url.port.unsignedIntValue == (_secure ? 443 : 80));
@@ -1068,27 +1110,163 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
         [self parseFrames];
 }
 
+// RFC 6455 4.1: "The HTTP version MUST be at least 1.1." The version is the status line up to its
+// first space; a major version alone is enough from 2 on.
+static BOOL wsParseIntegerRun(const uint8_t *bytes, NSUInteger length, int *value)
+{
+    if (!length)
+        return NO;
+    NSUInteger i = 0;
+    int sign = 1;
+    if (bytes[0] == '-' || bytes[0] == '+') {
+        sign = bytes[0] == '-' ? -1 : 1;
+        i = 1;
+        if (length == 1)
+            return NO;
+    }
+    long long accumulated = 0;
+    for (; i < length; i++) {
+        if (bytes[i] < '0' || bytes[i] > '9')
+            return NO;
+        accumulated = accumulated * 10 + (bytes[i] - '0');
+        if (accumulated > 2147483647LL)
+            return NO;
+    }
+    *value = (int)(sign * accumulated);
+    return YES;
+}
+
+static BOOL wsHeaderHasValidHTTPVersion(const uint8_t *line, NSUInteger length)
+{
+    static const char preamble[] = "HTTP/";
+    const NSUInteger preambleLength = 5;
+    if (length < preambleLength + 3 || memcmp(line, preamble, preambleLength))
+        return NO;
+
+    NSUInteger dot = preambleLength;
+    while (dot < length && line[dot] != '.')
+        dot++;
+    if (dot == length)
+        return NO;
+
+    int major = 0;
+    if (!wsParseIntegerRun(line + preambleLength, dot - preambleLength, &major))
+        return NO;
+
+    NSUInteger minorDigits = 0;
+    while (dot + 1 + minorDigits < length && line[dot + 1 + minorDigits] >= '0' && line[dot + 1 + minorDigits] <= '9')
+        minorDigits++;
+    int minor = 0;
+    if (!wsParseIntegerRun(line + dot + 1, minorDigits, &minor))
+        return NO;
+
+    return (major >= 1 && minor >= 1) || major >= 2;
+}
+
+// The status line the peer sent, validated as WebSocketHandshake::readStatusLine does: ASCII only, no
+// embedded null, CRLF-terminated within 1024 bytes, an HTTP version of at least 1.1, and a three-digit
+// status code. Returns NO and names the fault when any of that does not hold.
+- (BOOL)parseStatusLine:(NSData *)headerData statusCode:(NSInteger *)statusCode length:(NSUInteger *)lineLength
+{
+    static const NSUInteger maximumLength = 1024;
+    const uint8_t *raw = (const uint8_t *)headerData.bytes;
+    NSUInteger rawLength = headerData.length;
+    NSUInteger firstSpace = NSNotFound;
+    NSUInteger secondSpace = NSNotFound;
+    NSUInteger index = 0;
+
+    for (; index < rawLength; index++) {
+        uint8_t c = raw[index];
+        if (c == ' ') {
+            if (firstSpace == NSNotFound)
+                firstSpace = index;
+            else if (secondSpace == NSNotFound)
+                secondSpace = index;
+        } else if (!c) {
+            [self failProtocol:@"WebSocket handshake status line contains an embedded null"];
+            return NO;
+        } else if (c >= 0x80) {
+            [self failProtocol:@"WebSocket handshake status line contains a non-ASCII character"];
+            return NO;
+        } else if (c == '\n')
+            break;
+    }
+    if (index == rawLength) {
+        [self failProtocol:@"WebSocket handshake status line has no line ending"];
+        return NO;
+    }
+
+    NSUInteger length = index + 1;
+    if (length > maximumLength) {
+        [self failProtocol:@"WebSocket handshake status line is too long"];
+        return NO;
+    }
+    if (length < 2 || raw[index - 1] != '\r') {
+        [self failProtocol:@"WebSocket handshake status line does not end with CRLF"];
+        return NO;
+    }
+    if (firstSpace == NSNotFound || secondSpace == NSNotFound) {
+        [self failProtocol:@"WebSocket handshake status line has no response code"];
+        return NO;
+    }
+    if (!wsHeaderHasValidHTTPVersion(raw, firstSpace)) {
+        [self failProtocol:@"WebSocket handshake status line names an HTTP version below 1.1"];
+        return NO;
+    }
+    if (secondSpace - firstSpace - 1 != 3) {
+        [self failProtocol:@"WebSocket handshake status code is not three digits"];
+        return NO;
+    }
+    NSInteger code = 0;
+    for (NSUInteger i = firstSpace + 1; i < secondSpace; i++) {
+        if (raw[i] < '0' || raw[i] > '9') {
+            [self failProtocol:@"WebSocket handshake status code is not three digits"];
+            return NO;
+        }
+        code = code * 10 + (raw[i] - '0');
+    }
+    *statusCode = code;
+    *lineLength = length;
+    return YES;
+}
+
 - (BOOL)completeHandshakeWithHeaderData:(NSData *)headerData
 {
-    NSString *headerString = [[NSString alloc] initWithData:headerData encoding:NSISOLatin1StringEncoding];
-    NSArray<NSString *> *lines = [headerString componentsSeparatedByString:@"\r\n"];
-    if (!lines.count)
-        return [self handshakeFailed:0];
+    NSInteger statusCode = 0;
+    NSUInteger statusLineLength = 0;
+    if (![self parseStatusLine:headerData statusCode:&statusCode length:&statusLineLength])
+        return NO;
 
-    NSArray<NSString *> *statusParts = [lines.firstObject componentsSeparatedByString:@" "];
-    NSInteger statusCode = statusParts.count >= 2 ? [statusParts[1] integerValue] : 0;
+    NSString *headerString = [[NSString alloc] initWithData:[headerData subdataWithRange:NSMakeRange(statusLineLength, headerData.length - statusLineLength)]
+        encoding:NSISOLatin1StringEncoding];
+    NSArray<NSString *> *lines = [headerString componentsSeparatedByString:@"\r\n"];
 
     NSMutableDictionary<NSString *, NSString *> *responseHeaders = [NSMutableDictionary dictionary];
-    for (NSUInteger i = 1; i < lines.count; i++) {
-        NSRange colon = [lines[i] rangeOfString:@":"];
+    NSUInteger extensionsFields = 0;
+    NSUInteger acceptFields = 0;
+    NSUInteger protocolFields = 0;
+    for (NSString *line in lines) {
+        NSRange colon = [line rangeOfString:@":"];
         if (colon.location == NSNotFound)
             continue;
-        NSString *name = [[lines[i] substringToIndex:colon.location] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-        NSString *value = [[lines[i] substringFromIndex:colon.location + 1] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        NSString *name = [[line substringToIndex:colon.location] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        NSString *value = [[line substringFromIndex:colon.location + 1] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        // RFC 6455 4.1: each of these three answers exactly one of the client's own fields, so a
+        // response repeating any of them is not a handshake this side asked for.
+        if ([name caseInsensitiveCompare:@"Sec-WebSocket-Extensions"] == NSOrderedSame)
+            extensionsFields++;
+        else if ([name caseInsensitiveCompare:@"Sec-WebSocket-Accept"] == NSOrderedSame)
+            acceptFields++;
+        else if ([name caseInsensitiveCompare:@"Sec-WebSocket-Protocol"] == NSOrderedSame)
+            protocolFields++;
         // A header the response repeats -- Set-Cookie, above all -- is folded into one field value, as
         // NSHTTPURLResponse folds it; keeping only the last would drop every cookie but one.
         NSString *existing = responseHeaders[name];
         responseHeaders[name] = existing.length ? [existing stringByAppendingFormat:@", %@", value] : value;
+    }
+    if (extensionsFields > 1 || acceptFields > 1 || protocolFields > 1) {
+        [self failProtocol:@"WebSocket handshake response repeats a Sec-WebSocket header field"];
+        return NO;
     }
 
     _response = [[NSHTTPURLResponse alloc] initWithURL:_request.URL statusCode:statusCode HTTPVersion:@"HTTP/1.1" headerFields:responseHeaders];
@@ -1100,15 +1278,50 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
     if (statusCode != 101)
         return [self handshakeFailed:statusCode];
 
-    // Validate Sec-WebSocket-Accept. Use the response's (case-insensitive) header lookup since
-    // intermediaries — e.g. a Go reverse proxy — may canonicalize the name to "Sec-Websocket-Accept".
-    NSString *accept = [(NSHTTPURLResponse *)_response valueForHTTPHeaderField:@"Sec-WebSocket-Accept"];
-    if (![accept isEqualToString:_acceptKey])
-        return [self handshakeFailed:statusCode];
+    // The response's own (case-insensitive) header lookup is used throughout: an intermediary -- a Go
+    // reverse proxy, for one -- may canonicalize the names to "Sec-Websocket-Accept".
+    NSHTTPURLResponse *response = (NSHTTPURLResponse *)_response;
+    NSString *upgrade = [response valueForHTTPHeaderField:@"Upgrade"];
+    NSString *connection = [response valueForHTTPHeaderField:@"Connection"] ?: @"";
+    NSString *accept = [response valueForHTTPHeaderField:@"Sec-WebSocket-Accept"];
+    NSString *serverProtocol = [response valueForHTTPHeaderField:@"Sec-WebSocket-Protocol"];
+
+    if (!upgrade || [upgrade caseInsensitiveCompare:@"websocket"] != NSOrderedSame) {
+        [self failProtocol:@"WebSocket handshake response has no 'Upgrade: websocket'"];
+        return NO;
+    }
+    // RFC 6455 4.1: Connection carries a token list, and one of its tokens is "Upgrade".
+    BOOL upgradeRequested = NO;
+    for (NSString *token in [connection componentsSeparatedByString:@","]) {
+        if ([[token stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] caseInsensitiveCompare:@"upgrade"] == NSOrderedSame) {
+            upgradeRequested = YES;
+            break;
+        }
+    }
+    if (!upgradeRequested) {
+        [self failProtocol:@"WebSocket handshake response has no 'Connection: Upgrade'"];
+        return NO;
+    }
+    if (![accept isEqualToString:_acceptKey]) {
+        [self failProtocol:@"WebSocket handshake response has the wrong Sec-WebSocket-Accept"];
+        return NO;
+    }
+    // This client offers no extension, so any the response names was never negotiated (RFC 6455 4.1).
+    if (extensionsFields && [response valueForHTTPHeaderField:@"Sec-WebSocket-Extensions"].length) {
+        [self failProtocol:@"WebSocket handshake response names an extension that was not offered"];
+        return NO;
+    }
+    // The subprotocol has to be one of those the request offered; WebSocket joins them with ", ".
+    if (serverProtocol.length) {
+        NSArray<NSString *> *offered = _requestedProtocol ? [_requestedProtocol componentsSeparatedByString:@", "] : @[];
+        if (![offered containsObject:serverProtocol]) {
+            [self failProtocol:@"WebSocket handshake response names a subprotocol that was not offered"];
+            return NO;
+        }
+    }
 
     _state = WKWSStateOpen;
-    NSString *protocol = [(NSHTTPURLResponse *)_response valueForHTTPHeaderField:@"Sec-WebSocket-Protocol"] ?: @"";
-    [self deliverDidOpenWithProtocol:protocol];
+    [self deliverDidOpenWithProtocol:serverProtocol ?: @""];
     return YES;
 }
 
@@ -1229,46 +1442,92 @@ static void maskBytes(uint8_t *bytes, NSUInteger length, const uint8_t key[4])
         // for one). RFC 6455 3.2 requires failing the connection: parsing on would hand JS a
         // "message" holding bytes that are not the payload the peer sent.
         if (b0 & 0x70) {
-            [self failWithError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorBadServerResponse
-                userInfo:@{ NSLocalizedDescriptionKey: @"WebSocket frame sets a reserved bit without a negotiated extension" }]
-                reason:@"WebSocket frame sets a reserved bit without a negotiated extension"];
+            [self failProtocol:@"WebSocket frame sets a reserved bit without a negotiated extension"];
             return;
         }
         int opcode = b0 & 0x0F;
-        BOOL masked = (b1 & 0x80) != 0;
         uint64_t len = b1 & 0x7F;
 
+        // RFC 6455 5.1: a server never masks a frame it sends.
+        if (b1 & 0x80) {
+            [self failProtocol:@"WebSocket frame from the server is masked"];
+            return;
+        }
+
+        // RFC 6455 5.2: the payload length is carried in the fewest bytes that hold it, and the
+        // 64-bit form's most significant bit is 0. A longer encoding lets a peer announce a length
+        // this side would wait for without bound.
         if (len == 126) {
             if (available - p < 2) break;
             len = ((uint64_t)bytes[p] << 8) | bytes[p + 1];
             p += 2;
+            if (len < 126) {
+                [self failProtocol:@"WebSocket frame length is not minimally encoded"];
+                return;
+            }
         } else if (len == 127) {
             if (available - p < 8) break;
             len = 0;
             for (int i = 0; i < 8; i++) len = (len << 8) | bytes[p + i];
             p += 8;
+            if (len & 0x8000000000000000ULL) {
+                [self failProtocol:@"WebSocket frame length has its most significant bit set"];
+                return;
+            }
+            if (len <= 0xFFFF) {
+                [self failProtocol:@"WebSocket frame length is not minimally encoded"];
+                return;
+            }
         }
-        uint8_t maskKey[4] = { 0, 0, 0, 0 };
-        if (masked) {
-            if (available - p < 4) break;
-            memcpy(maskKey, bytes + p, 4);
-            p += 4;
+
+        // The opcode and the control-frame rules are settled before the payload is waited for, so a
+        // frame announcing a length no control frame may carry fails now rather than after the peer
+        // has sent that many bytes.
+        switch (opcode) {
+        case 0x0:
+        case 0x1:
+        case 0x2:
+        case 0x8:
+        case 0x9:
+        case 0xA:
+            break;
+        default:
+            [self failProtocol:@"WebSocket frame uses a reserved opcode"];
+            return;
         }
+        // RFC 6455 5.5: a control frame is never fragmented and carries at most 125 bytes.
+        if (opcode & 0x8) {
+            if (!fin) {
+                [self failProtocol:@"WebSocket control frame is fragmented"];
+                return;
+            }
+            if (len > 125) {
+                [self failProtocol:@"WebSocket control frame payload exceeds 125 bytes"];
+                return;
+            }
+        }
+
+        // A data frame that would carry the message past the maximum fails the receive, as it does on
+        // a real task, rather than being buffered.
+        if (!(opcode & 0x8) && _maximumMessageSize > 0
+            && (uint64_t)_messageBuffer.length + len > (uint64_t)_maximumMessageSize) {
+            [self failWithError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorDataLengthExceedsMaximum
+                userInfo:@{ NSLocalizedDescriptionKey: @"WebSocket message exceeds the maximum message size" }]
+                reason:@"WebSocket message exceeds the maximum message size"];
+            return;
+        }
+
         if ((uint64_t)(available - p) < len) break;
 
-        // The payload is handed out as a pointer into _inBuffer — the frame's bytes are dead once
-        // `offset` moves past them, and handleFrameOpcode: copies what it keeps. A masked frame
-        // (unusual from a server) is unmasked in place first; mutableBytes is the same storage
-        // `bytes` already points at.
-        if (masked && len)
-            maskBytes((uint8_t *)_inBuffer.mutableBytes + p, (NSUInteger)len, maskKey);
+        // The payload is handed out as a pointer into _inBuffer: the frame's bytes are dead once
+        // `offset` moves past them, and handleFrameOpcode: copies what it keeps.
         const uint8_t *payload = bytes + p;
         p += len;
         offset = p;
 
         [self handleFrameOpcode:opcode fin:fin payload:payload length:len];
         if (_state == WKWSStateClosed)
-            return; // _inBuffer was torn down
+            return; // the connection is closed; nothing after this frame is parsed
     }
 
     if (offset)
@@ -1281,7 +1540,17 @@ static void maskBytes(uint8_t *bytes, NSUInteger length, const uint8_t key[4])
     case 0x0:
     case 0x1:
     case 0x2:
+        // RFC 6455 5.4: a continuation belongs to a message already begun, and a data frame starts a
+        // message only when no fragmented one is in progress.
+        if (opcode == 0x0 && _messageOpcode < 0) {
+            [self failProtocol:@"WebSocket continuation frame has no message to continue"];
+            return;
+        }
         if (opcode != 0x0) {
+            if (_messageOpcode >= 0) {
+                [self failProtocol:@"WebSocket data frame interrupts a fragmented message"];
+                return;
+            }
             [_messageBuffer setLength:0];
             _messageOpcode = opcode;
         }
@@ -1308,10 +1577,21 @@ static void maskBytes(uint8_t *bytes, NSUInteger length, const uint8_t key[4])
         }
         break;
     case 0x8: {
+        // RFC 6455 5.5.1: a Close payload is empty or carries a two-byte status code first, and
+        // 7.4.1 reserves 1005/1006/1015 for the local end to report -- none of the three, nor a
+        // code below 1000, may appear on the wire.
+        if (length == 1) {
+            [self failProtocol:@"WebSocket Close frame payload is one byte"];
+            return;
+        }
         uint16_t code = 1005;
         NSData *reason = nil;
         if (length >= 2) {
             code = (uint16_t)((payload[0] << 8) | payload[1]);
+            if (code < 1000 || code == 1005 || code == 1006 || code == 1015) {
+                [self failProtocol:@"WebSocket Close frame carries a status code that may not be sent"];
+                return;
+            }
             if (length > 2)
                 reason = [NSData dataWithBytes:payload + 2 length:length - 2];
         }
@@ -1421,6 +1701,17 @@ static void maskBytes(uint8_t *bytes, NSUInteger length, const uint8_t key[4])
 - (void)failWithReason:(NSString *)reason
 {
     [self failWithError:nil reason:reason];
+}
+
+// A violation of the framing or handshake rules ends the connection without a close status, so WebKit
+// reports it as the abnormal closure it is (WebSocketTaskCocoa reads closeCode to tell the two apart).
+// RFC 6455 7.1.7: an established connection is failed by sending a Close frame with 1002 first.
+- (void)failProtocol:(NSString *)reason
+{
+    if ((_state == WKWSStateOpen || _state == WKWSStateClosing) && !_sentClose)
+        [self sendCloseFrameWithCode:1002 reason:nil];
+    [self failWithError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorBadServerResponse
+        userInfo:@{ NSLocalizedDescriptionKey: reason }] reason:reason];
 }
 
 - (void)teardownStreams

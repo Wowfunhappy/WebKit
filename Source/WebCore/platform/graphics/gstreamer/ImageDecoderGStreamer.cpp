@@ -146,9 +146,22 @@ ImageDecoderGStreamer::ImageDecoderGStreamer(FragmentedSharedBuffer& data, const
 
         GRefPtr<GstElement> element = gst_element_factory_create(lookupResult.factory.get(), nullptr);
         configureVideoDecoderForHarnessing(element);
+        // MAVERICKS_BACKPORT: name the memory this decoder can read, the way GStreamerInternalVideoDecoder
+        // already does for the same element class (VideoDecoderGStreamer.cpp). Left unconstrained, vtdec --
+        // the factory the registry scanner prefers for H.264 here -- negotiates the
+        // video/x-raw(memory:GLMemory) its src template lists first and then produces nothing, because
+        // USE(GSTREAMER_GL) is 0 in this port and no GstGLDisplay exists to back it.
+        auto allowedSinkCaps = adoptGRef(gst_caps_new_empty());
+#if USE(GSTREAMER_GL)
+        gst_caps_append(allowedSinkCaps.get(), gst_caps_from_string("video/x-raw(memory:GLMemory)"));
+#endif
+        gst_caps_append(allowedSinkCaps.get(), gst_caps_from_string("video/x-raw"));
+        // m_decoderHarness = GStreamerElementHarness::create(WTF::move(element), [this](auto&, auto&& outputSample) {
+        //     storeDecodedSample(WTF::move(outputSample));
+        // });
         m_decoderHarness = GStreamerElementHarness::create(WTF::move(element), [this](auto&, auto&& outputSample) {
             storeDecodedSample(WTF::move(outputSample));
-        });
+        }, std::nullopt, WTF::move(allowedSinkCaps)); // MAVERICKS_BACKPORT: closes the allowed-caps request described above.
         return m_decoderHarness;
     });
 
@@ -167,14 +180,35 @@ void ImageDecoderGStreamer::tearDown()
     m_parserHarness = nullptr;
 }
 
+// MAVERICKS_BACKPORT: the two image types this decoder answers for beside the video ones.
+#if HAVE(HEIF_IMAGE_SEQUENCE)
+static bool isHEIFImageSequenceType(const String& type)
+{
+    return equalLettersIgnoringASCIICase(type, "image/heic-sequence"_s) || equalLettersIgnoringASCIICase(type, "image/heif-sequence"_s);
+}
+#else
+static bool isHEIFImageSequenceType(const String&)
+{
+    return false;
+}
+#endif // MAVERICKS_BACKPORT: closes the HEIF image sequence helper above.
+
 bool ImageDecoderGStreamer::supportsContainerType(const String& type)
 {
     // Ideally this decoder should operate only from the WebProcess (or from the GPUProcess) which
     // should be the only process where GStreamer has been runtime initialized.
-    if (!isInWebProcess())
+    // MAVERICKS_BACKPORT: widened the same way ensureGStreamerInitialized() is (GStreamerCommon.cpp),
+    // because WebKitLegacy hosts render in-process: !processType() is a non-auxiliary application
+    // process, where GStreamer is initialized and this decoder is the one that decodes a video loaded
+    // as an image. The NetworkProcess and the GPU process are still refused.
+    // if (!isInWebProcess())
+    if (!isInWebProcess() && processType())
         return false;
 
-    if (!type.startsWith("video/"_s))
+    // MAVERICKS_BACKPORT: this decoder also carries the ISO/IEC 23008-12 image sequence types, whose
+    // samples are HEVC in an ISO-BMFF file. See HAVE(HEIF_IMAGE_SEQUENCE).
+    // if (!type.startsWith("video/"_s))
+    if (!type.startsWith("video/"_s) && !isHEIFImageSequenceType(type))
         return false;
 
     return GStreamerRegistryScanner::singleton().isContainerTypeSupported(GStreamerRegistryScanner::Configuration::Decoding, type);
@@ -185,12 +219,16 @@ bool ImageDecoderGStreamer::canDecodeType(const String& mimeType)
     if (mimeType.isEmpty())
         return false;
 
-    if (!mimeType.startsWith("video/"_s))
+    // MAVERICKS_BACKPORT: widened as supportsContainerType above.
+    // if (!mimeType.startsWith("video/"_s))
+    if (!mimeType.startsWith("video/"_s) && !isHEIFImageSequenceType(mimeType))
         return false;
 
     // Ideally this decoder should operate only from the WebProcess (or from the GPUProcess) which
     // should be the only process where GStreamer has been runtime initialized.
-    if (!isInWebProcess())
+    // MAVERICKS_BACKPORT: widened to the in-process renderers too; see supportsContainerType above.
+    // if (!isInWebProcess())
+    if (!isInWebProcess() && processType())
         return false;
 
     return GStreamerRegistryScanner::singleton().isContainerTypeSupported(GStreamerRegistryScanner::Configuration::Decoding, mimeType);
@@ -201,7 +239,16 @@ EncodedDataStatus ImageDecoderGStreamer::encodedDataStatus() const
     if (m_error)
         return EncodedDataStatus::Error;
 
-    if (m_eos)
+    // MAVERICKS_BACKPORT(upstreamable): webkit.org/b/211995. Complete is read as "frameCount() is final"
+    // -- ImageFrameAnimator snapshots it at construction and BitmapImageSource holds that animator for
+    // the image's life -- and m_eos does not say that. It carries the end-of-stream event the previous
+    // pushEncodedData's decoder reset() queued, so it is true only on the call after frames were
+    // decoded and false on every later one: the third setData CachedImage makes (one for
+    // didReceiveData, one for didFinishLoading) leaves Complete unreachable, and the second reaches it
+    // while more data may still arrive. ImageDecoderAVFObjC answers Complete from decoded samples and
+    // fills its sample map only once allDataReceived, so this asks for both.
+    // if (m_eos)
+    if (m_isAllDataReceived && m_sampleData.size())
         return EncodedDataStatus::Complete;
     if (m_size)
         return EncodedDataStatus::SizeAvailable;
@@ -250,8 +297,14 @@ PlatformImagePtr ImageDecoderGStreamer::createFrameImageAtIndex(size_t index, Su
     return nullptr;
 }
 
-void ImageDecoderGStreamer::setData(const FragmentedSharedBuffer& data, bool)
+// MAVERICKS_BACKPORT(upstreamable): the flag is named and recorded, the way
+// ImageDecoderAVFObjC::setData records it; see encodedDataStatus().
+// void ImageDecoderGStreamer::setData(const FragmentedSharedBuffer& data, bool)
+void ImageDecoderGStreamer::setData(const FragmentedSharedBuffer& data, bool allDataReceived)
 {
+    // MAVERICKS_BACKPORT(upstreamable): recorded here, read by encodedDataStatus().
+    if (allDataReceived)
+        m_isAllDataReceived = true;
     pushEncodedData(data);
 }
 

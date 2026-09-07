@@ -126,6 +126,9 @@ private:
     WebCore::ContentEncodingSniffingPolicy m_contentEncodingSniffingPolicy;
     // MAVERICKS_BACKPORT: non-null while decoding a gzip body 10.9 CFNetwork withheld.
     std::unique_ptr<WebCore::CFNetworkSuppressedGzipDecoder> m_gzipDecoder;
+    // MAVERICKS_BACKPORT: body bytes handed to the client; didCompleteWithError reports this as the
+    // load's decoded body size.
+    uint64_t m_decodedBodyBytes { 0 };
 };
 
 WebCore::Credential serverTrustCredential(const WebCore::AuthenticationChallenge&);

@@ -75,10 +75,10 @@ public:
     enum class ShouldNotifyProviderOfManager : bool { No, Yes };
     void setProvider(std::unique_ptr<API::NotificationProvider>&&, ShouldNotifyProviderOfManager = ShouldNotifyProviderOfManager::Yes);
     HashMap<String, bool> notificationPermissions();
-    // MAVERICKS_BACKPORT: the client's answer for one origin, from the copy notificationPermissions()
-    // takes. Safari 7's WKPageUIClient predates the queryPermission callback, so the shim in
-    // WKPageSetPageUIClient reads this instead.
-    std::optional<bool> providerPermissionForOrigin(const String& originString) const;
+    // MAVERICKS_BACKPORT: the client's published answer for one origin, asked of the provider at the
+    // moment of the question. Safari 7's WKPageUIClient predates the queryPermission callback, so the
+    // shims in WKPageSetPageUIClient read this instead.
+    std::optional<bool> providerPermissionForOrigin(const String& originString);
 
     void show(WebPageProxy*, IPC::Connection&, const WebCore::NotificationData&, RefPtr<WebCore::NotificationResources>&&);
     bool showPersistent(const WebsiteDataStore&, IPC::Connection*, const WebCore::NotificationData&, RefPtr<WebCore::NotificationResources>&&);
@@ -109,9 +109,6 @@ private:
     bool showImpl(WebPageProxy*, Ref<WebNotification>&&, RefPtr<WebCore::NotificationResources>&&);
 
     std::unique_ptr<API::NotificationProvider> m_provider;
-
-    // MAVERICKS_BACKPORT: copy of the provider's permission map; see providerPermissionForOrigin.
-    HashMap<String, bool> m_providerPermissions;
 
     HashMap<WebNotificationIdentifier, WTF::UUID> m_globalNotificationMap;
     HashMap<WTF::UUID, Ref<WebNotification>> m_notifications;

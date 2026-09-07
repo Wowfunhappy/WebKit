@@ -183,8 +183,9 @@ CDMInstanceWidevine::CDMInstanceWidevine(const String& mediaKeysHashSalt)
     m_cdm->setStorageIdSeed(mediaKeysHashSalt);
     m_cdm->setClient(WeakPtr { static_cast<WidevineCdmClient&>(*this) });
 
-    RefPtr proxy = this->proxy();
-    if (proxy && GStreamerEMEUtilities::isWidevineKeySystem(proxy->keySystem()))
+    // CDMProxyFactory hands this instance the proxy its own key system asked for, so the proxy a
+    // CDMInstanceWidevine holds is a CDMProxyWidevine.
+    if (RefPtr proxy = this->proxy())
         static_cast<CDMProxyWidevine*>(proxy.get())->setCdm(RefPtr { m_cdm });
 }
 

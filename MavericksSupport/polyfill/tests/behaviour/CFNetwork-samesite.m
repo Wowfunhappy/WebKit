@@ -796,7 +796,7 @@ int main(void)
     // The creation time a caller of +[NSHTTPCookie cookieWithProperties:] asked for rides in the same
     // blob, because 10.9's record cannot carry it (any "Created" a caller passes comes back as 1).
     {
-        CFStringRef withEverything = wk_cookieBlobCreate(CFSTR("Strict"), CFSTR("100000"), CFSTR("a server comment"));
+        CFStringRef withEverything = wk_cookieBlobCreate(CFSTR("Strict"), CFSTR("100000"), NULL, CFSTR("a server comment"));
         CFStringRef created = withEverything ? wk_cookieBlobCopyCreated(withEverything) : NULL;
         CFStringRef policy = withEverything ? wk_sameSiteCopyValue(withEverything) : NULL;
         CFStringRef comment = withEverything ? wk_sameSiteCopyServerComment(withEverything) : NULL;
@@ -812,7 +812,7 @@ int main(void)
         if (withEverything)
             CFRelease(withEverything);
 
-        CFStringRef timeOnly = wk_cookieBlobCreate(NULL, CFSTR("810100830.5"), NULL);
+        CFStringRef timeOnly = wk_cookieBlobCreate(NULL, CFSTR("810100830.5"), NULL, NULL);
         CFStringRef readBack = timeOnly ? wk_cookieBlobCopyCreated(timeOnly) : NULL;
         check(readBack && CFEqual(readBack, CFSTR("810100830.5")), "a creation time alone reads back");
         check(timeOnly && wk_sameSiteCopyValue(timeOnly) == NULL, "and carries no attribute");
@@ -824,7 +824,48 @@ int main(void)
 
         CFStringRef plain = CFSTR("a comment the server sent");
         check(wk_cookieBlobCopyCreated(plain) == NULL, "a comment that is not one of ours carries no time");
-        check(wk_cookieBlobCreate(NULL, NULL, plain) != NULL, "and encodes to itself");
+        check(wk_cookieBlobCreate(NULL, NULL, NULL, plain) != NULL, "and encodes to itself");
+    }
+
+    // Whether a script wrote the cookie rides in the same blob, for the same reason: 10.9's record
+    // drops the property.
+    {
+        CFStringRef marked = wk_cookieBlobCreate(CFSTR("Lax"), CFSTR("100001"), CFSTR("TRUE"), CFSTR("a server comment"));
+        CFStringRef mark = marked ? wk_cookieBlobCopySetInJavaScript(marked) : NULL;
+        CFStringRef alongsideTime = marked ? wk_cookieBlobCopyCreated(marked) : NULL;
+        CFStringRef alongsidePolicy = marked ? wk_sameSiteCopyValue(marked) : NULL;
+        CFStringRef alongsideComment = marked ? wk_sameSiteCopyServerComment(marked) : NULL;
+        check(mark && CFEqual(mark, CFSTR("TRUE")), "a script-written mark reads back");
+        check(alongsideTime && CFEqual(alongsideTime, CFSTR("100001")), "beside the creation time");
+        check(alongsidePolicy && CFEqual(alongsidePolicy, CFSTR("Lax")), "the attribute");
+        check(alongsideComment && CFEqual(alongsideComment, CFSTR("a server comment")), "and the server's own comment");
+        if (mark)
+            CFRelease(mark);
+        if (alongsideTime)
+            CFRelease(alongsideTime);
+        if (alongsidePolicy)
+            CFRelease(alongsidePolicy);
+        if (alongsideComment)
+            CFRelease(alongsideComment);
+        if (marked)
+            CFRelease(marked);
+
+        CFStringRef markOnly = wk_cookieBlobCreate(NULL, NULL, CFSTR("TRUE"), NULL);
+        CFStringRef markOnlyBack = markOnly ? wk_cookieBlobCopySetInJavaScript(markOnly) : NULL;
+        check(markOnlyBack && CFEqual(markOnlyBack, CFSTR("TRUE")), "a mark alone reads back");
+        check(markOnly && wk_cookieBlobCopyCreated(markOnly) == NULL, "and carries no creation time");
+        check(markOnly && wk_sameSitePolicyOfComment(markOnly) == WK_SAME_SITE_NONE, "so it restricts nothing");
+        if (markOnlyBack)
+            CFRelease(markOnlyBack);
+        if (markOnly)
+            CFRelease(markOnly);
+
+        CFStringRef unmarked = wk_cookieBlobCreate(CFSTR("Lax"), CFSTR("100002"), NULL, NULL);
+        check(unmarked && wk_cookieBlobCopySetInJavaScript(unmarked) == NULL, "a blob without the field reads back no mark");
+        check(wk_cookieBlobCopySetInJavaScript(CFSTR("a comment the server sent")) == NULL,
+            "and neither does a comment that is not one of ours");
+        if (unmarked)
+            CFRelease(unmarked);
     }
 
     // A field as long as the record carries: 10.9 stores a comment of thousands of characters and hands

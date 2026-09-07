@@ -113,8 +113,15 @@ RemoteVideoCodecFactory::RemoteVideoCodecFactory(WebProcess& process)
     ASSERT(isMainRunLoop());
     // We make sure to create libWebRTCCodecs() as it might be called from multiple threads.
     process.libWebRTCCodecs();
+    // MAVERICKS_BACKPORT: this port's GPU process is compiled rasterization-only and carries no
+    // codecs (ENABLE_GPU_PROCESS_RASTERIZATION_ONLY in MavericksSupport/cmake/OptionsMacMavericks.cmake),
+    // which is the same answer WebRTCPlatformCodecsInGPUProcessEnabled gives the WebRTC factories
+    // through LibWebRTCCodecs::setCallbacks. With no creator installed, VideoDecoder::create and
+    // VideoEncoder::create take their local path, in the process that has the codecs.
+#if !ENABLE(GPU_PROCESS_RASTERIZATION_ONLY)
     WebCore::VideoDecoder::setCreatorCallback(RemoteVideoCodecFactory::createDecoder);
     WebCore::VideoEncoder::setCreatorCallback(RemoteVideoCodecFactory::createEncoder);
+#endif // MAVERICKS_BACKPORT: closes the GPU_PROCESS_RASTERIZATION_ONLY guard above.
 }
 
 RemoteVideoCodecFactory::~RemoteVideoCodecFactory() = default;

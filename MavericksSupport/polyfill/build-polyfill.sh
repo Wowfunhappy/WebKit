@@ -350,6 +350,11 @@ PROBE_LIBS="$OUT/libpolyfill.a -framework Foundation -framework CoreFoundation -
 "$T/unfair_lock"
 "$CLANG" $MODERN $INC -Wno-four-char-constants -o "$T/stroke_line_segments" "$TBEHAV/CoreGraphics-stroke-line-segments.c" $PROBE_LIBS -framework CoreGraphics -framework IOSurface
 "$T/stroke_line_segments"
+# Two images, each with its own copy of the archive's client-identification pair, plus the program that loads both.
+"$CLANG" $MODERN $INC -dynamiclib -DWK_PROBE_SIDE_A -o "$T/ax_client_side_a.dylib" "$TBEHAV/ApplicationServices-client-identification.c" $PROBE_LIBS
+"$CLANG" $MODERN $INC -dynamiclib -DWK_PROBE_SIDE_B -o "$T/ax_client_side_b.dylib" "$TBEHAV/ApplicationServices-client-identification.c" $PROBE_LIBS
+"$CLANG" $MODERN $INC -o "$T/ax_client_identification" "$TBEHAV/ApplicationServices-client-identification.c"
+"$T/ax_client_identification" "$T/ax_client_side_a.dylib" "$T/ax_client_side_b.dylib"
 # SameSite: the encoding a cookie carries the attribute in, the rule, and the Set-Cookie rewrite, all
 # against 10.9's own cookie parser.
 # The cookie blocks install their private selectors on NSHTTPCookie here, which is how the constructors
@@ -392,6 +397,10 @@ PROBE_LIBS="$OUT/libpolyfill.a -framework Foundation -framework CoreFoundation -
 "$CLANG" $MODERN $INC -o "$T/constant_packet_input" "$TBEHAV/AudioToolbox-constant-packet-input.c" \
     $PROBE_LIBS -framework AudioToolbox -framework AudioUnit
 "$T/constant_packet_input"
+# The AudioConverterReset that follows a kAudioCodecPropertyDelayMode set in the same replacement set.
+"$CLANG" $MODERN $INC -o "$T/delay_mode_excess_input" "$TBEHAV/AudioToolbox-delay-mode-excess-input.c" \
+    $PROBE_LIBS -framework AudioToolbox -framework AudioUnit
+"$T/delay_mode_excess_input"
 # -lc++: realizing a font reaches the variable-font instancer, which is C++.
 "$CLANG" $MODERN $INC -o "$T/optical_size" "$TBEHAV/CoreText-optical-size.c" $PROBE_LIBS \
     -framework CoreText -framework CoreGraphics -lc++
@@ -408,6 +417,9 @@ PROBE_LIBS="$OUT/libpolyfill.a -framework Foundation -framework CoreFoundation -
 "$CLANG" $MODERN $INC -o "$T/descriptor_options" "$TBEHAV/CoreText-descriptor-options.c" $PROBE_LIBS \
     -framework CoreText -framework CoreGraphics -lc++
 "$T/descriptor_options"
+"$CLANG" $MODERN $INC -o "$T/sbix_bitmap_placement" "$TBEHAV/CoreText-sbix-bitmap-placement.c" $PROBE_LIBS \
+    -framework CoreText -framework CoreGraphics -framework ImageIO -lc++
+"$T/sbix_bitmap_placement"
 # The 10.9 host headers, not the modern SDK's: AudioUnit* live in AudioUnit.framework here and in
 # AudioToolbox from 10.10 on, so only these headers put the probe's references where this OS has them.
 "$CLANG" $HOST -Wno-deprecated-declarations $INC -o "$T/audiounit_max_frames" "$TBEHAV/AudioUnit-max-frames.c" \

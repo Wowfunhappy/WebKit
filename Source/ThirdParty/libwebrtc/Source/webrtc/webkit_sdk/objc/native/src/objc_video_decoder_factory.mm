@@ -101,7 +101,14 @@ std::unique_ptr<VideoDecoder> ObjCVideoDecoderFactory::Create(
     const SdpVideoFormat &format) {
   NSString *codecName = [NSString stringWithUTF8String:format.name.c_str()];
   for (RTCVideoCodecInfo *codecInfo in decoder_factory_.supportedCodecs) {
-    if ([codecName isEqualToString:codecInfo.name]) {
+    // MAVERICKS_BACKPORT: a negotiated codec carries the remote description's spelling of the media
+    // subtype (pc/codec_vendor.cc NegotiateCodecs takes `theirs->name`), which SDP allows in any case.
+    // WebKit maps a format to a codec case-insensitively where it takes that mapping:
+    // LibWebRTCCodecs.cpp's createVideoDecoder compares with equalIgnoringASCIICase. That entry point
+    // belongs to the GPU process codec path, which this port does not take, so this loop is the whole
+    // mapping here. -createDecoder: still receives the factory's own RTCVideoCodecInfo.
+    // if ([codecName isEqualToString:codecInfo.name]) {
+    if ([codecName caseInsensitiveCompare:codecInfo.name] == NSOrderedSame) {
       id<RTCVideoDecoder> decoder = [decoder_factory_ createDecoder:codecInfo];
 
       // Because of symbol conflict, isKindOfClass doesn't work as expected.

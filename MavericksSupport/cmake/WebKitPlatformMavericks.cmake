@@ -285,6 +285,12 @@ list(REMOVE_ITEM WebKit_SOURCES
 # each canLoad_* return false instead of asserting, and the object needs nothing but dlopen/dlsym.
 list(APPEND WebKit_SOURCES
     NetworkProcess/cocoa/NetworkSoftLink.mm
+
+    # WebKit.xcodeproj compiles this into the WebKit target; no CMake source list names it. Every
+    # WebProcess constructor calls WebMockContentFilterManager::singleton().startObservingSettings()
+    # under ENABLE(CONTENT_FILTERING) (WebProcess/WebProcess.cpp), which registers the process as the
+    # client WebCore's MockContentFilterManager notifies when a test changes the mock settings.
+    WebProcess/Network/WebMockContentFilterManager.cpp
 )
 
 list(APPEND WebKit_LIBRARIES

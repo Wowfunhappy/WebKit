@@ -150,7 +150,11 @@ void VideoTrackPrivateGStreamer::updateConfigurationFromCaps(GRefPtr<GstCaps>&& 
 #endif
 
     int pixelAspectRatioNumerator, pixelAspectRatioDenominator, stride;
-    double frameRate;
+    // MAVERICKS_BACKPORT(upstreamable): getVideoSizeAndFormatFromCaps() writes frameRate only when the
+    // caps carry a non-zero framerate numerator, and the value lands in VideoTrackConfiguration
+    // unconditionally, so it starts at PlatformVideoTrackConfiguration's own "unknown" value.
+    // double frameRate;
+    double frameRate = 0;
     IntSize originalSize;
     GstVideoFormat format;
     PlatformVideoColorSpace colorSpace;

@@ -9,6 +9,7 @@
 #include <math.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -141,48 +142,94 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGPathAddUnevenCornersRoundedRect,
     CGPathCloseSubpath(path);
 }
 
-// CGContextDrawConicGradient is macOS 10.12+; 10.9 CoreGraphics has no conic gradient of any kind. Both are rendered as a fan of angular wedges around the centre, coloured from the
-// gradient's own ramp: the ramp is sampled by asking 10.9's own CGContextDrawLinearGradient to paint it
-// into a 1xN strip, so colours, interpolation and alpha match every other gradient path exactly.
-// Antialiasing is off for the wedge fill so adjacent wedges share edges without seams; the caller's clip
-// still antialiases the outer boundary.
-// One wedge per ramp sample: each wedge's midpoint falls on its own sample, and adjacent wedges
-// share an edge whose endpoint is computed once and carried forward.
-#define WK_CONIC_RAMP_SAMPLES 360
+// CGContextDrawConicGradient is macOS 10.12+; 10.9 CoreGraphics has no conic gradient of any kind.
+// The gradient is evaluated once per destination pixel, which is what the real API does: the ramp is
+// sampled by asking 10.9's own CGContextDrawLinearGradient to paint it into a 1xN strip, so colours,
+// interpolation and alpha match every other gradient path exactly, and each pixel takes the ramp entry
+// its angle around the centre falls in. The drawing CTM is set to the identity so the pixel grid is the
+// context's own whatever transform the caller had -- a scaled, flipped or rotated context needs no
+// special case -- and each sample is mapped back through the caller's transform to the space the centre
+// and the angle are stated in. Measured on this host against the geometry of
+// fast/canvas/canvas-conic-gradient-angle.html (hard stops on the quadrant boundaries): pixel-identical
+// to the same figure drawn as four rectangles, at 1x and at 2x, with the clip at the origin and offset,
+// and invariant under a rotated CTM.
 
-static void wk_drawConicFan(CGContextRef context, const uint8_t *ramp, CGPoint center, CGFloat angle)
+// The ramp carries four samples per pixel of arc at the farthest point the clip reaches. One sample per
+// pixel makes the colour at a given angle right but leaves a sample boundary up to half a pixel from the
+// stop it represents, which a hard stop shows as a stepped edge; four keeps that boundary within an
+// eighth of a pixel. Measured against fast/canvas/canvas-conic-gradient-angle's own geometry: one sample
+// per pixel is exact at 1x and misplaces 6 pixels at 2x, two per pixel and up are exact at both.
+static size_t wk_conicRampSamples(CGContextRef context, CGPoint center)
 {
-    CGRect clip = CGContextGetClipBoundingBox(context);
-    if (CGRectIsNull(clip) || CGRectIsInfinite(clip) || CGRectIsEmpty(clip))
-        return;
-    CGFloat dx = fmax(fabs(CGRectGetMinX(clip) - center.x), fabs(CGRectGetMaxX(clip) - center.x));
-    CGFloat dy = fmax(fabs(CGRectGetMinY(clip) - center.y), fabs(CGRectGetMaxY(clip) - center.y));
-    CGFloat radius = hypot(dx, dy) + 2;
-    const CGFloat twoPi = 6.283185307179586;
+    const double samplesPerRimPixel = 4;
+    CGRect clip = CGContextConvertRectToDeviceSpace(context, CGContextGetClipBoundingBox(context));
+    CGPoint deviceCenter = CGContextConvertPointToDeviceSpace(context, center);
+    CGFloat dx = fmax(fabs(CGRectGetMinX(clip) - deviceCenter.x), fabs(CGRectGetMaxX(clip) - deviceCenter.x));
+    CGFloat dy = fmax(fabs(CGRectGetMinY(clip) - deviceCenter.y), fabs(CGRectGetMaxY(clip) - deviceCenter.y));
+    double samples = ceil(samplesPerRimPixel * 2 * M_PI * hypot(dx, dy));
+    if (!(samples > 4))
+        return 4;
+    return (size_t)samples;
+}
+
+static void wk_paintConicGradient(CGContextRef context, const uint8_t *ramp, size_t rampSamples,
+    CGPoint center, CGFloat angle)
+{
+    const double twoPi = 6.283185307179586;
+    CGAffineTransform userFromBase = CGAffineTransformInvert(CGContextGetCTM(context));
 
     CGContextSaveGState(context);
-    CGContextSetShouldAntialias(context, false);
-    CGFloat previousX = center.x + radius * cos(angle);
-    CGFloat previousY = center.y + radius * sin(angle);
-    for (int i = 0; i < WK_CONIC_RAMP_SAMPLES; ++i) {
-        CGFloat a = ramp[i * 4 + 3] / 255.0;
-        CGFloat r = a > 0 ? fmin(1.0, (ramp[i * 4 + 0] / 255.0) / a) : 0;
-        CGFloat g = a > 0 ? fmin(1.0, (ramp[i * 4 + 1] / 255.0) / a) : 0;
-        CGFloat b = a > 0 ? fmin(1.0, (ramp[i * 4 + 2] / 255.0) / a) : 0;
-        CGContextSetRGBFillColor(context, r, g, b, a);
-        CGFloat a1 = angle + twoPi * (i + 1) / WK_CONIC_RAMP_SAMPLES;
-        CGFloat nextX = center.x + radius * cos(a1);
-        CGFloat nextY = center.y + radius * sin(a1);
-        CGContextBeginPath(context);
-        CGContextMoveToPoint(context, center.x, center.y);
-        CGContextAddLineToPoint(context, previousX, previousY);
-        CGContextAddLineToPoint(context, nextX, nextY);
-        CGContextClosePath(context);
-        CGContextFillPath(context);
-        previousX = nextX;
-        previousY = nextY;
+    CGContextConcatCTM(context, CGAffineTransformInvert(CGContextGetCTM(context)));
+
+    CGRect clip = CGRectIntegral(CGContextGetClipBoundingBox(context));
+    size_t columns = (size_t)CGRectGetWidth(clip);
+    size_t rows = (size_t)CGRectGetHeight(clip);
+    uint32_t *pixels = (columns && rows) ? (uint32_t *)malloc(columns * rows * 4) : NULL;
+    if (!pixels) {
+        CGContextRestoreGState(context);
+        return;
+    }
+
+    double start = fmod((double)angle, twoPi);
+    if (start < 0)
+        start += twoPi;
+    double scale = rampSamples / twoPi;
+    const uint32_t *rampPixels = (const uint32_t *)ramp;
+
+    for (size_t row = 0; row < rows; ++row) {
+        // CGContextDrawImage lays a bitmap's first row along the destination rect's maxY edge.
+        CGPoint first = CGPointApplyAffineTransform(
+            CGPointMake(CGRectGetMinX(clip) + 0.5, CGRectGetMaxY(clip) - row - 0.5), userFromBase);
+        double x = first.x - center.x;
+        double y = first.y - center.y;
+        uint32_t *out = pixels + row * columns;
+        for (size_t column = 0; column < columns; ++column, x += userFromBase.a, y += userFromBase.b) {
+            double turn = atan2(y, x) - start;
+            if (turn < 0)
+                turn += twoPi;
+            if (turn < 0)
+                turn += twoPi;
+            size_t index = (size_t)(turn * scale);
+            if (index >= rampSamples)
+                index = rampSamples - 1;
+            out[column] = rampPixels[index];
+        }
+    }
+
+    CGColorSpaceRef deviceRGB = CGColorSpaceCreateDeviceRGB();
+    CGContextRef bitmap = CGBitmapContextCreate(pixels, columns, rows, 8, columns * 4, deviceRGB,
+        kCGImageAlphaPremultipliedLast);
+    CGColorSpaceRelease(deviceRGB);
+    CGImageRef image = bitmap ? CGBitmapContextCreateImage(bitmap) : NULL;
+    if (bitmap)
+        CGContextRelease(bitmap);
+    if (image) {
+        CGContextSetInterpolationQuality(context, kCGInterpolationNone);
+        CGContextDrawImage(context, clip, image);
+        CGImageRelease(image);
     }
     CGContextRestoreGState(context);
+    free(pixels);
 }
 
 WK_POLYFILL_ABSENT("CoreGraphics", void, CGContextDrawConicGradient,
@@ -190,20 +237,28 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGContextDrawConicGradient,
 {
     if (!context || !gradient)
         return;
-    uint8_t ramp[WK_CONIC_RAMP_SAMPLES * 4];
-    memset(ramp, 0, sizeof(ramp));
+    CGRect clip = CGContextGetClipBoundingBox(context);
+    if (CGRectIsNull(clip) || CGRectIsInfinite(clip) || CGRectIsEmpty(clip))
+        return;
+
+    size_t samples = wk_conicRampSamples(context, center);
+    uint8_t *ramp = (uint8_t *)calloc(samples, 4);
+    if (!ramp)
+        return;
     CGColorSpaceRef deviceRGB = CGColorSpaceCreateDeviceRGB();
-    CGContextRef strip = CGBitmapContextCreate(ramp, WK_CONIC_RAMP_SAMPLES, 1, 8, WK_CONIC_RAMP_SAMPLES * 4,
-        deviceRGB, kCGImageAlphaPremultipliedLast);
+    CGContextRef strip = CGBitmapContextCreate(ramp, samples, 1, 8, samples * 4, deviceRGB,
+        kCGImageAlphaPremultipliedLast);
     CGColorSpaceRelease(deviceRGB);
-    // A fixed-format 360x1 premultiplied-RGB buffer either allocates or the process is past saving; abort
-    // rather than paint nothing, which would be indistinguishable from an empty gradient.
-    if (!strip)
-        abort();
-    CGContextDrawLinearGradient(strip, gradient, CGPointMake(0, 0), CGPointMake(WK_CONIC_RAMP_SAMPLES, 0),
+    if (!strip) {
+        free(ramp);
+        return;
+    }
+    CGContextDrawLinearGradient(strip, gradient, CGPointMake(0, 0), CGPointMake(samples, 0),
         kCGGradientDrawsBeforeStartLocation | kCGGradientDrawsAfterEndLocation);
     CGContextRelease(strip);
-    wk_drawConicFan(context, ramp, center, angle);
+
+    wk_paintConicGradient(context, ramp, samples, center, angle);
+    free(ramp);
 }
 
 #pragma clang diagnostic push
@@ -412,14 +467,12 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGEnterLockdownModeForPDF, (void))
 {
 }
 
-// Wide-gamut / extended-range / HDR transfer-function color-space predicates (10.12+/10.14+). 10.9 is
-// sRGB-only with no extended range or ITU-R BT.2100 transfer function: report false for all.
-WK_POLYFILL_ABSENT("CoreGraphics", bool, CGColorSpaceIsWideGamutRGB, (CGColorSpaceRef space))
-{
-    (void)space;
-    return false;
-}
+// CGColorSpaceIsWideGamutRGB is further down, with the wide-gamut spaces it answers about.
 
+// Extended range means components outside [0, 1], which no space this OS can build carries: a
+// calibrated RGB space clamps, and CGColorSpaceCreateExtended here answers with the space it is
+// given. ITU-R BT.2100's HLG and PQ transfer functions have no name 10.9 knows and none of the
+// spaces below carries one.
 WK_POLYFILL_ABSENT("CoreGraphics", bool, CGColorSpaceUsesExtendedRange, (CGColorSpaceRef space))
 {
     (void)space;
@@ -480,9 +533,10 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGContextSetOwnerIdentity, (CGContextRe
 // The substitute depends on the name's TRANSFER FUNCTION, which is the part of these spaces 10.9 can
 // still represent exactly even though it has no wide-gamut or extended-range display path.
 //
-// GAMUT is genuinely unavailable: there is no display path here that could show a colour outside sRGB,
-// so Display P3, Rec. 2020, ProPhoto RGB and the extended-range variants all resolve to sRGB. Colours
-// outside the sRGB gamut clamp, which is what this hardware does regardless of how they were tagged.
+// GAMUT is a matter of primaries and a white point, which CGColorSpaceCreateCalibratedRGB takes: the
+// Display P3, Rec. 2020 and ROMM RGB names are answered with their own published primaries, so values
+// tagged with them are interpreted as what they are and clamp where clamping belongs, at the
+// conversion to the display.
 //
 // The LINEAR names are different, and getting them wrong is not a gamut approximation but a wrong
 // answer. A space named "linear sRGB" whose transfer function is sRGB's ~2.2 gamma misreports every
@@ -498,6 +552,7 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGContextSetOwnerIdentity, (CGContextRe
 // it fails the caller's ASSERT, leaves CGBitmapContext creation without a colour space, and makes
 // distinct absent spaces compare equal to each other.
 WK_SYSTEM_FN("CoreGraphics", CGColorSpaceRef, CGColorSpaceCreateWithName, (CFStringRef));
+WK_SYSTEM_FN("CoreGraphics", bool, CGColorSpaceEqualToColorSpace, (CGColorSpaceRef, CGColorSpaceRef));
 
 // sRGB's primaries and D65 white point with a gamma of 1.0 — i.e. linear sRGB. Built once; the
 // returned space is retained per call to match CGColorSpaceCreateWithName's Create semantics.
@@ -543,6 +598,218 @@ static CGColorSpaceRef wk_xyz_D50_space(void)
     return wk_xyz_D50_storage;
 }
 
+// The wide-gamut spaces. CGColorSpaceCreateCalibratedRGB takes the XYZ coordinates of the red, green
+// and blue primaries as its matrix (columns, the layout the linear-sRGB space above uses) and one
+// gamma per channel, which is what a space whose transfer function IS a power curve needs. Display P3
+// is built from an ICC profile instead -- see below.
+static const CGFloat wk_whitePointD65[3] = { 0.9505, 1.0, 1.0890 };
+static const CGFloat wk_whitePointD50[3] = { 0.9642, 1.0, 0.8249 };
+static const CGFloat wk_blackPoint[3] = { 0.0, 0.0, 0.0 };
+
+static const CGFloat wk_displayP3PrimariesToXYZ[9] = {
+    0.4865709, 0.2289746, 0.0000000,
+    0.2656677, 0.6917385, 0.0451134,
+    0.1982173, 0.0792869, 1.0439444,
+};
+static const CGFloat wk_rec2020PrimariesToXYZ[9] = {
+    0.6369580, 0.2627002, 0.0000000,
+    0.1446169, 0.6779981, 0.0280727,
+    0.1688810, 0.0593017, 1.0609851,
+};
+static const CGFloat wk_rommPrimariesToXYZ[9] = {
+    0.7976749, 0.2880402, 0.0000000,
+    0.1351917, 0.7118741, 0.0000000,
+    0.0313534, 0.0000857, 0.8252100,
+};
+
+static CGColorSpaceRef wk_makeCalibratedRGB(const CGFloat whitePoint[3], CGFloat transfer, const CGFloat primaries[9])
+{
+    const CGFloat gamma[3] = { transfer, transfer, transfer };
+    return CGColorSpaceCreateCalibratedRGB(whitePoint, wk_blackPoint, gamma, primaries);
+}
+
+// Display P3: P3's primaries with sRGB's transfer function. That transfer function is piecewise -- a
+// linear segment below 0.04045 and a 2.4 power above it -- and CGColorSpaceCreateCalibratedRGB takes
+// one exponent per channel, so a calibrated space cannot carry it. The nearest exponent, 2.2, costs a
+// 1/255 step: measured on this host by filling into an sRGB bitmap, the P3 green
+// fast/canvas/canvas-color-space-display-p3.html paints, (0.26374, 0.59085, 0.16434), lands on
+// 0,154,0 through a 2.2 exponent and on 0,153,0 -- #009900, the sRGB colour the test's own reference
+// paints beside it -- through the real curve.
+//
+// So the space is built from an ICC profile: this CoreGraphics' own sRGB profile with the three
+// colorant tags replaced by the Display P3 primaries. Every curve in it is the one this CoreGraphics
+// already uses for sRGB, so gamut is the only thing that differs from sRGB, which is exactly what
+// Display P3 is.
+
+// The D50-adapted XYZ of the Display P3 red, green and blue primaries, one row per primary, in the
+// s15Fixed16 encoding an ICC XYZType tag holds. Bradford-adapted from the primaries above, whose white
+// point is D65 -- the same adaptation the sRGB profile's own chromatic-adaptation tag describes, since
+// that space is D65 too, so the tag carries over untouched.
+static const uint32_t wk_displayP3ColorantsD50[3][3] = {
+    { 0x000083deu, 0x00003dbeu, 0xffffffbbu },
+    { 0x00004abeu, 0x0000b137u, 0x00000ab9u },
+    { 0x0000283au, 0x0000110bu, 0x0000c8c5u },
+};
+
+static uint32_t wk_iccReadUInt32(const uint8_t *p)
+{
+    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+}
+
+static void wk_iccWriteUInt32(uint8_t *p, uint32_t value)
+{
+    p[0] = (uint8_t)(value >> 24);
+    p[1] = (uint8_t)(value >> 16);
+    p[2] = (uint8_t)(value >> 8);
+    p[3] = (uint8_t)value;
+}
+
+// An ICC textDescriptionType tag: a 4-byte type signature, 4 reserved bytes, the ASCII length
+// including its terminator, the ASCII text, then a Unicode section (language code and length) and a
+// ScriptCode one (code, length and a 67-byte field), which zeros leave empty. The whole tag is
+// rewritten rather than edited because those two sections sit directly behind the text.
+static bool wk_iccWriteDescription(uint8_t *tag, uint32_t tagSize, const char *text)
+{
+    const size_t bytesBesidesTheText = 12 + 4 + 4 + 2 + 1 + 67;
+    size_t textSize = strlen(text) + 1;
+    if (memcmp(tag, "desc", 4) || tagSize < bytesBesidesTheText + textSize)
+        return false;
+    memset(tag, 0, tagSize);
+    memcpy(tag, "desc", 4);
+    wk_iccWriteUInt32(tag + 8, (uint32_t)textSize);
+    memcpy(tag + 12, text, textSize);
+    return true;
+}
+
+static CGColorSpaceRef wk_displayP3_storage;
+static void wk_build_displayP3(void)
+{
+    if (!WK_SYSTEM(CGColorSpaceCreateWithName))
+        return;
+    CGColorSpaceRef sRGB = WK_SYSTEM(CGColorSpaceCreateWithName)(kCGColorSpaceSRGB);
+    if (!sRGB)
+        return;
+    CFDataRef sRGBProfile = CGColorSpaceCopyICCProfile(sRGB);
+    CGColorSpaceRelease(sRGB);
+    if (!sRGBProfile)
+        return;
+
+    CFMutableDataRef profile = CFDataCreateMutableCopy(NULL, 0, sRGBProfile);
+    CFRelease(sRGBProfile);
+    if (!profile)
+        return;
+
+    // The tag table follows the 128-byte header: a count, then one 12-byte entry per tag carrying its
+    // signature, its offset from the start of the profile and its size.
+    uint8_t *bytes = CFDataGetMutableBytePtr(profile);
+    size_t length = (size_t)CFDataGetLength(profile);
+    unsigned colorantsWritten = 0;
+    bool describedAsDisplayP3 = false;
+    if (length >= 132) {
+        static const char *const colorantTags[3] = { "rXYZ", "gXYZ", "bXYZ" };
+        uint32_t tagCount = wk_iccReadUInt32(bytes + 128);
+        for (uint32_t i = 0; i < tagCount && 132 + 12 * (size_t)(i + 1) <= length; i++) {
+            const uint8_t *entry = bytes + 132 + 12 * (size_t)i;
+            uint32_t offset = wk_iccReadUInt32(entry + 4);
+            uint32_t size = wk_iccReadUInt32(entry + 8);
+            if (offset > length || size > length - offset)
+                continue;
+            uint8_t *tag = bytes + offset;
+            if (!memcmp(entry, "desc", 4)) {
+                describedAsDisplayP3 = wk_iccWriteDescription(tag, size, "Display P3");
+                continue;
+            }
+            // An XYZType tag is its signature, 4 reserved bytes and three s15Fixed16 numbers.
+            for (unsigned c = 0; c < 3; c++) {
+                if (memcmp(entry, colorantTags[c], 4) || size < 20 || memcmp(tag, "XYZ ", 4))
+                    continue;
+                for (unsigned component = 0; component < 3; component++)
+                    wk_iccWriteUInt32(tag + 8 + 4 * component, wk_displayP3ColorantsD50[c][component]);
+                colorantsWritten++;
+            }
+        }
+    }
+
+    if (colorantsWritten == 3 && describedAsDisplayP3)
+        wk_displayP3_storage = CGColorSpaceCreateWithICCProfile(profile);
+    CFRelease(profile);
+}
+static CGColorSpaceRef wk_displayP3_space(void)
+{
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+    pthread_once(&once, wk_build_displayP3);
+    return wk_displayP3_storage;
+}
+
+// The same primaries with a linear transfer.
+static CGColorSpaceRef wk_linearDisplayP3_storage;
+static void wk_build_linearDisplayP3(void)
+{
+    wk_linearDisplayP3_storage = wk_makeCalibratedRGB(wk_whitePointD65, 1.0, wk_displayP3PrimariesToXYZ);
+}
+static CGColorSpaceRef wk_linearDisplayP3_space(void)
+{
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+    pthread_once(&once, wk_build_linearDisplayP3);
+    return wk_linearDisplayP3_storage;
+}
+
+// ITU-R BT.2020: 2020 primaries, D65, the BT.1886 display transfer.
+static CGColorSpaceRef wk_rec2020_storage;
+static void wk_build_rec2020(void)
+{
+    wk_rec2020_storage = wk_makeCalibratedRGB(wk_whitePointD65, 2.4, wk_rec2020PrimariesToXYZ);
+}
+static CGColorSpaceRef wk_rec2020_space(void)
+{
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+    pthread_once(&once, wk_build_rec2020);
+    return wk_rec2020_storage;
+}
+
+// ROMM RGB (ProPhoto): ROMM primaries, D50, gamma 1.8.
+static CGColorSpaceRef wk_romm_storage;
+static void wk_build_romm(void)
+{
+    wk_romm_storage = wk_makeCalibratedRGB(wk_whitePointD50, 1.8, wk_rommPrimariesToXYZ);
+}
+static CGColorSpaceRef wk_romm_space(void)
+{
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+    pthread_once(&once, wk_build_romm);
+    return wk_romm_storage;
+}
+
+// A colour space whose gamut is larger than sRGB's: Display P3, ITU-R BT.2020 and ROMM RGB, built
+// above from primaries outside sRGB's triangle, and AdobeRGB1998, the wide-gamut space 10.9 names
+// itself. A linear variant shares its counterpart's primaries and so answers the same. WebCore reads
+// this to pick the space it clamps a colour into for a destination
+// (createCGColorInDestinationStandardRange): a no for a Display P3 destination clamps every fill and
+// stroke into sRGB on its way to a P3 canvas.
+WK_POLYFILL_ABSENT("CoreGraphics", bool, CGColorSpaceIsWideGamutRGB, (CGColorSpaceRef space))
+{
+    if (!space || !WK_SYSTEM(CGColorSpaceEqualToColorSpace))
+        return false;
+
+    CGColorSpaceRef wide[] = {
+        wk_displayP3_space(), wk_linearDisplayP3_space(), wk_rec2020_space(), wk_romm_space(),
+    };
+    for (size_t i = 0; i < sizeof(wide) / sizeof(wide[0]); i++) {
+        if (wide[i] && WK_SYSTEM(CGColorSpaceEqualToColorSpace)(space, wide[i]))
+            return true;
+    }
+
+    bool isAdobeRGB = false;
+    if (WK_SYSTEM(CGColorSpaceCreateWithName)) {
+        CGColorSpaceRef adobeRGB = WK_SYSTEM(CGColorSpaceCreateWithName)(kCGColorSpaceAdobeRGB1998);
+        if (adobeRGB) {
+            isAdobeRGB = WK_SYSTEM(CGColorSpaceEqualToColorSpace)(space, adobeRGB);
+            CGColorSpaceRelease(adobeRGB);
+        }
+    }
+    return isAdobeRGB;
+}
+
 WK_POLYFILL_REPLACES("CoreGraphics", CGColorSpaceRef, CGColorSpaceCreateWithName, (CFStringRef name))
 {
     if (!WK_SYSTEM(CGColorSpaceCreateWithName))
@@ -556,7 +823,6 @@ WK_POLYFILL_REPLACES("CoreGraphics", CGColorSpaceRef, CGColorSpaceCreateWithName
     // counterparts only in admitting out-of-[0,1] components, which this OS cannot represent.
     static const CFStringRef linear[] = {
         CFSTR("kCGColorSpaceLinearSRGB"), CFSTR("kCGColorSpaceExtendedLinearSRGB"),
-        CFSTR("kCGColorSpaceLinearDisplayP3"), CFSTR("kCGColorSpaceExtendedLinearDisplayP3"),
     };
     for (size_t i = 0; i < sizeof(linear) / sizeof(linear[0]); i++) {
         if (CFStringCompare(name, linear[i], 0) == kCFCompareEqualTo) {
@@ -570,17 +836,31 @@ WK_POLYFILL_REPLACES("CoreGraphics", CGColorSpaceRef, CGColorSpaceCreateWithName
         return xyz ? CGColorSpaceRetain(xyz) : NULL;
     }
 
-    // Wider gamut than sRGB, sRGB-like transfer function: representable only as sRGB here.
-    static const CFStringRef gamutSubstituted[] = {
-        CFSTR("kCGColorSpaceExtendedSRGB"), CFSTR("kCGColorSpaceDisplayP3"),
-        CFSTR("kCGColorSpaceExtendedDisplayP3"), CFSTR("kCGColorSpaceITUR_2020"),
-        CFSTR("kCGColorSpaceExtendedITUR_2020"), CFSTR("kCGColorSpaceExtendedRec2020"),
-        CFSTR("kCGColorSpaceROMMRGB"), CFSTR("kCGColorSpaceExtendedAdobeRGB1998"),
+    // Wide-gamut spaces, each built with its own primaries, white point and transfer. An "extended"
+    // name differs from its plain counterpart only in admitting components outside [0,1], which a
+    // calibrated space cannot carry, so it resolves to the same primaries; out-of-gamut colours clamp
+    // where they always clamp, at the conversion to the display.
+    static const struct { CFStringRef name; CGColorSpaceRef (*space)(void); } wideGamut[] = {
+        { CFSTR("kCGColorSpaceDisplayP3"), wk_displayP3_space },
+        { CFSTR("kCGColorSpaceExtendedDisplayP3"), wk_displayP3_space },
+        { CFSTR("kCGColorSpaceLinearDisplayP3"), wk_linearDisplayP3_space },
+        { CFSTR("kCGColorSpaceExtendedLinearDisplayP3"), wk_linearDisplayP3_space },
+        { CFSTR("kCGColorSpaceITUR_2020"), wk_rec2020_space },
+        { CFSTR("kCGColorSpaceExtendedITUR_2020"), wk_rec2020_space },
+        { CFSTR("kCGColorSpaceExtendedRec2020"), wk_rec2020_space },
+        { CFSTR("kCGColorSpaceROMMRGB"), wk_romm_space },
     };
-    for (size_t i = 0; i < sizeof(gamutSubstituted) / sizeof(gamutSubstituted[0]); i++) {
-        if (CFStringCompare(name, gamutSubstituted[i], 0) == kCFCompareEqualTo)
-            return WK_SYSTEM(CGColorSpaceCreateWithName)(kCGColorSpaceSRGB);
+    for (size_t i = 0; i < sizeof(wideGamut) / sizeof(wideGamut[0]); i++) {
+        if (CFStringCompare(name, wideGamut[i].name, 0) == kCFCompareEqualTo) {
+            CGColorSpaceRef wide = wideGamut[i].space();
+            return wide ? CGColorSpaceRetain(wide) : NULL;
+        }
     }
+
+    // sRGB primaries and transfer, extended range: the range is what 10.9 cannot carry, the space is sRGB.
+    if (CFStringCompare(name, CFSTR("kCGColorSpaceExtendedSRGB"), 0) == kCFCompareEqualTo)
+        return WK_SYSTEM(CGColorSpaceCreateWithName)(kCGColorSpaceSRGB);
+
     return NULL;   // some other unknown name: 10.9's own answer, unchanged
 }
 

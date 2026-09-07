@@ -1,0 +1,549 @@
+# hlsdemux creates an output stream for every rendition of the selected variant except
+# SUBTITLES: setup_streams passes `selected` as VIDEO || AUDIO and create_stream_for_playlist
+# returns without creating anything for a stream that is not selected, so a master playlist
+# whose subtitles live in their own EXT-X-MEDIA rendition exposes no text stream at all.
+#
+# Selecting the rendition is only half of it. A WebVTT fragment carries its cue times on its
+# own timeline and ties that timeline to the presentation with an X-TIMESTAMP-MAP header, so
+# the cue times have to be converted before they mean anything to a player. The successor
+# element does that in ext/adaptivedemux2/hls/gsthlsdemux-util.c against a map of internal
+# (MPEG-TS) time to stream time; this carries that conversion over, taking the map from the
+# primary stream's first PCR and the stream time of the fragment it came from -- both of
+# which this element already computes. Where the successor's fallbacks apply they are kept
+# verbatim: a fragment with no X-TIMESTAMP-MAP is read as carrying MPEG-TS values, a cue that
+# cannot be converted because no primary fragment has provided a PCR yet keeps its original
+# value, and a cue that converts to a negative stream time is clamped to zero.
+#
+# A subtitle rendition otherwise travels the path the audio renditions already take: its
+# fragments are typefound (WebVTT types as application/x-subtitle-vtt) and pushed as their own
+# stream, and is_primary_playlist stays false for every rendition, so bitrate switching keeps
+# following the main playlist.
+#
+# Applied by build_deps with patch -p1.
+--- a/gst-libs/gst/adaptivedemux/gstadaptivedemux.h
++++ b/gst-libs/gst/adaptivedemux/gstadaptivedemux.h
+@@ -195,6 +195,10 @@
+   gboolean eos;
+ 
+   gboolean do_block; /* TRUE if stream should block on preroll */
++
++  /* Flags this stream announces on its stream-start event, so a subclass can mark a
++   * stream sparse or as the one to select by default */
++  GstStreamFlags stream_flags;
+ };
+ 
+ /**
+--- a/gst-libs/gst/adaptivedemux/gstadaptivedemux.c
++++ b/gst-libs/gst/adaptivedemux/gstadaptivedemux.c
+@@ -965,6 +965,8 @@
+   event = gst_event_new_stream_start (stream_id);
+   if (demux->have_group_id)
+     gst_event_set_group_id (event, demux->group_id);
++  if (stream->stream_flags != GST_STREAM_FLAG_NONE)
++    gst_event_set_stream_flags (event, stream->stream_flags);
+ 
+   gst_pad_push_event (pad, event);
+   g_free (stream_id);
+--- a/ext/hls/gsthlsdemux.h
++++ b/ext/hls/gsthlsdemux.h
+@@ -92,6 +92,9 @@
+   gboolean do_typefind;         /* Whether we need to typefind the next buffer */
+   GstBuffer *pending_typefind_buffer; /* for collecting data until typefind succeeds */
+ 
++  gboolean is_webvtt;           /* Whether this stream carries WebVTT fragments */
++  GstBuffer *pending_webvtt_buffer; /* a WebVTT fragment is converted whole, at its end */
++
+   GstAdapter *pending_encrypted_data;  /* for chunking data into 16 byte multiples for decryption */
+   GstBuffer *pending_decrypted_buffer; /* last decrypted buffer for pkcs7 unpadding.
+                                           We only know that it is the last at EOS */
+@@ -143,6 +146,12 @@
+ 
+   GstDateTime *prog_dt;
+ 
++  /* Maps the primary stream's internal (MPEG-TS) time onto stream time, for placing the
++   * WebVTT cue times a subtitle rendition carries. Taken from the first PCR of a primary
++   * fragment and that fragment's stream time. */
++  GstClockTime      internal_time;
++  GstClockTimeDiff  internal_stream_time;
++
+   /* FIXME: check locking, protected automatically by manifest_lock already? */
+   /* The master playlist with the available variant streams */
+   GstHLSMasterPlaylist *master;
+--- a/ext/hls/gsthlsdemux.c
++++ b/ext/hls/gsthlsdemux.c
+@@ -43,6 +43,8 @@
+ 
+ #include <string.h>
+ #include <gst/base/gsttypefindhelper.h>
++#include <gst/base/gstbytereader.h>
++#include <gst/tag/tag.h>
+ #include "gsthlselements.h"
+ #include "gsthlsdemux.h"
+ 
+@@ -265,6 +267,7 @@
+   gst_buffer_replace (&hls_stream->pending_decrypted_buffer, NULL);
+   gst_buffer_replace (&hls_stream->pending_typefind_buffer, NULL);
+   gst_buffer_replace (&hls_stream->pending_pcr_buffer, NULL);
++  gst_buffer_replace (&hls_stream->pending_webvtt_buffer, NULL);
+   hls_stream->current_offset = -1;
+   gst_hls_demux_stream_decrypt_end (hls_stream);
+ }
+@@ -489,6 +492,47 @@
+   return GST_FLOW_OK;
+ }
+ 
++/* The NAME and LANGUAGE an EXT-X-MEDIA rendition declares, as tags on its stream, so a
++ * player can label the track and match it against language preferences. */
++static void
++set_tags_for_media (GstAdaptiveDemuxStream * stream, GstHLSMedia * media)
++{
++  GstTagList *tags;
++
++  if (!media || (!media->name && !media->lang))
++    return;
++
++  tags = gst_tag_list_new_empty ();
++  if (media->name)
++    gst_tag_list_add (tags, GST_TAG_MERGE_REPLACE, GST_TAG_TITLE, media->name,
++        NULL);
++  if (media->lang) {
++    if (gst_tag_check_language_code (media->lang))
++      gst_tag_list_add (tags, GST_TAG_MERGE_REPLACE, GST_TAG_LANGUAGE_CODE,
++          media->lang, NULL);
++    else
++      gst_tag_list_add (tags, GST_TAG_MERGE_REPLACE, GST_TAG_LANGUAGE_NAME,
++          media->lang, NULL);
++  }
++
++  gst_adaptive_demux_stream_set_tags (stream, tags);
++}
++
++/* The flags a rendition's stream announces: a subtitle stream is sparse, and a rendition the
++ * playlist marks DEFAULT is the one a player should start with. */
++static void
++set_flags_for_media (GstAdaptiveDemuxStream * stream, GstHLSMedia * media)
++{
++  if (!media)
++    return;
++
++  if (media->mtype == GST_HLS_MEDIA_TYPE_SUBTITLES)
++    stream->stream_flags |= GST_STREAM_FLAG_SPARSE;
++
++  if (media->is_default)
++    stream->stream_flags |= GST_STREAM_FLAG_SELECT;
++}
++
+ static void
+ create_stream_for_playlist (GstAdaptiveDemux * demux, GstM3U8 * playlist,
+     gboolean is_primary_playlist, gboolean selected)
+@@ -637,7 +681,8 @@
+         if (!g_strcmp0 (media->uri, old_media->uri))
+           GST_DEBUG_OBJECT (demux, "Identical stream !");
+         if (media->mtype == GST_HLS_MEDIA_TYPE_AUDIO ||
+-            media->mtype == GST_HLS_MEDIA_TYPE_VIDEO) {
++            media->mtype == GST_HLS_MEDIA_TYPE_VIDEO ||
++            media->mtype == GST_HLS_MEDIA_TYPE_SUBTITLES) {
+           hlsstream =
+               find_adaptive_stream_for_playlist (demux, old_media->playlist);
+           if (!hlsstream)
+@@ -681,7 +726,18 @@
+           gst_hls_media_type_get_name (i), media->name, media->uri);
+       create_stream_for_playlist (demux, media->playlist, FALSE,
+           (media->mtype == GST_HLS_MEDIA_TYPE_VIDEO
+-              || media->mtype == GST_HLS_MEDIA_TYPE_AUDIO));
++              || media->mtype == GST_HLS_MEDIA_TYPE_AUDIO
++              || media->mtype == GST_HLS_MEDIA_TYPE_SUBTITLES));
++      {
++        GstHLSDemuxStream *rendition_stream =
++            find_adaptive_stream_for_playlist (demux, media->playlist);
++        if (rendition_stream) {
++          set_tags_for_media ((GstAdaptiveDemuxStream *) rendition_stream,
++              media);
++          set_flags_for_media ((GstAdaptiveDemuxStream *) rendition_stream,
++              media);
++        }
++      }
+ 
+       mlist = mlist->next;
+     }
+@@ -962,6 +1018,323 @@
+   return GST_HLS_TSREADER_NONE;
+ }
+ 
++/* WebVTT fragments of a subtitle rendition carry cue times on their own timeline, tied to the
++ * presentation by an X-TIMESTAMP-MAP header. The conversion below is hlsdemux2's
++ * (ext/adaptivedemux2/hls/gsthlsdemux-util.c), reading that map and rewriting each cue timing
++ * line into stream time. */
++
++#define MPEGTIME_TO_GSTTIME(t) (((t) * (guint64) 100000) / 9)
++#define MPEG_TS_MAX_PTS (((((guint64) 1) << 33) * (guint64) 100000) / 9)
++
++#define WEBVTT_TIME_FORMAT "02u:%02u:%02u.%03u"
++#define WEBVTT_TIME_ARGS(t)                       \
++  (guint) ((t) / (GST_SECOND * 60 * 60)),         \
++  (guint) ((t) / (GST_SECOND * 60) % 60),         \
++  (guint) ((t) / GST_SECOND % 60),                \
++  (guint) ((t) / GST_MSECOND % 1000)
++
++static gboolean
++webvtt_next_uint64 (GstByteReader * br, guint64 * out)
++{
++  guint64 value = 0;
++  gboolean res = FALSE;
++
++  while (gst_byte_reader_get_remaining (br)) {
++    guint8 d = gst_byte_reader_peek_uint8_unchecked (br);
++
++    if (g_ascii_isdigit (d)) {
++      value = value * 10 + (d - '0');
++      res = TRUE;
++    } else if (d != ' ' && d != '\t') {
++      break;
++    }
++    gst_byte_reader_skip_unchecked (br, 1);
++  }
++
++  if (res)
++    *out = value;
++
++  return res;
++}
++
++static gboolean
++webvtt_next_uint (GstByteReader * br, guint * out)
++{
++  guint value = 0;
++  gboolean res = FALSE;
++
++  while (gst_byte_reader_get_remaining (br)) {
++    guint8 d = gst_byte_reader_peek_uint8_unchecked (br);
++
++    if (g_ascii_isdigit (d)) {
++      value = value * 10 + (d - '0');
++      res = TRUE;
++    } else if (d != ' ' && d != '\t') {
++      break;
++    }
++    gst_byte_reader_skip_unchecked (br, 1);
++  }
++
++  if (res)
++    *out = value;
++
++  return res;
++}
++
++static gboolean
++webvtt_parse_time (GstByteReader * br, GstClockTime * t,
++    const gchar ** remainder)
++{
++  GstClockTime val = 0;
++  gboolean res = FALSE;
++
++  while (!res && gst_byte_reader_get_remaining (br)) {
++    guint numval;
++    if (webvtt_next_uint (br, &numval)) {
++      guint8 next = gst_byte_reader_peek_uint8_unchecked (br);
++
++      if (next == ':' || next == '.') {
++        /* value was hours, minutes or seconds */
++        val = val * 60 + numval;
++        gst_byte_reader_skip (br, 1);
++      } else {
++        /* Reached the milliseconds, convert to GstClockTime */
++        val = val * GST_SECOND + numval * GST_MSECOND;
++        res = TRUE;
++      }
++    }
++  }
++
++  if (res) {
++    *t = val;
++    if (remainder) {
++      if (gst_byte_reader_get_remaining (br))
++        *remainder = (const gchar *) gst_byte_reader_peek_data_unchecked (br);
++      else
++        *remainder = NULL;
++    }
++  }
++
++  return res;
++}
++
++static inline void
++webvtt_skipwhitespace (GstByteReader * br)
++{
++  while (gst_byte_reader_get_remaining (br)) {
++    guint8 d = gst_byte_reader_peek_uint8_unchecked (br);
++    if (d != ' ' && d != '\t')
++      return;
++    gst_byte_reader_skip_unchecked (br, 1);
++  }
++}
++
++/* Returns TRUE if br starts with str, skipping any spaces/tabs before and after it */
++static gboolean
++webvtt_startswith (GstByteReader * br, const gchar * str, gboolean skip_ws)
++{
++  guint len = strlen (str);
++  const guint8 *data;
++
++  if (skip_ws)
++    webvtt_skipwhitespace (br);
++  if (!gst_byte_reader_peek_data (br, len, &data))
++    return FALSE;
++  if (strncmp ((gchar *) data, str, len))
++    return FALSE;
++  gst_byte_reader_skip_unchecked (br, len);
++  if (skip_ws)
++    webvtt_skipwhitespace (br);
++
++  return TRUE;
++}
++
++static gboolean
++webvtt_read_x_timestamp_map (gchar * data, GstClockTime * local,
++    GstClockTime * mpegts)
++{
++  GstByteReader br;
++
++  gst_byte_reader_init (&br, (guint8 *) data, strlen (data));
++
++  if (!webvtt_startswith (&br, "X-TIMESTAMP-MAP=", FALSE))
++    return FALSE;
++
++  if (webvtt_startswith (&br, "MPEGTS:", TRUE)) {
++    if (!webvtt_next_uint64 (&br, mpegts))
++      return FALSE;
++    *mpegts = MPEGTIME_TO_GSTTIME (*mpegts);
++    if (!webvtt_startswith (&br, ",", TRUE))
++      return FALSE;
++    if (!webvtt_startswith (&br, "LOCAL:", TRUE))
++      return FALSE;
++    if (!webvtt_parse_time (&br, local, NULL))
++      return FALSE;
++  } else if (webvtt_startswith (&br, "LOCAL:", TRUE)) {
++    if (!webvtt_parse_time (&br, local, NULL))
++      return FALSE;
++    if (!webvtt_startswith (&br, ",", TRUE))
++      return FALSE;
++    if (!webvtt_startswith (&br, "MPEGTS:", TRUE))
++      return FALSE;
++    if (!webvtt_next_uint64 (&br, mpegts))
++      return FALSE;
++    *mpegts = MPEGTIME_TO_GSTTIME (*mpegts);
++  } else {
++    return FALSE;
++  }
++
++  GST_DEBUG ("local time:%" GST_TIME_FORMAT ", mpegts time:%" GST_TIME_FORMAT,
++      GST_TIME_ARGS (*local), GST_TIME_ARGS (*mpegts));
++
++  return TRUE;
++}
++
++static gboolean
++webvtt_process_cue_timing_setting_line (const gchar * input,
++    GstClockTime * start, GstClockTime * stop, const gchar ** cue_settings)
++{
++  GstByteReader br;
++
++  gst_byte_reader_init (&br, (guint8 *) input, strlen (input));
++
++  if (!webvtt_parse_time (&br, start, NULL))
++    return FALSE;
++
++  if (gst_byte_reader_get_remaining (&br) < 12 ||
++      g_ascii_strncasecmp ((const gchar *)
++          gst_byte_reader_peek_data_unchecked (&br), "-->", 3))
++    return FALSE;
++
++  gst_byte_reader_skip (&br, 4);
++
++  if (!webvtt_parse_time (&br, stop, cue_settings))
++    return FALSE;
++
++  return TRUE;
++}
++
++/* The stream time of an internal (MPEG-TS) time, handling MPEG-TS wraparound. Answers
++ * GST_CLOCK_STIME_NONE while no primary fragment has provided a PCR to map from. */
++static GstClockTimeDiff
++gst_hls_demux_internal_to_stream_time (GstHLSDemux * demux,
++    GstClockTime internal_time)
++{
++  if (demux->internal_time == GST_CLOCK_TIME_NONE)
++    return GST_CLOCK_STIME_NONE;
++
++  /* Handle MPEG-TS Wraparound */
++  if (internal_time < demux->internal_time &&
++      demux->internal_time - internal_time > (MPEG_TS_MAX_PTS / 2))
++    internal_time += MPEG_TS_MAX_PTS;
++
++  return (demux->internal_stream_time + internal_time - demux->internal_time);
++}
++
++static GstClockTimeDiff
++webvtt_convert_to_stream_time (GstHLSDemux * demux, GstClockTime localtime,
++    GstClockTime mpegtime, GstClockTime vtt_value)
++{
++  GstClockTimeDiff res;
++
++  if (localtime == GST_CLOCK_TIME_NONE || mpegtime == GST_CLOCK_TIME_NONE) {
++    GST_DEBUG ("No X-TIMESTAMP-MAP, assuming values are MPEG-TS values");
++    res = gst_hls_demux_internal_to_stream_time (demux, vtt_value);
++
++    /* VTT only uses positive values */
++    if (res < 0)
++      res = 0;
++  } else {
++    res =
++        gst_hls_demux_internal_to_stream_time (demux,
++        vtt_value + mpegtime - localtime);
++    if (res == GST_CLOCK_STIME_NONE) {
++      GST_WARNING ("Couldn't convert value, using original value %"
++          GST_TIME_FORMAT, GST_TIME_ARGS (vtt_value));
++      res = vtt_value;
++    } else if (res < 0) {
++      res = 0;
++    }
++  }
++
++  return res;
++}
++
++/* Rewrites the cue timing lines of a whole WebVTT fragment into stream time. */
++static GstBuffer *
++gst_hls_demux_convert_webvtt (GstHLSDemux * demux, GstBuffer * buffer)
++{
++  GstMapInfo info;
++  gchar *original_content;
++  gchar **original_lines;
++  GPtrArray *builder;
++  GstClockTime localtime = GST_CLOCK_TIME_NONE;
++  GstClockTime mpegtime = GST_CLOCK_TIME_NONE;
++  gchar *newfile;
++  guint i, nb;
++
++  if (!gst_buffer_map (buffer, &info, GST_MAP_READ))
++    return buffer;
++  original_content = g_strndup ((gchar *) info.data, info.size);
++  gst_buffer_unmap (buffer, &info);
++  if (!original_content)
++    return buffer;
++
++  builder = g_ptr_array_new_with_free_func (g_free);
++  original_lines = g_strsplit_set (original_content, "\n\r", 0);
++  nb = g_strv_length (original_lines);
++
++  for (i = 0; i < nb; i++) {
++    gchar *line = original_lines[i];
++
++    if (g_str_has_prefix (line, "X-TIMESTAMP-MAP=")) {
++      if (!webvtt_read_x_timestamp_map (line, &localtime, &mpegtime))
++        GST_WARNING_OBJECT (demux, "webvtt timestamp map isn't valid");
++      g_ptr_array_add (builder, g_strdup (line));
++    } else if (strstr (line, " --> ")) {
++      GstClockTime start, stop;
++      const gchar *leftover;
++
++      if (webvtt_process_cue_timing_setting_line (line, &start, &stop,
++              &leftover)) {
++        GstClockTimeDiff start_stream =
++            webvtt_convert_to_stream_time (demux, localtime, mpegtime, start);
++        GstClockTimeDiff stop_stream =
++            webvtt_convert_to_stream_time (demux, localtime, mpegtime, stop);
++
++        if (leftover)
++          g_ptr_array_add (builder,
++              g_strdup_printf ("%" WEBVTT_TIME_FORMAT " --> %"
++                  WEBVTT_TIME_FORMAT " %s", WEBVTT_TIME_ARGS (start_stream),
++                  WEBVTT_TIME_ARGS (stop_stream), leftover));
++        else
++          g_ptr_array_add (builder,
++              g_strdup_printf ("%" WEBVTT_TIME_FORMAT " --> %"
++                  WEBVTT_TIME_FORMAT, WEBVTT_TIME_ARGS (start_stream),
++                  WEBVTT_TIME_ARGS (stop_stream)));
++      } else {
++        GST_WARNING_OBJECT (demux, "Failed to parse time line '%s'", line);
++        g_ptr_array_add (builder, g_strdup (line));
++      }
++    } else {
++      g_ptr_array_add (builder, g_strdup (line));
++    }
++  }
++
++  /* Ensure the file always ends with an empty newline, so downstream parsers detect the
++   * last entry */
++  g_ptr_array_add (builder, g_strdup ("\n"));
++  g_ptr_array_add (builder, NULL);
++  newfile = g_strjoinv ("\n", (gchar **) builder->pdata);
++
++  g_ptr_array_unref (builder);
++  g_strfreev (original_lines);
++  g_free (original_content);
++
++  gst_buffer_unref (buffer);
++  return gst_buffer_new_wrapped (newfile, strlen (newfile));
++}
++
+ static GstFlowReturn
+ gst_hls_demux_handle_buffer (GstAdaptiveDemux * demux,
+     GstAdaptiveDemuxStream * stream, GstBuffer * buffer, gboolean at_eos)
+@@ -1019,6 +1392,9 @@
+     hls_stream->stream_type = caps_to_reader (caps);
+     gst_hlsdemux_tsreader_set_type (&hls_stream->tsreader,
+         hls_stream->stream_type);
++    hls_stream->is_webvtt =
++        gst_structure_has_name (gst_caps_get_structure (caps, 0),
++        "application/x-subtitle-vtt");
+ 
+     gst_adaptive_demux_stream_set_caps (stream, caps);
+ 
+@@ -1028,6 +1404,27 @@
+   }
+   g_assert (hls_stream->pending_typefind_buffer == NULL);
+ 
++  /* A WebVTT fragment is converted as a whole: its cue times are rewritten against the
++   * X-TIMESTAMP-MAP it carries, so collect the fragment until its end. */
++  if (hls_stream->is_webvtt) {
++    if (hls_stream->pending_webvtt_buffer) {
++      buffer = gst_buffer_append (hls_stream->pending_webvtt_buffer, buffer);
++      hls_stream->pending_webvtt_buffer = NULL;
++    }
++
++    if (!at_eos) {
++      hls_stream->pending_webvtt_buffer = buffer;
++      return GST_FLOW_OK;
++    }
++
++    buffer = gst_hls_demux_convert_webvtt (hlsdemux, buffer);
++    buffer = gst_buffer_make_writable (buffer);
++    GST_BUFFER_OFFSET (buffer) = hls_stream->current_offset;
++    hls_stream->current_offset += gst_buffer_get_size (buffer);
++    GST_BUFFER_OFFSET_END (buffer) = hls_stream->current_offset;
++    return gst_adaptive_demux_stream_push_buffer (stream, buffer);
++  }
++
+   // Accumulate this buffer
+   if (hls_stream->pending_pcr_buffer) {
+     buffer = gst_buffer_append (hls_stream->pending_pcr_buffer, buffer);
+@@ -1042,6 +1439,18 @@
+     return GST_FLOW_OK;
+   }
+ 
++  if (hls_stream->is_primary_playlist
++      && GST_CLOCK_TIME_IS_VALID (hls_stream->tsreader.first_pcr)
++      && GST_CLOCK_TIME_IS_VALID (stream->fragment.timestamp)
++      && hlsdemux->internal_time != hls_stream->tsreader.first_pcr) {
++    hlsdemux->internal_time = hls_stream->tsreader.first_pcr;
++    hlsdemux->internal_stream_time = stream->fragment.timestamp;
++    GST_DEBUG_OBJECT (demux,
++        "Internal time %" GST_TIME_FORMAT " is stream time %" GST_STIME_FORMAT,
++        GST_TIME_ARGS (hlsdemux->internal_time),
++        GST_STIME_ARGS (hlsdemux->internal_stream_time));
++  }
++
+   if (tags) {
+     gst_adaptive_demux_stream_set_tags (stream, tags);
+     /* run typefind again on the trimmed buffer */

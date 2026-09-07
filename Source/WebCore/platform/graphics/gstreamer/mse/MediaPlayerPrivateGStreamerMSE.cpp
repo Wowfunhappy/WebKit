@@ -327,8 +327,21 @@ bool MediaPlayerPrivateGStreamerMSE::doSeek(const SeekTarget& target, float rate
             while (GST_IS_BIN(sink.get())) {
                 GUniquePtr<GstIterator> iter(gst_bin_iterate_sinks(GST_BIN_CAST(sink.get())));
                 GValue value = G_VALUE_INIT;
-                auto result = gst_iterator_next(iter.get(), &value);
-                ASSERT_UNUSED(result, result == GST_ITERATOR_OK);
+                // MAVERICKS_BACKPORT(upstreamable): autoaudiosink is a GstAutoDetect, which removes its
+                // kid from itself, probes the registry for a device, and adds the replacement only when
+                // that finishes (gst_auto_detect_detect/_reset), so it reports no sink child for the
+                // length of every probe -- and a bin runs those state changes off the thread that asked
+                // for them, which is not this one. gst_iterator_next() leaves the GValue untouched
+                // unless it returns OK, so its result decides whether there is an element to descend to.
+                // Stopping on the bin leaves the query below without an "async" property to read, which
+                // is the asynchronous-state-change assumption this variable is initialised with.
+                // auto result = gst_iterator_next(iter.get(), &value);
+                // ASSERT_UNUSED(result, result == GST_ITERATOR_OK);
+                GstIteratorResult result;
+                while ((result = gst_iterator_next(iter.get(), &value)) == GST_ITERATOR_RESYNC)
+                    gst_iterator_resync(iter.get());
+                if (result != GST_ITERATOR_OK)
+                    break;
                 sink = GST_ELEMENT(g_value_get_object(&value));
                 g_value_unset(&value);
             }

@@ -2637,6 +2637,22 @@ void MediaPlayerPrivateGStreamer::processTableOfContentsEntry(GstTocEntry* entry
         processTableOfContentsEntry(static_cast<GstTocEntry*>(i->data));
 }
 
+#if ENABLE(ENCRYPTED_MEDIA)
+// MAVERICKS_BACKPORT: the elements whose sink caps do not on their own say which key system they
+// serve, so an autoplug handler has to ask the CDM (see configureParsebin).
+static bool isKeySystemBoundDecryptor(StringView factoryName)
+{
+    return factoryName == "webkitclearkey"_s || factoryName == "webkitwidevine"_s || factoryName == "webkitwidevinevideodec"_s;
+}
+
+// MAVERICKS_BACKPORT: pairs those elements with the key system in play (see configureParsebin).
+static bool keySystemBoundDecryptorMatches(StringView factoryName, const String& keySystem)
+{
+    bool isWidevineElement = factoryName == "webkitwidevine"_s || factoryName == "webkitwidevinevideodec"_s;
+    return isWidevineElement == GStreamerEMEUtilities::isWidevineKeySystem(keySystem);
+}
+#endif
+
 void MediaPlayerPrivateGStreamer::configureParsebin(GstElement* parsebin)
 {
     g_signal_connect(parsebin, "autoplug-continue", G_CALLBACK(+[](GstElement*, GstPad*, GstCaps* caps, gpointer userData) -> gboolean {
@@ -2658,15 +2674,16 @@ void MediaPlayerPrivateGStreamer::configureParsebin(GstElement* parsebin)
 
 #if ENABLE(ENCRYPTED_MEDIA)
             // MAVERICKS_BACKPORT: this port builds two CENC decryptors and a Widevine video
-            // decoder, and ClearKey's sink caps carry a bare application/x-cenc structure that
-            // intersects any protection system, as do the WebM structures every one of them
-            // publishes, so caps alone cannot say which belongs on a stream. The CDM the page
-            // created does.
-            if (RefPtr cdmInstance = player->m_cdmInstance) {
-                bool isClearKeyDecryptor = name == "webkitclearkey"_s;
-                bool isWidevineElement = name == "webkitwidevine"_s || name == "webkitwidevinevideodec"_s;
-                if ((isClearKeyDecryptor || isWidevineElement)
-                    && isWidevineElement != GStreamerEMEUtilities::isWidevineKeySystem(cdmInstance->keySystem()))
+            // decoder. A cenc stream whose caps name no protection system, and every WebM
+            // structure the three of them publish, intersect all of their sink templates, so caps
+            // alone cannot say which belongs on a stream. The CDM the page created does, and this
+            // runs on a streaming thread, so it waits for one the way the
+            // drm-preferred-decryption-system-id handler does.
+            if (isKeySystemBoundDecryptor(name)) {
+                if (!player->isCDMAttached())
+                    player->waitForCDMAttachment();
+                RefPtr cdmInstance = player->m_cdmInstance;
+                if (!cdmInstance || !keySystemBoundDecryptorMatches(name, cdmInstance->keySystem()))
                     return skipAutoPlug;
             }
 #endif
@@ -2717,6 +2734,27 @@ void MediaPlayerPrivateGStreamer::configureUriDecodebin2(GstElement* element)
         player->determineContainerTypeFromCaps(caps);
         return TRUE;
     }), this);
+
+#if ENABLE(ENCRYPTED_MEDIA)
+    // MAVERICKS_BACKPORT: decodebin2 chooses among this port's two CENC decryptors and its
+    // Widevine video decoder the same way parsebin does, so it needs the same key-system filter.
+    // autoplug-select chains to the next handler while one answers "try", so this sits alongside
+    // the Thunder parser filter below.
+    g_signal_connect(element, "autoplug-select", G_CALLBACK(+[](GstElement*, GstPad*, GstCaps*, GstElementFactory* factory, MediaPlayerPrivateGStreamer* player) -> unsigned {
+        static auto tryAutoPlug = *gstGetAutoplugSelectResult("try"_s);
+        static auto skipAutoPlug = *gstGetAutoplugSelectResult("skip"_s);
+        auto name = StringView::fromLatin1(gst_plugin_feature_get_name(GST_PLUGIN_FEATURE_CAST(factory)));
+        if (!isKeySystemBoundDecryptor(name))
+            return tryAutoPlug;
+
+        if (!player->isCDMAttached())
+            player->waitForCDMAttachment();
+        RefPtr cdmInstance = player->m_cdmInstance;
+        if (!cdmInstance || !keySystemBoundDecryptorMatches(name, cdmInstance->keySystem()))
+            return skipAutoPlug;
+        return tryAutoPlug;
+    }), this);
+#endif
 
 #if ENABLE(ENCRYPTED_MEDIA) && ENABLE(THUNDER)
     if (CDMFactoryThunder::singleton().supportedKeySystems().isEmpty())

@@ -155,6 +155,47 @@ WK_POLYFILL_REPLACES("ImageIO", CGImageRef, CGImageSourceCreateThumbnailAtIndex,
     return WK_ORIGINAL(CGImageSourceCreateThumbnailAtIndex)(source, index, options);
 }
 
+// A GIF's kCGImagePropertyGIFLoopCount. 10.9's ImageIO reports the Netscape-extension loop count the
+// file carries -- an image that plays twice reports 1 -- where later ImageIO reports the number of
+// plays, which is the value every caller of this dictionary now expects (0 keeps its meaning, "play
+// forever", in both). The count is reported here as plays. Only the {GIF} dictionary carries this
+// difference; other formats' loop counts are already play counts.
+WK_POLYFILL_REPLACES("ImageIO", CFDictionaryRef, CGImageSourceCopyProperties, (CGImageSourceRef source, CFDictionaryRef options))
+{
+    if (!WK_ORIGINAL(CGImageSourceCopyProperties))
+        return NULL;
+    CFDictionaryRef properties = WK_ORIGINAL(CGImageSourceCopyProperties)(source, options);
+    if (!properties)
+        return NULL;
+
+    CFDictionaryRef gif = (CFDictionaryRef)CFDictionaryGetValue(properties, kCGImagePropertyGIFDictionary);
+    if (!gif || CFGetTypeID(gif) != CFDictionaryGetTypeID())
+        return properties;
+
+    CFNumberRef loops = (CFNumberRef)CFDictionaryGetValue(gif, kCGImagePropertyGIFLoopCount);
+    int count = 0;
+    if (!loops || CFGetTypeID(loops) != CFNumberGetTypeID()
+        || !CFNumberGetValue(loops, kCFNumberIntType, &count) || count <= 0)
+        return properties;
+
+    CFMutableDictionaryRef updated = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, properties);
+    CFMutableDictionaryRef updatedGIF = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, gif);
+    int plays = count + 1;
+    CFNumberRef playsNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &plays);
+    if (!updated || !updatedGIF || !playsNumber) {
+        if (updated) CFRelease(updated);
+        if (updatedGIF) CFRelease(updatedGIF);
+        if (playsNumber) CFRelease(playsNumber);
+        return properties;
+    }
+    CFDictionarySetValue(updatedGIF, kCGImagePropertyGIFLoopCount, playsNumber);
+    CFDictionarySetValue(updated, kCGImagePropertyGIFDictionary, updatedGIF);
+    CFRelease(playsNumber);
+    CFRelease(updatedGIF);
+    CFRelease(properties);
+    return updated;
+}
+
 // CGImageSourceGetPrimaryImageIndex (10.14+): the primary-image concept (a HEIF/HEIC container's
 // primary item) postdates 10.9, and 10.9's ImageIO exports no such symbol. On 10.9 the primary frame
 // is always index 0 (single-frame images have only frame 0; animated GIF/APNG treat frame 0 as

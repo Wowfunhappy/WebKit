@@ -115,9 +115,6 @@ namespace WebCore {
 //     that default), and pings and beacons had no CachedResource at all, hence Other. The rename
 //     lands on the wire so the frontend's own Type table stays stock -- FrameTreeElement's
 //     folder-grouping heuristic counts the resources of every key in it.
-//
-// Every failure path surfaces via console.error (into the frontend page's own console) rather than
-// being swallowed, so a translation bug is diagnosable instead of a silently-dropped message.
 inline const char* classicInspectorFrontendBridgeScriptUTF8()
 {
     return R"WKIB((function(){
@@ -142,29 +139,27 @@ function requestDocument(){if(documentRequested)return;documentRequested=true;va
 var wkResourceTypes={StyleSheet:'Stylesheet',Fetch:'XHR',EventSource:'XHR',Ping:'Other',Beacon:'Other'};
 function fixPayload(o){if(!o||typeof o!=='object')return;var sl=o.selectorList;if(sl&&sl.selectors instanceof Array&&sl.selectors.length&&typeof sl.selectors[0]==='object'){sl.selectors=sl.selectors.map(function(s){return s&&typeof s==='object'?String(s.text||''):s;});}if(o.origin==='author'&&(o.selectorList||o.style||o.styleSheetId))o.origin='regular';if(typeof wkResourceTypes[o.type]==='string'&&(typeof o.url==='string'||o.requestId!==undefined))o.type=wkResourceTypes[o.type];for(var k in o){var v=o[k];if(v&&typeof v==='object')fixPayload(v);}}
 IFH.sendMessageToBackend=function(messageStr){
-try{var msg=JSON.parse(messageStr);var dom=msg.method&&msg.method.split('.')[0];
+var msg=JSON.parse(messageStr);var dom=msg.method&&msg.method.split('.')[0];
 if(dom==='Target'||dom==='Browser')return origSend(messageStr);
 if(!currentTargetId){pendingQueue.push(messageStr);return;}
-return origSend(wrap(messageStr));
-}catch(e){console.error('[wk-inspector-bridge] sendMessageToBackend failed',e);}return origSend(messageStr);};
-var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;var origDisp=v.dispatch.bind(v);v.dispatch=function(message){try{var obj=(typeof message==='string')?JSON.parse(message):message;if(obj.method==='Target.targetCreated'&&obj.params&&obj.params.targetInfo){currentTargetId=obj.params.targetInfo.targetId;flushQueue();requestDocument();return;}if(obj.id!==undefined&&wrapperIds[obj.id]){delete wrapperIds[obj.id];return;}if(obj.method==='Target.dispatchMessageFromTarget'&&obj.params&&obj.params.message){var im=obj.params.message;if(typeof im==='string'){try{im=JSON.parse(im);}catch(e2){console.error('[wk-inspector-bridge] target message parse failed',e2);return origDisp(obj.params.message);}}if(im&&im.id!==undefined&&bridgeIds[im.id]){delete bridgeIds[im.id];return;}fixPayload(im);return origDisp(im);}}catch(e){console.error('[wk-inspector-bridge] InspectorBackend.dispatch failed',e);}return origDisp(message);};}}});
+return origSend(wrap(messageStr));};
+var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;var origDisp=v.dispatch.bind(v);v.dispatch=function(message){var obj=(typeof message==='string')?JSON.parse(message):message;if(obj.method==='Target.targetCreated'&&obj.params&&obj.params.targetInfo){currentTargetId=obj.params.targetInfo.targetId;flushQueue();requestDocument();return;}if(obj.id!==undefined&&wrapperIds[obj.id]){delete wrapperIds[obj.id];return;}if(obj.method==='Target.dispatchMessageFromTarget'&&obj.params&&obj.params.message){var im=obj.params.message;if(typeof im==='string')im=JSON.parse(im);if(im&&im.id!==undefined&&bridgeIds[im.id]){delete bridgeIds[im.id];return;}fixPayload(im);return origDisp(im);}return origDisp(message);};}}});
 })();
-try{var wkTitle='Web Inspector';
-document.addEventListener('DOMContentLoaded',function(){try{
+var wkTitle='Web Inspector';
+document.addEventListener('DOMContentLoaded',function(){
 if(document.getElementById('wk-titlebar'))return;
 var bar=document.createElement('div');bar.id='wk-titlebar';bar.textContent=wkTitle;
 document.body.insertBefore(bar,document.body.firstChild);
-}catch(e){console.error('[wk-inspector-bridge] titlebar insert failed',e);}});
-if(typeof IFH.inspectedURLChanged==='function'){var origIUC=IFH.inspectedURLChanged.bind(IFH);Object.defineProperty(IFH,'inspectedURLChanged',{value:function(t){try{wkTitle='Web Inspector — '+t;var b=document.getElementById('wk-titlebar');if(b)b.textContent=wkTitle;}catch(e){console.error('[wk-inspector-bridge] title update failed',e);}return origIUC(t);},writable:true,configurable:true});}
-}catch(e){console.error('[wk-inspector-bridge] title hook failed',e);}
-try{document.addEventListener('mousedown',function(ev){
+});
+if(typeof IFH.inspectedURLChanged==='function'){var origIUC=IFH.inspectedURLChanged.bind(IFH);Object.defineProperty(IFH,'inspectedURLChanged',{value:function(t){wkTitle='Web Inspector — '+t;var b=document.getElementById('wk-titlebar');if(b)b.textContent=wkTitle;return origIUC(t);},writable:true,configurable:true});}
+document.addEventListener('mousedown',function(ev){
 if(ev.button!==0||!ev.target||!ev.target.closest)return;
 if(document.body&&document.body.classList.contains('docked'))return;
 if(!ev.target.closest('#wk-titlebar, #toolbar, .toolbar'))return;
 if(ev.target.closest('button,input,select,textarea,a,.item,.toolbar-item,.dashboard-container,.navigation-bar,.search-bar,[role=button]'))return;
 if(IFH.startWindowDrag){IFH.startWindowDrag();ev.preventDefault();ev.stopPropagation();}
-},true);}catch(e){console.error('[wk-inspector-bridge] drag handler failed',e);}
-try{document.addEventListener('DOMContentLoaded',function(){try{
+},true);
+document.addEventListener('DOMContentLoaded',function(){
 var W=(typeof WebInspector!=='undefined')?WebInspector:null;if(!W)return;
 var CP=W.CSSProperty&&W.CSSProperty.prototype;
 if(CP&&Object.getOwnPropertyDescriptor(CP,'synthesizedText')){Object.defineProperty(CP,'synthesizedText',{configurable:true,get:function(){
@@ -175,11 +170,10 @@ var TE=W.CSSStyleDeclarationTextEditor&&W.CSSStyleDeclarationTextEditor.prototyp
 if(!TE||typeof TE._createTextMarkerForPropertyIfNeeded!=='function'||typeof TE._propertyCheckboxChanged!=='function')return;
 var origMarker=TE._createTextMarkerForPropertyIfNeeded;
 TE._createTextMarkerForPropertyIfNeeded=function(from,to,property){origMarker.call(this,from,to,property);
-try{var marks=this._codeMirror.findMarksAt(from);
+var marks=this._codeMirror.findMarksAt(from);
 for(var i=0;i<marks.length;++i){var m=marks[i],w=m.__propertyCheckbox&&m.replacedWith;if(!w)continue;
 var box=w.__cssProperty===property?w:(w.querySelector?w.querySelector('input[type=checkbox]'):null);
-if(box&&box.__cssProperty===property)box.checked=!!property.enabled;}}
-catch(e){console.error('[wk-inspector-bridge] property checkbox state failed',e);}};
+if(box&&box.__cssProperty===property)box.checked=!!property.enabled;}};
 var origToggle=TE._propertyCheckboxChanged;
 TE._propertyCheckboxChanged=function(event){
 if(!event.target.checked)return origToggle.call(this,event);
@@ -190,8 +184,8 @@ var text=this._codeMirror.getRange(range.from,range.to).replace(/^\/\*\s*/,"").r
 if(text.length&&text.charAt(text.length-1)!==";")text+=";";
 function update(){this._codeMirror.replaceRange(text,range.from,range.to);this._createColorSwatches(true,range.from.line);}
 this._codeMirror.operation(update.bind(this));};
-}catch(e){console.error('[wk-inspector-bridge] styles editor patch failed',e);}});}catch(e){console.error('[wk-inspector-bridge] styles editor hook failed',e);}
-try{document.addEventListener('DOMContentLoaded',function(){try{
+});
+document.addEventListener('DOMContentLoaded',function(){
 var W=(typeof WebInspector!=='undefined')?WebInspector:null;if(!W)return;
 var DTM=W.DOMTreeManager&&W.DOMTreeManager.prototype;
 var DTV=W.DOMTreeContentView&&W.DOMTreeContentView.prototype;
@@ -205,8 +199,8 @@ if(rootDOMNode&&manager&&manager._restoreSelectedNodeIsAllowed===false){this._do
 return origRootDOMNodeAvailable.call(this,rootDOMNode);};
 W.Frame.addEventListener(W.Frame.Event.MainResourceDidChange,function(event){
 if(event.target.isMainFrame()&&W.domTreeManager)W.domTreeManager._restoreSelectedNodeIsAllowed=true;});
-}catch(e){console.error('[wk-inspector-bridge] selected-node restore patch failed',e);}});}catch(e){console.error('[wk-inspector-bridge] selected-node restore hook failed',e);}
-try{document.addEventListener('DOMContentLoaded',function(){try{
+});
+document.addEventListener('DOMContentLoaded',function(){
 var W=(typeof WebInspector!=='undefined')?WebInspector:null;if(!W)return;
 var DTV=W.DOMTreeContentView&&W.DOMTreeContentView.prototype;
 if(!DTV||typeof DTV.updateLayout!=='function')return;
@@ -217,7 +211,7 @@ if(!size||size.width!==width||size.height!==height){
 this._lastLaidOutSize={width:width,height:height};
 this._domTreeOutline.selectDOMNode(this._domTreeOutline.selectedDOMNode());}
 return origUpdateLayout.call(this);};
-}catch(e){console.error('[wk-inspector-bridge] dom tree reveal patch failed',e);}});}catch(e){console.error('[wk-inspector-bridge] dom tree reveal hook failed',e);}
+});
 })();)WKIB";
 }
 

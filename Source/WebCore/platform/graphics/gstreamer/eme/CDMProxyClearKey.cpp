@@ -78,8 +78,8 @@ CDMProxyFactoryClearKey& CDMProxyFactoryClearKey::singleton()
 
 RefPtr<CDMProxy> CDMProxyFactoryClearKey::createCDMProxy(const String& keySystem)
 {
-    ASSERT(supportsKeySystem(keySystem));
-    return adoptRef(new CDMProxyClearKey(keySystem));
+    ASSERT_UNUSED(keySystem, supportsKeySystem(keySystem));
+    return adoptRef(new CDMProxyClearKey());
 }
 
 bool CDMProxyFactoryClearKey::supportsKeySystem(const String& keySystem)

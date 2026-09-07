@@ -85,6 +85,11 @@ void adjustMIMETypeIfNecessary(CFURLResponseRef response, IsMainResourceLoad, Is
             { "fp5"_s, @"application/x-filemaker" },
             { "fp6"_s, @"application/x-filemaker" },
             { "hdf"_s, @"application/x-hdf" },
+            // MAVERICKS_BACKPORT: 10.9's CoreTypes UTI map declares no HEIF type at all, so the
+            // lookup below cannot name one. These are the flavours this port decodes (see
+            // HAVE(HEIF_IMAGE_SEQUENCE)); still HEIF has no decoder here and keeps octet-stream.
+            { "heics"_s, @"image/heic-sequence" },
+            { "heifs"_s, @"image/heif-sequence" },
             { "ice"_s, @"x-conference/x-cooltalk" },
             { "ico"_s, @"image/x-icon" },
             { "ics"_s, @"text/calendar" },

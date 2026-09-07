@@ -214,3 +214,27 @@ add_custom_command(TARGET TestWebKitAPIWKBundle POST_BUILD
         $<TARGET_FILE:TestWebKitAPIWKBundle> ${_mavTestPlugInBundle}/Contents/MacOS/TestWebKitAPI
     VERBATIM)
 add_dependencies(TestWebKitCocoa TestWebKitAPIWKBundle)
+
+# The C-API injected-bundle tests load bin/InjectedBundleTestWebKitAPI.bundle beside the executable
+# (mac/PlatformUtilitiesMac.mm createInjectedBundlePath, compiled into TestWebKit and TestWebKitCocoa
+# alike), and the WebContent side dlopens the bundle's executable and looks up WKBundleInitialize in
+# it (InjectedBundleMac.mm). Upstream's CMake path links TestWebKitAPIInjectedBundle as a plain
+# dylib; the Xcode target wraps it the way Configurations/InjectedBundle.xcconfig describes --
+# Contents/MacOS/InjectedBundleTestWebKitAPI with InjectedBundle-Info.plist. Assemble that bundle here.
+if (TARGET TestWebKitAPIInjectedBundle)
+    set(EXECUTABLE_NAME InjectedBundleTestWebKitAPI)
+    set(PRODUCT_BUNDLE_IDENTIFIER com.apple.InjectedBundleTestWebKitAPI)
+    configure_file(${TESTWEBKITAPI_DIR}/InjectedBundle-Info.plist
+        ${CMAKE_CURRENT_BINARY_DIR}/InjectedBundleTestWebKitAPIInfo.plist)
+
+    set(_mavInjectedBundle ${TESTWEBKITAPI_RUNTIME_OUTPUT_DIRECTORY}/InjectedBundleTestWebKitAPI.bundle)
+    add_custom_command(TARGET TestWebKitAPIInjectedBundle POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_mavInjectedBundle}/Contents/MacOS
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_CURRENT_BINARY_DIR}/InjectedBundleTestWebKitAPIInfo.plist
+            ${_mavInjectedBundle}/Contents/Info.plist
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:TestWebKitAPIInjectedBundle> ${_mavInjectedBundle}/Contents/MacOS/InjectedBundleTestWebKitAPI
+        VERBATIM)
+    add_dependencies(TestWebKitCocoa TestWebKitAPIInjectedBundle)
+endif ()

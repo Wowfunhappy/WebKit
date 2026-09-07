@@ -418,6 +418,17 @@ void NetworkDataTaskCocoa::didCompleteWithError(const WebCore::ResourceError& er
 {
     WTFEmitSignpost(m_task.get(), DataTask, "completed with error: %d", !error.isNull());
 
+    // MAVERICKS_BACKPORT: the end of the load, and the body sizes (see resume()). 10.9 counts the body
+    // it delivered, which is the wire body for a response whose encoding it left alone -- the same
+    // approximation -_countOfBytesReceivedEncoded makes for bytesTransferredOverNetwork. The decoded
+    // size is what this task handed its client, so a body didReceiveData inflated counts at full size.
+    if (!m_networkLoadMetrics.responseEnd)
+        m_networkLoadMetrics.responseEnd = MonotonicTime::now();
+    int64_t bodyBytes = [m_task countOfBytesReceived];
+    m_networkLoadMetrics.responseBodyBytesReceived = bodyBytes > 0 ? static_cast<uint64_t>(bodyBytes) : 0;
+    m_networkLoadMetrics.responseBodyDecodedSize = m_decodedBodyBytes;
+    m_networkLoadMetrics.markComplete();
+
     // MAVERICKS_BACKPORT: a gzip decode error, or a body that ended partway through a member, fails
     // the load rather than surfacing truncated.
     if (m_gzipDecoder && (m_gzipDecoder->failed() || (error.isNull() && m_gzipDecoder->isTruncated()))) {
@@ -445,12 +456,14 @@ void NetworkDataTaskCocoa::didReceiveData(const WebCore::SharedBuffer& data)
         }
         if (!decoded->isEmpty()) {
             Ref buffer = WebCore::SharedBuffer::create(WTF::move(*decoded));
+            m_decodedBodyBytes += buffer->size();
             if (RefPtr client = m_client.get())
                 client->didReceiveData(buffer.get());
         }
         return;
     }
 
+    m_decodedBodyBytes += data.size();
     if (RefPtr client = m_client.get())
         client->didReceiveData(data);
 }
@@ -473,6 +486,12 @@ void NetworkDataTaskCocoa::didReceiveResponse(WebCore::ResourceResponse&& respon
         && WebCore::CFNetworkSuppressedGzipDecoder::responseBodyIsStillGzipped(response))
         m_gzipDecoder = makeUnique<WebCore::CFNetworkSuppressedGzipDecoder>();
 
+    // MAVERICKS_BACKPORT: the final response headers are here, which is responseStart; the protocol is
+    // the response's own status-line version (ResourceResponseCocoa reads it with
+    // CFHTTPMessageCopyVersion), lowercased to the ALPN spelling PerformanceResourceTiming reports.
+    m_networkLoadMetrics.responseStart = MonotonicTime::now();
+    m_networkLoadMetrics.protocol = response.httpVersion().convertToASCIILowercase();
+
     NetworkDataTask::didReceiveResponse(WTF::move(response), negotiatedLegacyTLS, privateRelayed, WebCore::IPAddress::fromString(lastRemoteIPAddress(m_task.get())), WTF::move(completionHandler));
 }
 
@@ -481,6 +500,13 @@ void NetworkDataTaskCocoa::willPerformHTTPRedirection(WebCore::ResourceResponse&
     WTFEmitSignpost(m_task.get(), DataTask, "redirect");
 
     networkLoadMetrics().hasCrossOriginRedirect = networkLoadMetrics().hasCrossOriginRedirect || !WebCore::SecurityOrigin::create(request.url())->canRequest(redirectResponse.url(), WebCore::EmptyOriginAccessPatterns::singleton());
+
+    // MAVERICKS_BACKPORT: redirectStart is the FIRST transaction's fetch start and fetchStart the
+    // LAST one's, which is how NetworkSessionCocoa reads them off the transaction metrics (see resume()).
+    if (!m_networkLoadMetrics.redirectCount)
+        m_networkLoadMetrics.redirectStart = m_networkLoadMetrics.fetchStart;
+    m_networkLoadMetrics.redirectCount++;
+    m_networkLoadMetrics.fetchStart = MonotonicTime::now();
 
     const auto& previousRequest = m_previousRequest.isNull() ? m_firstRequest : m_previousRequest;
     if (redirectResponse.httpStatusCode() == httpStatus307TemporaryRedirect || redirectResponse.httpStatusCode() == httpStatus308PermanentRedirect) {
@@ -645,6 +671,13 @@ void NetworkDataTaskCocoa::cancel()
 void NetworkDataTaskCocoa::resume()
 {
     WTFEmitSignpost(m_task.get(), DataTask, "resume");
+
+    // MAVERICKS_BACKPORT: NSURLSessionTaskMetrics is 10.12+ and absent on 10.9, so
+    // -URLSession:task:didFinishCollectingMetrics: -- where NetworkSessionCocoa fills in every load
+    // timestamp -- is never called. The timestamps a task of this platform can still observe are taken
+    // from its own events, starting with this one: the transaction's fetch start.
+    if (!m_networkLoadMetrics.fetchStart)
+        m_networkLoadMetrics.fetchStart = MonotonicTime::now();
 
     if (m_failureScheduled)
         return;

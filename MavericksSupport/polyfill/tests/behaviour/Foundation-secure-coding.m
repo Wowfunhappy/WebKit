@@ -92,14 +92,30 @@ int main(void)
         check(written[@"trust"] == (id)attached, "and its trust");
         check([written[@"distnames"] isEqual:@[ name ]], "and its distinguished names");
 
-        // A space without a trust or names, both ways.
-        NSURLProtectionSpace *basic = [[NSURLProtectionSpace alloc] initWithHost:@"example.org" port:80 protocol:@"http" realm:@"r" authenticationMethod:@"NSURLAuthenticationMethodHTTPBasic"];
+        // A space without a trust or names, both ways. NSURLAuthenticationMethodHTTPBasic carries the
+        // value every macOS from 10.10 on gives it (polyfills/c/Foundation.m), and the initializers and
+        // -authenticationMethod in methods/Foundation.m carry that value to and from the CF scheme
+        // CFNetwork numbers Basic 2 and Default 1 -- the distinction 10.9's own constant cannot make.
+        NSURLProtectionSpace *basic = [[NSURLProtectionSpace alloc] initWithHost:@"example.org" port:80 protocol:@"http" realm:@"r" authenticationMethod:NSURLAuthenticationMethodHTTPBasic];
         NSDictionary *basicList = propertyList(basic);
-        // NSURLAuthenticationMethodHTTPBasic is NSURLAuthenticationMethodDefault by value, so Basic is scheme 1.
-        check([basicList[@"type"] intValue] == 1 && [basicList[@"scheme"] intValue] == 1 && !basicList[@"trust"] && !basicList[@"distnames"],
-            "a basic space writes HTTP, Default, and no trust or names");
+        check([basicList[@"type"] intValue] == 1 && [basicList[@"scheme"] intValue] == 2 && !basicList[@"trust"] && !basicList[@"distnames"],
+            "a basic space writes HTTP, HTTPBasic, and no trust or names");
+        check([basic.authenticationMethod isEqualToString:NSURLAuthenticationMethodHTTPBasic], "and names Basic as its method");
+        NSURLProtectionSpace *defaulted = [[NSURLProtectionSpace alloc] initWithHost:@"example.org" port:80 protocol:@"http" realm:@"r" authenticationMethod:NSURLAuthenticationMethodDefault];
+        check([propertyList(defaulted)[@"scheme"] intValue] == 1
+            && [defaulted.authenticationMethod isEqualToString:NSURLAuthenticationMethodDefault],
+            "a default space stays Default, so the two are distinguishable");
+        NSURLProtectionSpace *proxyBasic = [[NSURLProtectionSpace alloc] initWithProxyHost:@"example.org" port:80 type:NSURLProtectionSpaceHTTPProxy realm:@"r" authenticationMethod:NSURLAuthenticationMethodHTTPBasic];
+        check([propertyList(proxyBasic)[@"type"] intValue] == 5 && [propertyList(proxyBasic)[@"scheme"] intValue] == 2,
+            "a basic proxy space keeps its proxy type and Basic");
+        NSURLProtectionSpace *digest = [[NSURLProtectionSpace alloc] initWithHost:@"example.org" port:80 protocol:@"http" realm:@"r" authenticationMethod:NSURLAuthenticationMethodHTTPDigest];
+        check([propertyList(digest)[@"scheme"] intValue] == 3
+            && [digest.authenticationMethod isEqualToString:NSURLAuthenticationMethodHTTPDigest],
+            "a scheme 10.9 names for itself is untouched");
         NSURLProtectionSpace *basicBack = fromPropertyList([NSURLProtectionSpace class], basicList);
-        check([basicBack isEqual:basic], "and reads back equal");
+        check([basicBack isEqual:basic] && [propertyList(basicBack)[@"scheme"] intValue] == 2
+            && [basicBack.authenticationMethod isEqualToString:NSURLAuthenticationMethodHTTPBasic],
+            "and reads back equal, still Basic");
         check(fromPropertyList([NSURLProtectionSpace class], @{ @"host": @"h" }) == nil, "a property list without its numbers answers nil");
 
         // Credentials: a password credential, both ways.

@@ -138,15 +138,25 @@ if [ -n "$DEPS_PID" ] && kill -0 "$DEPS_PID" 2>/dev/null; then
     echo "### $DEPS_LOCK is held by pid $DEPS_PID; rerun when it is done."
     exit 1
 fi
+# Two axes of deps currency: the gap archive sources the media binaries force-load, and the recipes
+# and patches build_deps.sh builds them from. Either one out of date is a run of build_deps.sh.
+DEPS_STALE=""
 echo "### gap archive currency (MavericksSupport/scripts/check-gap-archive-current.sh --sources-only)"
-if ! bash "$ROOT/MavericksSupport/scripts/check-gap-archive-current.sh" --sources-only; then
-    echo "### relinking the deps build (MavericksSupport/deps/build_deps.sh)"
+bash "$ROOT/MavericksSupport/scripts/check-gap-archive-current.sh" --sources-only || DEPS_STALE=1
+echo "### deps recipe currency (MavericksSupport/deps/build_deps.sh --check-recipes)"
+bash "$ROOT/MavericksSupport/deps/build_deps.sh" --check-recipes || DEPS_STALE=1
+if [ -n "$DEPS_STALE" ]; then
+    echo "### bringing the deps build up to date (MavericksSupport/deps/build_deps.sh)"
     if ! WK_BUILD_AWAITING_DEPS=$$ bash "$ROOT/MavericksSupport/deps/build_deps.sh"; then
-        echo "==================== DEPS RELINK FAILED — ABORTING ===================="
+        echo "==================== DEPS BUILD FAILED — ABORTING ===================="
         exit 1
     fi
     if ! bash "$ROOT/MavericksSupport/scripts/check-gap-archive-current.sh" --sources-only; then
         echo "==================== GAP SOURCES ARE AHEAD OF THE DEPS BUILD — ABORTING ===================="
+        exit 1
+    fi
+    if ! bash "$ROOT/MavericksSupport/deps/build_deps.sh" --check-recipes; then
+        echo "==================== DEPS RECIPES ARE AHEAD OF THE DEPS BUILD — ABORTING ===================="
         exit 1
     fi
 fi
@@ -298,10 +308,17 @@ if [ "$RC" = 0 ]; then
     # does and the next run's staging audit sees bundle-relative dependencies.
     GST_PLUGINS_SRC="$BUILD/staged/System/Library/Frameworks/WebKit.framework/Versions/A/Frameworks/WebCore.framework/Versions/A/Frameworks/gstreamer/lib/gstreamer-1.0"
     GST_PLUGINS_DST="$BUILD/lib/WebCore.framework/Versions/A/Frameworks/gstreamer/lib/gstreamer-1.0"
+    # The libraries beside them are mirrored too: a plugin resolves its own dependencies through
+    # @loader_path/../../lib, and the ones WebCore does not itself link -- libgstcodecparsers, which
+    # h264parse needs -- are in the process by no other route, so the plugin silently fails to load and
+    # the element comes back missing.
+    GST_LIBS_SRC="$BUILD/staged/System/Library/Frameworks/WebKit.framework/Versions/A/Frameworks/WebCore.framework/Versions/A/Frameworks/gstreamer/lib"
+    GST_LIBS_DST="$BUILD/lib/WebCore.framework/Versions/A/Frameworks/gstreamer/lib"
     if [ "$RC" = 0 ] && [ -d "$GST_PLUGINS_SRC" ]; then
         mkdir -p "$GST_PLUGINS_DST"
         rsync -a --delete "$GST_PLUGINS_SRC/" "$GST_PLUGINS_DST/"
-        echo "  GSTREAMER PLUGINS mirrored into the built WebCore.framework"
+        rsync -a --exclude 'gstreamer-1.0/' "$GST_LIBS_SRC/" "$GST_LIBS_DST/"
+        echo "  GSTREAMER PLUGINS and libraries mirrored into the built WebCore.framework"
     fi
 else
     echo "### staging skipped: the link failed, so there is nothing complete to stage"

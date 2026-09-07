@@ -3,6 +3,7 @@
 #include "wk_polyfill.h"
 
 #include <CoreFoundation/CoreFoundation.h>
+#include <objc/runtime.h>
 #include <stdbool.h>
 
 WK_POLYFILL_CONST("ApplicationServices", CFStringRef, kAXInterfaceDifferentiateWithoutColorKey, CFSTR("kAXInterfaceDifferentiateWithoutColorKey"));
@@ -12,7 +13,7 @@ WK_POLYFILL_CONST("ApplicationServices", CFStringRef, kAXSAccessibilityPreferenc
 WK_POLYFILL_CONST("ApplicationServices", CFStringRef, kAXSEnhanceTextLegibilityChangedNotification, CFSTR("kAXSEnhanceTextLegibilityChangedNotification"));
 
 // ---------------------------------------------------------------------------------------------------
-// AX — runtime-gated; never executed on 10.9.
+// AX (HIServices, AccessibilitySupport)
 // ---------------------------------------------------------------------------------------------------
 
 // Notifies AX of a process suspend/resume. No AX process-suspend tracking on 10.9; return success.
@@ -30,13 +31,44 @@ WK_POLYFILL_ABSENT("ApplicationServices", unsigned char, _AXSEnhanceTextLegibili
     return 0;
 }
 
-// HIServices SPI that tags the calling process with an AX "client type" (e.g. WebKitTesting) so the AX
-// runtime can special-case test harnesses. Absent on 10.9 (postdates this OS). The layout-test drivers
-// (DumpRenderTree/WebKitTestRunner) call it during accessibility-controller setup; on 10.9 there is no AX
-// client-type registry, so a no-op is the correct behavior (the AX tests that depend on it are skipped).
+// The AX client-identification override. HIServices keeps one per process: _AXSetClientIdentificationOverride
+// records a client type (the layout-test drivers' accessibility controllers set kAXClientTypeWebKitTesting,
+// 999999, and reset with kAXClientTypeNoActiveRequestFound, 0) and _AXGetClientForCurrentRequestUntrusted
+// answers it for every request, which is how AXObjectCache::clientIsInTestMode sees the test client and
+// the WebAccessibilityObjectWrapper serves the test-only attributes (AXARIARole, AXControllerFor,
+// _AXPageRelativePosition, AXIsIndeterminate, ...). 10.9's HIServices identifies no client, so the
+// override is the sole source and 0 (no override) is what it answers otherwise.
+//
+// The value lives in PROCESS-global storage: libpolyfill.a is force-loaded into every image, so the
+// injected test bundle that calls the setter and the WebCore that calls the getter each carry their own
+// copy of these two functions. As in ImageIO.c, the ObjC runtime's associated-object table is the
+// process-global store and a SEL is a process-global key. Both cached: the getter runs per attribute
+// read, and sel_registerName/objc_getClass are locked hash lookups.
+static const void *wk_axClientOverrideKey(void)
+{
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_axClientIdentificationOverride");
+    return key;
+}
+
+static id wk_axClientOverrideAnchor(void)
+{
+    static id anchor;
+    if (!anchor)
+        anchor = (id)objc_getClass("NSObject");   // any process-global object; the runtime owns it
+    return anchor;
+}
+
 WK_POLYFILL_ABSENT("ApplicationServices", void, _AXSetClientIdentificationOverride, (int clientType))
 {
-    (void)clientType;
+    id anchor = wk_axClientOverrideAnchor();
+    if (!anchor)
+        return;
+    CFNumberRef record = clientType ? CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &clientType) : NULL;
+    objc_setAssociatedObject(anchor, wk_axClientOverrideKey(), (id)record, OBJC_ASSOCIATION_RETAIN);
+    if (record)
+        CFRelease(record);
 }
 
 // The secondary-accessibility-thread SPI, absent from 10.9's HIServices and named as a direct extern by
@@ -66,12 +98,13 @@ WK_POLYFILL_ABSENT("/usr/lib/libAccessibility.dylib", void, _AXSSetIsolatedTreeM
     (void)mode;
 }
 
-// _AXGetClientForCurrentRequestUntrusted reports which assistive client (VoiceOver, a test harness, ...) is
-// servicing the current accessibility request. Absent on 10.9 (postdates this OS) and referenced as a direct
-// extern (not soft-linked), so a call would dyld-halt WebContent on the text-input path
-// (AXObjectCache::shouldSpellCheck / clientIsInTestMode). 10.9 has no AX client-type registry, so the neutral
-// answer is kAXClientTypeNoActiveRequestFound (0) — no active request, hence no test/VoiceOver client.
+// Referenced as a direct extern (not soft-linked) by AXObjectCache::shouldSpellCheck / clientIsInTestMode.
 WK_POLYFILL_ABSENT("ApplicationServices", int, _AXGetClientForCurrentRequestUntrusted, (void))
 {
-    return 0; // kAXClientTypeNoActiveRequestFound
+    id anchor = wk_axClientOverrideAnchor();
+    CFNumberRef record = anchor ? (CFNumberRef)objc_getAssociatedObject(anchor, wk_axClientOverrideKey()) : NULL;
+    int clientType = 0; // kAXClientTypeNoActiveRequestFound
+    if (record && CFGetTypeID(record) == CFNumberGetTypeID())
+        CFNumberGetValue(record, kCFNumberIntType, &clientType);
+    return clientType;
 }

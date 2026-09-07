@@ -102,12 +102,27 @@ constexpr SortedArraySet supportedImageMIMETypeSet { std::to_array<ComparableCas
     "image/gi_"_s,
 #endif
     "image/gif"_s,
+// MAVERICKS_BACKPORT: the sequence flavours are split out because this port decodes them without
+// HAVE(HEIC): an ISO/IEC 23008-12 image sequence is an ISO-BMFF file whose samples are HEVC, which
+// ImageDecoderGStreamer decodes. HAVE(HEIC) also governs the image Accept header, and the still
+// flavours it names have no decoder here.
 #if HAVE(HEIC)
     "image/heic"_s,
-    "image/heic-sequence"_s,
-    "image/heif"_s,
-    "image/heif-sequence"_s,
+    // MAVERICKS_BACKPORT: upstream's remaining three entries, carried by the guards below so the
+    // set stays in sorted order.
+    // "image/heic-sequence"_s,
+    // "image/heif"_s,
+    // "image/heif-sequence"_s,
 #endif
+#if HAVE(HEIC) || HAVE(HEIF_IMAGE_SEQUENCE)
+    "image/heic-sequence"_s,
+#endif
+#if HAVE(HEIC)
+    "image/heif"_s,
+#endif
+#if HAVE(HEIC) || HAVE(HEIF_IMAGE_SEQUENCE)
+    "image/heif-sequence"_s,
+#endif // MAVERICKS_BACKPORT: closes the split of upstream's single HAVE(HEIC) block above.
 #if PLATFORM(IOS_FAMILY)
     "image/jp_"_s,
     "image/jpe_"_s,

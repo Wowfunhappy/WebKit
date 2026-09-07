@@ -1373,26 +1373,32 @@ static CFDataRef mav_copyRSASubjectPublicKeyInfo(CFDataRef pkcs1)
     return spki;
 }
 
-// An X9.63 point, wrapped as SubjectPublicKeyInfo with the id-ecPublicKey AlgorithmIdentifier whose
-// curve is read off the point's own length. Only the three prime curves SecItemImport accepts are
-// named; a length matching none of them is not a point this OS can import, and says so by returning
-// NULL rather than by guessing a curve.
-static CFDataRef mav_copyECSubjectPublicKeyInfo(CFDataRef point)
+// The namedCurve OID for an uncompressed X9.63 point, read off the point's own length. Only the three
+// prime curves SecItemImport accepts are named; a length matching none of them is not a point this OS
+// can import, and says so by returning NULL rather than by guessing a curve.
+static const uint8_t *mav_ecNamedCurveOID(size_t pointLength, size_t *oidLength)
 {
     static const uint8_t p256[] = { 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07 };
     static const uint8_t p384[] = { 0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x22 };
     static const uint8_t p521[] = { 0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x23 };
+    switch (pointLength) {
+    case 65:  *oidLength = sizeof(p256); return p256;
+    case 97:  *oidLength = sizeof(p384); return p384;
+    case 133: *oidLength = sizeof(p521); return p521;
+    }
+    return NULL;
+}
+
+// An X9.63 point, wrapped as SubjectPublicKeyInfo with the id-ecPublicKey AlgorithmIdentifier.
+static CFDataRef mav_copyECSubjectPublicKeyInfo(CFDataRef point)
+{
     static const uint8_t idECPublicKey[] = { 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01 };
 
     size_t pointLength = (size_t)CFDataGetLength(point);
-    const uint8_t *curve = NULL;
     size_t curveLength = 0;
-    switch (pointLength) {
-    case 65:  curve = p256; curveLength = sizeof(p256); break;
-    case 97:  curve = p384; curveLength = sizeof(p384); break;
-    case 133: curve = p521; curveLength = sizeof(p521); break;
-    default:  return NULL;
-    }
+    const uint8_t *curve = mav_ecNamedCurveOID(pointLength, &curveLength);
+    if (!curve)
+        return NULL;
     if (CFDataGetBytePtr(point)[0] != 0x04)
         return NULL; // not an uncompressed point
 
@@ -1421,6 +1427,117 @@ static CFDataRef mav_copyECSubjectPublicKeyInfo(CFDataRef point)
     CFDataAppendBytes(spki, &unusedBits, 1);
     CFDataAppendBytes(spki, CFDataGetBytePtr(point), (CFIndex)pointLength);
     return spki;
+}
+
+// A private EC key's bare representation is the X9.63 concatenation 04||X||Y||K -- the uncompressed
+// point followed by the private scalar, all three at the curve's field width, so the total length
+// gives that width as (length - 1) / 3. SecItemImport reads a SEC1 ECPrivateKey instead, so the
+// concatenation is rewritten into one; the point is handed back separately for the caller to keep as
+// the key's public half.
+//
+//   ECPrivateKey ::= SEQUENCE { version INTEGER (1), privateKey OCTET STRING,
+//                               parameters [0] namedCurve OID, publicKey [1] BIT STRING }
+static CFDataRef mav_copyECPrivateKey(CFDataRef x963, CFDataRef *publicPoint)
+{
+    size_t length = (size_t)CFDataGetLength(x963);
+    if (length < 4 || (length - 1) % 3)
+        return NULL;
+    size_t fieldLength = (length - 1) / 3;
+    size_t pointLength = length - fieldLength;
+    const uint8_t *bytes = CFDataGetBytePtr(x963);
+    if (bytes[0] != 0x04)
+        return NULL; // not an uncompressed point
+    size_t curveLength = 0;
+    const uint8_t *curve = mav_ecNamedCurveOID(pointLength, &curveLength);
+    if (!curve)
+        return NULL;
+
+    // BIT STRING carries one leading octet for its unused-bit count.
+    size_t bitStringContent = pointLength + 1;
+    size_t publicKeyContent = mav_derHeaderLength(bitStringContent) + bitStringContent;
+    size_t versionLength = 3;
+    size_t sequenceContent = versionLength
+        + mav_derHeaderLength(fieldLength) + fieldLength
+        + mav_derHeaderLength(curveLength) + curveLength
+        + mav_derHeaderLength(publicKeyContent) + publicKeyContent;
+
+    CFMutableDataRef der = CFDataCreateMutable(kCFAllocatorDefault, 0);
+    if (!der)
+        return NULL;
+    const uint8_t version[] = { 0x02, 0x01, 0x01 }; // INTEGER ecPrivkeyVer1
+    if (!mav_derAppendHeader(der, 0x30, sequenceContent)) {
+        CFRelease(der);
+        return NULL;
+    }
+    CFDataAppendBytes(der, version, (CFIndex)sizeof(version));
+    if (!mav_derAppendHeader(der, 0x04, fieldLength)) {
+        CFRelease(der);
+        return NULL;
+    }
+    CFDataAppendBytes(der, bytes + pointLength, (CFIndex)fieldLength);
+    if (!mav_derAppendHeader(der, 0xa0, curveLength)) {
+        CFRelease(der);
+        return NULL;
+    }
+    CFDataAppendBytes(der, curve, (CFIndex)curveLength);
+    if (!mav_derAppendHeader(der, 0xa1, publicKeyContent)
+        || !mav_derAppendHeader(der, 0x03, bitStringContent)) {
+        CFRelease(der);
+        return NULL;
+    }
+    const uint8_t unusedBits = 0x00;
+    CFDataAppendBytes(der, &unusedBits, 1);
+    CFDataAppendBytes(der, bytes, (CFIndex)pointLength);
+
+    if (publicPoint)
+        *publicPoint = CFDataCreate(kCFAllocatorDefault, bytes, (CFIndex)pointLength);
+    return der;
+}
+
+// The public half of an EC key the caller supplied a point for, imported so SecKeyCopyPublicKey can
+// hand it back.
+static SecKeyRef mav_createECPublicKey(CFDataRef point)
+{
+    CFDataRef spki = mav_copyECSubjectPublicKeyInfo(point);
+    if (!spki || !WK_SYSTEM(SecItemImport)) {
+        if (spki)
+            CFRelease(spki);
+        return NULL;
+    }
+    SecExternalFormat format = kSecFormatOpenSSL;
+    SecExternalItemType itemType = kSecItemTypePublicKey;
+    SecItemImportExportKeyParameters params;
+    memset(&params, 0, sizeof(params));
+    params.version = SEC_KEY_IMPORT_EXPORT_PARAMS_VERSION;
+    CFArrayRef items = NULL;
+    OSStatus status = WK_SYSTEM(SecItemImport)(spki, NULL, &format, &itemType, 0, &params, NULL, &items);
+    CFRelease(spki);
+    SecKeyRef key = NULL;
+    if (status == errSecSuccess && items && CFArrayGetCount(items)) {
+        CFTypeRef item = CFArrayGetValueAtIndex(items, 0);
+        if (item && CFGetTypeID(item) == SecKeyGetTypeID())
+            key = (SecKeyRef)CFRetain(item);
+    }
+    if (items)
+        CFRelease(items);
+    return key;
+}
+
+// A private key carries its public half as an association, which SecKeyCopyPublicKey reads back. The
+// association is torn down with the private key, so there is no registry to outlive it.
+static const void *mav_publicKeyAssociationKey(void)
+{
+    // The SEL is the one address every image's copy of this archive agrees on.
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_secKeyPublicHalf");
+    return key;
+}
+
+static void mav_setPublicKeyHalf(SecKeyRef privateKey, SecKeyRef publicKey)
+{
+    objc_setAssociatedObject((id)(void *)privateKey, mav_publicKeyAssociationKey(),
+        (id)publicKey, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 WK_POLYFILL_ABSENT("Security", CFDataRef, SecKeyCopyExternalRepresentation, (SecKeyRef key, CFErrorRef *error))
@@ -1460,14 +1577,19 @@ WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCreateWithData, (CFDataRef keyDa
         && CFStringCompare(keyClass, kSecAttrKeyClassPrivate, 0) == kCFCompareEqualTo)
         itemType = kSecItemTypePrivateKey;
 
-    // This API takes the bare representation: PKCS#1 for RSA, the ANSI X9.63 uncompressed point for
-    // an EC public key. SecItemImport reads a SubjectPublicKeyInfo for the latter, so an EC public key
-    // is wrapped back into one -- the inverse of what SecKeyCopyExternalRepresentation strips off.
+    // This API takes the bare representation: PKCS#1 for RSA, the ANSI X9.63 uncompressed point for an
+    // EC public key and that point concatenated with the private scalar for an EC private one.
+    // SecItemImport reads a SubjectPublicKeyInfo for the first of those and a SEC1 ECPrivateKey for the
+    // second, so both are wrapped back into the shape it reads -- the inverse of what
+    // SecKeyCopyExternalRepresentation strips off. A PKCS#1 RSAPrivateKey is already that shape.
     CFStringRef keyType = (CFStringRef)CFDictionaryGetValue(attributes, kSecAttrKeyType);
     CFDataRef wrapped = NULL;
-    if (itemType == kSecItemTypePublicKey)
-        wrapped = mav_isECKeyType(keyType) ? mav_copyECSubjectPublicKeyInfo(keyData)
-                                           : mav_copyRSASubjectPublicKeyInfo(keyData);
+    CFDataRef publicPoint = NULL;
+    if (mav_isECKeyType(keyType))
+        wrapped = itemType == kSecItemTypePrivateKey ? mav_copyECPrivateKey(keyData, &publicPoint)
+                                                     : mav_copyECSubjectPublicKeyInfo(keyData);
+    else if (itemType == kSecItemTypePublicKey)
+        wrapped = mav_copyRSASubjectPublicKeyInfo(keyData);
 
     SecExternalFormat format = kSecFormatOpenSSL;
     SecItemImportExportKeyParameters params;
@@ -1482,6 +1604,8 @@ WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCreateWithData, (CFDataRef keyDa
     if (status != errSecSuccess || !items || !CFArrayGetCount(items)) {
         if (items)
             CFRelease(items);
+        if (publicPoint)
+            CFRelease(publicPoint);
         mav_reportOSStatus(error, status == errSecSuccess ? errSecDecode : status);
         return NULL;
     }
@@ -1489,21 +1613,17 @@ WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCreateWithData, (CFDataRef keyDa
     CFTypeRef item = CFArrayGetValueAtIndex(items, 0);
     SecKeyRef key = (item && CFGetTypeID(item) == SecKeyGetTypeID()) ? (SecKeyRef)CFRetain(item) : NULL;
     CFRelease(items);
+    if (key && publicPoint) {
+        SecKeyRef publicKey = mav_createECPublicKey(publicPoint);
+        if (publicKey) {
+            mav_setPublicKeyHalf(key, publicKey);
+            CFRelease(publicKey);
+        }
+    }
+    if (publicPoint)
+        CFRelease(publicPoint);
     if (!key)
         mav_reportOSStatus(error, errSecDecode);
-    return key;
-}
-
-// SecKeyGeneratePair hands back both halves; the modern constructor returns only the private one and
-// its caller asks for the public half afterwards. Associating the public key with the private one
-// keeps what the pair already produced, rather than throwing it away and calling it unobtainable.
-// The association is torn down with the private key, so there is no registry to outlive it.
-static const void *mav_publicKeyAssociationKey(void)
-{
-    // The SEL is the one address every image's copy of this archive agrees on.
-    static const void *key;
-    if (!key)
-        key = (const void *)sel_registerName("wk_secKeyPublicHalf");
     return key;
 }
 
@@ -1526,8 +1646,7 @@ WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCreateRandomKey, (CFDictionaryRe
     }
     // SecKeyCopyPublicKey is the caller's next call; the pair's public half is what it wants.
     if (publicKey) {
-        objc_setAssociatedObject((id)(void *)privateKey, mav_publicKeyAssociationKey(),
-            (id)publicKey, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        mav_setPublicKeyHalf(privateKey, publicKey);
         CFRelease(publicKey);
     }
     return privateKey; // +1, as the modern constructor returns
@@ -1581,9 +1700,9 @@ WK_POLYFILL_ABSENT("Security", CFDataRef, SecKeyCreateDecryptedData, (SecKeyRef 
     return mav_secKeyTransform(key, algorithm, ciphertext, WK_SYSTEM(SecKeyDecrypt), error);
 }
 
-// The public half of a key this layer generated. For a key it did not -- an imported one -- there is
-// nothing to hand back: 10.9 stores such a key as CSSM_KEYBLOB_REFERENCE, so it carries no material
-// to derive a public half from, and this OS exports no accessor between the halves of a pair.
+// The public half a key was created with: the other half of a generated pair, or the point an imported
+// EC private key carried. 10.9 stores a SecKey as CSSM_KEYBLOB_REFERENCE and exports no accessor
+// between the halves of a pair, so a key that arrived with neither has none to hand back.
 WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCopyPublicKey, (SecKeyRef key))
 {
     if (!key)

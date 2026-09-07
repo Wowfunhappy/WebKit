@@ -8,10 +8,12 @@
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
 #include <CoreText/SFNTLayoutTypes.h>
+#include <ImageIO/ImageIO.h>
 #include <math.h>
 #include <objc/runtime.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -46,8 +48,8 @@ WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontUIFontDesignTrait, CFSTR("kCTF
 // CTFontDescriptorCopyAttribute on a *system* descriptor, so it needs CoreText's REAL value, not the
 // symbol-name token. CoreText-native descriptor keys are "NSCT" + (name minus "kCT") — verified
 // on-host across 15 sibling keys incl. the directly-analogous kCTFontVariationAttribute="NSCTFont
-// VariationAttribute" — hence "NSCTFontVariationAxesAttribute". Behavior-neutral on 10.9 (an unknown
-// key yields NULL, exactly the deployment-gated nullptr the call site takes without it).
+// VariationAttribute" — hence "NSCTFontVariationAxesAttribute". 10.9's CoreText does not answer the
+// key; the CTFontDescriptorCopyAttribute replacement below supplies the array from the realized font.
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontVariationAxesAttribute, CFSTR("NSCTFontVariationAxesAttribute"));
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontUnscaledTrackingAttribute, CFSTR("kCTFontUnscaledTrackingAttribute"));
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontUserInstalledAttribute, CFSTR("kCTFontUserInstalledAttribute"));
@@ -106,62 +108,278 @@ WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontOpenTypeFeatureValue, CFSTR("C
 // path from feeding a NULL key to a CTFontDescriptor. 10.9 does not honor it, which is fine.
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontDownloadedAttribute, CFSTR("kCTFontDownloadedAttribute"));
 
-// CTFontGetSbixImageSizeForGlyphAndContentsScale (10.13+) reports the pixel size of the sbix
-// (Apple colour-bitmap) strike a glyph would be drawn from, and zero when the glyph has no sbix
-// entry -- which is what WebCore reads it for (Font::glyphHasComplexColorFormat). 10.9's CoreText
-// hands the sbix table out through CTFontCopyTable, so the answer is read from the table.
-//
-// sbix layout (Apple TrueType reference): u16 version, u16 flags, u32 numStrikes,
-// u32 strikeOffsets[numStrikes] from the table start; each strike is u16 ppem, u16 resolution,
-// u32 glyphDataOffsets[numGlyphs + 1] from the strike start. A glyph has a bitmap in a strike iff
-// its offset pair is non-empty.
 static uint16_t wk_be16(const uint8_t *p) { return (uint16_t)((p[0] << 8) | p[1]); }
 static uint32_t wk_be32(const uint8_t *p) { return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3]; }
 
+// A glyph's colour bitmap, taken from the font's sbix table and placed where the sbix record puts it:
+// the image's lower-left corner at the pen on the baseline, moved by the record's origin offset, with
+// the strike scaled by the point size over its ppem. This OS's CTFontDrawGlyphs paints an sbix strike
+// 0.075 em below that point, and CTFontGetBoundingRectsForGlyphs reports every glyph of a font that
+// carries an sbix table the same distance low, so the two replacements at the end of this file draw
+// and measure colour-bitmap glyphs from the record and the outline instead.
+WK_SYSTEM_FN("ImageIO", CGImageSourceRef, CGImageSourceCreateWithData, (CFDataRef, CFDictionaryRef));
+WK_SYSTEM_FN("ImageIO", CGImageRef, CGImageSourceCreateImageAtIndex, (CGImageSourceRef, size_t, CFDictionaryRef));
+
+static pthread_mutex_t wkSbixLock = PTHREAD_MUTEX_INITIALIZER;
+static const void *wk_sbixTableKey(void) { static char key; return &key; }
+static const void *wk_sbixBitmapsKey(void) { static char key; return &key; }
+
+// The font's sbix table. kCFNull records a font that has none, so an ordinary text font pays one
+// CTFontCopyTable for the life of the CTFont. Call with wkSbixLock held.
+static CFDataRef wk_sbixTable(CTFontRef font)
+{
+    CFTypeRef cached = (CFTypeRef)objc_getAssociatedObject((id)(void *)font, wk_sbixTableKey());
+    if (!cached) {
+        CFDataRef table = CTFontCopyTable(font, kCTFontTableSbix, kCTFontTableOptionNoOptions);
+        cached = table ? (CFTypeRef)table : (CFTypeRef)kCFNull;
+        objc_setAssociatedObject((id)(void *)font, wk_sbixTableKey(), (id)cached, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (table)
+            CFRelease(table);
+    }
+    return cached == (CFTypeRef)kCFNull ? NULL : (CFDataRef)cached;
+}
+
+// Whether the font carries an sbix table at all.
+static bool wk_sbixFont(CTFontRef font)
+{
+    if (!font)
+        return false;
+    pthread_mutex_lock(&wkSbixLock);
+    bool carriesTable = wk_sbixTable(font) != NULL;
+    pthread_mutex_unlock(&wkSbixLock);
+    return carriesTable;
+}
+
+// sbix layout (Apple TrueType reference): u16 version, u16 flags, u32 numStrikes,
+// u32 strikeOffsets[numStrikes] from the table start; each strike is u16 ppem, u16 resolution,
+// u32 glyphDataOffsets[numGlyphs + 1] from the strike start. A glyph record is s16 originOffsetX,
+// s16 originOffsetY, u32 graphicType, then the image bytes.
+//
+// The record read here is the one in the strike wantedPPEM asks for: the smallest strike at least
+// that big, else the largest the font has. A 'dupe' record names another glyph in the same strike.
+static bool wk_sbixRecord(const uint8_t *bytes, CFIndex length, CFIndex glyphCount, CGGlyph glyph,
+                          double wantedPPEM, uint16_t *outPPEM, int16_t *originX, int16_t *originY,
+                          const uint8_t **data, size_t *dataLength)
+{
+    if (!bytes || length < 8 || glyph >= glyphCount)
+        return false;
+    uint32_t strikeCount = wk_be32(bytes + 4);
+    if ((CFIndex)strikeCount > (length - 8) / 4)
+        return false;
+    CFIndex needed = 4 + (glyphCount + 1) * 4;
+    uint32_t chosenOffset = 0;
+    double chosenPPEM = 0;
+    double largestPPEM = 0;
+    uint32_t largestOffset = 0;
+    for (uint32_t i = 0; i < strikeCount; ++i) {
+        uint32_t strikeOffset = wk_be32(bytes + 8 + i * 4);
+        if ((CFIndex)strikeOffset > length - needed)
+            continue;
+        const uint8_t *strike = bytes + strikeOffset;
+        if (wk_be32(strike + 4 + ((CFIndex)glyph + 1) * 4) <= wk_be32(strike + 4 + (CFIndex)glyph * 4))
+            continue;
+        double ppem = wk_be16(strike);
+        if (ppem > largestPPEM) {
+            largestPPEM = ppem;
+            largestOffset = strikeOffset;
+        }
+        if (ppem >= wantedPPEM && (!chosenPPEM || ppem < chosenPPEM)) {
+            chosenPPEM = ppem;
+            chosenOffset = strikeOffset;
+        }
+    }
+    if (!chosenPPEM) {
+        chosenPPEM = largestPPEM;
+        chosenOffset = largestOffset;
+    }
+    if (!chosenPPEM)
+        return false;
+
+    const uint8_t *strike = bytes + chosenOffset;
+    *outPPEM = (uint16_t)chosenPPEM;
+    CGGlyph target = glyph;
+    // A dupe chain is bounded so a font that points a record at itself cannot spin here.
+    for (unsigned hop = 0; hop < 8; ++hop) {
+        if (target >= glyphCount)
+            return false;
+        uint32_t start = wk_be32(strike + 4 + (CFIndex)target * 4);
+        uint32_t end = wk_be32(strike + 4 + ((CFIndex)target + 1) * 4);
+        if (end <= start || end - start < 8 || (CFIndex)(chosenOffset + end) > length)
+            return false;
+        const uint8_t *record = strike + start;
+        if (wk_be32(record + 4) == 'dupe') {
+            if (end - start < 10)
+                return false;
+            target = (CGGlyph)wk_be16(record + 8);
+            continue;
+        }
+        *originX = (int16_t)wk_be16(record);
+        *originY = (int16_t)wk_be16(record + 2);
+        *data = record + 8;
+        *dataLength = (size_t)(end - start - 8);
+        return true;
+    }
+    return false;
+}
+
+// The decoded strike image for a glyph and the rectangle it fills in glyph space, or false when the
+// glyph has no bitmap this OS can decode -- in which case the caller leaves the glyph to CoreText.
+// devicePixelsPerEm chooses the strike, so a scaled-up context draws from a denser one. The cache
+// hangs off the CTFont, whose point size fixes the rectangle, and is keyed by glyph and strike.
+// Call with wkSbixLock held.
+static bool wk_sbixBitmap(CTFontRef font, CGGlyph glyph, CGFloat devicePixelsPerEm, CGImageRef *outImage, CGRect *outRect)
+{
+    CFDataRef table = wk_sbixTable(font);
+    if (!table)
+        return false;
+    CFIndex glyphCount = CTFontGetGlyphCount(font);
+    if (glyphCount <= 0)
+        return false;
+
+    const uint8_t *bytes = CFDataGetBytePtr(table);
+    CFIndex length = CFDataGetLength(table);
+    uint16_t ppem = 0;
+    int16_t originX = 0, originY = 0;
+    const uint8_t *data = NULL;
+    size_t dataLength = 0;
+    if (!wk_sbixRecord(bytes, length, glyphCount, glyph, devicePixelsPerEm, &ppem, &originX, &originY, &data, &dataLength) || !ppem)
+        return false;
+    if (!outImage && !outRect)
+        return true;
+
+    CFMutableDictionaryRef cache = (CFMutableDictionaryRef)objc_getAssociatedObject((id)(void *)font, wk_sbixBitmapsKey());
+    if (!cache) {
+        cache = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        if (!cache)
+            return false;
+        objc_setAssociatedObject((id)(void *)font, wk_sbixBitmapsKey(), (id)cache, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        CFRelease(cache);
+    }
+
+    long long identity = ((long long)ppem << 16) | glyph;
+    CFNumberRef cacheKey = CFNumberCreate(kCFAllocatorDefault, kCFNumberLongLongType, &identity);
+    if (!cacheKey)
+        return false;
+    // An entry is the image paired with its rectangle; an empty one records a strike that would not decode.
+    CFArrayRef entry = (CFArrayRef)CFDictionaryGetValue(cache, cacheKey);
+    if (!entry) {
+        CGImageRef image = NULL;
+        CGRect rect = CGRectZero;
+        if (WK_SYSTEM(CGImageSourceCreateWithData) && WK_SYSTEM(CGImageSourceCreateImageAtIndex)) {
+            // The bytes belong to the table the font holds, which outlives this source.
+            CFDataRef imageData = CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, data, (CFIndex)dataLength, kCFAllocatorNull);
+            CGImageSourceRef source = imageData ? WK_SYSTEM(CGImageSourceCreateWithData)(imageData, NULL) : NULL;
+            image = source ? WK_SYSTEM(CGImageSourceCreateImageAtIndex)(source, 0, NULL) : NULL;
+            if (source)
+                CFRelease(source);
+            if (imageData)
+                CFRelease(imageData);
+        }
+        if (image) {
+            CGFloat scale = CTFontGetSize(font) / ppem;
+            rect = CGRectMake(originX * scale, originY * scale,
+                              CGImageGetWidth(image) * scale, CGImageGetHeight(image) * scale);
+        }
+        CFDataRef rectData = CFDataCreate(kCFAllocatorDefault, (const UInt8 *)&rect, sizeof(rect));
+        const void *members[2] = { image, rectData };
+        CFArrayRef created = (image && rectData)
+            ? CFArrayCreate(kCFAllocatorDefault, members, 2, &kCFTypeArrayCallBacks)
+            : CFArrayCreate(kCFAllocatorDefault, NULL, 0, &kCFTypeArrayCallBacks);
+        if (image)
+            CGImageRelease(image);
+        if (rectData)
+            CFRelease(rectData);
+        if (created) {
+            CFDictionarySetValue(cache, cacheKey, created);
+            CFRelease(created);
+            entry = (CFArrayRef)CFDictionaryGetValue(cache, cacheKey);
+        }
+    }
+    CFRelease(cacheKey);
+
+    if (!entry || CFArrayGetCount(entry) != 2)
+        return false;
+    if (outImage)
+        *outImage = (CGImageRef)CFArrayGetValueAtIndex(entry, 0);
+    if (outRect)
+        CFDataGetBytes((CFDataRef)CFArrayGetValueAtIndex(entry, 1), CFRangeMake(0, sizeof(*outRect)), (UInt8 *)outRect);
+    return true;
+}
+
+// The glyphs in a run this layer draws itself, or NULL when it draws none of them. Presence is the
+// record alone -- a strike is only decoded where one is actually painted.
+static bool *wk_sbixBitmapGlyphs(CTFontRef font, const CGGlyph *glyphs, size_t count)
+{
+    if (!font || !glyphs || !count)
+        return NULL;
+    pthread_mutex_lock(&wkSbixLock);
+    bool *bitmapGlyphs = NULL;
+    if (wk_sbixTable(font)) {
+        bitmapGlyphs = (bool *)calloc(count, sizeof(bool));
+        bool any = false;
+        for (size_t i = 0; bitmapGlyphs && i < count; ++i) {
+            bitmapGlyphs[i] = wk_sbixBitmap(font, glyphs[i], CTFontGetSize(font), NULL, NULL);
+            any = any || bitmapGlyphs[i];
+        }
+        if (bitmapGlyphs && !any) {
+            free(bitmapGlyphs);
+            bitmapGlyphs = NULL;
+        }
+    }
+    pthread_mutex_unlock(&wkSbixLock);
+    return bitmapGlyphs;
+}
+
+// CTFontGetSbixImageSizeForGlyphAndContentsScale (10.13+) reports the pixel size of the strike a
+// glyph would be drawn from, and zero when the glyph has none -- which is what WebCore reads it for
+// (Font::glyphHasComplexColorFormat).
 WK_POLYFILL_ABSENT("CoreText", CGFloat, CTFontGetSbixImageSizeForGlyphAndContentsScale,
                    (CTFontRef font, const CGGlyph glyph, CGFloat contentsScale))
 {
     if (!font)
         return 0;
-    CFIndex glyphCount = CTFontGetGlyphCount(font);
-    if (glyphCount <= 0 || glyph >= glyphCount)
-        return 0;
-    CFDataRef sbix = CTFontCopyTable(font, kCTFontTableSbix, kCTFontTableOptionNoOptions);
-    if (!sbix)
-        return 0;
-
-    const uint8_t *bytes = CFDataGetBytePtr(sbix);
-    CFIndex length = CFDataGetLength(sbix);
-    double wanted = CTFontGetSize(font) * (contentsScale > 0 ? contentsScale : 1);
-    double best = 0;
-    double largest = 0;
-
-    if (bytes && length >= 8) {
-        uint32_t strikeCount = wk_be32(bytes + 4);
-        // Each strike offset is 4 bytes and each strike needs at least its own header.
-        if ((CFIndex)strikeCount <= (length - 8) / 4) {
-            for (uint32_t i = 0; i < strikeCount; ++i) {
-                uint32_t strikeOffset = wk_be32(bytes + 8 + i * 4);
-                // ppem + resolution + one offset per glyph plus the terminating offset.
-                CFIndex needed = 4 + ((CFIndex)glyphCount + 1) * 4;
-                if ((CFIndex)strikeOffset > length - needed)
-                    continue;
-                const uint8_t *strike = bytes + strikeOffset;
-                uint32_t start = wk_be32(strike + 4 + (CFIndex)glyph * 4);
-                uint32_t end = wk_be32(strike + 4 + ((CFIndex)glyph + 1) * 4);
-                if (end <= start)
-                    continue;
-                double ppem = wk_be16(strike);
-                if (ppem > largest)
-                    largest = ppem;
-                if (ppem >= wanted && (best == 0 || ppem < best))
-                    best = ppem;
-            }
-        }
+    pthread_mutex_lock(&wkSbixLock);
+    CGFloat strikeSize = 0;
+    CFDataRef table = wk_sbixTable(font);
+    CFIndex glyphCount = table ? CTFontGetGlyphCount(font) : 0;
+    if (glyphCount > 0) {
+        uint16_t ppem = 0;
+        int16_t originX = 0, originY = 0;
+        const uint8_t *data = NULL;
+        size_t dataLength = 0;
+        double wanted = CTFontGetSize(font) * (contentsScale > 0 ? contentsScale : 1);
+        if (wk_sbixRecord(CFDataGetBytePtr(table), CFDataGetLength(table), glyphCount, glyph, wanted,
+                          &ppem, &originX, &originY, &data, &dataLength))
+            strikeSize = ppem;
     }
+    pthread_mutex_unlock(&wkSbixLock);
+    return strikeSize;
+}
 
-    CFRelease(sbix);
-    return best ? best : largest;
+// One colour-bitmap glyph, in the coordinate system CoreText draws glyphs in: the text matrix on top
+// of the context's own transform, with the position as the pen. The image carries its own colour, so
+// the fill and stroke the context holds do not reach it, and neither does the text drawing mode.
+static void wk_drawSbixGlyph(CTFontRef font, CGGlyph glyph, CGPoint position, CGContextRef context)
+{
+    CGAffineTransform textMatrix = CGContextGetTextMatrix(context);
+    CGAffineTransform glyphToDevice = CGAffineTransformConcat(textMatrix, CGContextGetCTM(context));
+    CGSize unit = CGSizeApplyAffineTransform(CGSizeMake(1, 0), glyphToDevice);
+    CGFloat scale = hypot(unit.width, unit.height);
+
+    pthread_mutex_lock(&wkSbixLock);
+    CGImageRef image = NULL;
+    CGRect rect = CGRectZero;
+    bool haveBitmap = wk_sbixBitmap(font, glyph, CTFontGetSize(font) * (scale > 0 ? scale : 1), &image, &rect);
+    CGImageRef retained = haveBitmap && image ? CGImageRetain(image) : NULL;
+    pthread_mutex_unlock(&wkSbixLock);
+    if (!retained)
+        return;
+
+    CGContextSaveGState(context);
+    CGContextConcatCTM(context, textMatrix);
+    CGContextDrawImage(context, CGRectOffset(rect, position.x, position.y), retained);
+    CGContextRestoreGState(context);
+    CGImageRelease(retained);
 }
 
 // CTFontCreateForCharactersWithLanguage is itself CoreText SPI (declared in WebKit's PAL
@@ -1572,6 +1790,29 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontDescriptorCopyAttribute,
         ? WK_ORIGINAL(CTFontDescriptorCopyAttribute)(descriptor, attribute) : NULL;
     if (value || !descriptor || !attribute)
         return value;
+    // A descriptor's variation axes. 10.9 answers NULL for kCTFontVariationAxesAttribute -- measured on
+    // this host for that key and for two other spellings of it -- while CTFontCopyVariationAxes answers
+    // the same array from the realized font, carrying the identifier, minimum, maximum, default and name
+    // keys the caller reads. Everything WebKit learns about a variable font enters through this one call
+    // (FontCacheCoreText.cpp's variationAxesWithNonLocalizedAxesNames), so without it an @font-face that
+    // names a weight range renders at the face's default weight: measured on Skia, "font-weight: 700 800"
+    // and no range at all produce byte-identical ink. The names 10.9 returns are localized, which for
+    // these axes ("Weight", "Width") is the text the non-localized query answers.
+// kCTFontVariationAxesAttribute is 10.13+ in the SDK and absent on the 10.9 runtime; this file supplies
+// it (WK_POLYFILL_CONST above), so this reads the layer's own definition.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
+    bool wantVariationAxes = CFEqual(attribute, kCTFontVariationAxesAttribute);
+#pragma clang diagnostic pop
+    if (wantVariationAxes) {
+        CTFontRef font = CTFontCreateWithFontDescriptor(descriptor, 0, NULL);
+        if (!font)
+            return NULL;
+        CFArrayRef axes = CTFontCopyVariationAxes(font);
+        CFRelease(font);
+        return axes;
+    }
+
     bool wantWeight = CFEqual(attribute, kCTFontCSSWeightAttribute);
     bool wantWidth = !wantWeight && CFEqual(attribute, kCTFontCSSWidthAttribute);
     if (!wantWeight && !wantWidth)
@@ -3388,15 +3629,134 @@ WK_SYSTEM_FN("CoreGraphics", CGTextDrawingMode, CGContextGetTextDrawingMode, (CG
 // Defined after the CTFontDrawGlyphs replacement below, because it re-issues color
 // runs through that entry point's original implementation.
 static void wk_drawGlyphsInPDFTransparencyLayer(CGContextRef context, CTFontRef font, const CGGlyph *glyphs, const CGPoint *positions, size_t count);
+static void wk_drawGlyphRun(CTFontRef font, const CGGlyph *glyphs, const CGPoint *positions, size_t count, CGContextRef context);
 
 WK_POLYFILL_REPLACES("CoreText", void, CTFontDrawGlyphs, (CTFontRef font, const CGGlyph *glyphs, const CGPoint *positions, size_t count, CGContextRef context))
 {
-    if (font && glyphs && positions && count && context && wk_isInsideTransparencyLayer(context)
-        && WK_SYSTEM(CGContextGetType) && WK_SYSTEM(CGContextGetType)(context) == WK_CG_CONTEXT_TYPE_PDF) {
-        wk_drawGlyphsInPDFTransparencyLayer(context, font, glyphs, positions, count);
+    bool *bitmapGlyphs = positions && context ? wk_sbixBitmapGlyphs(font, glyphs, count) : NULL;
+    if (!bitmapGlyphs) {
+        wk_drawGlyphRun(font, glyphs, positions, count, context);
         return;
     }
-    if (WK_ORIGINAL(CTFontDrawGlyphs))
+
+    // A colour bitmap contributes nothing to a text clip on this OS, and CG intersects the clip once
+    // per CALL rather than once per glyph, so a clipping run reaches CoreText as ONE call carrying the
+    // outlined glyphs alone. Measured on this OS with kCGTextClip and a full-page fill afterwards: an
+    // outlined glyph clips to its own shape, a run of colour glyphs alone leaves an EMPTY clip, and a
+    // call carrying no glyphs at all leaves the clip untouched -- so a run with nothing to outline
+    // intersects the clip with an empty rectangle, which is the same outcome. The bitmaps are painted
+    // before that call installs the clip.
+    CGTextDrawingMode mode = WK_SYSTEM(CGContextGetTextDrawingMode) ? WK_SYSTEM(CGContextGetTextDrawingMode)(context) : kCGTextFill;
+    if (mode >= kCGTextFillClip) {
+        CGGlyph *outlined = (CGGlyph *)malloc(count * sizeof(CGGlyph));
+        CGPoint *outlinedPositions = (CGPoint *)malloc(count * sizeof(CGPoint));
+        if (!outlined || !outlinedPositions) {
+            wk_drawGlyphRun(font, glyphs, positions, count, context);
+            free(outlined);
+            free(outlinedPositions);
+            free(bitmapGlyphs);
+            return;
+        }
+        size_t outlinedCount = 0;
+        for (size_t i = 0; i < count; ++i) {
+            if (bitmapGlyphs[i]) {
+                wk_drawSbixGlyph(font, glyphs[i], positions[i], context);
+                continue;
+            }
+            outlined[outlinedCount] = glyphs[i];
+            outlinedPositions[outlinedCount] = positions[i];
+            ++outlinedCount;
+        }
+        if (outlinedCount)
+            wk_drawGlyphRun(font, outlined, outlinedPositions, outlinedCount, context);
+        else
+            CGContextClipToRect(context, CGRectZero);
+        free(outlined);
+        free(outlinedPositions);
+        free(bitmapGlyphs);
+        return;
+    }
+
+    // A painting run keeps its order, so glyphs composite as one CoreText call would paint them.
+    size_t i = 0;
+    while (i < count) {
+        size_t next = i + 1;
+        while (next < count && bitmapGlyphs[next] == bitmapGlyphs[i])
+            ++next;
+        if (bitmapGlyphs[i]) {
+            for (size_t j = i; j < next; ++j)
+                wk_drawSbixGlyph(font, glyphs[j], positions[j], context);
+        } else
+            wk_drawGlyphRun(font, &glyphs[i], &positions[i], next - i, context);
+        i = next;
+    }
+    free(bitmapGlyphs);
+}
+
+// This OS reports every glyph of a font that carries an sbix table 0.075 em below where it draws it,
+// which is what layout and ink overflow measure, so the rectangles are built here instead. A colour
+// bitmap is measured by the rectangle it is painted in, above; every other glyph by the bounds of the
+// path CTFontCreatePathForGlyph returns, which this OS places exactly where CTFontDrawGlyphs paints it
+// (CoreText hands out no path for a glyph that has a strike, which is why the strike answers first).
+// A vertical rectangle is the horizontal one moved to the vertical origin and rotated left, the
+// construction this OS's own answer follows for a font with no sbix table -- measured to the hundredth
+// of a point on Ahem, Arial Unicode and an sbix-stripped copy of Ahem-sbix.
+static CGRect wk_rotateRectLeft(CGRect rect)
+{
+    return CGRectMake(-CGRectGetMaxY(rect), CGRectGetMinX(rect), rect.size.height, rect.size.width);
+}
+
+WK_POLYFILL_REPLACES("CoreText", CGRect, CTFontGetBoundingRectsForGlyphs,
+                     (CTFontRef font, CTFontOrientation orientation, const CGGlyph *glyphs, CGRect *boundingRects, CFIndex count))
+{
+    if (!WK_ORIGINAL(CTFontGetBoundingRectsForGlyphs))
+        return CGRectNull;
+    if (!font || !glyphs || count <= 0 || !wk_sbixFont(font))
+        return WK_ORIGINAL(CTFontGetBoundingRectsForGlyphs)(font, orientation, glyphs, boundingRects, count);
+
+    bool vertical = orientation == kCTFontOrientationVertical
+        || (orientation == kCTFontOrientationDefault && (CTFontGetSymbolicTraits(font) & kCTFontTraitVertical));
+    CGSize *translations = NULL;
+    if (vertical) {
+        translations = (CGSize *)malloc((size_t)count * sizeof(CGSize));
+        if (!translations)
+            return WK_ORIGINAL(CTFontGetBoundingRectsForGlyphs)(font, orientation, glyphs, boundingRects, count);
+        CTFontGetVerticalTranslationsForGlyphs(font, glyphs, translations, count);
+    }
+
+    CGRect united = CGRectNull;
+    for (CFIndex i = 0; i < count; ++i) {
+        CGRect rect = CGRectZero;
+        pthread_mutex_lock(&wkSbixLock);
+        bool haveBitmap = wk_sbixBitmap(font, glyphs[i], CTFontGetSize(font), NULL, &rect);
+        pthread_mutex_unlock(&wkSbixLock);
+        if (!haveBitmap) {
+            CGPathRef path = CTFontCreatePathForGlyph(font, glyphs[i], NULL);
+            rect = path ? CGPathGetPathBoundingBox(path) : CGRectZero;
+            if (path)
+                CFRelease(path);
+        }
+        // A glyph that occupies nothing has no rectangle to move, and leaves the union alone.
+        if (CGRectIsNull(rect) || CGRectIsInfinite(rect) || CGRectIsEmpty(rect))
+            rect = CGRectZero;
+        else if (vertical)
+            rect = wk_rotateRectLeft(CGRectOffset(rect, translations[i].width, translations[i].height));
+        if (boundingRects)
+            boundingRects[i] = rect;
+        if (!CGRectIsEmpty(rect))
+            united = CGRectIsNull(united) ? rect : CGRectUnion(united, rect);
+    }
+    free(translations);
+    return CGRectIsNull(united) ? CGRectZero : united;
+}
+
+// One run, through whichever implementation the context calls for.
+static void wk_drawGlyphRun(CTFontRef font, const CGGlyph *glyphs, const CGPoint *positions, size_t count, CGContextRef context)
+{
+    if (font && glyphs && positions && count && context && wk_isInsideTransparencyLayer(context)
+        && WK_SYSTEM(CGContextGetType) && WK_SYSTEM(CGContextGetType)(context) == WK_CG_CONTEXT_TYPE_PDF)
+        wk_drawGlyphsInPDFTransparencyLayer(context, font, glyphs, positions, count);
+    else if (WK_ORIGINAL(CTFontDrawGlyphs))
         WK_ORIGINAL(CTFontDrawGlyphs)(font, glyphs, positions, count, context);
 }
 

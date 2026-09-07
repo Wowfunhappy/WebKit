@@ -156,7 +156,7 @@ void LibWebRTCNetworkManager::networksChanged(const Vector<RTCNetwork>& networks
     if (m_enableEnumeratingAllNetworkInterfaces)
         filteredNetworks = networks;
     else {
-#if HAVE(NETWORK_FRAMEWORK) // MAVERICKS_BACKPORT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
+#if PLATFORM(COCOA)
         if (!m_useMDNSCandidates && m_enableEnumeratingVisibleNetworkInterfaces && m_allowedInterfaces.isEmpty() && !m_hasQueriedInterface) {
             RefPtr document = WebCore::Document::allDocumentsMap().get(m_documentIdentifier);
             RefPtr page = document ? document->page() : nullptr;
@@ -177,7 +177,7 @@ void LibWebRTCNetworkManager::networksChanged(const Vector<RTCNetwork>& networks
                 }, 0);
             }
         }
-#endif // MAVERICKS_BACKPORT: closes HAVE(NETWORK_FRAMEWORK).
+#endif
         for (auto& network : networks) {
             if (std::ranges::any_of(network.ips, [&](const auto& ip) { return ipv4.rtcAddress() == ip.rtcAddress() || ipv6.rtcAddress() == ip.rtcAddress(); }) || (!m_useMDNSCandidates && m_enableEnumeratingVisibleNetworkInterfaces && m_allowedInterfaces.contains(network.name)))
                 filteredNetworks.append(network);

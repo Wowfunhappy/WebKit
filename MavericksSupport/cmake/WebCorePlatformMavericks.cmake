@@ -18,16 +18,36 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/platform/graphics/re"
 )
 
+# The XML headers WebCore compiles against are the ones deployed beside it. Upstream's PlatformMac.cmake
+# adds the SDK's usr/include/libxml2 and usr/include/libxslt to the system include path, and the SDK
+# declares libxml2 2.9.13 while this port links the 2.13.6 from deps/build (OptionsMacMavericks sets
+# LIBXML2_* and LIBXSLT_* there) -- so those entries put a translation unit's declarations and the
+# library it links out of step, and the struct fields that differ between the two versions sit at the
+# tail, where the mismatch is silent. Removing them leaves the deps/build headers, which the imported
+# LibXml2/LibXslt targets already carry, as the only ones on the line.
+list(REMOVE_ITEM WebCore_SYSTEM_INCLUDE_DIRECTORIES
+    "${CMAKE_OSX_SYSROOT}/usr/include/libxslt"
+    "${CMAKE_OSX_SYSROOT}/usr/include/libxml2"
+)
+list(INSERT WebCore_SYSTEM_INCLUDE_DIRECTORIES 0
+    "${LIBXML2_INCLUDE_DIR}"
+    "${LIBXSLT_INCLUDE_DIR}"
+)
+
 # libwebrtc/CMakeLists.txt is the GTK and WPE ports' CMake, and puts libwebrtc in WebCore_LIBRARIES,
 # which propagates a hard load command to everything that links WebCore -- WebKitLegacy included, which
 # references nothing in it. The Cocoa build links it weakly and only where its symbols are used:
 # WebCore.xcconfig and WebKit.xcconfig each pass -weak-lwebrtc.
 list(REMOVE_ITEM WebCore_LIBRARIES webrtc)
 
+# WebCore reaches libxslt through the LibXslt target alone, which OptionsMacMavericks points at the
+# deps/build copy that ships beside it. A -weak-lxslt on this line would additionally search the linker's
+# own paths, resolve to the SDK's libxslt tbd, and add /usr/lib/libxslt.1.dylib as a second libxslt --
+# and that one carries the system libxml2 with it, which is the pairing xsltFreeStylesheet faults on.
 macro(_MAVERICKS_FINALIZE_WEBCORE_TARGET _target)
     set_target_properties(${_target} PROPERTIES
         LINKER_LANGUAGE CXX
-        LINK_FLAGS "-fuse-ld=lld -weak-lxslt -undefined dynamic_lookup -weak_framework Metal -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy -allowable_client DumpRenderTree -allowable_client WebKitTestRunner -allowable_client TestRunnerInjectedBundle -allowable_client TestWebCore -allowable_client TestWebKit -allowable_client TestWebKitCocoa -allowable_client TestWebKitLegacy")
+        LINK_FLAGS "-fuse-ld=lld -undefined dynamic_lookup -weak_framework Metal -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy -allowable_client DumpRenderTree -allowable_client WebKitTestRunner -allowable_client TestRunnerInjectedBundle -allowable_client TestWebCore -allowable_client TestWebKit -allowable_client TestWebKitCocoa -allowable_client TestWebKitLegacy")
     _MAVERICKS_LINK_LIBWEBRTC(${_target})
 
     if (EXISTS "${WEBCORE_DIR}/platform/audio/resources/Composite.wav")
@@ -54,6 +74,16 @@ macro(_MAVERICKS_FINALIZE_WEBCORE_TARGET _target)
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${WEBCORE_DIR}/Modules/modern-media-controls/images/macOS"
             "$<TARGET_FILE_DIR:${_target}>/Resources/modern-media-controls/images"
+        VERBATIM)
+
+    # WebCore looks its own bundled resources up by name at runtime -- missingImage[@2x,@3x] for a failed
+    # <img> (ImageAdapter::loadPlatformResource), textAreaResizeCorner[@2x] for a resizable <textarea>
+    # (RenderTheme::paintPlatformResizer), panIcon for pan scrolling, ContentFilterBlockedPage.html,
+    # linearSRGB.icc for the linear sRGB color space -- so the whole payload goes into the bundle.
+    add_custom_command(TARGET ${_target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${WEBCORE_DIR}/Resources"
+            "$<TARGET_FILE_DIR:${_target}>/Resources"
         VERBATIM)
 
     if (APPLE)
@@ -238,6 +268,15 @@ list(REMOVE_ITEM WebCore_SOURCES
     platform/audio/cocoa/AudioEncoderCocoa.cpp
 )
 
+# The mock content filter belongs to the WebCore target in WebCore.xcodeproj, and WebKit.framework links
+# WebCore rather than the WebCoreTestSupport archive, so both are listed in WebCore_SOURCES below.
+# WebCoreTestSupport keeps the JSMockContentFilterSettings binding its IDL generates, as upstream's
+# WebCoreTestSupport target does.
+list(REMOVE_ITEM WebCoreTestSupport_SOURCES
+    testing/MockContentFilter.cpp
+    testing/MockContentFilterSettings.cpp
+)
+
 
 # --------------------------------------------------------------------------
 # Source-list entries withheld from and added to upstream's Sources*.txt
@@ -408,9 +447,15 @@ list(APPEND WebCore_SOURCES
     # network process as <WebCore/CFNetworkSuppressedGzipDecoder.h>, so the directory goes on the
     # include path and the header into the private framework headers.
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CFNetworkSuppressedGzipDecoder.cpp
+    # MediaRecorder's MP4 container writer, which packages the frames MediaRecorderPrivateEncoder
+    # compresses. MediaRecorderPrivateWriter.cpp reaches its header by bare name, so the directory
+    # goes on the include path below. Its own translation unit: it includes FFmpeg's headers, whose
+    # macros must not reach any other source.
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/mediarecorder/MediaRecorderPrivateWriterMP4.cpp
 )
 list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa"
+    "${MAVERICKS_SUPPORT}/source/WebCore/platform/mediarecorder"
 )
 list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CFNetworkSuppressedGzipDecoder.h
@@ -422,6 +467,15 @@ if (USE_GSTREAMER)
         ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/VideoFrameGStreamerCocoa.mm
         ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/GStreamerPackagingMavericks.cpp
     )
+endif ()
+
+# WebCore's PNGImageDecoder, for the animated PNGs 10.9's ImageIO decodes as a single frame. Compiled
+# as its own source rather than through the unified list, next to the libpng it includes <png.h> from;
+# ScalableImageDecoder::create routes only files carrying acTL to it, so ordinary PNGs stay with ImageIO.
+if (USE_PNG)
+    list(APPEND WebCore_SOURCES "${WEBCORE_DIR}/platform/image-decoders/png/PNGImageDecoder.cpp")
+    list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES "${WEBCORE_DIR}/platform/image-decoders/png")
+    list(APPEND WebCore_LIBRARIES "${MAVERICKS_DEPS}/lib/libpng16.a")
 endif ()
 
 MAVERICKS_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES "SourcesCocoa.txt" MAVERICKS_WITHHELD_COCOA_SOURCES MAVERICKS_ADDED_COCOA_SOURCES)
@@ -478,6 +532,15 @@ list(APPEND WebCore_SOURCES
     # The MediaRecorderPrivateWriter base: create/close/writeFrames plus its ctor and dtor, all called from
     # platform/mediarecorder/MediaRecorderPrivateEncoder.cpp (which SourcesCocoa.txt does build).
     platform/mediarecorder/MediaRecorderPrivateWriter.cpp
+
+    # The mock content filter, which WebCore.xcodeproj compiles into the WebCore target and whose headers
+    # Headers.cmake installs as WebCore private framework headers. WebKit's WebMockContentFilterManager.cpp
+    # and NetworkProcess/NetworkConnectionToWebProcess.cpp call MockContentFilterManager::singleton() and
+    # MockContentFilterSettings::singleton() under ENABLE(CONTENT_FILTERING). MockContentFilter joins
+    # ContentFilter::types() only once a test enables MockContentFilterSettings.
+    testing/MockContentFilter.cpp
+    testing/MockContentFilterManager.cpp
+    testing/MockContentFilterSettings.cpp
 )
 
 list(APPEND WebCore_LIBRARIES
@@ -494,6 +557,12 @@ list(APPEND WebCore_LIBRARIES
     # The unversioned symlink, not the majored name: it records @rpath/libdav1d.7.dylib as the
     # load command either way, and this keeps dav1d's SOVERSION out of a second file.
     "${MAVERICKS_DEPS}/lib/libdav1d.dylib"
+    # libavformat's ISO base media muxer packages MediaRecorder's MP4 output
+    # (MediaRecorderPrivateWriterMP4.cpp). The same three dylibs the media runtime already deploys
+    # for gst-libav, linked through the unversioned symlink, which records the majored install name.
+    "${MAVERICKS_DEPS}/lib/libavformat.dylib"
+    "${MAVERICKS_DEPS}/lib/libavcodec.dylib"
+    "${MAVERICKS_DEPS}/lib/libavutil.dylib"
     "${MAVERICKS_DEPS}/lib/libgcrypt.a"
     "${MAVERICKS_DEPS}/lib/libtasn1.a"
     "${MAVERICKS_DEPS}/lib/libgpg-error.a"

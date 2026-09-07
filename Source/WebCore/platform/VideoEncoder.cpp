@@ -82,10 +82,19 @@ void VideoEncoder::createLocalEncoder(const String& codecName, const Config& con
         return;
     }
 #endif
-#elif USE(GSTREAMER)
+#endif // MAVERICKS_BACKPORT: closes the USE(LIBWEBRTC) && PLATFORM(COCOA) block, which upstream
+// continues as `#elif USE(GSTREAMER)`. That either/or does not describe this port: it is
+// PLATFORM(COCOA) with USE(LIBWEBRTC), and GStreamer is its media engine. Ending the block here lets
+// a codec the arm above does not claim reach the GStreamer encoder below, which is also the only
+// encoder WebKitLegacy can reach at all -- there is no WebProcess there, so no RemoteVideoCodecFactory
+// installs a creator callback and every WebCodecs request lands in this function.
+
+#if USE(GSTREAMER)
     GStreamerVideoEncoder::create(codecName, config, WTF::move(callback), WTF::move(descriptionCallback), WTF::move(outputCallback));
     return;
-#else
+#endif
+
+#if !(USE(LIBWEBRTC) && PLATFORM(COCOA)) && !USE(GSTREAMER) // MAVERICKS_BACKPORT: upstream spells this arm `#else`.
     UNUSED_PARAM(codecName);
     UNUSED_PARAM(config);
     UNUSED_PARAM(descriptionCallback);

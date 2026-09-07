@@ -637,15 +637,7 @@ void NetworkConnectionToWebProcess::scheduleResourceLoad(NetworkResourceLoadPara
 
 void NetworkConnectionToWebProcess::performSynchronousLoad(NetworkResourceLoadParameters&& loadParameters, CompletionHandler<void(const ResourceError&, const ResourceResponse, Vector<uint8_t>&&)>&& reply)
 {
-    // MAVERICKS_BACKPORT: answer this the way every sibling handler answers the same verdict. The property
-    // the verdict carries is Terminate: a WebProcess claiming a first party it never navigated to.
-    // Disallow is the benign half -- allowsFirstPartyForCookies returns it for a host-less first party,
-    // which every page has while it sits on its initial about:blank document, and scheduleResourceLoad,
-    // cookiesForDOM, setCookiesFromDOM and getRawCookies all proceed on it. Requiring Allow here alone
-    // makes a synchronous XMLHttpRequest issued by script in a still-blank popup (PayPal's checkout popup
-    // evaluates one into the window it opens) kill the WebProcess hosting the popup and its opener both.
-    // MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, loadParameters.request.firstPartyForCookies()) == NetworkProcess::AllowCookieAccess::Allow);
-    MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, loadParameters.request.firstPartyForCookies()) != NetworkProcess::AllowCookieAccess::Terminate);
+    MESSAGE_CHECK(m_networkProcess->allowsFirstPartyForCookies(m_webProcessIdentifier, loadParameters.request.firstPartyForCookies()) == NetworkProcess::AllowCookieAccess::Allow);
     CONNECTION_RELEASE_LOG(Loading, "performSynchronousLoad: (parentPID=%d, pageProxyID=%" PRIu64 ", webPageID=%" PRIu64 ", frameID=%" PRIu64 ", resourceID=%" PRIu64 ")", loadParameters.parentPID, loadParameters.webPageProxyID.toUInt64(), loadParameters.webPageID.toUInt64(), loadParameters.webFrameID.toUInt64(), loadParameters.identifier ? loadParameters.identifier->toUInt64() : 0);
 
     auto identifier = loadParameters.identifier;

@@ -75,6 +75,17 @@ class MacPort(DarwinPort):
     # FIXME: This is a work-around for Rosetta, remove once <https://bugs.webkit.org/show_bug.cgi?id=213761> is resolved
     def expectations_dict(self, device_type=None):
         result = super(MacPort, self).expectations_dict(device_type=device_type)
+        # MAVERICKS_BACKPORT: platform/mac-wk1/TestExpectations opens by skipping every top-level suite,
+        # because Apple's bots no longer run DumpRenderTree. The Mavericks port runs both drivers, so on
+        # its WebKit1 port those suite-wide lines are dropped and the file's per-test lines, together with
+        # the generic and platform/mac skips they would otherwise mask, decide what runs.
+        if self._version == 'mavericks' and self.is_webkitlegacy():
+            wk1_expectations = self._webkit_baseline_path('mac-wk1')
+            wk1_expectations = self._filesystem.join(wk1_expectations, 'TestExpectations')
+            if wk1_expectations in result:
+                result[wk1_expectations] = '\n'.join(
+                    line for line in result[wk1_expectations].split('\n')
+                    if not re.match(r'^[^\s/#\[]+ \[ Skip \]\s*$', line))
         if self.architecture() == 'x86_64' and self.host.platform.architecture() == 'arm64':
             rosetta_expectations = self._filesystem.join(self.layout_tests_dir(), 'platform', 'mac', 'TestExpectationsRosetta')
             if self._filesystem.exists(rosetta_expectations):

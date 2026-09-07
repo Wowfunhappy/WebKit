@@ -2245,6 +2245,21 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
         
         void decidePolicyForNotificationPermissionRequest(WebPageProxy& page, API::SecurityOrigin& origin, CompletionHandler<void(bool allowed)>&& completionHandler) final
         {
+#if ENABLE(NOTIFICATIONS)
+            // MAVERICKS_BACKPORT: a client whose WKPageUIClient predates the queryPermission callback --
+            // Safari 7's -- is asked through the decisions it published to WKNotificationProvider before
+            // it is asked through this callback. Safari 7 publishes its file:// and extension-origin
+            // policy only there, and its own lookup resolves neither, so an alert for one of those origins
+            // is answered into a store keyed by an origin its preferences pane has no display name for,
+            // which leaves every pane of that window unable to draw.
+            if (!m_client.queryPermission) {
+                if (RefPtr manager = protect(page.configuration().processPool())->supplement<WebNotificationManagerProxy>()) {
+                    if (auto allowed = manager->providerPermissionForOrigin(origin.securityOrigin().toString()))
+                        return completionHandler(*allowed);
+                }
+            }
+#endif // MAVERICKS_BACKPORT: closes the ENABLE(NOTIFICATIONS) branch above.
+
             if (!m_client.decidePolicyForNotificationPermissionRequest)
                 return completionHandler(false);
 

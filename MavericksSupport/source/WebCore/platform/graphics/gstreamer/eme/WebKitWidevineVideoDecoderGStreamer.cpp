@@ -8,6 +8,7 @@
 #include "CDMProxyWidevine.h"
 #include "GStreamerCommon.h"
 #include "GStreamerEMEUtilities.h"
+#include "WidevineMediaTypes.h"
 #include <wtf/Condition.h>
 #include <wtf/Lock.h>
 #include <wtf/Scope.h>
@@ -84,7 +85,7 @@ static GRefPtr<GstCaps> createSinkPadTemplateCaps()
     GRefPtr<GstCaps> caps = adoptGRef(gst_caps_new_empty());
 
     for (const auto& mediaType : GStreamerEMEUtilities::s_cencEncryptionMediaTypes) {
-        if (!GStreamerEMEUtilities::isWidevineDecodedMediaType(mediaType))
+        if (!isWidevineDecodedMediaType(mediaType))
             continue;
         gst_caps_append_structure(caps.get(), gst_structure_new("application/x-cenc",
             "original-media-type", G_TYPE_STRING, mediaType.characters(),
@@ -95,7 +96,7 @@ static GRefPtr<GstCaps> createSinkPadTemplateCaps()
     // stream whatever encrypted it; the active key system picks between this element and the
     // ClearKey decryptor, in MediaPlayerPrivateGStreamer's autoplug-select handler.
     for (const auto& mediaType : GStreamerEMEUtilities::s_webmEncryptionMediaTypes) {
-        if (!GStreamerEMEUtilities::isWidevineDecodedMediaType(mediaType))
+        if (!isWidevineDecodedMediaType(mediaType))
             continue;
         gst_caps_append_structure(caps.get(), gst_structure_new("application/x-webm-enc",
             "original-media-type", G_TYPE_STRING, mediaType.characters(), nullptr));
@@ -237,13 +238,6 @@ static bool isCDMProxyAvailable(WebKitMediaWidevineVideoDecode* self)
 static void attachCDMProxy(WebKitMediaWidevineVideoDecode* self, CDMProxy* proxy)
 {
     Locker locker { self->priv->lock };
-
-    // The proxy arrives as an untyped pointer from a GstContext that carries whichever CDM the
-    // page created, so refuse anything that is not Widevine's rather than cast it.
-    if (proxy && !GStreamerEMEUtilities::isWidevineKeySystem(proxy->keySystem())) {
-        GST_DEBUG_OBJECT(self, "ignoring a %s CDM proxy", proxy->keySystem().utf8().data());
-        return;
-    }
 
     GST_DEBUG_OBJECT(self, "attaching CDMProxy %p", proxy);
     self->priv->cdmProxy = static_cast<CDMProxyWidevine*>(proxy);

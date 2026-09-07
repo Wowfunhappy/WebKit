@@ -175,6 +175,9 @@ private:
     HashMap<WebPageProxyIdentifier, String> m_attributedBundleIdentifiers;
     std::optional<audit_token_t> m_sourceApplicationAuditToken;
     CString m_applicationBundleIdentifier;
+#endif // MAVERICKS_BACKPORT: closes the narrowed part of upstream's PLATFORM(COCOA) block; the queue below keeps upstream's guard.
+
+#if PLATFORM(COCOA)
     const Ref<WorkQueue> m_rtcNetworkThreadQueue;
 #endif
 

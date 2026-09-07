@@ -85,6 +85,8 @@ private:
     DecodeOrderSampleMap::iterator m_cursor;
     Lock m_sampleGeneratorLock;
     bool m_eos { false };
+    // MAVERICKS_BACKPORT(upstreamable): the encoded data is whole; see encodedDataStatus().
+    bool m_isAllDataReceived { false };
     bool m_error { false };
     std::optional<IntSize> m_size;
     String m_mimeType;

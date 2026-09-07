@@ -1,0 +1,66 @@
+--- a/gst/isomp4/fourcc.h
++++ b/gst/isomp4/fourcc.h
+@@ -228,6 +228,7 @@
+ #define FOURCC_payl     GST_MAKE_FOURCC('p','a','y','l')
+ #define FOURCC_pcst     GST_MAKE_FOURCC('p','c','s','t')
+ #define FOURCC_pgap     GST_MAKE_FOURCC('p','g','a','p')
++#define FOURCC_pict     GST_MAKE_FOURCC('p','i','c','t')
+ #define FOURCC_png      GST_MAKE_FOURCC('p','n','g',' ')
+ #define FOURCC_pnot     GST_MAKE_FOURCC('p','n','o','t')
+ #define FOURCC_qt__     GST_MAKE_FOURCC('q','t',' ',' ')
+@@ -358,6 +359,7 @@
+ #define FOURCC_isom     GST_MAKE_FOURCC('i','s','o','m')
+ #define FOURCC_mp41     GST_MAKE_FOURCC('m','p','4','1')
+ #define FOURCC_mp42     GST_MAKE_FOURCC('m','p','4','2')
++#define FOURCC_msf1     GST_MAKE_FOURCC('m','s','f','1')
+ #define FOURCC_piff     GST_MAKE_FOURCC('p','i','f','f')
+ #define FOURCC_titl     GST_MAKE_FOURCC('t','i','t','l')
+ 
+--- a/gst/isomp4/qtdemux.c
++++ b/gst/isomp4/qtdemux.c
+@@ -14888,6 +14888,36 @@
+   }
+ }
+ 
++/* An ISO/IEC 23008-12 image sequence carries its samples in a track whose media handler is
++ * 'pict' rather than 'vide'. Everything below the handler is an ordinary video track: a
++ * VideoMediaHeaderBox in 'minf' and a VisualSampleEntry ('hvc1', 'avc1', ...) in 'stsd'. The
++ * brand is what says the file is one, so the handler is only reinterpreted for a file that
++ * declares 'msf1' (ISO/IEC 23008-12 clause 7).
++ */
++static gboolean
++qtdemux_is_image_sequence (GstQTDemux * qtdemux)
++{
++  GstMapInfo map;
++  gsize i;
++  gboolean found;
++
++  if (qtdemux->major_brand == FOURCC_msf1)
++    return TRUE;
++  if (!qtdemux->comp_brands)
++    return FALSE;
++  if (!gst_buffer_map (qtdemux->comp_brands, &map, GST_MAP_READ))
++    return FALSE;
++  found = FALSE;
++  for (i = 0; i + 4 <= map.size; i += 4) {
++    if (QT_FOURCC (map.data + i) == FOURCC_msf1) {
++      found = TRUE;
++      break;
++    }
++  }
++  gst_buffer_unmap (qtdemux->comp_brands, &map);
++  return found;
++}
++
+ /* parse the traks.
+  * With each track we associate a new QtDemuxStream that contains all the info
+  * about the trak.
+@@ -15052,6 +15082,8 @@
+   len = QT_UINT32 ((guint8 *) hdlr->data);
+   if (len >= 20)
+     stream->subtype = QT_FOURCC ((guint8 *) hdlr->data + 16);
++  if (stream->subtype == FOURCC_pict && qtdemux_is_image_sequence (qtdemux))
++    stream->subtype = FOURCC_vide;
+   GST_LOG_OBJECT (qtdemux, "track subtype: %" GST_FOURCC_FORMAT,
+       GST_FOURCC_ARGS (stream->subtype));
+ 

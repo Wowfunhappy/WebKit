@@ -247,19 +247,22 @@ static bool wk_fieldReadsBackAs(CFStringRef blob, const char *key, CFStringRef e
     return equal;
 }
 
-CFStringRef wk_cookieBlobCreate(CFStringRef sameSite, CFStringRef created, CFStringRef comment)
+CFStringRef wk_cookieBlobCreate(CFStringRef sameSite, CFStringRef created, CFStringRef setInJavaScript, CFStringRef comment)
 {
-    if (!sameSite && !created)
+    if (!sameSite && !created && !setInJavaScript)
         return comment ? (CFStringRef)CFRetain(comment) : NULL;
 
     // Text that does not convert -- a lone surrogate, which a script can put in a cookie's comment --
     // has no encoding, so there is nothing to carry and the caller stores the cookie without it.
     CFStringRef encodedSameSite = sameSite ? wk_copyPercentEncoded(sameSite) : NULL;
     CFStringRef encodedCreated = created ? wk_copyPercentEncoded(created) : NULL;
+    CFStringRef encodedSetInJavaScript = setInJavaScript ? wk_copyPercentEncoded(setInJavaScript) : NULL;
     CFStringRef encodedComment = comment ? wk_copyPercentEncoded(comment) : NULL;
     CFMutableStringRef blob = NULL;
-    if ((!sameSite || encodedSameSite) && (!created || encodedCreated) && (!comment || encodedComment)) {
-        int fields = (encodedComment ? 1 : 0) + (encodedCreated ? 1 : 0) + (encodedSameSite ? 1 : 0);
+    if ((!sameSite || encodedSameSite) && (!created || encodedCreated) && (!setInJavaScript || encodedSetInJavaScript)
+        && (!comment || encodedComment)) {
+        int fields = (encodedComment ? 1 : 0) + (encodedCreated ? 1 : 0) + (encodedSameSite ? 1 : 0)
+            + (encodedSetInJavaScript ? 1 : 0);
         blob = CFStringCreateMutable(NULL, 0);
         if (!blob)
             wk_patch_fail(kSameSiteEncoding, "a comment could not be allocated");
@@ -270,18 +273,22 @@ CFStringRef wk_cookieBlobCreate(CFStringRef sameSite, CFStringRef created, CFStr
             CFStringAppendFormat(blob, NULL, CFSTR(" cr=%@"), encodedCreated);
         if (encodedSameSite)
             CFStringAppendFormat(blob, NULL, CFSTR(" ss=%@"), encodedSameSite);
+        if (encodedSetInJavaScript)
+            CFStringAppendFormat(blob, NULL, CFSTR(" js=%@"), encodedSetInJavaScript);
     }
     if (encodedSameSite)
         CFRelease(encodedSameSite);
     if (encodedCreated)
         CFRelease(encodedCreated);
+    if (encodedSetInJavaScript)
+        CFRelease(encodedSetInJavaScript);
     if (encodedComment)
         CFRelease(encodedComment);
 
     // A blob that does not read back carries nothing this layer could read either, so the cookie is
     // stored the way 10.9 stores every cookie: without the fields it could not carry.
     if (blob && (!wk_fieldReadsBackAs(blob, "ss", sameSite) || !wk_fieldReadsBackAs(blob, "cr", created)
-        || !wk_fieldReadsBackAs(blob, "c", comment))) {
+        || !wk_fieldReadsBackAs(blob, "js", setInJavaScript) || !wk_fieldReadsBackAs(blob, "c", comment))) {
         CFRelease(blob);
         blob = NULL;
     }
@@ -290,7 +297,7 @@ CFStringRef wk_cookieBlobCreate(CFStringRef sameSite, CFStringRef created, CFStr
 
 CFStringRef wk_sameSiteCommentCreate(CFStringRef sameSite, CFStringRef comment)
 {
-    return wk_cookieBlobCreate(sameSite, NULL, comment);
+    return wk_cookieBlobCreate(sameSite, NULL, NULL, comment);
 }
 
 // The creation time the caller of +[NSHTTPCookie cookieWithProperties:] asked for, which 10.9's own
@@ -299,6 +306,17 @@ CFStringRef wk_cookieBlobCopyCreated(CFStringRef comment)
 {
     CFRange range;
     if (!wk_blobScan(comment, "cr", &range) || range.location == kCFNotFound)
+        return NULL;
+    return wk_copyDecodedField(comment, range);
+}
+
+// Whether a script wrote this cookie. 10.9's NSHTTPCookie drops the SetInJavaScript property the moment
+// it is handed one (measured: the key is absent from -properties before the cookie is even stored), and
+// the mark is what NetworkStorageSession::deleteCookiesForHostnames selects script-written cookies by.
+CFStringRef wk_cookieBlobCopySetInJavaScript(CFStringRef comment)
+{
+    CFRange range;
+    if (!wk_blobScan(comment, "js", &range) || range.location == kCFNotFound)
         return NULL;
     return wk_copyDecodedField(comment, range);
 }

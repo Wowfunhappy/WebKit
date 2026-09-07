@@ -5389,15 +5389,7 @@ MediaSourceUseRemoteAudioVideoRenderer:
     WebKitLegacy:
       default: false
     WebKit:
-      # MAVERICKS_BACKPORT: this default carries the same `!USE(GSTREAMER)` term as
-      # UseGPUProcessForMediaEnabled.
-      # This pref routes MSE through the GPU-process AudioVideoRenderer, an AVFObjC path:
-      # WebPage::updatePreferences feeds it to enableRemoteRenderer(AVFoundationMSE), and
-      # MediaPlayer::load then pins m_activeEngineIdentifier to AVFoundationMSE, while this port
-      # registers only the GStreamer engines. MSE runs in the web process here, as on upstream's other
-      # GStreamer ports.
-      "!USE(GSTREAMER)": true
-      default: false
+      default: true
     WebCore:
       default: true
   sharedPreferenceForWebProcess: true
@@ -9384,10 +9376,15 @@ WebCodecsAV1Enabled:
     WebKitLegacy:
       default: false
     WebKit:
-      "USE(GSTREAMER)": true
+      # MAVERICKS_BACKPORT: AV1 is off in this port by maintainer decision, and the decision belongs
+      # here rather than in a codec-name test inside VideoDecoder/VideoEncoder::create -- with it off,
+      # WebCodecs reports av01 unsupported at the DOM layer instead of accepting a config and refusing
+      # it a layer down. Media element playback is unaffected; it decodes AV1 through GStreamer.
+      # "USE(GSTREAMER)": true
       default: false
     WebCore:
-      "USE(GSTREAMER)": true
+      # MAVERICKS_BACKPORT: off here too; see the WebKit column above.
+      # "USE(GSTREAMER)": true
       default: false
   disableInLockdownMode: true
 

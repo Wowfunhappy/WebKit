@@ -362,7 +362,7 @@
 #define HAVE_THREAD_TIME_CONSTRAINTS 1
 #endif
 
-#if PLATFORM(COCOA)
+#if !defined(HAVE_AVASSETREADER) && PLATFORM(COCOA) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_AVASSETREADER 1
 #endif
 
@@ -691,8 +691,9 @@
 #endif
 
 #if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: LSDatabaseContext.sharedDatabaseContext is 10.10+ only.
-#define HAVE_LSDATABASECONTEXT 0
+#if !defined(HAVE_LSDATABASECONTEXT) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#define HAVE_LSDATABASECONTEXT 1
+#endif
 #define HAVE_CGS_FIX_FOR_RADAR_97530095 0
 #endif
 
@@ -750,9 +751,9 @@
 #endif
 
 #if PLATFORM(COCOA) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
-// MAVERICKS_BACKPORT: ContactsUI.framework (the contact-picker UI) is 10.11+ and absent on 10.9;
-// WKContactPicker and its ContactPicker references are all HAVE(CONTACTSUI)-guarded, so this stays off.
-#define HAVE_CONTACTSUI 0
+#if !defined(HAVE_CONTACTSUI) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#define HAVE_CONTACTSUI 1
+#endif
 #define HAVE_CONTACTS 1
 #endif
 
@@ -996,27 +997,23 @@
 #define HAVE_CORE_LOCATION 1
 #endif
 
-#if PLATFORM(MAC)
-// MAVERICKS_BACKPORT: SCNMetalLayer, which SceneKitModelPlayer's layer is, arrived after 10.9 --
-// SceneKit.framework here exports no such class. Unlike its neighbours this block is not
-// `!defined()`-guarded, so the value has to be stated here rather than in AdditionalPlatformHave.h.
-// #define HAVE_SCENEKIT !ENABLE_GPU_PROCESS_MODEL
-#define HAVE_SCENEKIT 0
+#if !defined(HAVE_SCENEKIT) && PLATFORM(MAC) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#define HAVE_SCENEKIT !ENABLE_GPU_PROCESS_MODEL
 #endif
 
 #if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: WebGPU native bindings (wgpu) not available.
-// #define HAVE_WEBGPU_IMPLEMENTATION 1
+#if !defined(HAVE_WEBGPU_IMPLEMENTATION) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#define HAVE_WEBGPU_IMPLEMENTATION 1
+#endif
 // FIXME: PlatformHave.h should not depend or defined ENABLE macros.
 #if !defined(ENABLE_WEBGPU_SWIFT)
 #define ENABLE_WEBGPU_SWIFT 0
 #endif
 #endif
 
-// MAVERICKS_BACKPORT: Vision.framework (10.13+) is not available.
-// #if PLATFORM(COCOA) && !PLATFORM(WATCHOS)
-// #define HAVE_SHAPE_DETECTION_API_IMPLEMENTATION 1
-// #endif
+#if !defined(HAVE_SHAPE_DETECTION_API_IMPLEMENTATION) && PLATFORM(COCOA) && !PLATFORM(WATCHOS) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#define HAVE_SHAPE_DETECTION_API_IMPLEMENTATION 1
+#endif
 
 #if HAVE(WEBGPU_IMPLEMENTATION) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION))
 #define HAVE_COREVIDEO_METAL_SUPPORT COREVIDEO_SUPPORTS_METAL
@@ -1033,8 +1030,8 @@
 #endif
 
 // MAVERICKS_BACKPORT: the segment-emitting AVAssetWriter (-initWithFileType:error:, AVAssetWriterDelegate,
-// -setPreferredOutputSegmentInterval:) is macOS 11+. Below it MediaRecorder has no MP4 writer, so the MP4
-// container is reported unsupported and the default container is WebM.
+// -setPreferredOutputSegmentInterval:) is macOS 11+. Below it MediaRecorder packages MP4 with the
+// fragmented-MP4 writer in MavericksSupport/source/WebCore/platform/mediarecorder.
 #if PLATFORM(COCOA) && (!PLATFORM(MAC) || !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 110000)
 #define HAVE_AVASSETWRITER_DELEGATE 1
 #endif
@@ -1088,9 +1085,8 @@
 #define HAVE_DDRESULT_DISABLE_URL_SCHEME_CHECKING 1
 #endif
 
-#if (PLATFORM(MAC)  || PLATFORM(IOS) || PLATFORM(VISION))
-// MAVERICKS_BACKPORT: getSystemContentDatabaseObject4WebKit uses LSDatabaseContext (10.10+).
-#define HAVE_SYSTEM_CONTENT_LS_DATABASE 0
+#if !defined(HAVE_SYSTEM_CONTENT_LS_DATABASE) && (PLATFORM(MAC)  || PLATFORM(IOS) || PLATFORM(VISION)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#define HAVE_SYSTEM_CONTENT_LS_DATABASE 1
 #endif
 
 #if PLATFORM(IOS) || PLATFORM(VISION)
@@ -1209,9 +1205,7 @@
 #endif
 #endif
 
-// MAVERICKS_BACKPORT: TranslationUIServices.framework is macOS 12+. Unlike its neighbours this block is
-// not `!defined()`-guarded, so the value has to be stated here rather than in AdditionalPlatformHave.h.
-#if PLATFORM(IOS) || PLATFORM(VISION) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000)
+#if !defined(HAVE_TRANSLATION_UI_SERVICES) && (PLATFORM(IOS) || PLATFORM(VISION) || PLATFORM(MAC)) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
 #define HAVE_TRANSLATION_UI_SERVICES 1
 #endif
 
@@ -1288,10 +1282,7 @@
     || (PLATFORM(VISION) && __VISION_OS_VERSION_MIN_REQUIRED >= 20000)) \
     || (PLATFORM(WATCHOS) && __WATCH_OS_VERSION_MIN_REQUIRED >= 110000) \
     || (PLATFORM(APPLETV) && __TV_OS_VERSION_MIN_REQUIRED >= 180000)
-// MAVERICKS_BACKPORT: CoreIPCNSURLRequest depends on _webKitPropertyListData
-// (10.10+) and _initWithWebKitPropertyListData (10.10+). Disable on 10.9 so
-// the legacy NSKeyedArchiver/NSKeyedUnarchiver path is used.
-// #define HAVE_WK_SECURE_CODING_NSURLREQUEST 1
+#define HAVE_WK_SECURE_CODING_NSURLREQUEST 1
 #endif
 
 #if ((PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 260000) \
@@ -1494,10 +1485,9 @@
 #define HAVE_AVPLAYERLAYERVIEW 1
 #endif
 
-#if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) \
-    || (PLATFORM(VISION) && __has_include(<CoreTelephony/CoreTelephony.h>))
-// MAVERICKS_BACKPORT: CoreTelephony is not usable on 10.9; CoreTelephonyUtilities is HAVE(CORE_TELEPHONY)-guarded.
-#define HAVE_CORE_TELEPHONY 0
+#if !defined(HAVE_CORE_TELEPHONY) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) \
+    || (PLATFORM(VISION) && __has_include(<CoreTelephony/CoreTelephony.h>))) // MAVERICKS_BACKPORT: guarded like its neighbours, so AdditionalPlatformHave.h can state this port's value.
+#define HAVE_CORE_TELEPHONY 1
 #endif
 
 #if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000) \

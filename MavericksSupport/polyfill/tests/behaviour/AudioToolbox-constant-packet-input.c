@@ -1,8 +1,11 @@
 // The constant-bytes-per-packet input shim in polyfills/c/AudioToolboxOpus.c: an input callback that
-// reports one packet for a buffer holding many is taken at its byte count, and every other caller is
-// untouched. Three arms: a conforming CBR caller decodes identically with the shim in the path, a VBR
-// caller reaches its own callback unaltered, and the under-reporting LPCM caller -- the shape
-// AudioFileReaderCocoa's passthroughInputDataCallback has -- succeeds where 10.9 answers 'insz'.
+// reports one packet for a buffer holding many is taken at its byte count, an LPCM source is asked for
+// no packet descriptions, and every other caller is untouched. Four arms: a conforming CBR caller
+// decodes identically with the shim in the path, a VBR caller reaches its own callback unaltered, the
+// under-reporting LPCM caller -- the shape AudioFileReaderCocoa's passthroughInputDataCallback has --
+// succeeds where 10.9 answers 'insz', and a caller that keys its packet count off the description
+// pointer -- the shape AudioSampleBufferConverter::provideSourceDataNumOutputPackets has, which
+// MediaRecorder's AAC encoding runs through -- feeds the encoder every frame it was handed.
 
 #include <AudioToolbox/AudioToolbox.h>
 #include <math.h>
@@ -98,6 +101,75 @@ static long decode(AudioStreamBasicDescription in, Source *source, float *out, U
     return frames;
 }
 
+// AudioSampleBufferConverter::provideSourceDataNumOutputPackets answers a non-NULL description
+// pointer with its packet-description count, which is empty for raw PCM. 10.9 passes that pointer
+// where modern AudioToolbox passes NULL, so without the shim the count is zero however many frames
+// the buffer holds and the encoder behind it is fed nothing.
+static OSStatus feedKeyedOnDescriptionPointer(AudioConverterRef converter, UInt32 *packets,
+    AudioBufferList *data, AudioStreamPacketDescription **descriptions, void *userData)
+{
+    (void)converter;
+    Source *source = (Source *)userData;
+    ++source->callbacks;
+    if (descriptions)
+        *descriptions = NULL;
+    if (source->served) {
+        *packets = 0;
+        return noErr;
+    }
+    data->mBuffers[0].mNumberChannels = 1;
+    data->mBuffers[0].mDataByteSize = source->bytes;
+    data->mBuffers[0].mData = (void *)source->data;
+    source->served = 1;
+    *packets = descriptions ? 0 : source->bytes / (UInt32)sizeof(float);
+    return noErr;
+}
+
+// Encodes float LPCM to AAC and answers the number of packets the encoder produced, or -1 on error.
+static long encodeToAAC(Source *source)
+{
+    AudioStreamBasicDescription in, out;
+    memset(&in, 0, sizeof(in));
+    memset(&out, 0, sizeof(out));
+    in.mSampleRate = 48000;
+    in.mFormatID = kAudioFormatLinearPCM;
+    in.mFormatFlags = kAudioFormatFlagsNativeFloatPacked;
+    in.mBytesPerPacket = in.mBytesPerFrame = sizeof(float);
+    in.mFramesPerPacket = 1;
+    in.mChannelsPerFrame = 1;
+    in.mBitsPerChannel = 32;
+    out.mSampleRate = 48000;
+    out.mFormatID = kAudioFormatMPEG4AAC;
+    out.mChannelsPerFrame = 1;
+
+    AudioConverterRef converter = NULL;
+    if (AudioConverterNew(&in, &out, &converter) != noErr)
+        return -1;
+
+    UInt32 maxPacket = 0, size = sizeof(maxPacket);
+    AudioConverterGetProperty(converter, kAudioConverterPropertyMaximumOutputPacketSize, &size, &maxPacket);
+    if (!maxPacket)
+        maxPacket = 1500;
+
+    long produced = 0;
+    for (int i = 0; i < 4096; ++i) {
+        UInt32 packets = 1;
+        AudioStreamPacketDescription description;
+        unsigned char buffer[4096];
+        AudioBufferList list;
+        list.mNumberBuffers = 1;
+        list.mBuffers[0].mNumberChannels = 1;
+        list.mBuffers[0].mDataByteSize = maxPacket < sizeof(buffer) ? maxPacket : (UInt32)sizeof(buffer);
+        list.mBuffers[0].mData = buffer;
+        if (AudioConverterFillComplexBuffer(converter, feedKeyedOnDescriptionPointer, source,
+                &packets, &list, &description) != noErr || !packets)
+            break;
+        produced += packets;
+    }
+    AudioConverterDispose(converter);
+    return produced;
+}
+
 int main(void)
 {
     static unsigned char pcm[kFrames * kBytesPerFrame];
@@ -134,6 +206,20 @@ int main(void)
     static float ignored[kFrames];
     decode(mp3, &vbr, ignored, kFrames);
     check("VBR caller's own callback is reached", vbr.callbacks > 0, 1);
+
+    // Half a second of 48 kHz mono is 24000 frames, which AAC's 1024-frame packets cover 23 times
+    // with a partial one left inside the encoder; the bound leaves room for its priming. A count
+    // this far below the frames supplied means the encoder was fed nothing: without the shim the
+    // whole half second yields four packets.
+    enum { kEncodeFrames = 24000, kEncodeFloor = 20 };
+    static float tone[kEncodeFrames];
+    for (int i = 0; i < kEncodeFrames; ++i)
+        tone[i] = 0.25f * (float)sin(i * 0.05);
+    Source described = { (const unsigned char *)tone, sizeof(tone), 1, 0, 0 };
+    long describedPackets = encodeToAAC(&described);
+    printf("  %-56s %ld packets\n", "(AAC packets from 24000 frames)", describedPackets);
+    check("LPCM caller keyed on the description pointer feeds the AAC encoder every frame",
+        describedPackets >= kEncodeFloor, 1);
 
     if (failures) {
         printf("FAILED: %d\n", failures);

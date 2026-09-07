@@ -54,9 +54,19 @@ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <webrtc/rtc_base/async_packet_socket.h>
 #include <webrtc/rtc_base/ssl_certificate.h> // MAVERICKS_BACKPORT: SSLCertificateVerifier for the system-trust verifier below.
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
-#if PLATFORM(COCOA) // MAVERICKS_BACKPORT: system trust evaluation for TURN-over-TLS sockets.
+#if PLATFORM(COCOA) // MAVERICKS_BACKPORT: system trust evaluation for TURN-over-TLS sockets, and the route lookup behind getInterfaceName.
 #include <Security/Security.h>
+#include <cstring>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/WorkQueue.h>
+#include <wtf/text/CString.h>
 #endif // MAVERICKS_BACKPORT: closes PLATFORM(COCOA).
 #endif // !HAVE(NETWORK_FRAMEWORK) -- MAVERICKS_BACKPORT: see HAVE(NETWORK_FRAMEWORK).
 
@@ -73,10 +83,12 @@ NetworkRTCProvider::NetworkRTCProvider(NetworkConnectionToWebProcess& connection
     , m_sharedPreferences(connection.sharedPreferencesForWebProcessValue())
 #if HAVE(NETWORK_FRAMEWORK) // MAVERICKS_BACKPORT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
     , m_sourceApplicationAuditToken(connection.networkProcess().sourceApplicationAuditToken())
-    , m_rtcNetworkThreadQueue(WorkQueue::create("NetworkRTCProvider Queue"_s, WorkQueue::QOS::UserInitiated))
 #else
     , m_packetSocketFactory(makeUniqueRefWithoutFastMallocCheck<webrtc::BasicPacketSocketFactory>(rtcNetworkThread().socketserver()))
 #endif
+#if PLATFORM(COCOA) // MAVERICKS_BACKPORT: upstream initializes this under PLATFORM(COCOA); the narrowed guard above had dropped it.
+    , m_rtcNetworkThreadQueue(WorkQueue::create("NetworkRTCProvider Queue"_s, WorkQueue::QOS::UserInitiated))
+#endif // MAVERICKS_BACKPORT: closes the queue initializer above.
 {
 #if HAVE(NETWORK_FRAMEWORK) // MAVERICKS_BACKPORT: Network.framework is 10.14+; HAVE(NETWORK_FRAMEWORK) selects the nw path.
     if (CheckedPtr session = downcast<NetworkSessionCocoa>(connection.networkSession()))
@@ -407,6 +419,101 @@ void NetworkRTCProvider::createClientTCPSocket(LibWebRTCSocketIdentifier identif
         });
     });
 }
+
+#if PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: the interface a load of this URL uses. The Network.framework branch reads it
+// from an nw_connection to the URL's host and port -- NetworkRTCTCPSocketCocoa::getInterfaceName takes
+// nw_path_copy_interface's name at nw_connection_state_preparing and cancels, so it is the route
+// lookup rather than a connection -- and Network.framework is 10.14+. connect() on a SOCK_DGRAM socket
+// asks the same question: it binds the local address the kernel would send to that destination from,
+// without putting a packet on the wire, and getifaddrs names the interface holding that address.
+static String interfaceNameForLocalAddress(const struct sockaddr& address)
+{
+    struct ifaddrs* interfaces = nullptr;
+    if (getifaddrs(&interfaces))
+        return { };
+
+    String name;
+    for (auto* interface = interfaces; interface; interface = interface->ifa_next) {
+        if (!interface->ifa_addr || interface->ifa_addr->sa_family != address.sa_family)
+            continue;
+        if (address.sa_family == AF_INET) {
+            auto& candidate = *reinterpret_cast<const struct sockaddr_in*>(interface->ifa_addr);
+            if (candidate.sin_addr.s_addr != reinterpret_cast<const struct sockaddr_in&>(address).sin_addr.s_addr)
+                continue;
+        } else if (address.sa_family == AF_INET6) {
+            auto& candidate = *reinterpret_cast<const struct sockaddr_in6*>(interface->ifa_addr);
+            if (memcmp(&candidate.sin6_addr, &reinterpret_cast<const struct sockaddr_in6&>(address).sin6_addr, sizeof(struct in6_addr)))
+                continue;
+        } else
+            continue;
+        name = String::fromUTF8(interface->ifa_name);
+        break;
+    }
+
+    freeifaddrs(interfaces);
+    return name;
+}
+
+static String interfaceNameForRouteToHost(const CString& host, const CString& port)
+{
+    struct addrinfo hints { };
+    hints.ai_socktype = SOCK_DGRAM;
+    struct addrinfo* addresses = nullptr;
+    if (getaddrinfo(host.data(), port.data(), &hints, &addresses))
+        return { };
+
+    String name;
+    for (auto* address = addresses; address && name.isNull(); address = address->ai_next) {
+        int descriptor = socket(address->ai_family, SOCK_DGRAM, 0);
+        if (descriptor < 0)
+            continue;
+        struct sockaddr_storage local { };
+        socklen_t localLength = sizeof(local);
+        if (!connect(descriptor, address->ai_addr, address->ai_addrlen) && !getsockname(descriptor, reinterpret_cast<struct sockaddr*>(&local), &localLength))
+            name = interfaceNameForLocalAddress(reinterpret_cast<const struct sockaddr&>(local));
+        close(descriptor);
+    }
+
+    freeaddrinfo(addresses);
+    return name;
+}
+
+// MAVERICKS_BACKPORT: getaddrinfo blocks, so the lookup above runs on its own queue and the reply
+// settles there, the way the Network.framework branch settles its promise on tcpSocketQueueSingleton().
+static WorkQueue& routeLookupQueueSingleton()
+{
+    static NeverDestroyed<Ref<WorkQueue>> queue = WorkQueue::create("WebRTC interface name queue"_s);
+    return queue.get().get();
+}
+
+void NetworkRTCProvider::getInterfaceName(URL&& url, WebPageProxyIdentifier, RTCSocketCreationFlags, WebCore::RegistrableDomain&&, CompletionHandler<void(String&&)>&& completionHandler)
+{
+    // MAVERICKS_BACKPORT: upstream's Network.framework branch refuses a non-HTTP-family URL before it
+    // looks anything up, so this one does too rather than naming an interface upstream answers null for.
+    if (!url.protocolIsInHTTPFamily()) {
+        completionHandler({ });
+        return;
+    }
+
+    auto host = url.host().utf8();
+    if (!host.length()) {
+        completionHandler({ });
+        return;
+    }
+
+    auto port = String::number(url.port().value_or(url.protocolIs("https"_s) ? 443 : 80)).utf8();
+    // MAVERICKS_BACKPORT: the answer settles on m_rtcNetworkThreadQueue, where upstream settles it. The
+    // queue is read here, on the calling thread, the way upstream's whenSettled() reads it -- the lookup
+    // below blocks for as long as the resolver takes, and this provider can be destroyed meanwhile.
+    routeLookupQueueSingleton().dispatch([queue = Ref { m_rtcNetworkThreadQueue }, host = WTF::move(host), port = WTF::move(port), completionHandler = WTF::move(completionHandler)]() mutable {
+        auto interfaceName = interfaceNameForRouteToHost(host, port);
+        queue->dispatch([interfaceName = WTF::move(interfaceName).isolatedCopy(), completionHandler = WTF::move(completionHandler)]() mutable {
+            completionHandler(WTF::move(interfaceName));
+        });
+    }); // MAVERICKS_BACKPORT: closes the route lookup above.
+}
+#endif // MAVERICKS_BACKPORT: closes PLATFORM(COCOA), matching the guard on the GetInterfaceName message.
 
 void NetworkRTCProvider::createSocket(LibWebRTCSocketIdentifier identifier, std::unique_ptr<webrtc::AsyncPacketSocket>&& socket, Socket::Type type, Ref<IPC::Connection>&& connection)
 {

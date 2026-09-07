@@ -1,0 +1,99 @@
+# matroskademux learns the duration of a segment that carries no Info/Duration
+# (an unknown-size segment as a live muxer writes it) from the blocks it parses:
+# segment.duration grows with every block, but DURATION_CHANGED is posted only
+# for the first block, so an application that queries the duration on that
+# message and caches the answer keeps the duration of the first few blocks for
+# the whole file. GstBaseParse re-posts as its estimate moves; this does the
+# same: a post when the duration first becomes known, one whenever it has grown
+# by more than a second past the last posted value, and one more when it is
+# final -- at the sink's EOS in push mode, at end of stream in pull mode.
+#
+# Applied by build_deps with patch -p1.
+--- a/gst/matroska/matroska-demux.h
++++ b/gst/matroska/matroska-demux.h
+@@ -135,6 +135,8 @@
+ 
+   /* for non-finalized files, with invalid segment duration */
+   gboolean                 invalid_duration;
++  /* the duration the last DURATION_CHANGED message was posted for */
++  GstClockTime             posted_duration;
+ 
+   /* Cached upstream length (default G_MAXUINT64) */
+   guint64	           cached_length;
+--- a/gst/matroska/matroska-demux.c
++++ b/gst/matroska/matroska-demux.c
+@@ -374,6 +374,7 @@
+   }
+ 
+   demux->invalid_duration = FALSE;
++  demux->posted_duration = GST_CLOCK_TIME_NONE;
+ 
+   demux->cached_length = G_MAXUINT64;
+ 
+@@ -4626,6 +4627,33 @@
+   return ret;
+ }
+ 
++/* Posts DURATION_CHANGED for a duration learned while parsing a segment that
++ * carries none: when it first becomes known, whenever it has grown by more than
++ * a second past the last posted value, and once more when it is final, so an
++ * application that queries on the message only sees the whole file's duration. */
++static void
++gst_matroska_demux_post_parsed_duration (GstMatroskaDemux * demux,
++    gboolean final)
++{
++  GstClockTime duration;
++
++  GST_OBJECT_LOCK (demux);
++  duration = demux->common.segment.duration;
++  GST_OBJECT_UNLOCK (demux);
++
++  if (!GST_CLOCK_TIME_IS_VALID (duration) || duration == demux->posted_duration)
++    return;
++  if (!final && GST_CLOCK_TIME_IS_VALID (demux->posted_duration)
++      && duration < demux->posted_duration + GST_SECOND)
++    return;
++
++  GST_DEBUG_OBJECT (demux, "posting %s parsed duration %" GST_TIME_FORMAT,
++      final ? "final" : "grown", GST_TIME_ARGS (duration));
++  demux->posted_duration = duration;
++  gst_element_post_message (GST_ELEMENT_CAST (demux),
++      gst_message_new_duration_changed (GST_OBJECT_CAST (demux)));
++}
++
+ static GstFlowReturn
+ gst_matroska_demux_parse_blockgroup_or_simpleblock (GstMatroskaDemux * demux,
+     GstEbmlRead * ebml, guint64 cluster_time, guint64 cluster_offset,
+@@ -5165,11 +5193,8 @@
+           demux->common.segment.duration =
+               last_stop_end - demux->stream_start_time;
+           GST_OBJECT_UNLOCK (demux);
+-          if (!demux->invalid_duration) {
+-            gst_element_post_message (GST_ELEMENT_CAST (demux),
+-                gst_message_new_duration_changed (GST_OBJECT_CAST (demux)));
+-            demux->invalid_duration = TRUE;
+-          }
++          demux->invalid_duration = TRUE;
++          gst_matroska_demux_post_parsed_duration (demux, FALSE);
+         } else {
+           GST_OBJECT_UNLOCK (demux);
+         }
+@@ -6337,6 +6362,9 @@
+     if (ret == GST_FLOW_EOS) {
+       /* perform EOS logic */
+ 
++      if (demux->invalid_duration)
++        gst_matroska_demux_post_parsed_duration (demux, TRUE);
++
+       /* If we were in the headers, make sure we send no-more-pads.
+          This will ensure decodebin does not get stuck thinking
+          the chain is not complete yet, and waiting indefinitely. */
+@@ -6608,6 +6636,8 @@
+         GST_ELEMENT_ERROR (demux, STREAM, DEMUX,
+             (NULL), ("got eos but no streams (yet)"));
+       } else {
++        if (demux->invalid_duration)
++          gst_matroska_demux_post_parsed_duration (demux, TRUE);
+         gst_matroska_demux_send_event (demux, event);
+       }
+       break;

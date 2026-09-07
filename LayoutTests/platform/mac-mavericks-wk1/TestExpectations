@@ -1,18 +1,7 @@
-# MAVERICKS_BACKPORT: Apple's modern platform/mac-wk1/TestExpectations blanket-[ Skip ]s most directories
-# because upstream no longer maintains the WebKit1 / DumpRenderTree path (everything moved to WK2 /
-# WebKitTestRunner). This backport IS WebKit1-based and those suites genuinely run here, so re-enable the
-# ones we exercise. A more-specific platform file overrides the less-specific mac-wk1 expectation.
-# Failures under these are REAL backport issues to triage and fix — not reasons to skip.
-
-webaudio [ Pass ]
-storage [ Pass ]
-http/tests/cookies [ Pass ]
-fast/dom [ Pass ]
-fast/css [ Pass ]
-fast/canvas [ Pass ]
-css1 [ Pass ]
-cssom [ Pass ]
-
+# MAVERICKS_BACKPORT: WebKit1 (DumpRenderTree) expectations for the macOS 10.9 backport. The port
+# drops the suite-wide skips at the top of platform/mac-wk1/TestExpectations (webkitpy/port/mac.py),
+# so every suite runs here under the generic, platform/mac and per-test mac-wk1 expectations.
+# Failures under them are real backport issues to triage and fix -- not reasons to skip.
 
 # --- Storage: feature gaps + deep-flaky on this 10.9 WebKit1 backport -----------------------------------
 # File System Access API / OPFS (navigator.storage.getDirectory) is not enabled here.
@@ -24,24 +13,6 @@ storage/storageinfo-no-callbacks.html [ Failure ]
 storage/storageinfo-missing-arguments.html [ Failure ]
 storage/storagequota-query-usage.html [ Failure ]
 storage/storagequota-request-quota.html [ Failure ]
-# JS-correctness suites (dumpAsText assertion tests — not render-tree/baseline-sensitive). Re-enable to
-# exercise real engine behavior on this WebKit1 backport.
-js [ Pass ]
-dom [ Pass ]
-fetch [ Pass ]
-
-# More behavioral suites (crash/correctness, not render-tree baselines)
-editing [ Pass ]
-http/tests/security [ Pass ]
-http/tests/xmlhttprequest [ Pass ]
-
-# More behavioral suites for crash-hunting / coverage
-fast/events [ Pass ]
-fast/forms [ Pass ]
-fast/loader [ Pass ]
-accessibility [ Pass ]
-http/tests/misc [ Pass ]
-http/tests/navigation [ Pass ]
 
 # Cookie behavior is a backport-critical area (NSHTTPCookieStorage on 10.9 predates SameSite and the
 # public-suffix rules), so the WPT cookie suites run here rather than under mac-wk1's blanket
@@ -108,84 +79,6 @@ imported/w3c/web-platform-tests/cookies/path/default.html [ Failure ]
 # behavior. These run under mac-mavericks-wk2.
 imported/w3c/web-platform-tests/cookiestore [ Skip ]
 
-# --- Non-Mac platform tests that leaked in via the broad un-skips above -------------------------------
-# These exercise iOS/GTK/Win-specific behavior (touch events, UIKit text interaction, ATK, etc.) that
-# does not apply to the Mac WebKit1 port; on Mac DRT they have no support path and crash. Skip them.
-accessibility/combobox/gtk [ Skip ]
-accessibility/gtk [ Skip ]
-accessibility/ios-simulator [ Skip ]
-accessibility/win [ Skip ]
-editing/caret/ios [ Skip ]
-editing/deleting/ios [ Skip ]
-editing/execCommand/ios [ Skip ]
-editing/find/ios [ Skip ]
-editing/input/ios [ Skip ]
-editing/pasteboard/gtk [ Skip ]
-# LayoutTests/TestExpectations skips editing/pasteboard/dom-paste on every port; the broad
-# `editing [ Pass ]` above is more specific and re-enables it here. These tests reach
-# uiController.isShowingMenu, and UIScriptController answers an unimplemented method with
-# RELEASE_ASSERT_NOT_REACHED -- DumpRenderTree has no override, so each one aborts. WebKitTestRunner
-# implements it, and mac-mavericks-wk2 leaves upstream's skip in place.
-editing/pasteboard/dom-paste [ Skip ]
-editing/selection/ios [ Skip ]
-fast/css/ios [ Skip ]
-fast/css/variables/env/ios [ Skip ]
-fast/events/ios [ Skip ]
-fast/events/ios/ipad [ Skip ]
-fast/events/pointer/ios [ Skip ]
-fast/events/touch [ Skip ]
-fast/events/touch/ios [ Skip ]
-fast/forms/ios [ Skip ]
-fast/forms/ios/ipad [ Skip ]
-fast/forms/textarea/ios [ Skip ]
-
-# LayoutTests/TestExpectations skips these on every port; the broad
-# `imported/w3c/web-platform-tests/cookies [ Pass ]` above is more specific and re-enables them
-# here. Upstream's expectation is restored rather than overridden.
-imported/w3c/web-platform-tests/cookies/domain/domain-attribute-host-with-and-without-leading-period.sub.https.html [ Skip ]
-imported/w3c/web-platform-tests/cookies/domain/domain-attribute-host-with-leading-period.sub.https.html [ Skip ]
-imported/w3c/web-platform-tests/cookies/domain/domain-attribute-idn-host.sub.https.html [ Skip ]
-imported/w3c/web-platform-tests/cookies/domain/domain-attribute-matches-host.sub.https.html [ Skip ]
-imported/w3c/web-platform-tests/cookies/domain/domain-attribute-missing.sub.html [ Skip ]
-imported/w3c/web-platform-tests/cookies/samesite/fetch.https.html [ Skip ]
-imported/w3c/web-platform-tests/cookies/samesite/form-get-blank-reload.https.html [ Skip ]
-imported/w3c/web-platform-tests/cookies/samesite/form-get-blank.https.html [ Skip ]
-imported/w3c/web-platform-tests/cookies/samesite/form-post-blank-reload.https.html [ Skip ]
-imported/w3c/web-platform-tests/cookies/samesite/form-post-blank.https.html [ Skip ]
-imported/w3c/web-platform-tests/cookies/samesite/iframe-reload.https.html [ Skip ]
-imported/w3c/web-platform-tests/cookies/samesite/iframe.https.html [ Skip ]
-imported/w3c/web-platform-tests/cookies/samesite/img.https.html [ Skip ]
-imported/w3c/web-platform-tests/cookies/samesite/window-open-reload.https.html [ Skip ]
-imported/w3c/web-platform-tests/cookies/samesite/window-open.https.html [ Skip ]
-
-# Upstream marks these `[ Failure Pass ]`, and the broad un-skip above overrode that. The text can
-# never match on any port, this one included: each test generates a random cookie value per run and the
-# checked-in baseline quotes it inside a FAIL line. Measured here across two runs -- `samesite_strict=
-# 0.6923024653526889` then `0.997830765415224` -- and glib's own platform rebaseline carries a third
-# (`0.13312858800749006`), so rebaselining cannot fix it either. The PASS/FAIL shape matches the
-# baseline subtest for subtest. Recorded as `[ Failure ]` rather than upstream's permissive spelling
-# because Pass is unreachable, not because anything here differs from other ports.
-imported/w3c/web-platform-tests/cookies/name/name.html [ Failure ]
-imported/w3c/web-platform-tests/cookies/prefix/__secure.header.https.html [ Failure ]
-imported/w3c/web-platform-tests/cookies/prefix/document-cookie.non-secure.html [ Failure ]
-imported/w3c/web-platform-tests/cookies/samesite-none-secure/cookies-without-samesite-must-be-secure.https.html [ Failure ]
-imported/w3c/web-platform-tests/cookies/samesite/about-blank-subresource.https.html [ Failure ]
-imported/w3c/web-platform-tests/cookies/samesite/iframe.document.https.html [ Failure ]
-imported/w3c/web-platform-tests/cookies/samesite/multiple-samesite-attributes.https.html [ Failure ]
-imported/w3c/web-platform-tests/cookies/samesite/sandbox-iframe-nested.https.html [ Failure ]
-imported/w3c/web-platform-tests/cookies/samesite/sandbox-iframe-subresource.https.html [ Failure ]
-imported/w3c/web-platform-tests/cookies/samesite/setcookie-lax.https.html [ Failure ]
-imported/w3c/web-platform-tests/cookies/samesite/setcookie-navigation.https.html [ Failure ]
-imported/w3c/web-platform-tests/cookies/schemeful-same-site/schemeful-iframe-subresource.tentative.html [ Failure ]
-imported/w3c/web-platform-tests/cookies/schemeful-same-site/schemeful-navigation.tentative.html [ Failure ]
-imported/w3c/web-platform-tests/cookies/schemeful-same-site/schemeful-subresource.tentative.html [ Failure ]
-
-# This test's checked-in baseline is itself a harness timeout: upstream records `Harness Error
-# (TIMEOUT)` after one subtest. It runs further here -- four subtests pass -- and then times out at the
-# first one needing a cookie returned for a first-level-subdomain host. Both ports time out; the point
-# of divergence differs, so the text cannot match.
-imported/w3c/web-platform-tests/cookies/attributes/domain.sub.html [ Failure Timeout ]
-
 # decodeAudioData returns every frame the GStreamer decode path emits. aac.aac is raw ADTS, a format
 # that carries no priming metadata, so the 2112-frame AAC encoder delay this test subtracts is never
 # signalled and the buffer comes back 49152 frames where the test wants 47040. half-a-second-8000.mp3
@@ -206,3 +99,16 @@ webkit.org/b/307727 webaudio/decode-audio-data-mp3-8000.html [ Failure ]
 # after it. Upstream records the same test as a flaky timeout on mac, ios and gtk
 # (webkit.org/b/227845, webkit.org/b/252878).
 webaudio/audioworket-out-of-memory.html [ Skip ]
+
+
+
+# WebGPU is off at the upstream CMake-port default and 10.9 has no Metal to back it, so navigator.gpu
+# is null and every test here ends on a notifyDone that never comes.
+http/tests/webgpu [ Skip ]
+# The inspector frontend this port runs is Safari 7's own, reached through WebCore's
+# InspectorFrontendClassicBridge; these suites drive the upstream frontend from Source/WebInspectorUI,
+# which is present in the build tree and does run -- it fails wholesale against it. Skipped because
+# triaging them is its own project, not because they cannot run.
+inspector [ Skip ]
+http/tests/inspector [ Skip ]
+

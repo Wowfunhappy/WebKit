@@ -42,6 +42,13 @@ typedef struct _GstSample GstSample;
 
 namespace WebCore {
 
+#if PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: WebCodecs frames are VideoFrameCV on this build (the shared VideoFrame factories
+// come from VideoFrameCV on Cocoa), and the GStreamer encoder takes a GstSample.
+// MavericksSupport/source/.../VideoFrameGStreamerCocoa.mm wraps one for the other.
+GRefPtr<GstSample> gstSampleFromCVPixelBuffer(CVPixelBufferRef, const MediaTime&);
+#endif // MAVERICKS_BACKPORT: closes the CoreVideo bridge declaration above.
+
 class PixelBuffer;
 class IntSize;
 class ImageGStreamer;

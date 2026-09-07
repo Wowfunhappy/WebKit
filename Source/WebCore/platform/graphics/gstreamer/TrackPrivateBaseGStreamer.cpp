@@ -92,11 +92,21 @@ static std::optional<String> getTag(GstTagList* tags, ASCIILiteral tagName)
 
 static std::optional<String> getLanguageCode(GstTagList* tags)
 {
+    // MAVERICKS_BACKPORT: a track's language is the tag as given when GStreamer cannot map it to
+    // ISO 639-1, and GST_TAG_LANGUAGE_NAME is read when there is no language code. The adaptive
+    // demuxers put a manifest's raw RFC 5646 tag ("en-US") in that tag whenever it is not an ISO 639
+    // code (hlsdemux2, dashdemux2 and legacy dashdemux all split on gst_tag_check_language_code),
+    // and gst_tag_get_language_code_iso_639_1 answers null for such a tag. AudioTrack.language and
+    // TextTrack.language are defined to expose that BCP 47 tag.
     auto language = getTag(tags, ASCIILiteral::fromLiteralUnsafe(GST_TAG_LANGUAGE_CODE));
-    if (!language)
-        return std::nullopt;
+    if (!language) { // MAVERICKS_BACKPORT: a language carried as a name, see above.
+        // return std::nullopt;
+        return getTag(tags, ASCIILiteral::fromLiteralUnsafe(GST_TAG_LANGUAGE_NAME));
+    }
 
     auto convertedLanguage = CStringView::unsafeFromUTF8(gst_tag_get_language_code_iso_639_1(language->utf8().data()));
+    if (convertedLanguage.isNull()) // MAVERICKS_BACKPORT: an unmappable language stays as given, see above.
+        return language;
     GST_DEBUG("Converted track's language code to %s.", convertedLanguage.utf8());
     return String(convertedLanguage.span());
 }

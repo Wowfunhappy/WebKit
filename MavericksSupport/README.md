@@ -81,6 +81,13 @@ To run layout tests against the build tree (never the installed system), use
 `bash MavericksSupport/scripts/run-layout-tests.sh --wk1|--wk2 <tests...>` — the port flag is
 mandatory, and the script's header lists the one-time driver-build prereqs.
 
+The port-surface suite (`tests/port-surface/`) is the set of tests whose behaviour crosses into the
+parts of this port that differ from Apple's: the 10.9 frameworks, the polyfills, the vendored
+dependencies and the process model. `run-layout-tests.sh --wk1|--wk2 --port-surface` runs its
+layout tests (`layout-tests.txt`; expectations in `LayoutTests/platform/mac-mavericks-wk1` and
+`-wk2`), and `run-api-tests.sh --port-surface` its API tests (`api-tests.txt`, which also carries
+their expectations). Every failure in it is a backport defect until its cause is recorded there.
+
 ## `polyfill/build/` contents
 
 - `libpolyfill.a` — the C functions and data constants: the libc gap-fills plus the

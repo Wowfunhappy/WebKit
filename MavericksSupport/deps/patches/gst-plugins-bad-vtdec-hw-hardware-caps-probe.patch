@@ -1,37 +1,39 @@
-# vtdec_hw advertises every codec in its sink template whether or not the
+# vtdec_hw inherits vtdec's sink pad template, which advertises every codec whether or not the
 # machine can hardware-decode it. VTDecompressionSessionCreate with
-# kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder answers -8973
-# (kVTCouldNotFindVideoDecoderErr) on a machine with no hardware decoder for the codec -- e.g. any
-# VM, and H.264-only-era Macs asked for HEVC. That failure surfaces only in set_format, once caps
-# flow on the streaming thread. decodebin (decodebin2) recovers: its factory loop runs on the
-# streaming thread, catches the failure and plugs the next factory (avdec_h264). decodebin3 does
-# not: its candidate window closes after a caps-less READY->PAUSED succeeds, so the later
-# GST_ELEMENT_ERROR passes through unfiltered and kills the pipeline. WebKit reaches decodebin3
-# through playbin3 for every MSE, blob and mediastream player, so on hardware-decode-less machines
-# vtdec_hw (rank primary+1, selected over avdec_h264) turns all such video into a fatal error.
+# kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder answers -8973 (10.9's legacy
+# spelling of kVTCouldNotFindVideoDecoderErr) on a machine with no hardware decoder for the codec --
+# any VM, and H.264-only-era Macs asked for HEVC.
 #
-# A status that names the decoder missing settles the question and is cached; one that reports it
-# busy or malfunctioning (kVTVideoDecoderNotAvailableNowErr, kVTVideoDecoderMalfunctionErr, which
-# vtdec's own decode path treats as a session restart) describes this instant rather than the
-# machine, so the codec keeps its caps and the next query asks again.
+# The template is what every caller that does not instantiate the element reads: the registry
+# serves it to capability queries, decodebin builds its factory list from it, and WebKit's
+# GStreamerRegistryScanner picks a decoder factory out of it -- preferring the "Hardware" klass,
+# which is vtdec_hw at rank primary+1, above avdec_h264. ImageDecoderGStreamer then creates that
+# factory and links its harness pad straight into the decoder's sink pad, with no accept-caps
+# fallback: on a machine with no hardware decoder the link answers GST_PAD_LINK_NOFORMAT and the
+# first buffer push returns GST_FLOW_NOT_LINKED, so an mp4 loaded as an image decodes no frames at
+# all. Through decodebin3 the same lie surfaces later and harder: its candidate window closes after
+# a caps-less READY->PAUSED succeeds, so vtdec_hw's set_format error passes through unfiltered and
+# kills every MSE, blob and mediastream pipeline playbin3 builds.
 #
-# The patch makes getcaps answer honestly, the same way it already gates VP9/AV1 on
-# VTIsHardwareDecodeSupported: for the require_hardware subclass, each sink-template codec is
-# kept only if a RequireHardware decompression session can actually be created for it. A bare
-# CMVideoFormatDescription (no codec data) suffices for that answer -- session creation resolves
-# the decoder from the codec type alone; measured on a hardware-decode-less 10.9 machine, the
-# software session for the same bare description succeeds (noErr) while RequireHardware answers
-# -8973. With the codec stripped from getcaps,
-# decodebin3's accept-caps check fails inside its candidate window and the next factory is tried:
-# the same file that errored out ("VTDecompressionSessionCreate returned -8973", pipeline
-# doesn't want to preroll) plays through avdec_h264 via both decodebin and playbin3. On machines
-# whose VideoToolbox does hardware-decode the codec, the probe succeeds and vtdec_hw keeps its
-# caps, rank and hardware path.
+# The patch gives vtdec_hw its own sink template, carrying only the codecs a RequireHardware
+# decompression session can actually be created for, probed once per codec type with a bare
+# CMVideoFormatDescription -- session creation resolves the decoder from the codec type alone, and
+# measured on a hardware-decode-less 10.9 machine the software session for the same bare
+# description succeeds (noErr) while RequireHardware answers -8973. A status that names the decoder
+# missing settles the question and is cached; one that reports it busy or malfunctioning
+# (kVTVideoDecoderNotAvailableNowErr, kVTVideoDecoderMalfunctionErr, which vtdec's own decode path
+# treats as a session restart) describes this instant rather than the machine, so the codec keeps
+# its caps and the next query asks again.
+#
+# With the codec gone from the template, template readers select the next factory (avdec_h264) and
+# decodebin3's accept-caps check fails inside its candidate window. On machines whose VideoToolbox
+# does hardware-decode the codec, the probe succeeds and vtdec_hw keeps its caps, rank and hardware
+# path.
 #
 # Applied by build_deps with patch -p1.
 --- a/sys/applemedia/vtdec.c
 +++ b/sys/applemedia/vtdec.c
-@@ -2127,6 +2127,110 @@
+@@ -2127,6 +2127,136 @@
    return av1_supported;
  }
  
@@ -119,8 +121,8 @@
 +
 +/* The codec type to probe hardware availability with for a sink-template
 + * structure. ProRes uses 422 as the representative variant: hardware ProRes is
-+ * all-or-nothing per machine. VP9 and AV1 return 0 -- getcaps gates those on
-+ * VTIsHardwareDecodeSupported already. */
++ * all-or-nothing per machine. VP9 and AV1 return 0 -- vtdec's getcaps gates
++ * those on VTIsHardwareDecodeSupported. */
 +static CMVideoCodecType
 +gst_vtdec_hw_probe_codec_type (const GstStructure * s)
 +{
@@ -139,38 +141,60 @@
 +  return 0;
 +}
 +
- static GstCaps *
- gst_vtdec_getcaps (GstVideoDecoder * decoder, GstCaps * filter)
- {
-@@ -2168,6 +2272,31 @@
-     }
-   }
- 
-+  /* A hardware-only decoder on a machine whose VideoToolbox cannot open a
-+   * hardware session for the codec can decode nothing; advertising the codec
-+   * anyway makes the auto-plugger select this element over a working software
-+   * decoder and fail only once caps flow, after decodebin3's candidate window
-+   * has closed -- a fatal pipeline error instead of a fallback. Answer honestly
-+   * up front so accept-caps fails inside the candidate window and the next
-+   * factory is tried. */
-+  if (vtdec->require_hardware) {
-+    n = gst_caps_get_size (sinkcaps);
-+    for (guint i = 0; i < n;) {
-+      GstStructure *s = gst_caps_get_structure (sinkcaps, i);
-+      CMVideoCodecType cm_format = gst_vtdec_hw_probe_codec_type (s);
++/* The sink-template codecs this machine's VideoToolbox can hardware-decode. */
++static GstCaps *
++gst_vtdec_hw_supported_sink_caps (void)
++{
++  GstCaps *caps =
++      gst_caps_make_writable (gst_static_caps_get
++      (&gst_vtdec_sink_template.static_caps));
++  guint n = gst_caps_get_size (caps);
 +
-+      if (cm_format != 0 && !gst_vtdec_hw_supports_codec_type (cm_format)) {
-+        GST_INFO_OBJECT (vtdec,
-+            "this machine has no hardware decoder for %s, removing from caps",
-+            gst_structure_get_name (s));
-+        gst_caps_remove_structure (sinkcaps, i);
-+        n--;
-+      } else {
-+        i++;
-+      }
++  for (guint i = 0; i < n;) {
++    GstStructure *s = gst_caps_get_structure (caps, i);
++    CMVideoCodecType cm_format = gst_vtdec_hw_probe_codec_type (s);
++
++    if (cm_format != 0 && !gst_vtdec_hw_supports_codec_type (cm_format)) {
++      GST_INFO ("this machine has no hardware decoder for %s, removing it from "
++          "the vtdec_hw sink template", gst_structure_get_name (s));
++      gst_caps_remove_structure (caps, i);
++      n--;
++    } else {
++      i++;
 +    }
 +  }
 +
-   result = gst_video_decoder_proxy_getcaps (decoder, sinkcaps, filter);
-   gst_caps_unref (sinkcaps);
++  return caps;
++}
++
+ static GstCaps *
+ gst_vtdec_getcaps (GstVideoDecoder * decoder, GstCaps * filter)
+ {
+@@ -2282,12 +2412,26 @@
+ static void
+ gst_vtdec_hw_class_init (GstVtdecHwClass * klass)
+ {
+-  gst_element_class_set_static_metadata (GST_ELEMENT_CLASS (klass),
++  GstElementClass *element_class = GST_ELEMENT_CLASS (klass);
++  GstCaps *sinkcaps;
++
++  gst_element_class_set_static_metadata (element_class,
+       "Apple VideoToolbox decoder (hardware only)",
+       "Codec/Decoder/Video/Hardware",
+       "Apple VideoToolbox Decoder",
+       "Ole André Vadla Ravnås <oleavr@soundrop.com>; "
+       "Alessandro Decina <alessandro.d@gmail.com>");
++
++  /* The template inherited from GstVtdec is what the registry serves to
++   * capability queries, to the auto-plugger's factory list and to
++   * gst_pad_link, and a hardware-only decoder on a machine whose VideoToolbox
++   * cannot open a hardware session for the codec decodes none of it. This
++   * template carries the codecs this machine backs, so a caller reading it
++   * selects a decoder that works instead of this one. */
++  sinkcaps = gst_vtdec_hw_supported_sink_caps ();
++  gst_element_class_add_pad_template (element_class,
++      gst_pad_template_new ("sink", GST_PAD_SINK, GST_PAD_ALWAYS, sinkcaps));
++  gst_caps_unref (sinkcaps);
+ }
  
+ static void

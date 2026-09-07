@@ -1,5 +1,9 @@
 # Manual test pages
 
+`port-surface/` is not a manual page: it defines the port-surface test suite (the layout tests and
+API tests that exercise this port's own surface), run through `scripts/run-layout-tests.sh
+--port-surface` and `scripts/run-api-tests.sh --port-surface`.
+
 Hand-driven pages for the 10.9 backport. Serve them over http, never `file://`:
 
     cd /Users/jonathan/Desktop/webkit && python3 -m http.server 8899

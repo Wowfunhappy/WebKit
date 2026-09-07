@@ -245,25 +245,12 @@ public:
 
     virtual ~CDMProxy() = default;
 
-    // MAVERICKS_BACKPORT: the key system this proxy decrypts for. Decryptor elements are handed a
-    // CDMProxy through an untyped GstContext field and cast it to the type they expect, which is
-    // only sound while one CENC decryptor exists; this port builds two (ClearKey and Widevine), so
-    // each one checks here before casting. Set once at construction and read from streaming
-    // threads, so callers compare against it in place rather than copying the String.
-    const String& keySystem() const LIFETIME_BOUND { return m_keySystem; }
-
     void updateKeyStore(const KeyStore&);
     void unrefAllKeysFrom(const KeyStore&);
     void setInstance(CDMInstanceProxy*);
     void abortWaitingForKey() const;
 
 protected:
-    // MAVERICKS_BACKPORT: every proxy names its key system (see keySystem() above).
-    explicit CDMProxy(const String& keySystem)
-        : m_keySystem(keySystem)
-    {
-    }
-
     RefPtr<KeyHandle> keyHandle(const KeyIDType&) const;
     bool isKeyAvailable(const KeyIDType&) const;
     bool isKeyAvailableUnlocked(const KeyIDType&) const WTF_REQUIRES_LOCK(m_keysLock);
@@ -275,8 +262,6 @@ protected:
     const CDMInstanceProxy* instance() const;
 
 private:
-    const String m_keySystem; // MAVERICKS_BACKPORT: see keySystem() above.
-
     mutable Lock m_instanceLock;
     CheckedPtr<CDMInstanceProxy> m_instance WTF_GUARDED_BY_LOCK(m_instanceLock);
 

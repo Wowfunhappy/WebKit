@@ -58,6 +58,10 @@ public:
     }
 
     Kind kind() const final { return m_kind; }
+    // MAVERICKS_BACKPORT: a track the container marks as the one to play by default, read from the
+    // stream-start event's flags. The playbin3 path reads the same flags off the GstStream (see
+    // AudioTrackPrivateGStreamer::kind); on the legacy path they arrive on the pad's sticky event.
+    bool isDefault() const final;
     TrackID id() const final;
     std::optional<String> trackUID() const final { return std::nullopt; }
     String label() const final;

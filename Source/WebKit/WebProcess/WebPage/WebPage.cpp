@@ -5023,7 +5023,12 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
     downcast<WebMediaStrategy>(platformStrategies()->mediaStrategy()).setUseGPUProcess(m_shouldPlayMediaInGPUProcess);
 #if ENABLE(VIDEO)
     protect(WebProcess::singleton().remoteMediaPlayerManager())->setUseGPUProcess(m_shouldPlayMediaInGPUProcess);
-#if PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: a remote renderer is claimed only for engines this port registers, under the
+// same term as the AVFoundation engine block in MediaPlayer.cpp's buildMediaEnginesVector(); with
+// USE(GSTREAMER) neither CocoaWebM nor AVFoundationMSE exists, and MediaPlayer::load pins an MSE load
+// to whichever engine claims one.
+// #if PLATFORM(COCOA)
+#if PLATFORM(COCOA) && !USE(GSTREAMER)
     platformStrategies()->mediaStrategy()->enableRemoteRenderer(MediaPlayerMediaEngineIdentifier::CocoaWebM, settings.webMUseRemoteAudioVideoRenderer());
     platformStrategies()->mediaStrategy()->enableRemoteRenderer(MediaPlayerMediaEngineIdentifier::AVFoundationMSE, settings.mediaSourceUseRemoteAudioVideoRenderer());
 #endif

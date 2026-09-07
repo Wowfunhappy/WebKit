@@ -713,6 +713,13 @@ static void webKitWebSrcMakeRequest(WebKitWebSrc* src, DataMutexLocker<WebKitWeb
         } else {
             GST_ERROR_OBJECT(protector.get(), "Failed to setup streaming client to handle R%u", requestNumber);
             members->loader = nullptr;
+            // MAVERICKS_BACKPORT: a resource the loader refuses to create ends the stream, the way a
+            // resource that fails after it exists does (see loadFailed and the HTTP status paths in
+            // responseReceived). Without it the streaming thread waits in create() for headers that
+            // no longer have anything to deliver them.
+            GST_ELEMENT_ERROR(protector.get(), RESOURCE, FAILED, ("R%u: Failed to create a media resource", requestNumber), (nullptr));
+            members->doesHaveEOS = true;
+            members->responseCondition.notifyOne();
         }
     });
 }
@@ -1043,7 +1050,10 @@ void CachedResourceStreamingClient::responseReceived(PlatformMediaResource&, con
         members->redirectedURI = WTF::move(responseURI);
 
     // length will be zero (unknown) if no Content-Length is provided or the response is compressed with Content-Encoding.
-    uint64_t length = !response.httpHeaderFields().contains(HTTPHeaderName::ContentEncoding) ? response.expectedContentLength() : 0;
+    // MAVERICKS_BACKPORT: a Cocoa ResourceResponse reports an unknown length as -1 (NSURLResponseUnknownLength), which
+    // the uint64_t conversion turns into a 2^64-1 byte, seekable resource; only a positive length is a length here.
+    // uint64_t length = !response.httpHeaderFields().contains(HTTPHeaderName::ContentEncoding) ? response.expectedContentLength() : 0;
+    uint64_t length = !response.httpHeaderFields().contains(HTTPHeaderName::ContentEncoding) && response.expectedContentLength() > 0 ? response.expectedContentLength() : 0;
 
     // But in some cases, Content-Encoding: chunked can specify the total length. Use it.
     std::optional<uint64_t> contentLength;

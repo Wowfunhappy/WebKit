@@ -101,11 +101,7 @@ RefPtr<ImageDecoder> ImageDecoder::create(FragmentedSharedBuffer& data, const St
         }
 #else
         if (ImageDecoderAVFObjC::canDecodeType(mimeType))
-            // MAVERICKS_BACKPORT: pass the resource owner ImageDecoderAVFObjC::create takes. This branch
-            // decodes in the process that consumes the frames, so it takes the same identity upstream's
-            // createInProcessImageDecoderAVFObjC above hands the decoder for that case.
-            // return ImageDecoderAVFObjC::create(data, mimeType, alphaOption, gammaAndColorProfileOption);
-            return ImageDecoderAVFObjC::create(data, mimeType, alphaOption, gammaAndColorProfileOption, ProcessIdentity { ProcessIdentity::CurrentProcess });
+            return ImageDecoderAVFObjC::create(data, mimeType, alphaOption, gammaAndColorProfileOption);
 #endif
     }
 #endif

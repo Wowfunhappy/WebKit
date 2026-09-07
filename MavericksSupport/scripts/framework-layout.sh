@@ -40,7 +40,8 @@ WK_INSTALL_ROOTS="$JSC_BUNDLE $WEBKIT_BUNDLE $WEBKIT2_BUNDLE"
 # live in /usr/local: sandboxd "deny file-read-data /usr/local/lib/webkit-private/..."); binaries
 # reference them by ABSOLUTE in-bundle path (never @rpath) so they can't shadow the system libc++
 # via DYLD_FALLBACK. libc++/libc++abi go in the base framework (JavaScriptCore — every WebKit
-# framework links the C++ runtime).
+# framework links the C++ runtime). Every C++ runtime load in the product binds to this one pair,
+# the GStreamer tree's included, and no other libc++/libc++abi copy ships.
 # The unwinder is NOT vendored: a process must have exactly one _Unwind_* implementation, and
 # system frames (Foundation, libobjc, app plug-ins like iBooks' BKEpubWebProcessPlugIn) always
 # drive /usr/lib/system/libunwind.dylib. An exception crossing system and backport frames with a
@@ -100,6 +101,53 @@ id_path() {
 INSTALL_NAME_TOOL="$CCTOOLS/install_name_tool"
 OTOOL="$CCTOOLS/otool"
 LIPO="$CCTOOLS/lipo"
+
+# ---------------------------------------------------------------------------
+# The single-runtime rule over one tree: every C++ runtime load names the PRIVLIBCXX pair by its
+# absolute in-bundle path, that pair is the only libc++/libc++abi in the tree, every unwinder load
+# names $SYSTEM_UNWINDER, and no unwinder is vendored. The stager runs it on the thin binaries (its
+# step 7) and wk_verify_tree runs it again on the finished tree. $1 = path prefix, as for
+# wk_verify_tree. Prints one VIOLATION line per offender and returns 1 when there is any.
+# Requires $OTOOL.
+wk_check_runtime_bindings() {
+    local pre="$1"
+    local bad=0 root bin loads viol
+    for root in $WK_INSTALL_ROOTS; do
+        [ -d "$pre$root" ] || continue
+        while read -r bin; do
+            [ -n "$bin" ] || continue
+            # The x86_64 slice is the one this build produces. The stock i386 slice step 8 grafts into
+            # the four framework binaries drives 10.9's own /usr/lib/libc++.1.dylib and its own
+            # unwinder, which is right for it.
+            # otool exits 0 and prints "<path>: is not an object file" for a file it cannot parse; a
+            # readable Mach-O opens with a header line ending in ":".
+            if ! loads="$("$OTOOL" -arch x86_64 -L "$bin")" || [ "$(echo "$loads" | awk 'NR==1 && /:$/ {print "ok"}')" != ok ]; then
+                echo "  VIOLATION: $bin: could not read its x86_64 load commands" >&2; bad=1; continue
+            fi
+            viol="$(echo "$loads" | awk -v bin="$bin" -v cxx="$PRIVLIBCXX" -v unw="$SYSTEM_UNWINDER" '
+                NR > 1 {
+                    n = split($1, part, "/"); leaf = part[n]
+                    if (leaf ~ /^libc\+\+/) {
+                        if ($1 != cxx "/" leaf)
+                            printf "  VIOLATION: %s loads %s, not %s/%s\n", bin, $1, cxx, leaf
+                    } else if (leaf ~ /^libunwind/ && $1 != unw)
+                        printf "  VIOLATION: %s loads %s, not %s\n", bin, $1, unw
+                }')"
+            [ -z "$viol" ] || { echo "$viol" >&2; bad=1; }
+        done < <(find "$pre$root" \( -type f -perm +111 \) -o \( -type f -name '*.dylib' \) 2>/dev/null)
+        while read -r bin; do
+            [ -n "$bin" ] || continue
+            case "$(basename "$bin")" in
+                libunwind*)
+                    echo "  VIOLATION: vendored unwinder in the tree: $bin" >&2; bad=1;;
+                *)
+                    [ "$(dirname "$bin")" = "$pre$PRIVLIBCXX" ] || {
+                        echo "  VIOLATION: C++ runtime copy outside $PRIVLIBCXX: $bin" >&2; bad=1; };;
+            esac
+        done < <(find "$pre$root" \( -name 'libc++*.dylib' -o -name 'libunwind*.dylib' \) 2>/dev/null)
+    done
+    return $bad
+}
 
 # ---------------------------------------------------------------------------
 # The gate that says a tree is a complete, loadable product. The stager runs it on the staged
@@ -194,24 +242,14 @@ com.apple.WebKit.webpushd.relocatable.mac.sb"
         echo "  WRONG WebKit2 bundle identifier ('$wk2_identifier', want com.apple.WebKit2): $wk2_plist" >&2
         echo "  (the XPC service entry-point lookup depends on it; see XPCServiceMain.mm)" >&2; bad=1; }
 
-    # Single-unwinder rule (see the PRIVLIBCXX comment above): every reference is bound to the
-    # system unwinder, so a private libunwind anywhere in the tree means a rewrite was missed.
-    # Fail loudly rather than ship a process that mixes two _Unwind_* implementations.
-    local root bin
-    for root in $WK_INSTALL_ROOTS; do
-        [ -d "$pre$root" ] || continue
-        while read -r bin; do
-            [ -n "$bin" ] || continue
-            if "$OTOOL" -L "$bin" 2>/dev/null | grep -q 'libunwind\.1\.dylib'; then
-                echo "  VIOLATION: $bin references a private libunwind.1.dylib" >&2
-                bad=1
-            fi
-        done < <(find "$pre$root" \( -type f -perm +111 \) -o \( -type f -name '*.dylib' \) 2>/dev/null)
-    done
+    # Single-runtime rule (see the PRIVLIBCXX comment above): a second C++ runtime or a second
+    # unwinder anywhere in the tree means a rewrite was missed. Fail loudly rather than ship a
+    # process that mixes two _Unwind_* implementations or two libc++ ABIs.
+    wk_check_runtime_bindings "$pre" || bad=1
 
     if [ "$bad" != 0 ]; then
         echo "### FAILED: $label is not a complete WebKit product (see the errors above)." >&2
         return 1
     fi
-    echo "  verified: $label is complete (4 framework binaries fat with i386, $(set -- $WK_XPC_SERVICES; echo $#) XPC services, webpushd, private runtime + libwebrtc + GStreamer, single unwinder)"
+    echo "  verified: $label is complete (4 framework binaries fat with i386, $(set -- $WK_XPC_SERVICES; echo $#) XPC services, webpushd, private runtime + libwebrtc + GStreamer, single unwinder + single C++ runtime)"
 }

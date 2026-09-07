@@ -280,8 +280,19 @@ WK_POLYFILL_REPLACES("AudioToolbox", OSStatus, AudioConverterReset, (AudioConver
 WK_POLYFILL_REPLACES("AudioToolbox", OSStatus, AudioConverterSetProperty, (AudioConverterRef inAudioConverter, AudioConverterPropertyID inPropertyID, UInt32 inPropertyDataSize, const void *inPropertyData))
 {
     WKOpusConverter *c = wkOpusConverter(inAudioConverter);
-    if (!c)
-        return WK_ORIGINAL(AudioConverterSetProperty)(inAudioConverter, inPropertyID, inPropertyDataSize, inPropertyData);
+    if (!c) {
+        OSStatus status = WK_ORIGINAL(AudioConverterSetProperty)(inAudioConverter, inPropertyID, inPropertyDataSize, inPropertyData);
+        // A delay-mode change re-initializes the codec behind the converter, and 10.9 answers that by
+        // building the converter a fresh excess-input buffer list whose data-pointer array it never
+        // writes, while the excess-input byte and packet counts keep their values -- so a converter
+        // holding excess input across the set feeds the codec a never-written pointer. Reset zeroes
+        // those counts and resets the codec, the state a codec the set has just re-initialized is
+        // already in. AudioSampleBufferConverter::gradualDecoderRefreshCount round-trips the delay mode
+        // on a live encode converter to read the optimal-mode prime info, which is how WebCore gets here.
+        if (status == noErr && inPropertyID == kAudioCodecPropertyDelayMode)
+            WK_ORIGINAL(AudioConverterReset)(inAudioConverter);
+        return status;
+    }
     switch (inPropertyID) {
     case kAudioConverterEncodeBitRate:
         if (inPropertyDataSize != sizeof(UInt32) || !inPropertyData)
@@ -408,12 +419,21 @@ WK_POLYFILL_REPLACES("AudioToolbox", OSStatus, AudioConverterGetPropertyInfo, (A
     return noErr;
 }
 
-// A constant-bytes-per-packet source has no packet descriptions to hand back, so a caller describes a
-// whole block of them as one -- AudioFileReaderCocoa's passthroughInputDataCallback reports a single
-// packet for a buffer holding every frame of an LPCM sample buffer. The byte count is what modern
-// AudioToolbox reads there; 10.9's reads the count and answers kAudioConverterErr_InvalidInputSize for
-// a buffer larger than it. This takes the byte count as the answer whenever the input format fixes the
-// packet size; a variable-bitrate source describes its own packets and passes straight through.
+// A constant-bytes-per-packet source has no packet descriptions, and modern AudioToolbox says so to
+// the input callback: it asks a converter whose input format fixes the packet size for none, passing a
+// NULL AudioStreamPacketDescription **. 10.9 passes a non-NULL one. Callers key their packet count off
+// that pointer -- AudioSampleBufferConverter::provideSourceDataNumOutputPackets answers a non-NULL one
+// with its packet-description count, which is empty for raw PCM, so 10.9 hears "zero packets" for every
+// buffer of frames it is handed and the encoder behind it starves. This presents the pointer modern
+// AudioToolbox presents.
+//
+// The count is the other half. A caller may describe a whole block of frames as one packet --
+// AudioFileReaderCocoa's passthroughInputDataCallback reports a single packet for a buffer holding
+// every frame of an LPCM sample buffer. The byte count is what modern AudioToolbox reads there; 10.9's
+// reads the count and answers kAudioConverterErr_InvalidInputSize for a buffer larger than it, so the
+// byte count is the answer here too.
+//
+// A variable-bitrate source describes its own packets and never reaches this shim.
 struct wkConstantPacketInput {
     AudioConverterComplexInputDataProc proc;
     void *userData;
@@ -424,16 +444,15 @@ static OSStatus wkConstantPacketInputProc(AudioConverterRef converter, UInt32 *i
     AudioBufferList *ioData, AudioStreamPacketDescription **outDataPacketDescription, void *inUserData)
 {
     struct wkConstantPacketInput *shim = (struct wkConstantPacketInput *)inUserData;
-    OSStatus status = shim->proc(converter, ioNumberDataPackets, ioData, outDataPacketDescription, shim->userData);
+    OSStatus status = shim->proc(converter, ioNumberDataPackets, ioData, NULL, shim->userData);
+    if (outDataPacketDescription)
+        *outDataPacketDescription = NULL;
     if (status != noErr || !ioNumberDataPackets || !*ioNumberDataPackets || !ioData || !ioData->mNumberBuffers)
         return status;
 
     UInt32 packets = ioData->mBuffers[0].mDataByteSize / shim->bytesPerPacket;
-    if (packets > *ioNumberDataPackets) {
+    if (packets > *ioNumberDataPackets)
         *ioNumberDataPackets = packets;
-        if (outDataPacketDescription)
-            *outDataPacketDescription = NULL;
-    }
     return status;
 }
 

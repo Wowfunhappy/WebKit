@@ -148,6 +148,9 @@ enum EncoderId {
     SvtAv1,
     QualcommH264,
     QualcommH265,
+    // MAVERICKS_BACKPORT: this platform's H.264 encoder. Upstream's GStreamer ports have no
+    // VideoToolbox, so its table lists none, and videoEncoderSetCodec finds nothing for avc1 here.
+    VideoToolboxH264,
 };
 
 class Encoders {
@@ -736,6 +739,30 @@ static void webkit_video_encoder_class_init(WebKitVideoEncoderClass* klass)
                 break;
             };
         });
+    // MAVERICKS_BACKPORT: x264enc and openh264enc are absent from this port's plugin set; vtenc_h264 is
+    // the H.264 encoder it has, so register it the way the others are. bitrate is in kbps, the keyframe
+    // interval is a frame count, and realtime is the latency knob. Registration is skipped automatically
+    // when the factory is absent, so this is inert on a build without applemedia.
+    Encoders::registerEncoder(VideoToolboxH264, "vtenc_h264"_s, "h264parse"_s, "video/x-h264"_s,
+        "video/x-h264,alignment=au,stream-format=avc"_s,
+        [](WebKitVideoEncoder* self) {
+            g_object_set(self->priv->parser.get(), "config-interval", 1, nullptr);
+        }, "bitrate"_s, setBitrateKbitPerSec, "max-keyframe-interval"_s, [](GstElement*, BitrateMode) {
+            notImplemented();
+        }, [](GstElement* encoder, LatencyMode mode) {
+            // Frame reordering stays off in both modes. GStreamerInternalVideoEncoder stamps every
+            // output with the timestamp and duration of the last input it pushed, so the harness is
+            // one-output-per-input by construction; an encoder that holds frames back to reorder them
+            // would mislabel what it does emit.
+            switch (mode) {
+            case REALTIME_LATENCY_MODE:
+                g_object_set(encoder, "realtime", TRUE, "allow-frame-reordering", FALSE, nullptr);
+                break;
+            case QUALITY_LATENCY_MODE:
+                g_object_set(encoder, "realtime", FALSE, "allow-frame-reordering", FALSE, nullptr);
+                break;
+            };
+        }); // MAVERICKS_BACKPORT: closes the VideoToolbox H.264 encoder registration above.
     Encoders::registerEncoder(OpenH264, "openh264enc"_s, "h264parse"_s, "video/x-h264"_s,
         "video/x-h264,alignment=au,stream-format=avc"_s,
         [](WebKitVideoEncoder* self) {

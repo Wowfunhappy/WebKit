@@ -8,6 +8,7 @@
 #include "CDMProxyWidevine.h"
 #include "GStreamerCommon.h"
 #include "GStreamerEMEUtilities.h"
+#include "WidevineMediaTypes.h"
 #include <wtf/glib/WTFGType.h>
 
 using namespace WebCore;
@@ -49,7 +50,7 @@ static GRefPtr<GstCaps> createSinkPadTemplateCaps()
     GRefPtr<GstCaps> caps = adoptGRef(gst_caps_new_empty());
 
     for (const auto& mediaType : GStreamerEMEUtilities::s_cencEncryptionMediaTypes) {
-        if (GStreamerEMEUtilities::isWidevineDecodedMediaType(mediaType))
+        if (isWidevineDecodedMediaType(mediaType))
             continue;
 
         gst_caps_append_structure(caps.get(), gst_structure_new("application/x-cenc", "original-media-type", G_TYPE_STRING,
@@ -59,7 +60,7 @@ static GRefPtr<GstCaps> createSinkPadTemplateCaps()
     // WebM carries no protection system in its caps, so these structures match any encrypted
     // WebM stream; the active key system picks between this element and the ClearKey one.
     for (const auto& mediaType : GStreamerEMEUtilities::s_webmEncryptionMediaTypes) {
-        if (GStreamerEMEUtilities::isWidevineDecodedMediaType(mediaType))
+        if (isWidevineDecodedMediaType(mediaType))
             continue;
 
         gst_caps_append_structure(caps.get(), gst_structure_new("application/x-webm-enc", "original-media-type", G_TYPE_STRING,
@@ -100,15 +101,6 @@ static ASCIILiteral protectionSystemId(WebKitMediaCommonEncryptionDecrypt*)
 static bool cdmProxyAttached(WebKitMediaCommonEncryptionDecrypt* self, const RefPtr<CDMProxy>& cdmProxy)
 {
     WebKitMediaWidevineDecryptPrivate* priv = WEBKIT_MEDIA_WV_DECRYPT(self)->priv;
-
-    // The proxy arrives as an untyped pointer from a GstContext that carries whichever CDM the
-    // page created, so refuse anything that is not Widevine's rather than cast it.
-    if (cdmProxy && !GStreamerEMEUtilities::isWidevineKeySystem(cdmProxy->keySystem())) {
-        GST_DEBUG_OBJECT(self, "ignoring a %s CDM proxy", cdmProxy->keySystem().utf8().data());
-        priv->cdmProxy = nullptr;
-        return false;
-    }
-
     priv->cdmProxy = static_cast<CDMProxyWidevine*>(cdmProxy.get());
     return priv->cdmProxy;
 }
@@ -137,11 +129,6 @@ static void readEncryptionScheme(GstBuffer* buffer, cdm::EncryptionScheme& schem
 static bool decrypt(WebKitMediaCommonEncryptionDecrypt* self, GstBuffer* ivBuffer, GstBuffer* keyIDBuffer, GstBuffer* buffer, unsigned subsampleCount, GstBuffer* subsamplesBuffer)
 {
     WebKitMediaWidevineDecryptPrivate* priv = WEBKIT_MEDIA_WV_DECRYPT(self)->priv;
-
-    if (!priv->cdmProxy) {
-        GST_ERROR_OBJECT(self, "no Widevine CDM proxy attached");
-        return false;
-    }
 
     if (!ivBuffer || !keyIDBuffer || !buffer) {
         GST_ERROR_OBJECT(self, "invalid decrypt() parameter");

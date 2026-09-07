@@ -612,6 +612,16 @@ void GStreamerRegistryScanner::initializeDecoders(const GStreamerRegistryScanner
 
     fillMimeTypeSetFromCapsMapping(factories, mapping);
 
+#if HAVE(HEIF_IMAGE_SEQUENCE)
+    // MAVERICKS_BACKPORT: an ISO/IEC 23008-12 image sequence is an ISO-BMFF file whose track carries
+    // HEVC samples under a 'pict' media handler, so the same demuxer and decoder that answer for
+    // video/quicktime decode it. ImageDecoderGStreamer asks about these two types.
+    if (h265DecoderAvailable && isContainerTypeSupported(Configuration::Decoding, "video/quicktime"_s)) {
+        m_decoderMimeTypeSet.add("image/heic-sequence"_s);
+        m_decoderMimeTypeSet.add("image/heif-sequence"_s);
+    }
+#endif // MAVERICKS_BACKPORT: closes the HEIF image sequence block above.
+
     if (factories.hasElementForMediaType(ElementFactories::Type::Demuxer, "application/ogg"_s)) {
         m_decoderMimeTypeSet.add("application/ogg"_s);
 
