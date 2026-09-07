@@ -447,12 +447,11 @@ http/tests/media/progress-events-generated-correctly.html [ Failure ]
 # GStreamer plugin set carries none. Internals::resetToConsistentState turns H265 support on for
 # every layout test, so the loopback negotiates HEVC and waits for frames no encoder can produce.
 imported/w3c/web-platform-tests/webrtc/protocol/h265-loopback.https.html [ Skip ]
-# The inspector frontend this port runs is Safari 7's own, reached through WebCore's
-# InspectorFrontendClassicBridge; these suites drive the upstream frontend built from
-# Source/WebInspectorUI. That frontend IS present in the build tree, so the suites do run here -- 35 of
-# the first 37 fail against it, on timeouts and text diffs. They are skipped because triaging them is
-# its own project, not because they cannot run: they are the only mechanical coverage of the backend
-# agents the classic bridge reaches, and are worth re-enabling when that work is taken up.
+# These suites drive the upstream frontend: inspector-test.js calls testRunner.showWebInspector(),
+# which reaches WKPageShowWebInspectorForTesting -> WebInspectorUIProxy::show() and opens the frontend
+# built from Source/WebInspectorUI. This port has no user of that frontend -- Safari 7 opens its own,
+# which reaches the same backend agents through WebCore's InspectorFrontendClassicBridge -- so these
+# tests exercise a path the port does not run.
 inspector [ Skip ]
 http/tests/inspector [ Skip ]
 http/tests/websocket/tests/hybi/inspector [ Skip ]

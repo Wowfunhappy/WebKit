@@ -105,10 +105,11 @@ webaudio/audioworket-out-of-memory.html [ Skip ]
 # WebGPU is off at the upstream CMake-port default and 10.9 has no Metal to back it, so navigator.gpu
 # is null and every test here ends on a notifyDone that never comes.
 http/tests/webgpu [ Skip ]
-# The inspector frontend this port runs is Safari 7's own, reached through WebCore's
-# InspectorFrontendClassicBridge; these suites drive the upstream frontend from Source/WebInspectorUI,
-# which is present in the build tree and does run -- it fails wholesale against it. Skipped because
-# triaging them is its own project, not because they cannot run.
+# These suites drive the upstream frontend: inspector-test.js calls testRunner.showWebInspector(),
+# which reaches WKPageShowWebInspectorForTesting -> WebInspectorUIProxy::show() and opens the frontend
+# built from Source/WebInspectorUI. This port has no user of that frontend -- Safari 7 opens its own,
+# which reaches the same backend agents through WebCore's InspectorFrontendClassicBridge -- so these
+# tests exercise a path the port does not run.
 inspector [ Skip ]
 http/tests/inspector [ Skip ]
 
