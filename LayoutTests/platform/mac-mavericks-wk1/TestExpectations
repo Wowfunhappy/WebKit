@@ -1,110 +1,37 @@
 # MAVERICKS_BACKPORT: WebKit1 (DumpRenderTree) expectations for the macOS 10.9 backport. The port
 # drops the suite-wide skips at the top of platform/mac-wk1/TestExpectations (webkitpy/port/mac.py),
 # so every suite runs here under the generic, platform/mac and per-test mac-wk1 expectations.
-# Failures under them are real backport issues to triage and fix -- not reasons to skip.
+#
+# A test that fails is left failing, so a run reports it. The only entries here are [ Skip ] for a
+# test nothing in this port could ever make pass, and [ Pass ] where a broader skip is overridden.
+# Measured causes for the tests that run red are in MavericksSupport/tests/port-surface/known-failures.md.
 
-# --- Storage: feature gaps + deep-flaky on this 10.9 WebKit1 backport -----------------------------------
+# --- Suites and tests this port cannot run -------------------------------------------------------
+
 # File System Access API / OPFS (navigator.storage.getDirectory) is not enabled here.
 storage/filesystemaccess [ Skip ]
-# Deprecated quota APIs (window.webkitStorageInfo / webkitStorageQuota) are gone in this engine.
-storage/storageinfo-query-usage.html [ Failure ]
-storage/storageinfo-request-quota.html [ Failure ]
-storage/storageinfo-no-callbacks.html [ Failure ]
-storage/storageinfo-missing-arguments.html [ Failure ]
-storage/storagequota-query-usage.html [ Failure ]
-storage/storagequota-request-quota.html [ Failure ]
 
-# Cookie behavior is a backport-critical area (NSHTTPCookieStorage on 10.9 predates SameSite and the
-# public-suffix rules), so the WPT cookie suites run here rather than under mac-wk1's blanket
-# `imported [ Skip ]`.
-imported/w3c/web-platform-tests/cookies [ Pass ]
+# window.webkitStorageInfo and window.webkitStorageQuota were removed from the engine, so these
+# tests reference an interface no build of this WebKit has.
+storage/storageinfo-query-usage.html [ Skip ]
+storage/storageinfo-request-quota.html [ Skip ]
+storage/storageinfo-no-callbacks.html [ Skip ]
+storage/storageinfo-missing-arguments.html [ Skip ]
+storage/storagequota-query-usage.html [ Skip ]
+storage/storagequota-request-quota.html [ Skip ]
 
-# 10.9 records a cookie's creation time to the whole second -- CFHTTPCookieGetCreationTime and
-# CFHTTPCookieGetCreateDate both answer the same value for cookies made a millisecond apart -- so the
-# tie RFC 6265bis 5.5 breaks by creation time among equal-length paths cannot be expressed here, and
-# "For equal length paths, list the cookie with an earlier creation time first" fails. The rest of the
-# suite's ordering, which is by path length, passes. Jonathan's call: a test failing for that reason
-# stays recorded rather than chased.
-imported/w3c/web-platform-tests/cookies/ordering/ordering.sub.html [ Failure ]
-
-# Upstream skips this test on every port -- LayoutTests/TestExpectations names it [ Skip ], added by the
-# same commit that imported it and its baseline -- so no bot has ever verified that baseline, and this
-# port runs the test only because of the blanket un-skip above. It cannot pass anywhere: a child frame's
-# parse-time postMessage is delivered to the parent AND replayed by testharness.js's getmessages handler,
-# so RemoteContext.test_done runs twice per remote test while Tests.push counted it once. num_pending
-# reaches zero while the local promise_test is still running, remote_done calls tests.complete(), and
-# Tests.complete force-finishes the live test through cleanup_done rather than Test.done -- which leaves
-# the provisional "Test timed out" that Test.step stamps in place of PASS. Measured here: every hop does
-# send `complete`, and the top-level promise resolves one microtask turn after the harness emits.
-imported/w3c/web-platform-tests/cookies/partitioned-cookies/partitioned-cookies-a-b-a-embed.tentative.https.html [ Skip ]
-
-# The Cookie Store API is WebKit2-only in upstream WebKit: CookieJar::getCookiesAsync and
-# ::setCookieAsync answer failure in WebCore's base class and the only override is WebKit2's
-# WebCookieJar, so under WebKit1 every operation rejects with an empty-message TypeError before any
-# subtest registers. This file is a cookie test that reaches the API in its prologue.
-imported/w3c/web-platform-tests/cookies/partitioned-cookies/partitioned-cookies.tentative.https.html [ Skip ]
-
-# 10.9's CFNetwork folds repeated Set-Cookie headers into one comma-joined field inside its HTTP message
-# parser -- CFHTTPMessageCopyAllHeaderFields and CFHTTPMessageCopySerializedMessage both give back one
-# line for two headers, so the boundary is gone before any cookie code runs. A comma inside a single
-# Set-Cookie is then indistinguishable from that fold: "test=18; foo=bar, a=b" is byte-identical to the
-# fold of "test=18; foo=bar" and "a=b". These two tests want the first reading; a real response's two
-# headers want the second, so the division stays the one 10.9's own parser makes.
-imported/w3c/web-platform-tests/cookies/attributes/expires.html [ Failure ]
-imported/w3c/web-platform-tests/cookies/attributes/invalid.html [ Failure ]
-# The same fold splits a comma inside a single value: "test=1, baz=qux" is stored as two cookies.
-imported/w3c/web-platform-tests/cookies/value/value.html [ Failure ]
-
-# 10.9's HTTP message parser ends a header field at a bare CR and drops the rest of the line, so
-# "Set-Cookie: test13\rname=13" reaches WebCore as "test13" -- neither an invalid header value modern
-# WebKit would reject nor a cookie 10.9's parser will store. Upstream's mac expectations carry both as
-# [ Pass Failure ] and the blanket un-skip above is what removed that here, but the failure is 5-of-5
-# deterministic on this port, so it is recorded as one: a run that starts passing must surface.
-imported/w3c/web-platform-tests/cookies/name/name-ctl.html [ Failure ]
-imported/w3c/web-platform-tests/cookies/value/value-ctl.html [ Failure ]
-
-# Document::m_cachedDOMCookies lives until a 0-second run-loop timer expires. testRunner.removeAllCookies
-# reaches NetworkStorageSession::deleteAllCookies, whose completion lands on the main queue's dispatch
-# port -- which CFRunLoop polls before it runs timers -- so the read in the completion's own microtask is
-# one turn stale and the emptied jar is not yet visible. Measured: the very next read, after a
-# setTimeout(0), is correct. WK2 wins the same race only because its removeAllCookies crosses two
-# processes. Upstream mac-wk1 runs no WPT at all; the ports that do run this test, glib and win, both
-# record it as flaky (webkit.org/b/307989, webkit.org/b/261308).
-imported/w3c/web-platform-tests/cookies/path/default.html [ Failure ]
-
-# The Cookie Store API is WebKit2-only in upstream WebKit: CookieJar::getCookiesAsync and
-# ::setCookieAsync answer failure in WebCore's base class, and WebKit2's WebCookieJar is the only
-# override. DumpRenderTree turns every experimental feature on, so `window.cookieStore` is present here
-# and each of its operations rejects instead -- the suite fails on the interface, not on cookie
-# behavior. These run under mac-mavericks-wk2.
-imported/w3c/web-platform-tests/cookiestore [ Skip ]
-
-# decodeAudioData returns every frame the GStreamer decode path emits. aac.aac is raw ADTS, a format
-# that carries no priming metadata, so the 2112-frame AAC encoder delay this test subtracts is never
-# signalled and the buffer comes back 49152 frames where the test wants 47040. half-a-second-8000.mp3
-# resamples 8000 -> 48000 and lands 5 frames short of 24000. Both counts are the decoder's own shape,
-# measured identically on WK1 and WK2; upstream's GStreamer port records the same two under this bug.
-webkit.org/b/307727 webaudio/decode-audio-data-aac.html [ Failure ]
-webkit.org/b/307727 webaudio/decode-audio-data-mp3-8000.html [ Failure ]
-
-# This test allocates until allocation fails: its array has a getter at index 0 that constructs a
-# Uint8Array over the same array, which re-enters the getter, so each level maps another ~80MB, and
-# index 80000000 sets the length. Those large allocations drain the primitive Gigacage's reserved
-# region, and freeing them returns the memory to the large heap's free list rather than to the region.
-# The region is handed to pas_reserved_memory_provider once at construction and never refilled --
-# its config carries null_aligned_allocator, and pas_megapage_cache carries deallocator = NULL -- so
-# once drained it cannot be replenished. Measured at the refusal: entries=2 total_free=12337152
-# against a 16777216 request. Every later size class that needs a fresh 16MB megapage then fails for
-# the life of the driver process, which is how this test's collateral reaches unrelated tests that run
-# after it. Upstream records the same test as a flaky timeout on mac, ios and gtk
-# (webkit.org/b/227845, webkit.org/b/252878).
+# This test allocates until allocation fails, which drains the primitive Gigacage's reserved region
+# for the life of the driver process: the region is handed to pas_reserved_memory_provider once at
+# construction and never refilled (null_aligned_allocator, pas_megapage_cache deallocator = NULL), so
+# every later size class needing a fresh 16MB megapage fails too, in unrelated tests that run after
+# it. Upstream records it as a flaky timeout on mac, ios and gtk (webkit.org/b/227845,
+# webkit.org/b/252878).
 webaudio/audioworket-out-of-memory.html [ Skip ]
-
-
 
 # WebGPU is off at the upstream CMake-port default and 10.9 has no Metal to back it, so navigator.gpu
 # is null and every test here ends on a notifyDone that never comes.
 http/tests/webgpu [ Skip ]
+
 # These suites drive the upstream frontend: inspector-test.js calls testRunner.showWebInspector(),
 # which reaches WKPageShowWebInspectorForTesting -> WebInspectorUIProxy::show() and opens the frontend
 # built from Source/WebInspectorUI. This port has no user of that frontend -- Safari 7 opens its own,
@@ -113,3 +40,37 @@ http/tests/webgpu [ Skip ]
 inspector [ Skip ]
 http/tests/inspector [ Skip ]
 
+# --- Cookies -------------------------------------------------------------------------------------
+
+# Cookie behavior is a backport-critical area (NSHTTPCookieStorage on 10.9 predates SameSite and the
+# public-suffix rules), so the WPT cookie suites run here rather than under mac-wk1's blanket
+# `imported [ Skip ]`.
+imported/w3c/web-platform-tests/cookies [ Pass ]
+
+# 10.9 records a cookie's creation time to the whole second -- CFHTTPCookieGetCreationTime and
+# CFHTTPCookieGetCreateDate both answer the same value for cookies made a millisecond apart -- so the
+# tie RFC 6265bis 5.5 breaks by creation time among equal-length paths cannot be expressed here. The
+# rest of the suite's ordering, which is by path length, passes. Jonathan's call: skipped.
+imported/w3c/web-platform-tests/cookies/ordering/ordering.sub.html [ Skip ]
+
+# Upstream skips this test on every port -- LayoutTests/TestExpectations names it [ Skip ], added by the
+# same commit that imported it and its baseline -- so no bot has ever verified that baseline, and this
+# port runs the test only because of the blanket un-skip above. It cannot pass anywhere: a child frame's
+# parse-time postMessage is delivered to the parent AND replayed by testharness.js's getmessages handler,
+# so RemoteContext.test_done runs twice per remote test while Tests.push counted it once. num_pending
+# reaches zero while the local promise_test is still running, remote_done calls tests.complete(), and
+# Tests.complete force-finishes the live test through cleanup_done rather than Test.done -- which leaves
+# the provisional "Test timed out" that Test.step stamps in place of PASS.
+imported/w3c/web-platform-tests/cookies/partitioned-cookies/partitioned-cookies-a-b-a-embed.tentative.https.html [ Skip ]
+
+# The Cookie Store API is WebKit2-only in upstream WebKit: CookieJar::getCookiesAsync and
+# ::setCookieAsync answer failure in WebCore's base class and the only override is WebKit2's
+# WebCookieJar, so under WebKit1 every operation rejects with an empty-message TypeError before any
+# subtest registers. This file is a cookie test that reaches the API in its prologue.
+imported/w3c/web-platform-tests/cookies/partitioned-cookies/partitioned-cookies.tentative.https.html [ Skip ]
+
+# The Cookie Store API is WebKit2-only in upstream WebKit, as above. DumpRenderTree turns every
+# experimental feature on, so `window.cookieStore` is present here and each of its operations rejects
+# instead -- the suite fails on the interface, not on cookie behavior. These run under
+# mac-mavericks-wk2.
+imported/w3c/web-platform-tests/cookiestore [ Skip ]
