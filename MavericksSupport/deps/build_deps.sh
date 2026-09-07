@@ -16,8 +16,11 @@
 #                                          crash-prone system libxml2 2.9.0
 #   libxslt 1.1.43 (shared)             -> WebCore XSLT, built against the libxml2 above so one
 #                                          process never holds two libxml2 images
+#   BoringSSL (in-tree, shared)        -> curl TLS, WebCore SSL APIs and HLS AES-128 keys
+#   libpsl 0.21.5 (shared, ICU)        -> public-suffix rejection in curl's cookie store
+#   nghttp2 1.70.0 + libcurl 8.22.0     -> HTTP/2 networking, on that shared BoringSSL
 #   GLib + GStreamer (GLIB_VER/GST_VER)  -> the media runtime (core, plugins-base/
-#     (+ codecs, OpenSSL for HLS keys)      good/bad, gst-libav on FFmpeg 8.1.2 with
+#     (+ codecs)                           good/bad, gst-libav on FFmpeg 8.1.2 with
 #                                          dav1d AV1 decode, libvpx VP8/VP9) that
 #                                          MediaPlayerPrivateGStreamer drives; built
 #                                          shared with @rpath install names
@@ -26,8 +29,8 @@
 # MavericksSupport/deps/build/{include,lib,bin} -- a gitignored artifact this script
 # regenerates. lib/ holds the static link libs plus the whole shared media runtime
 # (with lib/gstreamer-1.0 plugins); bin/ holds gst-inspect-1.0/gst-launch-1.0 for
-# on-box verification. Everything this script builds *with* -- source tarballs, build
-# trees, the install prefix and its ccache -- lives in the gitignored deps/work.
+# on-box verification. Downloaded source tarballs, build trees, the install prefix
+# and its ccache live in the gitignored deps/work; vendored sources stay in Source/.
 #
 # Everything here compiles against the modern SDK with deployment target 10.9 (SDKROOT
 # below is clang's default -isysroot), so every libc symbol that postdates 10.9
@@ -133,12 +136,21 @@ SCRATCH="$WORK/trees"
 SRC="$WORK/tarballs"
 STAGE="$SCRATCH/install"                            # full autotools install prefix
 
+# The TLS source is the same vendored tree libwebrtc compiles. Hash its content, including
+# generated assembly and build files, so an upstream roll or local edit invalidates both
+# BoringSSL and curl and the published recipe stamp.
+BORINGSSL_SRC="$REPO/Source/ThirdParty/libwebrtc/Source/third_party/boringssl/src"
+BORINGSSL_KEY=$( ( cd "$BORINGSSL_SRC" && find . -type f -print | LC_ALL=C sort \
+    | tr '\n' '\0' | xargs -0 /usr/bin/shasum -a 256 ) \
+    | /usr/bin/shasum -a 256 | awk '{ print $1 }') || exit 1
+
 # recipes_key: this whole script and every patch beside it -- what a run of it builds from. The
 # collect step drops deps/build's copy and the end of the run writes it back, so the key is in the
 # tree only when a run carried every package, gate and manifest through to the end.
 recipes_key() {
   local p
   { /usr/bin/shasum -a 256 < "$SELF"
+    printf '%s\n' "$BORINGSSL_KEY"
     for p in "$HERE"/patches/*.patch; do printf '%s\n' "$p"; done | LC_ALL=C sort \
       | while read -r p; do printf '%s\n' "${p##*/}"; /usr/bin/shasum -a 256 < "$p"; done
   } | /usr/bin/shasum -a 256 | awk '{ print $1 }'
@@ -355,6 +367,8 @@ recipe_key() {
     printf '%s\n' "$CFLAGS" "$CXXFLAGS" "$OBJCFLAGS" "$LDFLAGS"
     # A setting a section reads by name, hashed for the sections that name it. Two are reached
     # through another name: the vanilla compiler wrappers carry $LENIENT, and "$MESON" is the pin.
+    case "$section" in *BoringSSL*|*BORINGSSL*|*hls-crypto=openssl*)
+                                            printf 'BORINGSSL_KEY=%s\n' "$BORINGSSL_KEY";; esac
     case "$section" in *'$GSTOPTS'*)          printf 'GSTOPTS=%s\n'   "${GSTOPTS:-}";; esac
     case "$section" in *_VANILLA*)            printf 'LENIENT=%s\n'   "${LENIENT:-}";; esac
     case "$section" in *'"$MESON"'*)          printf 'MESON_PIN=%s\n' "${MESON_PIN:-}";; esac
@@ -773,6 +787,115 @@ if [ -n "$GAP_CHANGED" ] || [ -f "$GAP_RELINK" ]; then
     tr '\n' '\0' < "$RUN/drop" | xargs -0 rm -f
 fi
 
+echo "==== BoringSSL (ThirdParty/libwebrtc's copy) ===="
+# curl and WebCore exchange SSL_CTX/SSL objects and must bind the same shared ssl/crypto.
+# HLS uses this same libcrypto through the OpenSSL-compatible EVP API. The vendored
+# CMake project builds conventional libssl/libcrypto with its pregenerated assembly.
+# The vanilla compiler has no automatic C++ runtime link set, so both runtime libraries
+# are explicit, from the same toolchain whose dylibs the collect step deploys.
+d="$SCRATCH/build-boringssl"
+key=$(recipe_key "$LINENO") || exit 1
+if [ "$(cat "$d/.recipe" 2>/dev/null)" != "$key" ]; then rm -rf "$d"; fi
+mkdir -p "$d"
+printf '%s\n' "$key" > "$d/.recipe"
+if prepare "$d"; then
+    ( cd "$d" && "$CMAKE" -S "$BORINGSSL_SRC" -B out -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
+        -DBUILD_SHARED_LIBS=ON -DBUILD_TESTING=OFF \
+        "-DCMAKE_C_FLAGS_RELEASE=-O2 -DNDEBUG -g0" "-DCMAKE_CXX_FLAGS_RELEASE=-O2 -DNDEBUG -g0" \
+        "-DCMAKE_ASM_FLAGS_RELEASE=-O2 -DNDEBUG -g0" \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_CXX_COMPILER="$CXX_BIN" \
+        -DCMAKE_C_COMPILER_ARG1=--no-default-config -DCMAKE_CXX_COMPILER_ARG1=--no-default-config \
+        -DCMAKE_ASM_COMPILER="$CC_BIN" -DCMAKE_ASM_COMPILER_ARG1=--no-default-config \
+        ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE" -DCMAKE_CXX_COMPILER_LAUNCHER="$CCACHE"} \
+        -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
+        -DCMAKE_OSX_SYSROOT="$SDK" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.9 -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+        -DCMAKE_INSTALL_NAME_DIR=@rpath -DCMAKE_BUILD_WITH_INSTALL_NAME_DIR=ON \
+        -DCMAKE_BUILD_RPATH="$STAGE/lib;$TC/lib" \
+        -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS -L$TC/lib -lc++ -lc++abi -Wl,-headerpad_max_install_names" \
+        -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS -L$TC/lib -lc++ -lc++abi" ) || exit 1
+    prepared "$d"
+fi
+( cd "$d" && "$NINJA" -C out -j2 ssl crypto \
+  && cp -p out/libssl.dylib out/libcrypto.dylib "$STAGE/lib/" \
+  && rm -rf "$STAGE/include/openssl" \
+  && cp -Rp "$BORINGSSL_SRC/include/openssl" "$STAGE/include/" ) || exit 1
+# Meson's dependency('openssl') selects BoringSSL's 1.1.1-compatible API level;
+# Version is an API compatibility value, while Name identifies the implementation.
+mkdir -p "$STAGE/lib/pkgconfig"
+cat > "$STAGE/lib/pkgconfig/openssl.pc" <<EOF
+prefix=$STAGE
+libdir=\${prefix}/lib
+includedir=\${prefix}/include
+
+Name: BoringSSL
+Description: In-tree BoringSSL, OpenSSL 1.1.1-compatible API (BoringSSL API $(sed -n 's/^#define BORINGSSL_API_VERSION //p' "$BORINGSSL_SRC/include/openssl/base.h"))
+Version: 1.1.1
+Libs: -L\${libdir} -lssl -lcrypto
+Cflags: -I\${includedir}
+EOF
+
+echo "==== nghttp2 1.70.0 ===="
+# HTTP/2 framing for libcurl. The library-only build needs none of nghttp2's servers,
+# command-line clients, TLS backends or documentation generators.
+d=$(get https://github.com/nghttp2/nghttp2/releases/download/v1.70.0/nghttp2-1.70.0.tar.gz nghttp2) || exit 1
+if prepare "$d"; then
+    ( cd "$d" && "$CMAKE" -S . -B out -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
+        -DCMAKE_BUILD_TYPE=Release -DENABLE_LIB_ONLY=ON -DBUILD_SHARED_LIBS=ON \
+        "-DCMAKE_C_FLAGS_RELEASE=-O2 -DNDEBUG -g0" "-DCMAKE_CXX_FLAGS_RELEASE=-O2 -DNDEBUG -g0" \
+        -DBUILD_STATIC_LIBS=OFF -DBUILD_TESTING=OFF -DENABLE_DOC=OFF \
+        -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_CXX_COMPILER="$CXX_BIN" \
+        -DCMAKE_C_COMPILER_ARG1=--no-default-config -DCMAKE_CXX_COMPILER_ARG1=--no-default-config \
+        ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE" -DCMAKE_CXX_COMPILER_LAUNCHER="$CCACHE"} \
+        -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
+        -DCMAKE_OSX_SYSROOT="$SDK" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.9 -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+        -DCMAKE_INSTALL_PREFIX="$STAGE" -DCMAKE_INSTALL_NAME_DIR=@rpath \
+        -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS" -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS" ) || exit 1
+    prepared "$d"
+fi
+( cd "$d" && "$NINJA" -C out -j2 && "$NINJA" -C out install ) || exit 1
+
+echo "==== libpsl 0.21.5 ===="
+# curl's cookie store rejects public-suffix domains using the bundled PSL. ICU supplies
+# Unicode/IDNA conversion from the same static libraries WebCore uses; NLS is unused.
+# U_DISABLE_RENAMING matches the unversioned exports of this tree's ICU build.
+d=$(get https://github.com/rockdaboot/libpsl/releases/download/0.21.5/libpsl-0.21.5.tar.gz libpsl) || exit 1
+if prepare "$d"; then
+    ( cd "$d" && CC="$CC_VANILLA" CXX="$CXX_VANILLA" \
+        LIBICU_CFLAGS="-I$STAGE/include -DU_DISABLE_RENAMING=1" LIBICU_LIBS="-L$STAGE/lib -licuuc -licudata" \
+        LDFLAGS="$LDFLAGS -L$TC/lib -Wl,-rpath,$TC/lib -Wl,-rpath,$STAGE/lib" \
+        LIBS="-lc++ -lc++abi" ./configure --prefix="$STAGE" --disable-static --enable-shared \
+        --enable-runtime=libicu --enable-builtin --disable-nls --disable-gtk-doc --disable-man ) || exit 1
+    prepared "$d"
+fi
+( cd "$d" && make -j2 && make install ) || exit 1
+
+echo "==== libcurl 8.22.0 ===="
+# BoringSSL supplies both the conventional headers and shared -lssl/-lcrypto in STAGE.
+# No built-in CA file/path: callers supply CAINFO or the native-trust SSL_CTX callback.
+# The CLI accepts --cacert for verification on this host. Optional backends are explicit
+# so a rerun cannot select another TLS, compression or transport library from $STAGE.
+# The CLI stages outside bin/ so the dependency fetcher keeps using the host curl.
+# Apple GSS.framework supplies Negotiate; NTLM is explicit because curl defaults it off.
+# Brotli decodes br responses with the in-tree decoder. No zstd decoder is built, so
+# Accept-Encoding advertises only the supported gzip/deflate/br encodings.
+# libpsl protects curl's cookie store against cookies scoped to public suffixes.
+d=$(get https://curl.se/download/curl-8.22.0.tar.gz curl) || exit 1
+if prepare "$d"; then
+    ( cd "$d" && CC="$CC_VANILLA" CXX="$CXX_VANILLA" PKG_CONFIG=/usr/bin/false \
+        CPPFLAGS="-I$STAGE/include" \
+        LDFLAGS="-L$STAGE/lib $LDFLAGS -L$TC/lib -Wl,-rpath,$STAGE/lib -Wl,-rpath,$TC/lib -Wl,-headerpad_max_install_names" \
+        LIBS="-lc++ -lc++abi" ./configure --prefix="$STAGE" --bindir="$STAGE/libexec" \
+        --enable-shared --disable-static \
+        --with-openssl="$STAGE" --with-nghttp2="$STAGE" --with-zlib \
+        --with-libpsl="$STAGE" --without-libssh2 --without-libssh --without-librtmp \
+        --without-libidn2 --without-apple-idn --with-brotli="$STAGE" --without-zstd \
+        --without-ngtcp2 --without-nghttp3 --without-quiche --enable-gssapi-apple --enable-ntlm \
+        --without-ca-bundle --without-ca-path --disable-ldap --disable-ldaps \
+        --enable-threaded-resolver --disable-manual ) || exit 1
+    prepared "$d"
+fi
+( cd "$d" && make -s -j2 && make -s install ) || exit 1
+
 echo "==== GLib $GLIB_VER ===="
 # GLib's bundled subprojects come from meson wraps. The wrap-file tarballs pre-cache
 # into subprojects/packagecache (meson verifies their hashes); the wrap-git ones
@@ -975,16 +1098,6 @@ fi
 "$NMBIN" "$STAGE/lib/libavif.a" 2>/dev/null | grep "avifCodecCreateDav1d" > /dev/null \
   || { echo "  FATAL: libavif has no dav1d codec (avifCodecCreateDav1d absent); AVIF would decode nothing."; exit 1; }
 
-echo "==== OpenSSL 3.0.16 ===="
-# HLS AES-128 key decryption: libgsthls and libgstadaptivedemux2 link libcrypto.
-d=$(get https://www.openssl.org/source/openssl-3.0.16.tar.gz openssl) || exit 1
-if prepare "$d"; then
-    ( cd "$d" && ./Configure darwin64-x86_64-cc shared --prefix="$STAGE" --libdir=lib \
-        no-tests -mmacosx-version-min=10.9 > /dev/null ) || exit 1
-    prepared "$d"
-fi
-( cd "$d" && make -s -j2 > /dev/null && make -s install_sw > /dev/null ) || exit 1
-
 echo "==== GStreamer $GST_VER (core) ===="
 # -Dc_std=gnu11: GStreamer 1.28's project() sets c_std=gnu11,c11 (a meson fallback list),
 # which add_languages('objc') propagates to objc_std; meson 1.5.2 rejects a list for
@@ -1039,6 +1152,7 @@ fi
   && "$MESON" install -C b ) || exit 1
 
 echo "==== gst-plugins-good ===="
+# Native HLS and DASH use gst-plugins-bad's legacy demuxers through webkitwebsrc.
 d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-$GST_VER.tar.xz gstgood) || exit 1
 if prepare "$d"; then
     # matroskademux: post DURATION_CHANGED as a parsed duration grows and once when it is
@@ -1053,7 +1167,7 @@ if prepare "$d"; then
       || { echo "gst-plugins-good qtdemux HEIF image sequence patch failed to apply"; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS \
         -Dvpx=enabled -Dflac=enabled -Dmpg123=enabled -Dosxaudio=enabled -Dosxvideo=enabled \
-        -Dorc=enabled ) || exit 1
+        -Dorc=enabled -Dadaptivedemux2=disabled ) || exit 1
     prepared "$d"
 fi
 ( cd "$d" && "$MESON" compile -C b -j 2 \
@@ -1114,7 +1228,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-adaptivedemux-release-manifest-lock-for-downloads.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-adaptivedemux-release-manifest-lock-for-downloads.patch" ) \
       || { echo "gst-plugins-bad adaptivedemux manifest-lock patch failed to apply"; exit 1; }
-    ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
+    # Media HTTP requests use webkitwebsrc; libcurl is a WebCore networking dependency.
+    # aes is disabled: WebKit uses HLS demuxers' EVP decryption and has no aesenc/aesdec caller.
+    ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled -Dcurl=disabled \
+        -Daes=disabled -Dhls=enabled -Dhls-crypto=openssl -Ddash=enabled \
         -Dwebrtc=disabled -Dwebrtcdsp=disabled -Ddtls=disabled -Dsrtp=disabled -Dsctp=disabled \
         -Dapplemedia=enabled -Dwebp=disabled -Dorc=enabled ) || exit 1
     prepared "$d"
@@ -1228,7 +1345,7 @@ cp -Rp "$STAGE/include/libxml2"    "$DEST/include/"
 # rather than the SDK's, so the declarations match the dylib deployed beside them.
 cp -Rp "$STAGE/include/libxslt"    "$DEST/include/"
 [ -d "$STAGE/include/libexslt" ] && cp -Rp "$STAGE/include/libexslt" "$DEST/include/"
-for inc in glib-2.0 gio-unix-2.0 gstreamer-1.0 orc-0.4 openssl; do
+for inc in glib-2.0 gio-unix-2.0 gstreamer-1.0 orc-0.4 openssl nghttp2 curl; do
   [ -d "$STAGE/include/$inc" ] && cp -Rp "$STAGE/include/$inc" "$DEST/include/"
 done
 # FFmpeg headers: WebCore's MediaRecorder MP4 writer (MediaRecorderPrivateWriterMP4.cpp) compiles
@@ -1361,6 +1478,8 @@ for t in gst-inspect-1.0 gst-launch-1.0; do
   collect_tool "$STAGE/bin/$t"
 done
 
+collect_tool "$STAGE/libexec/curl"
+
 echo "==== Widevine CDM interface ===="
 # Headers only. The module itself is Google's own Widevine CDM, which is not redistributable and
 # which WebKit downloads and installs at runtime
@@ -1391,8 +1510,22 @@ require_glob() {
 }
 # The Chromium CDM interface WebCore's Widevine key system is written against.
 require_glob "$DEST/include/cdm/content_decryption_module.h"
+require_glob "$DEST/lib/libssl.dylib"
+require_glob "$DEST/lib/libcrypto.dylib"
+require_glob "$DEST/lib/libpsl.5.dylib"
+require_glob "$DEST/lib/libnghttp2.14.dylib"
+require_glob "$DEST/lib/libnghttp2.dylib"
+require_glob "$DEST/lib/libcurl.4.dylib"
+require_glob "$DEST/lib/libcurl.dylib"
+require_glob "$DEST/include/openssl/ssl.h"
+require_glob "$DEST/include/openssl/crypto.h"
+require_glob "$DEST/include/nghttp2/nghttp2.h"
+require_glob "$DEST/include/curl/curl.h"
+require_glob "$DEST/bin/curl"
 require_glob "$DEST/lib/libglib-2.0.*.dylib"
 require_glob "$DEST/lib/libgstreamer-1.0.*.dylib"
+require_glob "$DEST/lib/libgstadaptivedemux-1.0.0.dylib"
+require_glob "$DEST/lib/libgsturidownloader-1.0.0.dylib"
 require_glob "$DEST/lib/libavcodec.*.dylib"
 require_glob "$DEST/lib/libavformat.*.dylib"
 require_glob "$DEST/lib/libavutil.*.dylib"
@@ -1428,7 +1561,7 @@ for p in libgstcoreelements libgstlibav libgstvpx libgstopus libgstapplemedia li
          libgsttypefindfunctions libgstplayback libgstisomp4 libgstmatroska \
          libgstvideoconvertscale libgstaudioconvert libgstaudioresample libgstapp \
          libgstvorbis libgstogg libgstflac libgstwavparse libgstdeinterlace \
-         libgstautodetect; do
+         libgstautodetect libgsthls libgstdash; do
   require_glob "$DEST/lib/gstreamer-1.0/$p.dylib"
 done
 require_glob "$DEST/bin/gst-inspect-1.0"
@@ -1531,6 +1664,274 @@ EOF
 ( "$CC_VANILLA" -O2 -mmacosx-version-min=10.9 -o "$GATE/dlopen_probe" "$GATE/dlopen_probe.c" \
     -Wl,-rpath,"$DEST/lib" -Wl,-rpath,"$DEST/lib/gstreamer-1.0" ) || exit 1
 
+# Load commands and two-level imports prove who supplies TLS and HLS decryption;
+# an unused dylib load command alone cannot satisfy the EVP checks.
+for pair in 'libcurl.4.dylib:libssl.dylib' 'libcurl.4.dylib:libcrypto.dylib' \
+            'libcurl.4.dylib:libnghttp2.14.dylib' 'libcurl.4.dylib:libpsl.5.dylib' \
+            'libssl.dylib:libcrypto.dylib' \
+            'gstreamer-1.0/libgsthls.dylib:libcrypto.dylib'; do
+  f=${pair%%:*}; dep=${pair#*:}
+  if ! "$CCTOOLS/otool" -L "$DEST/lib/$f" | awk 'NR>1{print $1}' | grep -x -F "@rpath/$dep" > /dev/null; then
+    echo "$f does not bind @rpath/$dep" >> "$FAILS"
+  fi
+done
+if ! "$CCTOOLS/otool" -L "$DEST/lib/libcurl.4.dylib" | awk 'NR>1{print $1}' \
+     | grep -x '/System/Library/Frameworks/GSS.framework/Versions/A/GSS' > /dev/null; then
+  echo 'libcurl does not bind the system GSS.framework' >> "$FAILS"
+fi
+for plugin in libgsthls; do
+  "$NMBIN" -m "$DEST/lib/gstreamer-1.0/$plugin.dylib" > "$GATE/$plugin.nm"
+  for sym in EVP_CIPHER_CTX_new EVP_CIPHER_CTX_free EVP_CIPHER_CTX_set_padding \
+             EVP_DecryptInit_ex EVP_DecryptUpdate EVP_DecryptFinal_ex EVP_aes_128_cbc; do
+    if ! grep -E "\\(undefined\\) external _$sym \\(from libcrypto\\)$" "$GATE/$plugin.nm" > /dev/null; then
+      echo "$plugin does not import $sym from shared libcrypto" >> "$FAILS"
+    fi
+  done
+done
+"$NMBIN" -gU "$DEST/lib/libcrypto.dylib" | awk '{print $NF}' > "$GATE/crypto.exports"
+for sym in EVP_CIPHER_CTX_new EVP_CIPHER_CTX_free EVP_CIPHER_CTX_set_padding \
+           EVP_DecryptInit_ex EVP_DecryptUpdate EVP_DecryptFinal_ex EVP_aes_128_cbc \
+           EVP_CipherInit_ex EVP_CipherUpdate EVP_CipherFinal_ex EVP_get_cipherbyname; do
+  if ! grep -Fx "_$sym" "$GATE/crypto.exports" > /dev/null; then
+    echo "BoringSSL libcrypto does not export $sym" >> "$FAILS"
+  fi
+done
+for pair in SSL_CTX_new:libssl SSL_new:libssl X509_free:libcrypto; do
+  sym=${pair%%:*}; dep=${pair#*:}
+  if ! "$NMBIN" -m "$DEST/lib/libcurl.4.dylib" | grep -E "\\(undefined\\) external _$sym \\(from $dep\\)$" > /dev/null; then
+    echo "libcurl does not import $sym from $dep" >> "$FAILS"
+  fi
+done
+if "$NMBIN" -gU "$DEST/lib/libcurl.4.dylib" | grep -E ' _(SSL_|SSL_CTX_|OPENSSL_|X509_)' > /dev/null; then
+  echo "libcurl exports an embedded TLS implementation" >> "$FAILS"
+fi
+# Reject extra adaptive/TLS artifacts in both prefixes. Matching the entire public header
+# directory also rejects an include/openssl tree from another provider.
+for prefix in "$STAGE" "$DEST"; do
+  if [ -e "$prefix/lib/gstreamer-1.0/libgstadaptivedemux2.dylib" ] \
+     || [ -L "$prefix/lib/gstreamer-1.0/libgstadaptivedemux2.dylib" ]; then
+    echo "unexpected adaptive plugin: $prefix/lib/gstreamer-1.0/libgstadaptivedemux2.dylib (rerun with --clean)" >> "$FAILS"
+  fi
+  extras=$(find "$prefix" \( -name 'libssl.*.dylib' -o -name 'libcrypto.*.dylib' \
+      -o -name 'libboringssl*' -o -name 'libboringcrypto*' -o -name libssl.a -o -name libcrypto.a \
+      -o -name libgstaes.dylib -o -path '*/include/boringssl' \) -print)
+  [ -z "$extras" ] || printf 'unexpected TLS/AES artifact: %s\n' "$extras" >> "$FAILS"
+  if ! diff -qr "$BORINGSSL_SRC/include/openssl" "$prefix/include/openssl"; then
+    echo "$prefix headers differ from in-tree BoringSSL" >> "$FAILS"
+  fi
+done
+if [ "$("$PKG_CONFIG" --modversion openssl)" != 1.1.1 ] \
+   || [ "$("$PKG_CONFIG" --variable=prefix openssl)" != "$STAGE" ]; then
+  echo 'openssl.pc does not resolve the staged BoringSSL API' >> "$FAILS"
+fi
+for element in hlsdemux hlssink hlssink2 dashdemux; do
+  if ! GST_REGISTRY="$RUN/gate-registry.bin" GST_PLUGIN_PATH="$DEST/lib/gstreamer-1.0" \
+       GST_PLUGIN_SYSTEM_PATH= "$DEST/bin/gst-inspect-1.0" "$element" > /dev/null; then
+    echo "$element is not registered" >> "$FAILS"
+  fi
+done
+curl_version=$("$DEST/bin/curl" -q --version) || exit 1
+printf '%s\n' "$curl_version"
+features=$(printf '%s\n' "$curl_version" | sed -n 's/^Features: //p' | tr ' ' '\n')
+for feature in HTTP2 SSL brotli GSS-API SPNEGO NTLM PSL; do
+  if ! printf '%s\n' "$features" | grep -Fx "$feature" > /dev/null; then
+    echo "curl is missing $feature" >> "$FAILS"
+  fi
+done
+
+# A loopback TLS server exercises the deployed client: verified TLS 1.3, HTTP/2
+# framing, SSL_CTX object exchange, exact plaintext after Brotli decoding, rejection
+# of untrusted certificates and corrupt br. AES has a known-answer check; GSS must
+# expose SPNEGO, and PSL must reject a public-suffix cookie while accepting a site cookie.
+cat > "$GATE/capabilities.c" <<'CAPABILITIES_C'
+#include <curl/curl.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <openssl/cipher.h>
+#include <brotli/encode.h>
+#include <libpsl.h>
+#include <GSS/GSS.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+#include <signal.h>
+#include <unistd.h>
+#include <dlfcn.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#ifndef OPENSSL_IS_BORINGSSL
+#error The deployed headers must be BoringSSL
+#endif
+#define CHECK(x) do { if (!(x)) { fprintf(stderr, "capability FAIL line %d: %s\n", __LINE__, #x); ERR_print_errors_fp(stderr); exit(1); } } while (0)
+static const char body[] = "BoringSSL curl local decrypted response: 0123456789 abcdefghijklmnopqrstuvwxyz\n";
+static unsigned char compressed[1024];
+static size_t compressed_size = sizeof compressed;
+static int ctx_calls, verify_calls;
+static char received[1024];
+static size_t received_size;
+static int verify(int ok, X509_STORE_CTX *store) {
+    SSL *ssl = X509_STORE_CTX_get_ex_data(store, SSL_get_ex_data_X509_STORE_CTX_idx());
+    CHECK(ssl && SSL_CTX_get_app_data(SSL_get_SSL_CTX(ssl)) == &ctx_calls);
+    ++verify_calls;
+    return ok;
+}
+static CURLcode ctx_callback(CURL *curl, void *ctx, void *unused) {
+    ++ctx_calls;
+    SSL_CTX_set_app_data(ctx, &ctx_calls);
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, verify);
+    return CURLE_OK;
+}
+static size_t consume(char *p, size_t size, size_t count, void *unused) {
+    size_t n = size * count;
+    if (n > sizeof received - received_size) return 0;
+    memcpy(received + received_size, p, n); received_size += n;
+    return n;
+}
+static void read_exact(SSL *ssl, void *p, size_t n) {
+    while (n) { int r = SSL_read(ssl, p, n); CHECK(r > 0); p = (char *)p + r; n -= r; }
+}
+static void write_exact(SSL *ssl, const void *p, size_t n) {
+    while (n) { int r = SSL_write(ssl, p, n); CHECK(r > 0); p = (const char *)p + r; n -= r; }
+}
+static int alpn(SSL *ssl, const unsigned char **out, unsigned char *len,
+                const unsigned char *in, unsigned int n, void *arg) {
+    const unsigned char h2[] = {2,'h','2'};
+    CHECK(SSL_select_next_proto((unsigned char **)out, len, h2, sizeof h2, in, n) == OPENSSL_NPN_NEGOTIATED);
+    *out = (const unsigned char *)"h2"; *len = 2;
+    return SSL_TLSEXT_ERR_OK;
+}
+static void frame(SSL *ssl, int type, int flags, unsigned stream, const void *p, unsigned n) {
+    unsigned char h[9] = {n >> 16, n >> 8, n, type, flags, stream >> 24, stream >> 16, stream >> 8, stream};
+    write_exact(ssl, h, sizeof h); if (n) write_exact(ssl, p, n);
+}
+static void server(int listener, const char *cert, const char *key, int mode) {
+    alarm(20);
+    SSL_CTX *ctx = SSL_CTX_new(TLS_server_method()); CHECK(ctx);
+    CHECK(SSL_CTX_use_certificate_file(ctx, cert, SSL_FILETYPE_PEM));
+    CHECK(SSL_CTX_use_PrivateKey_file(ctx, key, SSL_FILETYPE_PEM));
+    CHECK(SSL_CTX_set_min_proto_version(ctx, TLS1_3_VERSION));
+    if (mode == 1) SSL_CTX_set_alpn_select_cb(ctx, alpn, NULL);
+    int fd = accept(listener, NULL, NULL); CHECK(fd >= 0);
+    SSL *ssl = SSL_new(ctx); CHECK(ssl && SSL_set_fd(ssl, fd));
+    int accepted = SSL_accept(ssl);
+    if (mode == 3) { CHECK(accepted <= 0); SSL_free(ssl); SSL_CTX_free(ctx); close(fd); return; }
+    CHECK(accepted == 1);
+    if (mode == 1) {
+        char preface[24]; read_exact(ssl, preface, sizeof preface);
+        CHECK(!memcmp(preface, "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n", 24));
+        frame(ssl, 4, 0, 0, NULL, 0);
+        unsigned stream = 0;
+        while (!stream) {
+            unsigned char h[9]; read_exact(ssl, h, 9);
+            unsigned n = ((unsigned)h[0] << 16) | ((unsigned)h[1] << 8) | h[2];
+            CHECK(n < 65536); unsigned char buf[65536]; read_exact(ssl, buf, n);
+            if (h[3] == 4 && !(h[4] & 1)) frame(ssl, 4, 1, 0, NULL, 0);
+            if (h[3] == 1) {
+                CHECK(h[4] & 4);
+                stream = ((unsigned)(h[5] & 127) << 24) | ((unsigned)h[6] << 16) | ((unsigned)h[7] << 8) | h[8];
+            }
+        }
+        const unsigned char status200 = 0x88;
+        frame(ssl, 1, 4, stream, &status200, 1);
+        frame(ssl, 0, 1, stream, body, sizeof body - 1);
+    } else {
+        char request[8192]; size_t n = 0;
+        while (n < sizeof request - 1) { read_exact(ssl, request + n, 1); request[++n] = 0; if (strstr(request, "\r\n\r\n")) break; }
+        CHECK(strstr(request, "GET / HTTP/1.1\r\n"));
+        CHECK(strstr(request, "Accept-Encoding:") && strstr(request, "br"));
+        const char bad[] = "\xff\xff\xff\xff";
+        const void *data = mode == 2 ? compressed : mode == 4 ? (const void *)bad : (const void *)body;
+        size_t size = mode == 2 ? compressed_size : mode == 4 ? sizeof bad - 1 : sizeof body - 1;
+        char header[512];
+        int len = snprintf(header, sizeof header, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\n%sConnection: close\r\n\r\n", (unsigned long)size, mode == 2 || mode == 4 ? "Content-Encoding: br\r\n" : "");
+        write_exact(ssl, header, len); write_exact(ssl, data, size);
+    }
+    SSL_shutdown(ssl); SSL_free(ssl); SSL_CTX_free(ctx); close(fd);
+}
+static void transfer(const char *cert, const char *key, int mode) {
+    int listener = socket(AF_INET, SOCK_STREAM, 0); CHECK(listener >= 0);
+    struct sockaddr_in addr; memset(&addr, 0, sizeof addr);
+    addr.sin_family = AF_INET; addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    CHECK(!bind(listener, (struct sockaddr *)&addr, sizeof addr) && !listen(listener, 1));
+    socklen_t len = sizeof addr; CHECK(!getsockname(listener, (struct sockaddr *)&addr, &len));
+    fflush(NULL); pid_t pid = fork(); CHECK(pid >= 0);
+    if (!pid) { server(listener, cert, key, mode); _exit(0); }
+    char url[128]; snprintf(url, sizeof url, "https://localhost:%u/", ntohs(addr.sin_port));
+    char resolve[128]; snprintf(resolve, sizeof resolve, "localhost:%u:127.0.0.1", ntohs(addr.sin_port));
+    struct curl_slist *hosts = curl_slist_append(NULL, resolve); CHECK(hosts);
+    CURL *curl = curl_easy_init(); CHECK(curl);
+#define OPT(k, v) CHECK(curl_easy_setopt(curl, k, v) == CURLE_OK)
+    char error[CURL_ERROR_SIZE] = {0};
+    received_size = 0; ctx_calls = 0; verify_calls = 0;
+    OPT(CURLOPT_URL, url); OPT(CURLOPT_RESOLVE, hosts); OPT(CURLOPT_PROXY, ""); OPT(CURLOPT_NOPROXY, "*");
+    OPT(CURLOPT_TIMEOUT, 15L); OPT(CURLOPT_ERRORBUFFER, error); OPT(CURLOPT_ACCEPT_ENCODING, "");
+    OPT(CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_3); OPT(CURLOPT_SSL_CTX_FUNCTION, ctx_callback);
+    OPT(CURLOPT_SSL_VERIFYPEER, 1L); OPT(CURLOPT_SSL_VERIFYHOST, 2L);
+    OPT(CURLOPT_CAINFO, mode == 3 ? NULL : cert); OPT(CURLOPT_CAPATH, NULL);
+    OPT(CURLOPT_HTTP_VERSION, mode == 1 ? CURL_HTTP_VERSION_2TLS : CURL_HTTP_VERSION_1_1);
+    OPT(CURLOPT_WRITEFUNCTION, consume);
+    CURLcode rc = curl_easy_perform(curl);
+    long status = 0, version = 0, proxy = -1;
+    CHECK(!curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status));
+    CHECK(!curl_easy_getinfo(curl, CURLINFO_HTTP_VERSION, &version));
+    CHECK(!curl_easy_getinfo(curl, CURLINFO_USED_PROXY, &proxy));
+    fprintf(stdout, "curl capability mode=%d rc=%d http=%ld version=%ld proxy=%ld ctx=%d verify=%d bytes=%lu error=%s\n", mode, rc, status, version, proxy, ctx_calls, verify_calls, (unsigned long)received_size, error);
+    curl_easy_cleanup(curl); curl_slist_free_all(hosts); close(listener);
+    int child; CHECK(waitpid(pid, &child, 0) == pid && WIFEXITED(child) && !WEXITSTATUS(child));
+    CHECK(proxy == 0 && ctx_calls == 1 && verify_calls > 0);
+    if (mode == 3) { CHECK(rc == CURLE_PEER_FAILED_VERIFICATION && !received_size); return; }
+    if (mode == 4) { CHECK(rc == CURLE_BAD_CONTENT_ENCODING && !received_size); return; }
+    CHECK(rc == CURLE_OK && status == 200);
+    CHECK(version == (mode == 1 ? CURL_HTTP_VERSION_2_0 : CURL_HTTP_VERSION_1_1));
+    CHECK(received_size == sizeof body - 1 && !memcmp(received, body, received_size));
+}
+int main(int argc, char **argv) {
+    CHECK(argc == 4); signal(SIGPIPE, SIG_IGN); alarm(110);
+    CHECK(strstr(OpenSSL_version(OPENSSL_VERSION), "BoringSSL"));
+    CHECK(!curl_global_init(CURL_GLOBAL_DEFAULT));
+    const curl_version_info_data *info = curl_version_info(CURLVERSION_NOW);
+    unsigned required = CURL_VERSION_SSL | CURL_VERSION_HTTP2 | CURL_VERSION_BROTLI | CURL_VERSION_GSSAPI | CURL_VERSION_SPNEGO | CURL_VERSION_NTLM | CURL_VERSION_PSL;
+    CHECK((info->features & required) == required && strstr(info->ssl_version, "BoringSSL"));
+    CHECK(info->nghttp2_ver_num && info->brotli_ver_num);
+    void *handle = dlopen(argv[3], RTLD_NOW | RTLD_LOCAL); CHECK(handle);
+    CHECK(dlsym(handle, "SSL_CTX_new") == (void *)SSL_CTX_new);
+    CHECK(dlsym(handle, "EVP_DecryptUpdate") == (void *)EVP_DecryptUpdate);
+    CHECK(dlsym(handle, "X509_free") == (void *)X509_free);
+    const psl_ctx_t *psl = psl_builtin(); CHECK(psl && psl_suffix_count(psl) > 1000);
+    CHECK(!psl_is_cookie_domain_acceptable(psl, "example.co.uk", "co.uk"));
+    CHECK(psl_is_cookie_domain_acceptable(psl, "www.example.co.uk", "example.co.uk"));
+    OM_uint32 minor; gss_OID_set mechs = GSS_C_NO_OID_SET;
+    CHECK(gss_indicate_mechs(&minor, &mechs) == GSS_S_COMPLETE);
+    const unsigned char spnego[] = {0x2b,0x06,0x01,0x05,0x05,0x02}; int found = 0;
+    for (size_t i = 0; i < mechs->count; ++i) if (mechs->elements[i].length == sizeof spnego && !memcmp(mechs->elements[i].elements, spnego, sizeof spnego)) found = 1;
+    CHECK(found); CHECK(gss_release_oid_set(&minor, &mechs) == GSS_S_COMPLETE);
+    /* NIST SP 800-38A F.2.1 AES-128-CBC, first block. */
+    const unsigned char k[16] = {0x2b,0x7e,0x15,0x16,0x28,0xae,0xd2,0xa6,0xab,0xf7,0x15,0x88,0x09,0xcf,0x4f,0x3c};
+    const unsigned char iv[16] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
+    const unsigned char cipher[16] = {0x76,0x49,0xab,0xac,0x81,0x19,0xb2,0x46,0xce,0xe9,0x8e,0x9b,0x12,0xe9,0x19,0x7d};
+    const unsigned char plain[16] = {0x6b,0xc1,0xbe,0xe2,0x2e,0x40,0x9f,0x96,0xe9,0x3d,0x7e,0x11,0x73,0x93,0x17,0x2a};
+    EVP_CIPHER_CTX *aes = EVP_CIPHER_CTX_new(); CHECK(aes); unsigned char decoded[32]; int n, end;
+    CHECK(EVP_DecryptInit_ex(aes, EVP_aes_128_cbc(), NULL, k, iv)); CHECK(EVP_CIPHER_CTX_set_padding(aes, 0));
+    CHECK(EVP_DecryptUpdate(aes, decoded, &n, cipher, sizeof cipher)); CHECK(EVP_DecryptFinal_ex(aes, decoded + n, &end));
+    CHECK(n + end == 16 && !memcmp(decoded, plain, 16)); EVP_CIPHER_CTX_free(aes);
+    CHECK(BrotliEncoderCompress(5, BROTLI_DEFAULT_WINDOW, BROTLI_MODE_TEXT, sizeof body - 1, (const unsigned char *)body, &compressed_size, compressed));
+    puts("capability: shared BoringSSL identity, AES known answer, public-suffix rejection, GSS SPNEGO mechanism PASS");
+    for (int mode = 0; mode < 5; ++mode) transfer(argv[1], argv[2], mode);
+    dlclose(handle); curl_global_cleanup(); puts("curl local TLS/HTTP2/SSL_CTX/Brotli capability PASS"); return 0;
+}
+CAPABILITIES_C
+RANDFILE="$GATE/random-state" /usr/bin/openssl req -new -newkey rsa:2048 -nodes -x509 -days 1 -subj /CN=localhost \
+    -keyout "$GATE/server.key" -out "$GATE/server.pem" || exit 1
+( "$CC_VANILLA" -O2 -I"$DEST/include" -I"$STAGE/include" "$GATE/capabilities.c" \
+    "$DEST/lib/libcurl.dylib" "$DEST/lib/libssl.dylib" "$DEST/lib/libcrypto.dylib" \
+    "$DEST/lib/libpsl.5.dylib" "$DEST/lib/libbrotlienc.a" "$DEST/lib/libbrotlicommon.a" \
+    $LDFLAGS -framework GSS -L"$TC/lib" -lc++ -lc++abi \
+    -Wl,-rpath,"$DEST/lib" -o "$GATE/capabilities" ) || exit 1
+if ! "$GATE/capabilities" "$GATE/server.pem" "$GATE/server.key" "$DEST/lib/libcurl.4.dylib"; then
+  echo 'local TLS/HTTP2/SSL_CTX/Brotli/AES/GSS/PSL capability test failed' >> "$FAILS"
+fi
+
 GATE_FILES=""
 for f in "$DEST"/lib/*.dylib "$DEST"/lib/gstreamer-1.0/*.dylib "$DEST"/bin/*; do
   [ -L "$f" ] && continue
@@ -1564,6 +1965,16 @@ for f in $GATE_FILES; do
   "$CCTOOLS/otool" -l "$f" | awk '$1=="cmd"{t=$2}
     $1=="name" && (t=="LC_LOAD_DYLIB"||t=="LC_LOAD_WEAK_DYLIB"||t=="LC_REEXPORT_DYLIB"){print $2}' \
     | sort -u > "$GATE/und/$b.deps"
+  # A second ssl/crypto load could give a two-level import another provider with
+  # the same basename. Every direct TLS load must name the deployed BoringSSL pair.
+  while read -r dep; do
+    case "$dep" in
+      */libssl.*|*/libcrypto.*)
+        case "$dep" in @rpath/libssl.dylib|@rpath/libcrypto.dylib) ;;
+          *) echo "TLS library outside the shared BoringSSL pair in $b: $dep" >> "$FAILS";;
+        esac;;
+    esac
+  done < "$GATE/und/$b.deps"
   : > "$GATE/und/$b.pairs"
   while read -r kind sym from; do
     [ "$from" = "-" ] && { echo "$kind $sym -" >> "$GATE/und/$b.pairs"; continue; }
