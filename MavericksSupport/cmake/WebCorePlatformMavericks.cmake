@@ -851,3 +851,48 @@ list(REMOVE_ITEM WebCore_SOURCES
 # in PlatformMac.cmake's lists, so the CMake Mac port names two paths WebCore no longer ships.
 list(REMOVE_ITEM WebCore_SOURCES page/mac/TextIndicatorWindow.mm)
 list(REMOVE_ITEM WebCore_PRIVATE_FRAMEWORK_HEADERS page/mac/TextIndicatorWindow.h)
+
+# The Cocoa curl transport: curl carries every HTTP(S) transfer while WebCore's CF platform types stay
+# selected. These are this backport's own sources, so they live with the rest of the 10.9 glue;
+# platform/network/cocoa is already on the private include path above.
+find_package(CURL 8.22 REQUIRED)
+find_library(COCOA_CURL_SSL_LIBRARY ssl PATHS "${MAVERICKS_DEPS}/lib" NO_DEFAULT_PATH REQUIRED)
+find_library(COCOA_CURL_CRYPTO_LIBRARY crypto PATHS "${MAVERICKS_DEPS}/lib" NO_DEFAULT_PATH REQUIRED)
+list(APPEND WebCore_LIBRARIES CURL::libcurl ${COCOA_CURL_SSL_LIBRARY} ${COCOA_CURL_CRYPTO_LIBRARY})
+list(APPEND WebCore_SOURCES
+    ${WEBCORE_DIR}/platform/network/curl/CookieUtil.cpp
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCookie.mm
+    ${WEBCORE_DIR}/platform/network/curl/CurlMultipartHandle.cpp
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlAuthentication.mm
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlConnection.mm
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlMultipartHandle.cpp
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlProxyResolver.mm
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlResourceHandle.mm
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlScheduler.mm
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlTLS.mm
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlTransfer.mm
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaMIMESniffing.cpp
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/HTTPStrictTransportSecurityStore.mm
+)
+list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
+    platform/network/curl/CookieUtil.h
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCookie.h
+    platform/network/curl/CurlMultipartHandle.h
+    platform/network/curl/CurlMultipartHandleClient.h
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlAuthentication.h
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlConnection.h
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlMultipartHandle.h
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlProxyResolver.h
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlResourceHandle.h
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlScheduler.h
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlTLS.h
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlTransfer.h
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaDownloadTransport.h
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaMIMESniffing.h
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/HTTPStrictTransportSecurityStore.h
+)
+
+# CookieUtil uses only platform-independent Cookie fields; enable its curl grammar in this unit.
+set_source_files_properties(${WEBCORE_DIR}/platform/network/curl/CookieUtil.cpp PROPERTIES COMPILE_DEFINITIONS USE_CURL=1)
+# CurlMultipartHandle uses only WTF and platform-independent WebCore types; its MIME framing is compiled the same way.
+set_source_files_properties(${WEBCORE_DIR}/platform/network/curl/CurlMultipartHandle.cpp PROPERTIES COMPILE_DEFINITIONS USE_CURL=1)

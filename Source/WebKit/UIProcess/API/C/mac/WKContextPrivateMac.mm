@@ -35,6 +35,9 @@
 #import "WKSharedAPICast.h"
 #import "WKStringCF.h"
 #import "WebProcessPool.h"
+// MAVERICKS_BACKPORT: Safari HSTS resets use the same website-data owner as curl.
+#import "WebsiteDataStore.h"
+#import "WebsiteDataType.h"
 #import <wtf/BlockPtr.h>
 #import <wtf/RetainPtr.h>
 
@@ -60,12 +63,24 @@ void WKContextGetInfoForInstalledPlugIns(WKContextRef contextRef, WKContextGetIn
 {
 }
 
+// MAVERICKS_BACKPORT: these native API entry points must reset the browser-owned HSTS state.
+/*
 void WKContextResetHSTSHosts(WKContextRef)
 {
 }
 
 void WKContextResetHSTSHostsAddedAfterDate(WKContextRef, double)
 {
+}
+*/ // MAVERICKS_BACKPORT: dispatch to the default session, as the adjacent legacy cookie APIs do.
+void WKContextResetHSTSHosts(WKContextRef)
+{
+    WebKit::WebsiteDataStore::defaultDataStore().removeData(WebKit::WebsiteDataType::HSTSCache, WallTime::fromRawSeconds(-std::numeric_limits<double>::infinity()), [] { });
+}
+
+void WKContextResetHSTSHostsAddedAfterDate(WKContextRef, double secondsSince1970)
+{
+    WebKit::WebsiteDataStore::defaultDataStore().removeData(WebKit::WebsiteDataType::HSTSCache, WallTime::fromRawSeconds(secondsSince1970), [] { });
 }
 
 void WKContextRegisterSchemeForCustomProtocol(WKContextRef context, WKStringRef scheme)

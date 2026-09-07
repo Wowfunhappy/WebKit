@@ -126,6 +126,7 @@ if [ -n "$_stopped" ]; then
     [ "$_waited" -gt 0 ] && TAKEOVER="$TAKEOVER, after waiting ${_waited}s for its $_waitedfor"
 fi
 : > "$LOG"   # the one truncation of the run; everything below appends
+echo "### BUILD RUN $(date -u +%Y-%m-%dT%H:%M:%SZ) pid=$$"
 [ -n "$TAKEOVER" ] && echo "$TAKEOVER"
 
 # The relink runs here, after the takeover: it replaces deps/build/{include,lib,bin} wholesale, so
@@ -168,6 +169,12 @@ fi
 # hashed relative to the build directory, and the compiler's identity is the content of clang plus
 # its two driver configs, hashed once here rather than per translation unit. A cache directory is
 # therefore reusable for the same tree at any path and on any machine.
+# ccache 3.7 hashes LANG, LC_ALL, LC_CTYPE and LC_MESSAGES. Agent command runners inject
+# LC_ALL=C.UTF-8 and LC_CTYPE=C.UTF-8 even when an interactive shell does not, which otherwise
+# puts every agent compilation in a distinct cache namespace. Match the canonical interactive
+# build environment explicitly so human and agent builds share the existing cache entries.
+export LANG=en_US.UTF-8
+unset LC_ALL LC_CTYPE LC_MESSAGES
 export CCACHE_DIR="$ROOT/WebKitBuild/ccache"
 export CCACHE_BASEDIR="$(dirname "$ROOT")"
 export CCACHE_NOHASHDIR=1

@@ -27,6 +27,11 @@
 #import "PrivateClickMeasurementNetworkLoader.h"
 
 #import "NetworkDataTaskCocoa.h"
+// MAVERICKS_BACKPORT: PCM uses the shared stateless Cocoa curl transaction.
+#import <WebCore/CocoaCurlConnection.h>
+#import <WebCore/ResourceError.h>
+#import <WebCore/SharedBuffer.h>
+#import <wtf/RefCounted.h>
 #import <WebCore/HTTPHeaderValues.h>
 #import <WebCore/MIMETypeRegistry.h>
 #import <WebCore/UserAgent.h>
@@ -41,6 +46,8 @@ static RetainPtr<SecTrustRef>& NODELETE allowedLocalTestServerTrust()
     return serverTrust.get();
 }
 
+// MAVERICKS_BACKPORT: native NSURLSession PCM implementation retained beside the curl client.
+#if 0
 static bool trustsServerForLocalTests(NSURLAuthenticationChallenge *challenge)
 {
     if (![challenge.protectionSpace.host isEqualToString:@"127.0.0.1"]
@@ -102,6 +109,86 @@ static NSURLSession *statelessSessionWithoutRedirectsSingleton()
     return session.get().get();
 }
 
+#endif // MAVERICKS_BACKPORT: shared stateless curl client below.
+
+namespace WebKit::PCM {
+
+enum class LoadTaskIdentifierType { };
+using LoadTaskIdentifier = ObjectIdentifier<LoadTaskIdentifierType>;
+class LoadTask;
+static HashMap<LoadTaskIdentifier, Ref<LoadTask>>& taskMap();
+
+class LoadTask final : public RefCounted<LoadTask>, public WebCore::CocoaCurlTransferClient {
+public:
+    static Ref<LoadTask> create(LoadTaskIdentifier identifier, NSURLRequest *request, NetworkLoader::Callback&& callback)
+    {
+        return adoptRef(*new LoadTask(identifier, request, WTF::move(callback)));
+    }
+    ~LoadTask()
+    {
+        m_transfer->invalidateClient();
+    }
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+    void start() { m_transfer->start(); }
+private:
+    LoadTask(LoadTaskIdentifier identifier, NSURLRequest *request, NetworkLoader::Callback&& callback)
+        : m_identifier(identifier)
+        , m_callback(WTF::move(callback))
+    {
+        static NeverDestroyed<Ref<WebCore::CocoaCurlConnectionPool>> pool(WebCore::CocoaCurlConnectionPool::create());
+        WebCore::CocoaCurlTransferOptions options;
+        options.request = WebCore::ResourceRequest(request);
+        options.request.setAllowCookies(false);
+        if (auto body = options.request.httpBody())
+            options.upload = WebCore::CocoaCurlUploadBody::create(*body);
+        options.allowedServerTrust = allowedLocalTestServerTrust();
+        m_transfer = WebCore::CocoaCurlConnection::create(pool.get(), *this, WTF::move(options));
+    }
+    // MAVERICKS_BACKPORT: PCM uses a stateless request with no cookie jar.
+    void curlReceivedCookies(Vector<String>&&, CompletionHandler<void(std::optional<String>&&)>&& completion) final { completion(std::nullopt); }
+    void curlReceivedResponse(WebCore::CocoaCurlTransferResponse&& response, CompletionHandler<void()>&& completion) final
+    {
+        if (!WebCore::MIMETypeRegistry::isSupportedJSONMIMEType(response.response.mimeType()))
+            m_transfer->cancel();
+        completion();
+    }
+    void curlReceivedInformationalResponse(WebCore::ResourceResponse&&) final { }
+    void curlSentData(uint64_t, uint64_t) final { }
+    void curlReceivedData(const WebCore::SharedBuffer& data, CompletionHandler<void()>&& completion) final
+    {
+        m_body.append(data);
+        completion();
+    }
+    void curlRequestedIdentity(CFArrayRef, CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)>&& completion) final
+    {
+        // PCM's stateless request policy does not select a client identity.
+        completion(nullptr, nullptr);
+    }
+    void curlCompleted(const WebCore::ResourceError& error, const WebCore::NetworkLoadMetrics&) final
+    {
+        Ref protectedThis { *this };
+        taskMap().remove(m_identifier);
+        if (!error.isNull()) {
+            m_callback(error.localizedDescription(), nullptr);
+            return;
+        }
+        auto data = m_body.takeBufferAsContiguous();
+        auto value = JSON::Value::parseJSON(String::fromUTF8(data->span()));
+        m_callback({ }, value ? value->asObject() : nullptr);
+    }
+    LoadTaskIdentifier m_identifier;
+    NetworkLoader::Callback m_callback;
+    RefPtr<WebCore::CocoaCurlConnection> m_transfer;
+    WebCore::SharedBufferBuilder m_body;
+};
+
+static HashMap<LoadTaskIdentifier, Ref<LoadTask>>& taskMap()
+{
+    static NeverDestroyed<HashMap<LoadTaskIdentifier, Ref<LoadTask>>> map;
+    return map;
+}
+
 void NetworkLoader::allowTLSCertificateChainForLocalPCMTesting(const WebCore::CertificateInfo& certificateInfo)
 {
     allowedLocalTestServerTrust() = certificateInfo.trust();
@@ -127,6 +214,8 @@ void NetworkLoader::start(URL&& url, RefPtr<JSON::Object>&& jsonPayload, WebCore
     setPCMDataCarriedOnRequest(pcmDataCarried, request.get());
 
     auto identifier = LoadTaskIdentifier::generate();
+    // MAVERICKS_BACKPORT: each PCM report is an unredirected, credential-free curl transaction.
+#if 0
     RetainPtr task = [statelessSessionWithoutRedirectsSingleton() dataTaskWithRequest:request.get() completionHandler:makeBlockPtr([callback = WTF::move(callback), identifier](NSData *data, NSURLResponse *response, NSError *error) mutable {
         taskMap().remove(identifier);
         if (error)
@@ -137,6 +226,10 @@ void NetworkLoader::start(URL&& url, RefPtr<JSON::Object>&& jsonPayload, WebCore
     }).get()];
     [task resume];
     taskMap().add(identifier, task.get());
+#endif // MAVERICKS_BACKPORT: native values feed the common curl transport.
+    auto task = LoadTask::create(identifier, request.get(), WTF::move(callback));
+    taskMap().add(identifier, task.copyRef());
+    task->start();
 }
 
 } // namespace WebKit::PCM

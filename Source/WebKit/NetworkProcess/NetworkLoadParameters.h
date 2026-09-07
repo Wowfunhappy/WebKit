@@ -28,6 +28,8 @@
 #include "NavigationActionData.h"
 #include "NetworkActivityTracker.h"
 #include "PolicyDecision.h"
+// MAVERICKS_BACKPORT: resumed downloads retain their destination authorization through response policy.
+#include "SandboxExtension.h"
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/BlobDataFileReference.h>
 #include <WebCore/FrameIdentifier.h>
@@ -40,6 +42,16 @@
 namespace WebKit {
 
 enum class PreconnectOnly : bool { No, Yes };
+
+// MAVERICKS_BACKPORT: the HTTP range and native resume metadata describe the same partial representation.
+struct DownloadResumeParameters {
+    String destination;
+    uint64_t offset { 0 };
+    String entityTag;
+    String lastModified;
+    RefPtr<SandboxExtension> sandboxExtension;
+    bool callDidStart { false };
+};
 
 struct NetworkLoadParameters {
     Markable<WebPageProxyIdentifier> webPageProxyID;
@@ -67,6 +79,8 @@ struct NetworkLoadParameters {
     bool isInitiatedByDedicatedWorker { false };
 
     uint64_t requiredCookiesVersion { 0 };
+    // MAVERICKS_BACKPORT: resume uses the normal NetworkLoad redirect, challenge and download contracts.
+    std::optional<DownloadResumeParameters> downloadResume;
 };
 
 } // namespace WebKit

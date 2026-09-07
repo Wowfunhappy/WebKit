@@ -37,7 +37,12 @@
 // stream outlives any in-flight socket callbacks until teardown clears the client.
 
 #import "wk_selref_scope.h"
+
+
 #import <CFNetwork/CFNetwork.h>
+
+extern "C" CFTypeRef WebCoreCookieCreateFromHTTPResponseField(CFStringRef, CFURLRef) CF_RETURNS_RETAINED;
+extern "C" void WebCoreCookieStorageSetHTTPResponseCookies(CFTypeRef, CFArrayRef, CFURLRef, CFURLRef, bool, bool);
 #import <Security/Security.h>
 #import "wk_url_coding.h"
 #import <CommonCrypto/CommonDigest.h>
@@ -260,8 +265,7 @@ typedef struct OpaqueCFHTTPCookieStorage *WKCFHTTPCookieStorageRef;
 @end
 
 // The same-site disposition WebKit stamped on this request (ResourceRequestCocoa's
-// doUpdateResourceRequest), which is the answer this port reads for every other load -- c/CFNetwork.c's
-// wk_contextOfRequest takes the same two properties off the CFURLRequest. The site is compared with the
+// doUpdateResourceRequest), which is the answer this port reads for every other load. The site is compared with the
 // URL of the hop being made, which is why the stamp is passed on rather than turned into a yes/no here.
 static NSURL *wsSiteForCookies(NSURLRequest *request)
 {
@@ -316,23 +320,27 @@ static void wsApplyStoredCookies(NSHTTPCookieStorage *storage, NSMutableURLReque
 
 // A handshake response's Set-Cookie fields reach the session's storage, as they do for every other
 // NSURLSession task.
-static void wsStoreCookiesFromResponse(NSHTTPCookieStorage *storage, NSHTTPURLResponse *response, NSURLRequest *request,
-    NSArray<NSHTTPCookie *> *(^cookieTransform)(NSArray<NSHTTPCookie *> *))
+static void wsStoreCookiesFromResponse(NSHTTPCookieStorage *storage, NSHTTPURLResponse *response, NSArray<NSString *> *fields, NSURLRequest *request,
+    NSArray<NSHTTPCookie *> *(^cookieTransform)(NSArray<NSHTTPCookie *> *), NSURL *siteForCookies, BOOL isTopLevelNavigation)
 {
     if (![request HTTPShouldHandleCookies])
         return;
-    // The http(s) form of the handshake's URL, which is the origin the cookie rules are decided against:
-    // the parser this calls holds the field to all of them (methods/Foundation.m), so a ws:// handshake
-    // is a non-secure origin and a wss:// one is secure, exactly as the equivalent load would be.
     NSURL *cookieURL = wsCookieURL(response.URL ?: request.URL);
-    NSArray<NSHTTPCookie *> *cookies = [NSHTTPCookie cookiesWithResponseHeaderFields:response.allHeaderFields forURL:cookieURL];
+    NSMutableArray<NSHTTPCookie *> *parsed = [NSMutableArray arrayWithCapacity:fields.count];
+    for (NSString *field in fields) {
+        NSHTTPCookie *cookie = CFBridgingRelease(WebCoreCookieCreateFromHTTPResponseField((__bridge CFStringRef)field, (__bridge CFURLRef)cookieURL));
+        if (cookie)
+            [parsed addObject:cookie];
+    }
+    NSArray<NSHTTPCookie *> *cookies = parsed;
     // The transform is where NetworkTaskCocoa caps the expiry of a cookie set through third-party CNAME
     // or address cloaking, and where a partitioned store rewrites the cookies it takes in.
     if (cookieTransform)
         cookies = cookieTransform(cookies);
     if (!cookies.count)
         return;
-    [storage setCookies:cookies forURL:cookieURL mainDocumentURL:request.mainDocumentURL];
+    WebCoreCookieStorageSetHTTPResponseCookies((__bridge CFTypeRef)storage, (__bridge CFArrayRef)cookies,
+        (__bridge CFURLRef)cookieURL, (__bridge CFURLRef)request.mainDocumentURL, siteForCookies.host.length != 0, isTopLevelNavigation);
 }
 
 // Two URLs are same-origin when scheme, host and effective port all match; ws and wss carry http's and
@@ -1242,6 +1250,7 @@ static BOOL wsHeaderHasValidHTTPVersion(const uint8_t *line, NSUInteger length)
     NSArray<NSString *> *lines = [headerString componentsSeparatedByString:@"\r\n"];
 
     NSMutableDictionary<NSString *, NSString *> *responseHeaders = [NSMutableDictionary dictionary];
+    NSMutableArray<NSString *> *setCookieFields = [NSMutableArray array];
     NSUInteger extensionsFields = 0;
     NSUInteger acceptFields = 0;
     NSUInteger protocolFields = 0;
@@ -1259,8 +1268,11 @@ static BOOL wsHeaderHasValidHTTPVersion(const uint8_t *line, NSUInteger length)
             acceptFields++;
         else if ([name caseInsensitiveCompare:@"Sec-WebSocket-Protocol"] == NSOrderedSame)
             protocolFields++;
-        // A header the response repeats -- Set-Cookie, above all -- is folded into one field value, as
-        // NSHTTPURLResponse folds it; keeping only the last would drop every cookie but one.
+        // Set-Cookie is a list of individual fields, not a comma-separated field value.
+        if ([name caseInsensitiveCompare:@"Set-Cookie"] == NSOrderedSame) {
+            [setCookieFields addObject:value];
+            continue;
+        }
         NSString *existing = responseHeaders[name];
         responseHeaders[name] = existing.length ? [existing stringByAppendingFormat:@", %@", value] : value;
     }
@@ -1270,7 +1282,8 @@ static BOOL wsHeaderHasValidHTTPVersion(const uint8_t *line, NSUInteger length)
     }
 
     _response = [[NSHTTPURLResponse alloc] initWithURL:_request.URL statusCode:statusCode HTTPVersion:@"HTTP/1.1" headerFields:responseHeaders];
-    wsStoreCookiesFromResponse([self cookieStorage], (NSHTTPURLResponse *)_response, _request, _cookieTransform);
+    wsStoreCookiesFromResponse([self cookieStorage], (NSHTTPURLResponse *)_response, setCookieFields, _request, _cookieTransform,
+        wsSiteForCookies(_request) ?: _siteForCookies, wsSiteForCookies(_request) ? wsIsTopLevelNavigation(_request) : _isTopLevelNavigation);
 
     if (statusCode == 301 || statusCode == 302 || statusCode == 303 || statusCode == 307 || statusCode == 308)
         return [self followRedirect];

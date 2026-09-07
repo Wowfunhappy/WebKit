@@ -259,6 +259,11 @@ void NetworkLoad::didReceiveResponse(ResourceResponse&& response, NegotiatedLega
     ASSERT(RunLoop::isMain());
 
     if (m_task && m_task->isDownload()) {
+        // MAVERICKS_BACKPORT: resume's destination is supplied and authorized by the download API.
+        if (m_parameters.downloadResume) {
+            completionHandler(PolicyAction::Download);
+            return;
+        }
         m_networkProcess->findPendingDownloadLocation(*m_task.get(), WTF::move(completionHandler), response);
         return;
     }

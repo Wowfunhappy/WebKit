@@ -140,7 +140,8 @@ macro(_WEBKIT_FORCE_LOAD_POLYFILL _target)
         target_link_libraries(${_target} PRIVATE
             "${MAVERICKS_DEPS}/lib/libbrotlienc.a"
             "${MAVERICKS_DEPS}/lib/libbrotlidec.a"
-            "${MAVERICKS_DEPS}/lib/libbrotlicommon.a")
+            "${MAVERICKS_DEPS}/lib/libbrotlicommon.a"
+            "${MAVERICKS_DEPS}/lib/libpsl.5.dylib")
         get_target_property(_wkPolyfillTargetType ${_target} TYPE)
         if (_wkPolyfillTargetType STREQUAL "EXECUTABLE")
             target_link_libraries(${_target} PRIVATE

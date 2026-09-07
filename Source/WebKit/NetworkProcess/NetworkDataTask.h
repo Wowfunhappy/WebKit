@@ -99,6 +99,12 @@ public:
     virtual ~NetworkDataTask();
 
     virtual void cancel() = 0;
+    // MAVERICKS_BACKPORT: transports that retain a partial file provide resume data at cancellation.
+    virtual void cancelWithResumeData(CompletionHandler<void(std::span<const uint8_t>)>&& completion)
+    {
+        cancel();
+        completion({ });
+    }
     virtual void resume() = 0;
     virtual void invalidateAndCancel() = 0;
 

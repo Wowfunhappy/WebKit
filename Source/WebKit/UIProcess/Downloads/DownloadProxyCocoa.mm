@@ -25,12 +25,15 @@
 
 #import "config.h"
 #import "DownloadProxy.h"
+// MAVERICKS_BACKPORT: native cancellation releases the same typed proxy registration as asynchronous cancellation.
+#import "DownloadProxyMap.h"
 
 // MAVERICKS_BACKPORT: API::Data is used directly by legacyResumeDataForNSURLDownload() below.
 #import "APIData.h"
 #import "APIDownloadClient.h"
 #import "NetworkProcessMessages.h"
 #import "NetworkProcessProxy.h"
+#import "CocoaDownloadResumeData.h" // MAVERICKS_BACKPORT: rebuild the native API representation from a typed IPC result.
 #import "WebsiteDataStore.h"
 
 #import <wtf/cocoa/SpanCocoa.h>
@@ -43,6 +46,31 @@
 #endif
 
 namespace WebKit {
+
+// MAVERICKS_BACKPORT: preserve NSURLDownload's synchronous cancellation contract without running the UI run loop.
+void DownloadProxy::didResumeWithResponse(const WebCore::ResourceResponse& response, uint64_t offset)
+{
+    protect(client())->didResumeWithResponse(*this, response, offset);
+}
+
+// MAVERICKS_BACKPORT: close the remote download before exposing native resume information.
+RefPtr<API::Data> DownloadProxy::cancelForLegacyResume()
+{
+    Ref protectedThis { *this };
+    m_downloadIsCancelled = true;
+    if (!m_dataStore)
+        return nullptr;
+    auto result = m_dataStore->networkProcess().sendSync(Messages::NetworkProcess::CancelDownloadForLegacyResume(m_downloadID), 0, IPC::Timeout::infinity());
+    if (!result.succeeded())
+        return nullptr;
+    auto [data] = result.takeReply();
+    // MAVERICKS_BACKPORT: the optional typed reply owns nullable API data at the legacy boundary.
+    m_legacyResumeData = data ? RefPtr<API::Data>(API::Data::create(data->serializedData().span())) : nullptr;
+    auto legacy = legacyResumeDataForNSURLDownload();
+    if (RefPtr map = m_downloadProxyMap.get())
+        map->downloadFinished(*this);
+    return legacy;
+}
 
 void DownloadProxy::publishProgress(const URL& url)
 {
@@ -103,32 +131,10 @@ Vector<uint8_t> DownloadProxy::activityAccessToken()
 
 #endif
 
-// MAVERICKS_BACKPORT: translate NSURLSession resume data into the CFURLDownload resume dictionary that
-// Safari 7's resume path consumes (github #11 / download resume).
-//
-// Safari 7 has NO WK2 resume API -- it imports WKDownloadGetResumeData and WKDownloadCancel and nothing
-// else, and resumes with WebKitLegacy: -[DownloadProgressEntry resume] builds
-// -[WebDownload _initWithResumeInformation:delegate:path:], i.e. Foundation's NSURLDownload, which
-// hands the dictionary to CFURLDownloadCreateWithResumeInformation. In Safari 7's own era WK2 downloads
-// WERE CFURLDownloads, so the blob it got back was already in that format; a modern WebKit produces
-// NSURLSession resume data instead, whose keys that consumer does not read. It would find no URL and no
-// byte count, fail, and Safari would silently restart the download from zero.
-//
-// The two formats carry the same facts under different names, so this is a rename, not an invention.
-// Measured on 10.9.5 by cancelling a real NSURLSession download (keys and types both verified):
-//   NSURLSessionDownloadURL              (string) -> NSURLDownloadURL
-//   NSURLSessionResumeBytesReceived      (number) -> NSURLDownloadBytesReceived
-//   NSURLSessionResumeEntityTag          (string) -> NSURLDownloadEntityTag
-//   NSURLSessionResumeServerDownloadDate (string) -> NSURLDownloadServerModificationDate
-// URLDownload::_internal_downloadFillInDownloadWithResumeInformation (CFNetwork 673.3) requires the
-// first two, type-checks the URL/tag/date as CFString and the count as CFNumber, and uses the tag and
-// date to make the range request conditional -- so a resume that would silently splice a changed file
-// is refused by the server rather than by us. The remaining NSURLSession keys are meaningless here: the
-// archived NSURLRequests are rebuilt from the URL by CFURLDownload, ResumeInfoVersion is NSURLSession's
-// own, and ResumeInfoLocalPath named CFNetwork's temp file, which no longer exists because
-// _pathToDownloadTaskFile now streams into the file Safari nominated (see the polyfill of that property
-// in MavericksSupport/polyfill/polyfills/methods.m -- and Safari passes that same path to
-// _initWithResumeInformation:delegate:path: itself, so it must not come from here).
+// MAVERICKS_BACKPORT: WebKitNetworkProcessResumeData retains the curl request and its NetworkProcess owner.
+// Safari 7 passes this dictionary to WebKitLegacy's -[WebDownload _initWithResumeInformation:delegate:path:].
+// The URL, byte count and validators use the NSURLDownload keys consumed by that API; its destination
+// comes from Safari's path argument. The NetworkProcess session owns the cookies and transport state.
 RefPtr<API::Data> DownloadProxy::legacyResumeDataForNSURLDownload() const
 {
     RefPtr resumeData = m_legacyResumeData;
@@ -145,12 +151,20 @@ RefPtr<API::Data> DownloadProxy::legacyResumeDataForNSURLDownload() const
         return nullptr;
 
     RetainPtr downloadInfo = adoptNS([[NSMutableDictionary alloc] init]);
+    // MAVERICKS_BACKPORT: resume through the original NetworkProcess session and its cookie storage.
+    [downloadInfo setObject:toNSData(resumeData->span()).get() forKey:@"WebKitNetworkProcessResumeData"];
     [downloadInfo setObject:url.get() forKey:@"NSURLDownloadURL"];
     [downloadInfo setObject:bytesReceived.get() forKey:@"NSURLDownloadBytesReceived"];
     if (RetainPtr entityTag = dynamic_objc_cast<NSString>([sessionInfo objectForKey:@"NSURLSessionResumeEntityTag"]))
         [downloadInfo setObject:entityTag.get() forKey:@"NSURLDownloadEntityTag"];
     if (RetainPtr modificationDate = dynamic_objc_cast<NSString>([sessionInfo objectForKey:@"NSURLSessionResumeServerDownloadDate"]))
         [downloadInfo setObject:modificationDate.get() forKey:@"NSURLDownloadServerModificationDate"];
+
+    // MAVERICKS_BACKPORT: the curl resume contract retains the originating jar and request's SameSite context.
+    for (NSString* key in @[@"WebKitRequest", @"WebKitStorageSessionIdentifier", @"WebKitStoredCredentialsPolicy", @"WebKitFirstPartyForCookies", @"WebKitIsTopSite", @"WebKitSameSiteDisposition"]) {
+        if (id value = [sessionInfo objectForKey:key])
+            [downloadInfo setObject:value forKey:key];
+    }
 
     RetainPtr data = [NSPropertyListSerialization dataWithPropertyList:downloadInfo.get() format:NSPropertyListXMLFormat_v1_0 options:0 error:nullptr];
     if (!data)

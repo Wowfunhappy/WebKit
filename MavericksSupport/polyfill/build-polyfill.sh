@@ -333,7 +333,7 @@ WK_POLYFILL_SIBLING="$T/wk_polyfill_sibling.dylib" "$T/wk_polyfill_test"
 "$T/color_popover_top_bar"
 # Probes that link the SHIPPED archive (without -force_load, so only the members they reach are pulled)
 # and call the polyfilled symbols exactly as WebKit will.
-PROBE_LIBS="$OUT/libpolyfill.a -framework Foundation -framework CoreFoundation -framework Security -framework CoreMedia -lsqlite3 -lbsm -lsandbox -lobjc"
+PROBE_LIBS="$OUT/libpolyfill.a $REPO/MavericksSupport/deps/build/lib/libpsl.5.dylib -Wl,-rpath,$REPO/MavericksSupport/deps/build/lib -framework Foundation -framework CoreFoundation -framework Security -framework CoreMedia -lsqlite3 -lbsm -lsandbox -lobjc"
 "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/dispatch_activate" "$TBEHAV/libSystem-dispatch.m" $PROBE_LIBS
 "$T/dispatch_activate"
 "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/sectask_identity" "$TBEHAV/Security-sectask.m" $PROBE_LIBS
@@ -355,8 +355,7 @@ PROBE_LIBS="$OUT/libpolyfill.a -framework Foundation -framework CoreFoundation -
 "$CLANG" $MODERN $INC -dynamiclib -DWK_PROBE_SIDE_B -o "$T/ax_client_side_b.dylib" "$TBEHAV/ApplicationServices-client-identification.c" $PROBE_LIBS
 "$CLANG" $MODERN $INC -o "$T/ax_client_identification" "$TBEHAV/ApplicationServices-client-identification.c"
 "$T/ax_client_identification" "$T/ax_client_side_a.dylib" "$T/ax_client_side_b.dylib"
-# SameSite: the encoding a cookie carries the attribute in, the rule, and the Set-Cookie rewrite, all
-# against 10.9's own cookie parser.
+# Native cookie metadata and read policy; HTTP Set-Cookie parsing is WebCore's.
 # The cookie blocks install their private selectors on NSHTTPCookie here, which is how the constructors
 # this layer replaces can be driven from a program of our own: Foundation.o carries them and
 # wk_selref_scope.o installs them. Those two objects rather than the whole method archive, because the

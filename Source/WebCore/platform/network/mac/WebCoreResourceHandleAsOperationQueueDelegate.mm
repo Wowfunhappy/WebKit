@@ -80,8 +80,13 @@ static bool NODELETE scheduledWithCustomRunLoopMode(const std::optional<Schedule
         function();
         function = nullptr;
     });
-    for (auto& pair : *m_scheduledPairs)
+    // MAVERICKS_BACKPORT: enqueueing a block does not wake its run loop; curl's worker must also signal the custom delegate loop.
+    // for (auto& pair : *m_scheduledPairs)
+    //     CFRunLoopPerformBlock(pair->runLoop(), pair->mode(), block.get());
+    for (auto& pair : *m_scheduledPairs) {
         CFRunLoopPerformBlock(pair->runLoop(), pair->mode(), block.get());
+        CFRunLoopWakeUp(pair->runLoop()); // MAVERICKS_BACKPORT: wake the loop whose delegate block was just queued.
+    }
 }
 
 - (id)initWithHandle:(WebCore::ResourceHandle*)handle messageQueue:(RefPtr<WebCore::SynchronousLoaderMessageQueue>&&)messageQueue

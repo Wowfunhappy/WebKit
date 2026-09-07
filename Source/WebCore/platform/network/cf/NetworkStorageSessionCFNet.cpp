@@ -25,6 +25,10 @@
 
 #include "config.h"
 #include "NetworkStorageSession.h"
+// MAVERICKS_BACKPORT: construct the storage-owned Cocoa curl pool pointer with its complete type.
+#include <WebCore/CocoaCurlConnection.h>
+// MAVERICKS_BACKPORT: native-session constructors own the complete HSTS policy type.
+#include <WebCore/HTTPStrictTransportSecurityStore.h>
 
 #include "PublicSuffixStore.h"
 #include "ResourceRequest.h"

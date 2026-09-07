@@ -24,6 +24,8 @@
  */
 
 #import "config.h"
+// MAVERICKS_BACKPORT: shared default and legacy HSTS directory policy.
+#import <WebCore/HTTPStrictTransportSecurityStore.h>
 #import "WebsiteDataStore.h"
 
 #import "CookieStorageUtilsCF.h"
@@ -497,12 +499,19 @@ String WebsiteDataStore::defaultAlternativeServicesDirectory(const String& baseD
     return cacheDirectoryFileSystemRepresentation("AlternativeServices"_s, { }, ShouldCreateDirectory::No);
 }
 
+// MAVERICKS_BACKPORT: share the upstream directory policy with legacy HTTP loads in WebCore.
+/*
 String WebsiteDataStore::defaultHSTSStorageDirectory(const String& baseDirectory)
 {
     if (!baseDirectory.isEmpty())
         return FileSystem::pathByAppendingComponent(baseDirectory, "HSTS"_s);
 
     return cacheDirectoryFileSystemRepresentation("HSTS"_s);
+}
+*/ // MAVERICKS_BACKPORT: retain the upstream body and use its common implementation below.
+String WebsiteDataStore::defaultHSTSStorageDirectory(const String& baseDirectory)
+{
+    return WebCore::HTTPStrictTransportSecurityStore::defaultStorageDirectory(baseDirectory);
 }
 
 String WebsiteDataStore::defaultMediaCacheDirectory(const String& baseDirectory)

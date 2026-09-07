@@ -300,6 +300,13 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     auto* handle = mainResourceLoader->handle();
 
+    // MAVERICKS_BACKPORT: transfer the existing curl response, including its upload and native session ownership.
+    if (auto* curlHandle = handle->cocoaCurlHandle()) {
+        RetainPtr download = adoptNS([[WebDownload alloc] _initWithCurlResourceHandle:*curlHandle delegate:[webView.get() downloadDelegate]]);
+        download.autorelease();
+        return;
+    }
+
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     [WebDownload _downloadWithLoadingConnection:handle->connection() request:protect(request.nsURLRequest(WebCore::HTTPBodyUpdatePolicy::UpdateHTTPBody)).get() response:protect(response.nsURLResponse()).get() delegate:[webView.get() downloadDelegate] proxy:nil];
 ALLOW_DEPRECATED_DECLARATIONS_END

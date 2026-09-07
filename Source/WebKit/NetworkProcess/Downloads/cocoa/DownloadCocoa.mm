@@ -25,14 +25,27 @@
 
 #import "config.h"
 #import "Download.h"
+// MAVERICKS_BACKPORT: resume request, cookie context and credential policy have one validated native/IPC representation.
+#include "CocoaDownloadResumeData.h"
 
 #import "DownloadProxyMessages.h"
 #import "Logging.h"
+// MAVERICKS_BACKPORT: resume enters the existing NetworkLoad client and destination policy.
+#import "NetworkLoadParameters.h"
+#import "PendingDownload.h"
+#import "MessageSenderInlines.h"
+#import <WebCore/ResourceError.h>
+#import <WebCore/LocalFrameLoaderClient.h>
+#import <wtf/text/MakeString.h>
 #import "NetworkSessionCocoa.h"
 #import "WKDownloadProgress.h"
 #import <pal/spi/cf/CFNetworkSPI.h>
 #import <pal/spi/cocoa/NSProgressSPI.h>
 #import <wtf/BlockPtr.h>
+// MAVERICKS_BACKPORT: failed resume validation releases the consumed destination authorization.
+#import <wtf/Scope.h>
+// MAVERICKS_BACKPORT: resume restores validated request headers and transport policy.
+#import <WebCore/CocoaDownloadTransport.h>
 #import <wtf/FileSystem.h>
 #import <wtf/cocoa/SpanCocoa.h>
 #import <wtf/cocoa/VectorCocoa.h>
@@ -42,6 +55,8 @@
 
 namespace WebKit {
 
+// MAVERICKS_BACKPORT: retain upstream NSURLSession implementation beside the curl resume owner.
+#if 0
 void Download::resume(std::span<const uint8_t> resumeData, const String& path, SandboxExtension::Handle&& sandboxExtensionHandle, std::span<const uint8_t> activityAccessToken)
 {
     m_sandboxExtension = SandboxExtension::create(WTF::move(sandboxExtensionHandle));
@@ -105,6 +120,65 @@ void Download::resume(std::span<const uint8_t> resumeData, const String& path, S
 #endif
 }
     
+#endif // MAVERICKS_BACKPORT: resumed HTTP requests use the same transport as initial requests.
+
+// MAVERICKS_BACKPORT: NSURLSession's public resume fields remain the Safari API serialization format.
+void DownloadManager::resumeDownload(PAL::SessionID sessionID, DownloadID downloadID, std::span<const uint8_t> resumeData, const String& path, SandboxExtension::Handle&& sandboxExtensionHandle, CallDownloadDidStart callDownloadDidStart, std::span<const uint8_t> activityAccessToken)
+{
+    UNUSED_PARAM(activityAccessToken);
+    CheckedPtr session = m_client->networkSession(sessionID);
+    if (!session)
+        return;
+    auto fail = [&](NSInteger code, NSString *description) {
+        if (RefPtr connection = downloadProxyConnection())
+            connection->send(Messages::DownloadProxy::DidFail(WebCore::ResourceError([NSError errorWithDomain:NSURLErrorDomain code:code userInfo:@{ NSLocalizedDescriptionKey: description }]), { }), downloadID);
+    };
+    auto information = CocoaDownloadResumeData::fromData(resumeData);
+    if (!information || path.isEmpty()) {
+        fail(NSURLErrorCannotDecodeContentData, @"Invalid download resume information");
+        return;
+    }
+    if (information->sessionID != sessionID) {
+        fail(NSURLErrorCancelled, @"The resume information belongs to a different storage session");
+        return;
+    }
+    DownloadResumeParameters resume;
+    resume.destination = path;
+    resume.offset = information->bytesReceived;
+    resume.entityTag = information->entityTag;
+    resume.lastModified = information->lastModified;
+    resume.callDidStart = callDownloadDidStart == CallDownloadDidStart::Yes;
+    resume.sandboxExtension = SandboxExtension::create(WTF::move(sandboxExtensionHandle));
+    auto revokeExtension = makeScopeExit([&] {
+        if (resume.sandboxExtension)
+            resume.sandboxExtension->revoke();
+    });
+    if (resume.sandboxExtension && !resume.sandboxExtension->consume()) {
+        fail(NSURLErrorNoPermissionsToReadFile, @"The partial download could not be authorized");
+        return;
+    }
+    if (FileSystem::fileSize(path) != resume.offset) {
+        fail(NSURLErrorCannotOpenFile, @"The partial download does not match its resume information");
+        return;
+    }
+    NetworkLoadParameters parameters;
+    // MAVERICKS_BACKPORT: preserve the original validated request and credential policy across both native resume APIs.
+    parameters.request = WTF::move(information->request);
+    parameters.request.setHTTPHeaderField(WebCore::HTTPHeaderName::Range, makeString("bytes="_s, resume.offset, '-'));
+    auto validator = !resume.entityTag.isEmpty() && !resume.entityTag.startsWith("W/"_s) ? resume.entityTag : resume.lastModified;
+    if (validator.isEmpty()) {
+        fail(NSURLErrorCannotDecodeContentData, @"The partial download has no representation validator");
+        return;
+    }
+    parameters.request.setHTTPHeaderField(WebCore::HTTPHeaderName::IfRange, validator);
+    parameters.storedCredentialsPolicy = information->storedCredentialsPolicy;
+    parameters.clientCredentialPolicy = WebCore::ClientCredentialPolicy::MayAskClientForCredentials;
+    parameters.contentSniffingPolicy = WebCore::ContentSniffingPolicy::DoNotSniffContent;
+    parameters.downloadResume = WTF::move(resume);
+    ASSERT(!m_pendingDownloads.contains(downloadID) && !m_downloads.contains(downloadID));
+    m_pendingDownloads.add(downloadID, PendingDownload::create(protect(m_client->parentProcessConnectionForDownloads()).get(), WTF::move(parameters), downloadID, *session, { }, WebCore::FromDownloadAttribute::No, std::nullopt));
+}
+
 void Download::platformCancelNetworkLoad(CompletionHandler<void(std::span<const uint8_t>)>&& completionHandler)
 {
     ASSERT(isMainRunLoop());

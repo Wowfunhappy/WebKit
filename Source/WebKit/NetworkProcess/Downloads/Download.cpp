@@ -116,8 +116,10 @@ void Download::cancel(CompletionHandler<void(std::span<const uint8_t>)>&& comple
     };
 
     if (m_download) {
-        m_download->cancel();
-        completionHandlerWrapper({ });
+        // MAVERICKS_BACKPORT: cancellation waits for the transport's partial-file resume state.
+        // m_download->cancel();
+        // completionHandlerWrapper({ });
+        m_download->cancelWithResumeData(WTF::move(completionHandlerWrapper));
         return;
     }
     platformCancelNetworkLoad(WTF::move(completionHandlerWrapper));

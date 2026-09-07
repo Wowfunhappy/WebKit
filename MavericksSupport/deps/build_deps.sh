@@ -251,6 +251,12 @@ rm -rf "$RUN"; mkdir -p "$RUN"
 # CCACHE_BASEDIR rewrites absolute paths under the build tree to relative and CCACHE_NOHASHDIR keeps
 # the build directory out of the hash, so the cache still answers when the tree moves with the
 # checkout.
+# ccache 3.7 hashes LANG, LC_ALL, LC_CTYPE and LC_MESSAGES. Agent command runners inject
+# LC_ALL=C.UTF-8 and LC_CTYPE=C.UTF-8 even when an interactive shell does not, which otherwise
+# puts every agent compilation in a distinct cache namespace. Match the canonical interactive
+# build environment explicitly so human and agent builds share the existing cache entries.
+export LANG=en_US.UTF-8
+unset LC_ALL LC_CTYPE LC_MESSAGES
 CCACHE="${MAVERICKS_CCACHE:-$REPO/MavericksSupport/toolchain/build/ccache/bin/ccache}"
 if [ -x "$CCACHE" ]; then
     export CCACHE_DIR="$WORK/ccache"
@@ -881,10 +887,22 @@ echo "==== libcurl 8.22.0 ===="
 # libpsl protects curl's cookie store against cookies scoped to public suffixes.
 d=$(get https://curl.se/download/curl-8.22.0.tar.gz curl) || exit 1
 if prepare "$d"; then
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-reusable-preconnect.patch" \
+        && patch -p1 < "$HERE/patches/curl-reusable-preconnect.patch" ) || exit 1
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-boringssl-async-credentials.patch" \
+        && patch -p1 < "$HERE/patches/curl-boringssl-async-credentials.patch" ) || exit 1
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-gss-explicit-credentials.patch" \
+        && patch -p1 < "$HERE/patches/curl-gss-explicit-credentials.patch" ) || exit 1
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-http2-completed-stream.patch" \
+        && patch -p1 < "$HERE/patches/curl-http2-completed-stream.patch" ) || exit 1
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-http1-framing.patch" \
+        && patch -p1 < "$HERE/patches/curl-http1-framing.patch" ) || exit 1
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-digest-request-target.patch" \
+        && patch -p1 < "$HERE/patches/curl-digest-request-target.patch" ) || exit 1
     ( cd "$d" && CC="$CC_VANILLA" CXX="$CXX_VANILLA" PKG_CONFIG=/usr/bin/false \
         CPPFLAGS="-I$STAGE/include" \
-        LDFLAGS="-L$STAGE/lib $LDFLAGS -L$TC/lib -Wl,-rpath,$STAGE/lib -Wl,-rpath,$TC/lib -Wl,-headerpad_max_install_names" \
-        LIBS="-lc++ -lc++abi" ./configure --prefix="$STAGE" --bindir="$STAGE/libexec" \
+        LDFLAGS="-L$STAGE/lib $LDFLAGS -L$TC/lib -Wl,-rpath,$STAGE/lib -Wl,-rpath,$TC/lib -Wl,-headerpad_max_install_names -F$SDK/System/Library/PrivateFrameworks" \
+        LIBS="-lc++ -lc++abi -framework Heimdal" ./configure --prefix="$STAGE" --bindir="$STAGE/libexec" \
         --enable-shared --disable-static \
         --with-openssl="$STAGE" --with-nghttp2="$STAGE" --with-zlib \
         --with-libpsl="$STAGE" --without-libssh2 --without-libssh --without-librtmp \
@@ -1331,6 +1349,7 @@ cp -Rp "$STAGE/include/unicode"    "$DEST/include/"
 cp -p "$STAGE/include/gpg-error.h"   "$DEST/include/"
 cp -p "$STAGE/include/gcrypt.h"      "$DEST/include/"
 cp -p "$STAGE/include/libtasn1.h"    "$DEST/include/"
+cp -p "$STAGE/include/libpsl.h"      "$DEST/include/"
 cp -Rp "$STAGE/include/brotli"     "$DEST/include/"
 cp -Rp "$STAGE/include/woff2"      "$DEST/include/"
 cp -Rp "$STAGE/include/webp"       "$DEST/include/"
@@ -1811,13 +1830,13 @@ static void server(int listener, const char *cert, const char *key, int mode) {
     CHECK(SSL_CTX_use_certificate_file(ctx, cert, SSL_FILETYPE_PEM));
     CHECK(SSL_CTX_use_PrivateKey_file(ctx, key, SSL_FILETYPE_PEM));
     CHECK(SSL_CTX_set_min_proto_version(ctx, TLS1_3_VERSION));
-    if (mode == 1) SSL_CTX_set_alpn_select_cb(ctx, alpn, NULL);
+    if ((mode == 1 || mode == 6)) SSL_CTX_set_alpn_select_cb(ctx, alpn, NULL);
     int fd = accept(listener, NULL, NULL); CHECK(fd >= 0);
     SSL *ssl = SSL_new(ctx); CHECK(ssl && SSL_set_fd(ssl, fd));
     int accepted = SSL_accept(ssl);
     if (mode == 3) { CHECK(accepted <= 0); SSL_free(ssl); SSL_CTX_free(ctx); close(fd); return; }
     CHECK(accepted == 1);
-    if (mode == 1) {
+    if ((mode == 1 || mode == 6)) {
         char preface[24]; read_exact(ssl, preface, sizeof preface);
         CHECK(!memcmp(preface, "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n", 24));
         frame(ssl, 4, 0, 0, NULL, 0);
@@ -1869,9 +1888,24 @@ static void transfer(const char *cert, const char *key, int mode) {
     OPT(CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_3); OPT(CURLOPT_SSL_CTX_FUNCTION, ctx_callback);
     OPT(CURLOPT_SSL_VERIFYPEER, 1L); OPT(CURLOPT_SSL_VERIFYHOST, 2L);
     OPT(CURLOPT_CAINFO, mode == 3 ? NULL : cert); OPT(CURLOPT_CAPATH, NULL);
-    OPT(CURLOPT_HTTP_VERSION, mode == 1 ? CURL_HTTP_VERSION_2TLS : CURL_HTTP_VERSION_1_1);
+    OPT(CURLOPT_HTTP_VERSION, (mode == 1 || mode == 6) ? CURL_HTTP_VERSION_2TLS : CURL_HTTP_VERSION_1_1);
     OPT(CURLOPT_WRITEFUNCTION, consume);
+    if (mode == 5 || mode == 6) {
+        OPT(CURLOPT_CONNECT_ONLY, CURL_CONNECT_ONLY_REUSABLE);
+        CHECK(curl_easy_perform(curl) == CURLE_OK);
+        long request_bytes = -1, connections = -1;
+        CHECK(curl_easy_getinfo(curl, CURLINFO_REQUEST_SIZE, &request_bytes) == CURLE_OK);
+        CHECK(curl_easy_getinfo(curl, CURLINFO_NUM_CONNECTS, &connections) == CURLE_OK);
+        CHECK(request_bytes == 0 && connections == 1 && received_size == 0);
+        OPT(CURLOPT_CONNECT_ONLY, 0L);
+    }
     CURLcode rc = curl_easy_perform(curl);
+    if (mode == 5 || mode == 6) {
+        long connections = -1;
+        CHECK(curl_easy_getinfo(curl, CURLINFO_NUM_CONNECTS, &connections) == CURLE_OK);
+        CHECK(connections == 0);
+        puts("reusable preconnect: no HTTP request, subsequent transfer reused TLS connection PASS");
+    }
     long status = 0, version = 0, proxy = -1;
     CHECK(!curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status));
     CHECK(!curl_easy_getinfo(curl, CURLINFO_HTTP_VERSION, &version));
@@ -1883,7 +1917,7 @@ static void transfer(const char *cert, const char *key, int mode) {
     if (mode == 3) { CHECK(rc == CURLE_PEER_FAILED_VERIFICATION && !received_size); return; }
     if (mode == 4) { CHECK(rc == CURLE_BAD_CONTENT_ENCODING && !received_size); return; }
     CHECK(rc == CURLE_OK && status == 200);
-    CHECK(version == (mode == 1 ? CURL_HTTP_VERSION_2_0 : CURL_HTTP_VERSION_1_1));
+    CHECK(version == ((mode == 1 || mode == 6) ? CURL_HTTP_VERSION_2_0 : CURL_HTTP_VERSION_1_1));
     CHECK(received_size == sizeof body - 1 && !memcmp(received, body, received_size));
 }
 int main(int argc, char **argv) {
@@ -1917,7 +1951,7 @@ int main(int argc, char **argv) {
     CHECK(n + end == 16 && !memcmp(decoded, plain, 16)); EVP_CIPHER_CTX_free(aes);
     CHECK(BrotliEncoderCompress(5, BROTLI_DEFAULT_WINDOW, BROTLI_MODE_TEXT, sizeof body - 1, (const unsigned char *)body, &compressed_size, compressed));
     puts("capability: shared BoringSSL identity, AES known answer, public-suffix rejection, GSS SPNEGO mechanism PASS");
-    for (int mode = 0; mode < 5; ++mode) transfer(argv[1], argv[2], mode);
+    for (int mode = 0; mode < 7; ++mode) transfer(argv[1], argv[2], mode);
     dlclose(handle); curl_global_cleanup(); puts("curl local TLS/HTTP2/SSL_CTX/Brotli capability PASS"); return 0;
 }
 CAPABILITIES_C

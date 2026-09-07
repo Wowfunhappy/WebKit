@@ -29,6 +29,9 @@
 #import <WebKitLegacy/WebDownload.h>
 
 #import "NetworkStorageSessionMap.h"
+#import <WebCore/CocoaCurlResourceHandle.h> // MAVERICKS_BACKPORT: adopt the current legacy HTTP transaction.
+#import "WebDownloadCurl.h" // MAVERICKS_BACKPORT: native download ABI with curl transport.
+#import <wtf/RunLoop.h> // MAVERICKS_BACKPORT: begin after the initializer returns to Safari.
 #import <Foundation/NSURLAuthenticationChallenge.h>
 #import <WebCore/AuthenticationMac.h>
 #import <WebCore/Credential.h>
@@ -55,8 +58,17 @@ static bool shouldCallOnNetworkThread()
 
 static void callOnDelegateThread(Function<void()>&& function)
 {
+    // MAVERICKS_BACKPORT: curl delivers on main; preserve response-before-destination ordering there.
+    // Network-thread legacy clients receive each notification exactly once.
+    /*
     if (shouldCallOnNetworkThread())
         function();
+    callOnMainThread(WTF::move(function));
+    */ // MAVERICKS_BACKPORT: preserve delegate ordering and single delivery on its own thread.
+    if (shouldCallOnNetworkThread() || isMainThread()) {
+        function();
+        return;
+    }
     callOnMainThread(WTF::move(function));
 }
 
@@ -76,6 +88,8 @@ using namespace WebCore;
 
 @interface WebDownloadInternal : NSObject <NSURLDownloadDelegate> {
     RetainPtr<id> realDelegate;
+@public
+    RetainPtr<id<WebCoreCocoaDownloadTransport>> curlDownload; // MAVERICKS_BACKPORT: private storage preserves WebDownload object layout.
 }
 - (void)setRealDelegate:(id)realDelegate;
 @end
@@ -97,6 +111,7 @@ using namespace WebCore;
     if (selector == @selector(downloadDidBegin:) ||
         selector == @selector(download:willSendRequest:redirectResponse:) ||
         selector == @selector(download:didReceiveResponse:) ||
+        selector == @selector(download:willResumeWithResponse:fromByte:) || // MAVERICKS_BACKPORT: legacy resume notification.
         selector == @selector(download:didReceiveDataOfLength:) ||
         selector == @selector(download:shouldDecodeSourceDataOfMIMEType:) ||
         selector == @selector(download:decideDestinationWithSuggestedFilename:) ||
@@ -162,6 +177,14 @@ using namespace WebCore;
     });
 }
 
+// MAVERICKS_BACKPORT: resumed curl downloads use the native NSURLDownload delegate contract.
+- (void)download:(NSURLDownload *)download willResumeWithResponse:(NSURLResponse *)response fromByte:(long long)offset
+{
+    callOnDelegateThread([realDelegate = realDelegate, download = retainPtr(download), response = retainPtr(response), offset] {
+        [realDelegate download:download.get() willResumeWithResponse:response.get() fromByte:offset];
+    });
+}
+
 - (void)download:(NSURLDownload *)download didReceiveDataOfLength:(NSUInteger)length
 {
     callOnDelegateThread([realDelegate = realDelegate, download = retainPtr(download), length] {
@@ -222,6 +245,17 @@ using namespace WebCore;
 
 @end
 
+// MAVERICKS_BACKPORT: declare Safari's native resume SPI and the typed HTTP initializer.
+@interface NSURLDownload (WebDownloadResumeInformation)
+- (NSDictionary *)_resumeInformation;
+// MAVERICKS_BACKPORT: native directory SPI is backed by the selected download transport.
+- (NSString *)_directoryPath;
+- (void)_setDirectoryPath:(NSString *)path;
+@end
+@interface WebDownload (CurlInitialization)
+- (id)_initCurlWithRequest:(NSURLRequest *)request delegate:(id)delegate resumeInformation:(NSDictionary *)resume path:(NSString *)path directory:(NSString *)directory;
+@end
+
 @implementation WebDownload
 
 - (void)_setRealDelegate:(id)delegate
@@ -257,6 +291,9 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 - (id)initWithRequest:(NSURLRequest *)request delegate:(id<NSURLDownloadDelegate>)delegate
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 {
+    // MAVERICKS_BACKPORT: HTTP uses the shared curl transaction; non-HTTP keeps its native protocol handler.
+    if ([request.URL.scheme caseInsensitiveCompare:@"http"] == NSOrderedSame || [request.URL.scheme caseInsensitiveCompare:@"https"] == NSOrderedSame)
+        return [self _initCurlWithRequest:request delegate:delegate resumeInformation:nil path:nil directory:nil];
     [self _setRealDelegate:delegate];
     return [super initWithRequest:request delegate:_webInternal];
 }
@@ -279,8 +316,122 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
              directory:(NSString *)directory
 IGNORE_WARNINGS_END
 {
+    // MAVERICKS_BACKPORT: Safari's reload path retains its directory and delegate with curl.
+    if ([request.URL.scheme caseInsensitiveCompare:@"http"] == NSOrderedSame || [request.URL.scheme caseInsensitiveCompare:@"https"] == NSOrderedSame)
+        return [self _initCurlWithRequest:request delegate:delegate resumeInformation:nil path:nil directory:directory];
     [self _setRealDelegate:delegate];
     return [super _initWithRequest:request delegate:_webInternal directory:directory];
+}
+
+// MAVERICKS_BACKPORT: the NSURLDownload superclass remains ABI-compatible; its HTTP loader is not initialized.
+- (id)_initCurlWithRequest:(NSURLRequest *)request delegate:(id)delegate resumeInformation:(NSDictionary *)resume path:(NSString *)path directory:(NSString *)directory
+{
+    // MAVERICKS_BACKPORT: an application's first call into WebKit may be this one; the download's run-loop
+    // dispatch needs the main thread initialized, as WebSecurityOrigin's entry points ensure.
+    WTF::initializeMainThread();
+    if (!(self = [self init]))
+        return nil;
+    [_webInternal setRealDelegate:delegate];
+    // MAVERICKS_BACKPORT: preserve the NetworkProcess owner of serialized WK2 downloads, including private sessions.
+    if ([resume objectForKey:@"WebKitNetworkProcessResumeData"])
+        _webInternal->curlDownload = createCocoaRemoteDownload(self, _webInternal, resume, path);
+    else
+        _webInternal->curlDownload = adoptNS([[WebDownloadCurl alloc] initWithDownload:self delegate:_webInternal request:request resumeInformation:resume path:path directory:directory]);
+    if (!_webInternal->curlDownload) {
+        [self release];
+        return nil;
+    }
+    RunLoop::mainSingleton().dispatch([download = _webInternal->curlDownload] { [download start]; });
+    return self;
+}
+
+// MAVERICKS_BACKPORT: a download consumes the paused response and any sniffed prefix from its existing HTTP connection.
+- (instancetype)_initWithCurlResourceHandle:(WebCore::CocoaCurlResourceHandle&)handle delegate:(id)delegate
+{
+    if (!(self = [self init]))
+        return nil;
+    auto transfer = handle.takeDownload();
+    if (!transfer) {
+        [self release];
+        return nil;
+    }
+    [_webInternal setRealDelegate:delegate];
+    _webInternal->curlDownload = adoptNS([[WebDownloadCurl alloc] initWithDownload:self delegate:_webInternal transfer:WTF::move(*transfer)]);
+    RunLoop::mainSingleton().dispatch([download = _webInternal->curlDownload] { [download start]; });
+    return self;
+}
+
+- (id)_initWithResumeInformation:(NSDictionary *)information delegate:(id)delegate path:(NSString *)path
+{
+    return [self _initCurlWithRequest:nil delegate:delegate resumeInformation:information path:path directory:nil];
+}
+
+- (id)initWithResumeData:(NSData *)data delegate:(id<NSURLDownloadDelegate>)delegate path:(NSString *)path
+{
+    id information = [NSPropertyListSerialization propertyListWithData:data options:NSPropertyListImmutable format:nil error:nil];
+    if (![information isKindOfClass:[NSDictionary class]]) {
+        [self release];
+        return nil;
+    }
+    return [self _initWithResumeInformation:information delegate:delegate path:path];
+}
+
+- (void)cancel
+{
+    if (_webInternal->curlDownload)
+        [_webInternal->curlDownload cancel];
+    else
+        [super cancel];
+}
+
+- (void)setDestination:(NSString *)path allowOverwrite:(BOOL)allowOverwrite
+{
+    if (_webInternal->curlDownload)
+        [_webInternal->curlDownload setDestination:path allowOverwrite:allowOverwrite];
+    else
+        [super setDestination:path allowOverwrite:allowOverwrite];
+}
+
+- (NSURLRequest *)request
+{
+    return _webInternal->curlDownload ? [_webInternal->curlDownload request] : [super request];
+}
+
+// MAVERICKS_BACKPORT: NSURLDownload's inherited directory accessors require its CFURLDownload; curl retains the actual configured directory itself.
+- (NSString *)_directoryPath
+{
+    return _webInternal->curlDownload ? [_webInternal->curlDownload directoryPath] : [super _directoryPath];
+}
+
+- (void)_setDirectoryPath:(NSString *)path
+{
+    if (_webInternal->curlDownload)
+        [_webInternal->curlDownload setDirectoryPath:path];
+    else
+        [super _setDirectoryPath:path];
+}
+
+- (NSData *)resumeData
+{
+    return _webInternal->curlDownload ? [_webInternal->curlDownload resumeData] : [super resumeData];
+}
+
+- (NSDictionary *)_resumeInformation
+{
+    return _webInternal->curlDownload ? [_webInternal->curlDownload resumeInformation] : [super _resumeInformation];
+}
+
+- (BOOL)deletesFileUponFailure
+{
+    return _webInternal->curlDownload ? [_webInternal->curlDownload deletesFileUponFailure] : [super deletesFileUponFailure];
+}
+
+- (void)setDeletesFileUponFailure:(BOOL)value
+{
+    if (_webInternal->curlDownload)
+        [_webInternal->curlDownload setDeletesFileUponFailure:value];
+    else
+        [super setDeletesFileUponFailure:value];
 }
 
 @end

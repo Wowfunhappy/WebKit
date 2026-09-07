@@ -61,6 +61,10 @@ messages -> NetworkProcess : AuxiliaryProcess WantsAsyncDispatchMessage {
     ResumeDownload(PAL::SessionID sessionID, WebKit::DownloadID downloadID, std::span<const uint8_t> resumeData, String path, WebKit::SandboxExtensionHandle sandboxExtensionHandle, enum:bool WebKit::CallDownloadDidStart callDownloadDidStart, std::span<const uint8_t> activityAccessToken)
     CancelDownload(WebKit::DownloadID downloadID) -> (std::span<const uint8_t> resumeData)
 #if PLATFORM(COCOA)
+    # MAVERICKS_BACKPORT: NSURLDownload.cancel must finish closing its writer before Safari reads resume information.
+    CancelDownloadForLegacyResume(WebKit::DownloadID downloadID) -> (std::optional<WebKit::CocoaDownloadResumeData> resumeData) Synchronous
+#endif
+#if PLATFORM(COCOA)
 #if HAVE(MODERN_DOWNLOADPROGRESS)
     PublishDownloadProgress(WebKit::DownloadID downloadID, URL url, std::span<const uint8_t> bookmarkData, enum:bool WebKit::UseDownloadPlaceholder useDownloadPlaceholder, std::span<const uint8_t> activityAccessToken)
 #endif

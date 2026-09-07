@@ -28,6 +28,9 @@
 #include "AppPrivacyReport.h"
 #include "AuxiliaryProcess.h"
 #include "CacheModel.h"
+#if PLATFORM(COCOA)
+#include "CocoaDownloadResumeData.h" // MAVERICKS_BACKPORT: typed synchronous native-download resume reply.
+#endif
 #include "DataTaskIdentifier.h"
 #include "DownloadID.h"
 #include "DownloadManager.h"
@@ -551,6 +554,10 @@ private:
     void downloadRequest(PAL::SessionID, DownloadID, const WebCore::ResourceRequest&, const std::optional<WebCore::SecurityOriginData>& topOrigin, std::optional<NavigatingToAppBoundDomain>, const String& suggestedFilename);
     void resumeDownload(PAL::SessionID, DownloadID, std::span<const uint8_t> resumeData, const String& path, SandboxExtensionHandle&&, CallDownloadDidStart, std::span<const uint8_t> activityAccessToken);
     void cancelDownload(DownloadID, CompletionHandler<void(std::span<const uint8_t>)>&&);
+#if PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: synchronous native cancellation preserves the exact durable resume offset.
+    void cancelDownloadForLegacyResume(DownloadID, CompletionHandler<void(std::optional<CocoaDownloadResumeData>&&)>&&);
+#endif
 #if PLATFORM(COCOA)
 #if HAVE(MODERN_DOWNLOADPROGRESS)
     void publishDownloadProgress(DownloadID, const URL&, std::span<const uint8_t> bookmarkData, WebKit::UseDownloadPlaceholder, std::span<const uint8_t> activityAccessToken);

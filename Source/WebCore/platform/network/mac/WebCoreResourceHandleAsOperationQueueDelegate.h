@@ -59,6 +59,8 @@ class SynchronousLoaderMessageQueue;
 }
 
 - (void)detachHandle;
+// MAVERICKS_BACKPORT: curl shares the upstream custom-run-loop/message-queue dispatcher.
+- (void)callFunctionOnMainThread:(Function<void()>&&)function;
 - (id)initWithHandle:(WebCore::ResourceHandle*)handle messageQueue:(RefPtr<WebCore::SynchronousLoaderMessageQueue>&&)messageQueue;
 @end
 

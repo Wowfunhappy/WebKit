@@ -1,5 +1,5 @@
 /*
- * MAVERICKS_BACKPORT: wild-free detector for demangler-crash-scan.
+ * wild-free detector for demangler-crash-scan.
  *
  * The 10.9 __cxa_demangle bug manifests as free() of a garbage pointer
  * assembled from demangled-symbol TEXT. Whether that free aborts (detected)

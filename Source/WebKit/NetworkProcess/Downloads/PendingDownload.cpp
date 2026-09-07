@@ -78,7 +78,10 @@ PendingDownload::PendingDownload(IPC::Connection* parentProcessConnection, Netwo
         m_networkLoad->setSuggestedFilename(suggestedName);
     };
 
-    send(Messages::DownloadProxy::DidStart(m_networkLoad->currentRequest(), suggestedName));
+    // MAVERICKS_BACKPORT: Safari's legacy resume API already owns its download entry.
+    // send(Messages::DownloadProxy::DidStart(m_networkLoad->currentRequest(), suggestedName));
+    if (!m_networkLoad->parameters().downloadResume || m_networkLoad->parameters().downloadResume->callDidStart)
+        send(Messages::DownloadProxy::DidStart(m_networkLoad->currentRequest(), suggestedName));
 
 #if HAVE(WEBCONTENTRESTRICTIONS)
     protect(m_urlFilter)->isURLAllowed(mainDocumentURL(), m_networkLoad->currentRequest().url(), [this, protectedThis = Ref { *this }, startNetworkLoad = WTF::move(startNetworkLoad)] (bool allowed, NSData *) mutable {

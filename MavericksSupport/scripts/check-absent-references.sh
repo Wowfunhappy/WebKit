@@ -527,12 +527,14 @@ sort -u "$WORK/findings.raw" > "$WORK/findings"
 #
 # The pinned entries are all vendored third-party images that cannot link the polyfill archive, and
 # each is guarded at its own call site, verified by disassembly: libgstapplemedia guards
-# VTRegisterSupplementalVideoDecoderIfAvailable with __builtin_available, and libcrypto/libglib/
-# libgstreamer reach __darwin_check_fd_set_overflow through Apple's own SDK null-address test inside
-# FD_SET. Verify the same before ever adding a line here.
+# VTRegisterSupplementalVideoDecoderIfAvailable with __builtin_available, and libglib/libgstreamer/
+# libcurl reach __darwin_check_fd_set_overflow through Apple's own SDK null-address test inside
+# FD_SET. In libcurl all four calls, in Curl_cshutdn_setfds and curl_multi_fdset, are dominated by a
+# zero test of the weak-import GOT slot whose zero branch performs the FD_SET without the call.
+# Verify the same before ever adding a line here.
 cat > "$WORK/pinned" <<'PINNED'
 CALL _VTRegisterSupplementalVideoDecoderIfAvailable libgstapplemedia.dylib
-CALL ___darwin_check_fd_set_overflow libcrypto.3.dylib
+CALL ___darwin_check_fd_set_overflow libcurl.4.dylib
 CALL ___darwin_check_fd_set_overflow libglib-2.0.0.dylib
 CALL ___darwin_check_fd_set_overflow libgstreamer-1.0.0.dylib
 PINNED

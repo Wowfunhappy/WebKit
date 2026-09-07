@@ -27,6 +27,9 @@
 #import "CoreIPCNSURLCredential.h"
 
 #import <pal/spi/cf/CFNetworkSPI.h>
+// MAVERICKS_BACKPORT: the owning keychain file comes from Security.
+#import <Security/SecKeychain.h>
+#include <limits.h>
 
 @interface NSURLCredential(WKSecureCoding)
 - (NSDictionary *)_webKitPropertyListData;
@@ -45,6 +48,43 @@ namespace WebKit {
 #if HAVE(WK_SECURE_CODING_NSURLCREDENTIAL)
 CoreIPCNSURLCredential::CoreIPCNSURLCredential(NSURLCredential *credential)
 {
+    // MAVERICKS_BACKPORT: pass the selected key's persistent item reference and public certificate DER.
+    // Mavericks' SecItem identity queries depend on the search list; the native item reference
+    // identifies the owning keychain directly, including keys that cannot be exported.
+    if (auto identity = credential.identity) {
+        SecKeyRef privateKey = nullptr;
+        if (SecIdentityCopyPrivateKey(identity, &privateKey) == errSecSuccess) {
+            auto key = adoptCF(privateKey);
+            m_data.privateKeyReference.emplace(reinterpret_cast<SecKeychainItemRef>(key.get()));
+            // MAVERICKS_BACKPORT: persistent references identify the key but do not authorize
+            // a sandboxed recipient to read a file-backed keychain's CSSM metadata.
+            SecKeychainRef rawKeychain = nullptr;
+            if (SecKeychainItemCopyKeychain(reinterpret_cast<SecKeychainItemRef>(key.get()), &rawKeychain) == errSecSuccess) {
+                auto keychain = adoptCF(rawKeychain);
+                char path[PATH_MAX];
+                UInt32 length = sizeof(path);
+                if (SecKeychainGetPath(keychain.get(), &length, path) == errSecSuccess) {
+                    m_keychainAccess = SandboxExtension::createHandle(String::fromUTF8(std::span { path, length }), SandboxExtension::Type::ReadOnly);
+                    if (!m_keychainAccess)
+                        m_data.privateKeyReference.reset();
+                }
+            }
+        }
+        SecCertificateRef leaf = nullptr;
+        if (SecIdentityCopyCertificate(identity, &leaf) == errSecSuccess) {
+            auto certificate = adoptCF(leaf);
+            auto bytes = adoptCF(SecCertificateCopyData(certificate.get()));
+            if (bytes)
+                m_data.certificates.append(CoreIPCSecCertificate(WTF::move(bytes)));
+        }
+        for (id certificate in credential.certificates) {
+            if (CFGetTypeID((__bridge CFTypeRef)certificate) == SecCertificateGetTypeID()) {
+                auto bytes = adoptCF(SecCertificateCopyData((__bridge SecCertificateRef)certificate));
+                if (bytes)
+                    m_data.certificates.append(CoreIPCSecCertificate(WTF::move(bytes)));
+            }
+        }
+    }
     auto dict = [credential _webKitPropertyListData];
 
     NSNumber *persistence = dict[@"persistence"];
@@ -169,8 +209,14 @@ CoreIPCNSURLCredential::CoreIPCNSURLCredential(NSURLCredential *credential)
     }
 }
 
+// MAVERICKS_BACKPORT: decode the credential and the file capability together.
+/*
 CoreIPCNSURLCredential::CoreIPCNSURLCredential(CoreIPCNSURLCredentialData&& data)
     : m_data(WTF::move(data)) { }
+*/ // MAVERICKS_BACKPORT: retain the upstream constructor beside capability-aware decoding.
+CoreIPCNSURLCredential::CoreIPCNSURLCredential(CoreIPCNSURLCredentialData&& data, std::optional<SandboxExtension::Handle>&& keychainAccess)
+    : m_data(WTF::move(data))
+    , m_keychainAccess(WTF::move(keychainAccess)) { }
 
 RetainPtr<id> CoreIPCNSURLCredential::toID() const
 {
@@ -253,9 +299,44 @@ RetainPtr<id> CoreIPCNSURLCredential::toID() const
             [dict setObject:flags.get() forKey:@"flags"];
         }
         break;
+    // MAVERICKS_BACKPORT: reconstruct the selected keychain identity directly, including non-exportable keys.
+    /*
     case CoreIPCNSURLCredentialType::ClientCertificate:
         [dict setObject:@(kURLCredentialClientCertificate) forKey:@"type"];
         break;
+    */ // MAVERICKS_BACKPORT: the keychain-backed client identity is reconstructed below.
+    case CoreIPCNSURLCredentialType::ClientCertificate: {
+        if (!m_data.privateKeyReference || m_data.certificates.isEmpty())
+            return nullptr;
+        // MAVERICKS_BACKPORT: Security keys can outlive this transient IPC wrapper in
+        // credential storage and TLS signing jobs. The selected-file grant lasts for
+        // the receiving process, while native key ACLs continue to authorize signing.
+        if (m_keychainAccess) {
+            auto access = *m_keychainAccess;
+            if (!SandboxExtension::consumePermanently(access))
+                return nullptr;
+        }
+        auto key = m_data.privateKeyReference->createSecKeychainItem();
+        if (!key)
+            return nullptr;
+        if (CFGetTypeID(key.get()) != SecKeyGetTypeID())
+            return nullptr;
+        auto leaf = m_data.certificates[0].createSecCertificate();
+        if (!leaf)
+            return nullptr;
+        // MAVERICKS_BACKPORT: SecIdentityCreate pairs the leaf with the key its persistent reference resolved to.
+        auto identity = adoptCF(SecIdentityCreate(nullptr, leaf.get(), reinterpret_cast<SecKeyRef>(key.get())));
+        if (!identity)
+            return nullptr;
+        auto certificates = adoptNS([[NSMutableArray alloc] init]);
+        for (auto& encoded : m_data.certificates) {
+            auto certificate = encoded.createSecCertificate();
+            if (!certificate)
+                return nullptr;
+            [certificates addObject:(__bridge id)certificate.get()];
+        }
+        return [NSURLCredential credentialWithIdentity:identity.get() certificates:certificates.get() persistence:static_cast<NSURLCredentialPersistence>(static_cast<unsigned>(m_data.persistence) - 1)];
+    }
     case CoreIPCNSURLCredentialType::XMobileMeAuthToken:
         [dict setObject:@(kURLCredentialXMobileMeAuthToken) forKey:@"type"];
         if (m_data.appleID)

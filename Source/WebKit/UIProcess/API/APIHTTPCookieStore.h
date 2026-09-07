@@ -81,6 +81,11 @@ public:
     void registerObserver(HTTPCookieStoreObserver&);
     void unregisterObserver(HTTPCookieStoreObserver&);
 
+    // MAVERICKS_BACKPORT: Safari's legacy C client is an owned observer of this same store.
+    void setLegacyCookieChangeCallback(Function<void(HTTPCookieStore&)>&&);
+    void startObservingLegacyCookieChanges();
+    void stopObservingLegacyCookieChanges();
+
     void cookiesDidChange();
 
     void filterAppBoundCookies(Vector<WebCore::Cookie>&&, CompletionHandler<void(Vector<WebCore::Cookie>&&)>&&);
@@ -107,6 +112,9 @@ private:
     PAL::SessionID m_sessionID;
     WeakPtr<WebKit::WebsiteDataStore> m_owningDataStore;
     WeakHashSet<HTTPCookieStoreObserver> m_observers;
+    // MAVERICKS_BACKPORT: registration and client lifetime are separate in the legacy C contract.
+    RefPtr<HTTPCookieStoreObserver> m_legacyObserver;
+    bool m_isObservingLegacyCookieChanges { false };
 };
 
 }

@@ -118,7 +118,8 @@ static RetainPtr<NSArray<NSHTTPCookie *>> cookiesBySettingPartition(NSArray<NSHT
 #endif
 
 // FIXME: Temporary fix for <rdar://60089022> and <rdar://100500464> until content can be updated.
-bool NetworkTaskCocoa::needsFirstPartyCookieBlockingLatchModeQuirk(const URL& firstPartyURL, const URL& requestURL, const URL& redirectingURL) const
+// bool NetworkTaskCocoa::needsFirstPartyCookieBlockingLatchModeQuirk(const URL& firstPartyURL, const URL& requestURL, const URL& redirectingURL) const // MAVERICKS_BACKPORT: static; see the header.
+bool NetworkTaskCocoa::needsFirstPartyCookieBlockingLatchModeQuirk(const URL& firstPartyURL, const URL& requestURL, const URL& redirectingURL)
 {
     using RegistrableDomain = WebCore::RegistrableDomain;
     static NeverDestroyed<HashMap<RegistrableDomain, RegistrableDomain>> quirkPairs = [] {

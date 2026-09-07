@@ -1,0 +1,48 @@
+--- a/lib/http.c
++++ b/lib/http.c
+@@ -796,6 +796,8 @@
+   return result;
+ }
+ 
++static CURLcode http_target(struct Curl_easy *data, struct dynbuf *r);
++
+ CURLcode Curl_http_output_auth(struct Curl_easy *data,
+                                struct connectdata *conn,
+                                const char *request,
+@@ -809,6 +811,9 @@
+   struct auth *authproxy;
+   const char *path_and_query = path;
+   char *tmp_str = NULL;
++  struct dynbuf target;
++
++  curlx_dyn_init(&target, DYN_HTTP_REQUEST);
+ 
+   DEBUGASSERT(data);
+   authhost = &data->state.authhost;
+@@ -833,7 +838,17 @@
+     goto out;
+   }
+ 
+-  if(query) {
++  /* RFC 7616 section 3.4.6 binds Digest to the actual request-target.
++   * Use the same formatter as the request line (absolute-form through an
++   * HTTP proxy, including an explicit CURLOPT_REQUEST_TARGET). CONNECT
++   * callers already supply their authority-form target. */
++  if(!is_connect) {
++    result = http_target(data, &target);
++    if(result)
++      goto out;
++    path_and_query = curlx_dyn_ptr(&target);
++  }
++  else if(query) {
+     tmp_str = curl_maprintf("%s?%s", path, query);
+     if(!tmp_str) {
+       result = CURLE_OUT_OF_MEMORY;
+@@ -890,6 +905,7 @@
+     data->req.authneg = FALSE;
+ 
+ out:
++  curlx_dyn_free(&target);
+   curlx_free(tmp_str);
+   return result;
+ }

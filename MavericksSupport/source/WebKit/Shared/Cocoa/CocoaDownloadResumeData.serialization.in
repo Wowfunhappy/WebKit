@@ -1,0 +1,15 @@
+# Copyright (C) 2026. All rights reserved.
+# SPDX-License-Identifier: BSD-2-Clause
+# typed fields replace an opaque native resume blob on the synchronous download IPC.
+#if PLATFORM(COCOA)
+header: "CocoaDownloadResumeData.h"
+[CustomHeader] class WebKit::CocoaDownloadResumeData {
+    WebCore::ResourceRequest request;
+    PAL::SessionID sessionID;
+    WebCore::StoredCredentialsPolicy storedCredentialsPolicy;
+    uint64_t bytesReceived;
+    String destination;
+    String entityTag;
+    String lastModified;
+};
+#endif

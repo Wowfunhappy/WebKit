@@ -191,3 +191,64 @@ The patch keeps the base class's existing discipline for the fragment path, whic
 `gst_input_selector_event()`, the src-pad handler for upstream events, takes `active_sinkpad_lock` in reader mode and holds it across `gst_pad_push_event()` to the active sink pad. A seek is such an event and its push is synchronous: upstream, the demuxer flushes the pipeline on the same thread, and on legacy `decodebin2` a FLUSH_STOP during a decode-group switch hides the old group -- its exposed pads are removed, playbin's `pad_removed_cb` finds the combiner emptied and sets it to `GST_STATE_NULL`, and `gst_input_selector_reset()` takes `active_sinkpad_lock` as a writer. Same thread, same `GRWLock`, which is not recursive: the seeking thread (WebKit's main thread) deadlocks against itself, with every streaming task idle. Sampled on an ABR HLS stream seeked during a variant switch.
 
 The handler already holds a reference to the pad it pushes to; the patch releases the reader lock before the push, so the lock covers the choice of pad and nothing else.
+
+## curl-reusable-preconnect.patch
+
+**Target:** `curl-8.22.0`, `include/curl/curl.h`, `lib/urldata.h`, `lib/setopt.c`, `lib/url.c`, `lib/multi.c`, `lib/easy.c`
+**Applied to:** libcurl
+
+Adds `CURL_CONNECT_ONLY_REUSABLE` (3) as a `CURLOPT_CONNECT_ONLY` mode that completes DNS, proxy and
+TLS setup and then leaves the connection in the pool. Stock `CONNECT_ONLY` excludes its connection
+from reuse, so a preconnect through it would warm a connection and discard it; WebKit's
+`ENABLE(SERVER_PRECONNECT)` needs the warmed connection to serve the request that follows.
+
+## curl-boringssl-async-credentials.patch
+
+**Target:** `curl-8.22.0`, `lib/vtls/openssl.c`
+**Applied to:** libcurl
+
+BoringSSL reports an in-flight private-key operation or certificate lookup with its own
+asynchronous result codes. The patch resumes those through `curl_easy_pause()`, the same path stock
+curl already uses for OpenSSL's retry verifier, so a handshake that is waiting on a `SecTrust`
+decision or a keychain signature pauses instead of failing.
+
+## curl-gss-explicit-credentials.patch
+
+**Target:** `curl-8.22.0`, `lib/vauth/spnego_gssapi.c`, `lib/vauth/vauth.h`, `lib/curl_gssapi.h`, `configure.ac`, `configure`, `lib/curl_config.h.in`
+**Applied to:** libcurl
+
+Acquires Negotiate credentials for an explicit user name and password directly into a private
+native `MEMORY` credential cache through Heimdal's `__ApplePrivate_gss_krb5_import_cred`, declared
+to match the Heimdal-323.92.1 headers Mavericks ships. The password path Apple's public GSS API
+offers creates an `API` cache it cannot move to `MEMORY` on 10.9, which leaves credentials from
+WebKit's authentication sheet unusable for the connection that asked. `configure` checks for
+`gss_acquire_cred_with_password` and `gssapi_ext.h`; the private import is declared under
+`HAVE_GSSAPPLE`.
+
+## curl-digest-request-target.patch
+
+**Target:** `curl-8.22.0`, `lib/http.c`
+**Applied to:** libcurl
+
+Computes the Digest `uri` from the actual request-target, as RFC 7616 section 3.4.6 requires,
+including requests sent through an HTTP proxy and requests carrying an explicit
+`CURLOPT_REQUEST_TARGET`. CONNECT keeps its authority-form target.
+
+## curl-http1-framing.patch
+
+**Target:** `curl-8.22.0`, `lib/http.c`, `lib/http_chunks.c`, `lib/http_chunks.h`
+**Applied to:** libcurl
+
+RFC 9112 framing: a status line may omit the reason phrase, and extra digits after the status
+code are not one; chunk extensions are parsed incrementally, so bytes following the hexadecimal
+size can never turn an invalid size into an accepted chunk; the CR that ends a chunk-size line must
+be followed by LF.
+
+## curl-http2-completed-stream.patch
+
+**Target:** `curl-8.22.0`, `lib/http2.c`
+**Applied to:** libcurl
+
+A failed connection-level acknowledgement does not replace the result of a stream that already
+completed. The connection is retired and the failure reaches only the streams still in flight.
+

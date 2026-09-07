@@ -1,5 +1,4 @@
-// The SameSite encoding, the rule and the Set-Cookie rewrite (polyfills/c/wk_samesite.c), against 10.9's
-// own cookie parser.
+// Native cookie metadata, PSL acceptance, and CF observer-driven notification SPIs.
 #include "../../polyfills/c/wk_samesite.h"
 #include "../../polyfills/c/wk_hosts.h"
 
@@ -33,12 +32,116 @@ static void *cfnetwork(const char *name)
 
 static int failures;
 
+@interface NSString (AddressPredicateTest)
+- (BOOL)_web_looksLikeIPAddress;
+@end
+
 static void check(bool condition, const char *what)
 {
     if (condition)
         return;
     printf("  FAIL: %s\n", what);
     ++failures;
+}
+
+@interface NSHTTPCookieStorage (CookieObservationTest)
+- (instancetype)_initWithCFHTTPCookieStorage:(CFHTTPCookieStorageRef)storage;
+- (void)_setCookiesChangedHandler:(void (^)(NSArray *, NSString *))handler onQueue:(dispatch_queue_t)queue;
+- (void)_setCookiesRemovedHandler:(void (^)(NSArray *, NSString *, bool))handler onQueue:(dispatch_queue_t)queue;
+- (void)_setSubscribedDomainsForCookieChanges:(NSSet *)domains;
+@end
+@interface NSObject (CookieInternalObservationTest)
+- (void)registerForPostingNotificationsWithContext:(NSHTTPCookieStorage *)context;
+@end
+
+static void checkCookieObservers(void)
+{
+    CFHTTPCookieStorageRef jar = ((CFHTTPCookieStorageRef (*)(CFAllocatorRef, CFDictionaryRef))
+        cfnetwork("CFHTTPCookieStorageCreateInMemory"))(NULL, NULL);
+    NSHTTPCookieStorage *store = [[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:jar];
+    NSHTTPCookieStorage *otherWrapper = [[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:jar];
+    __block unsigned notifications = 0;
+    id token = [[NSNotificationCenter defaultCenter] addObserverForName:NSHTTPCookieManagerCookiesChangedNotification
+        object:store queue:nil usingBlock:^(NSNotification *notification) {
+            check(notification.object == store, "Internal notification identifies the registered NS wrapper");
+            ++notifications;
+        }];
+    id internal = object_getIvar(store, class_getInstanceVariable([NSHTTPCookieStorage class], "_internal"));
+    [internal registerForPostingNotificationsWithContext:store];
+    [internal registerForPostingNotificationsWithContext:store];
+    __block unsigned stage = 0;
+    NSHTTPCookie *(^cookie)(NSString *, BOOL) = ^NSHTTPCookie *(NSString *value, BOOL httpOnly) {
+        NSMutableDictionary *properties = [@{ NSHTTPCookieName: @"observed", NSHTTPCookieValue: value,
+            NSHTTPCookieDomain: @"observer.test", NSHTTPCookiePath: @"/" } mutableCopy];
+        if (httpOnly)
+            properties[@"HttpOnly"] = @YES;
+        NSHTTPCookie *result = [NSHTTPCookie cookieWithProperties:properties];
+        [properties release];
+        return result;
+    };
+    [store _setCookiesChangedHandler:^(NSArray *cookies, NSString *domain) {
+        check([domain isEqual:@"observer.test"] && cookies.count == 1, "change batch is filtered to the subscribed domain");
+        NSHTTPCookie *changed = cookies[0];
+        if (changed.HTTPOnly)
+            return;
+        if (stage == 0) {
+            check([changed.value isEqual:@"one"], "native setCookie emits the added cookie");
+            stage = 1;
+            [store setCookie:cookie(@"two", NO)];
+        } else if (stage == 1) {
+            check([changed.value isEqual:@"two"], "same-key replacement emits the new value");
+            stage = 2;
+            [store setCookie:cookie(@"hidden", YES)];
+        } else
+            check(false, "no duplicate visible change callback");
+    } onQueue:dispatch_get_main_queue()];
+    [otherWrapper _setCookiesRemovedHandler:^(NSArray *cookies, NSString *domain, bool removeAll) {
+        check(!removeAll && [domain isEqual:@"observer.test"] && cookies.count == 1, "removal batch identifies its subscribed domain");
+        NSHTTPCookie *removed = cookies[0];
+        if (stage == 2) {
+            check(!removed.HTTPOnly && [removed.value isEqual:@"two"], "HttpOnly replacement removes the visible predecessor");
+            stage = 3;
+            [store deleteCookie:cookie(@"hidden", YES)];
+        } else if (stage == 3) {
+            check(removed.HTTPOnly, "native deleteCookie emits the stored deleted cookie");
+            stage = 4;
+            CFRunLoopStop(CFRunLoopGetMain());
+        } else
+            check(false, "no duplicate removal callback");
+    } onQueue:dispatch_get_main_queue()];
+    [otherWrapper _setSubscribedDomainsForCookieChanges:[NSSet setWithObject:@"observer.test"]];
+    [store setCookie:[NSHTTPCookie cookieWithProperties:@{ NSHTTPCookieName: @"unrelated", NSHTTPCookieValue: @"ignored",
+        NSHTTPCookieDomain: @"unrelated.test", NSHTTPCookiePath: @"/" }]];
+    [store setCookie:cookie(@"one", NO)];
+    // One bounded event-loop run; callbacks drive the mutation sequence and stop it on completion.
+    CFRunLoopRunInMode(kCFRunLoopDefaultMode, 10, false);
+    printf("    [observer stage=%u notifications=%u]\n", stage, notifications);
+    check(stage == 4, "native storage observer completed add, replace, HttpOnly overwrite, and delete");
+    check(notifications > 0, "Internal SPI posts native mutation notifications");
+    [store _setCookiesChangedHandler:nil onQueue:nil];
+    [otherWrapper _setCookiesRemovedHandler:nil onQueue:nil];
+    [store _setSubscribedDomainsForCookieChanges:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:token];
+    [otherWrapper release];
+    [store release];
+    CFRelease(jar);
+}
+
+static void checkPublicSetterPolicy(void)
+{
+    CFHTTPCookieStorageRef jar = ((CFHTTPCookieStorageRef (*)(CFAllocatorRef, CFDictionaryRef))
+        cfnetwork("CFHTTPCookieStorageCreateInMemory"))(NULL, NULL);
+    NSHTTPCookieStorage *store = [[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:jar];
+    store.cookieAcceptPolicy = NSHTTPCookieAcceptPolicyAlways;
+    NSURL *url = [NSURL URLWithString:@"https://project.pages.dev/"];
+    for (NSString *domain in @[@".pages.dev", @".project.pages.dev"]) {
+        [store setCookies:@[[NSHTTPCookie cookieWithProperties:@{ NSHTTPCookieName: @"psl", NSHTTPCookieValue: @"1",
+            NSHTTPCookieDomain: domain, NSHTTPCookiePath: @"/" }]] forURL:url mainDocumentURL:url];
+    }
+    check(store.cookies.count == 1 && [[store.cookies[0] domain] isEqual:@".project.pages.dev"],
+        "public setter rejects a modern private suffix and accepts its tenant domain");
+    [store release];
+    CFRelease(jar);
 }
 
 static CFStringRef str(const char *text)
@@ -60,7 +163,7 @@ static void checkRoundTrip(const char *sameSite, const char *comment)
 {
     CFStringRef policy = str(sameSite);
     CFStringRef original = comment ? str(comment) : NULL;
-    CFStringRef blob = wk_sameSiteCommentCreate(policy, original);
+    CFStringRef blob = wk_cookieBlobCreate(policy, NULL, NULL, original);
     check(blob != NULL, "the pair encodes");
     if (blob) {
         CFStringRef readPolicy = wk_sameSiteCopyValue(blob);
@@ -79,112 +182,10 @@ static void checkRoundTrip(const char *sameSite, const char *comment)
         CFRelease(original);
 }
 
-// The cookies 10.9's parser makes of |header|, printed as "name=value|comment" per cookie.
-static CFStringRef parseAndDescribe(CFStringRef header, CFURLRef url)
-{
-    const void *key = (const void *)CFSTR("Set-Cookie");
-    const void *value = (const void *)header;
-    CFDictionaryRef fields = CFDictionaryCreate(NULL, &key, &value, 1,
-        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    CFArrayRef cookies = ((ParseFn)cfnetwork("CFHTTPCookieCreateWithResponseHeaderFields"))(NULL, fields, url);
-    CFRelease(fields);
-    CFMutableStringRef description = CFStringCreateMutable(NULL, 0);
-    for (CFIndex i = 0; cookies && i < CFArrayGetCount(cookies); ++i) {
-        CookieRef cookie = (CookieRef)CFArrayGetValueAtIndex(cookies, i);
-        CFStringRef name = ((CopyFn)cfnetwork("CFHTTPCookieCopyName"))(cookie);
-        CFStringRef text = ((CopyFn)cfnetwork("CFHTTPCookieCopyValue"))(cookie);
-        CFStringRef comment = ((CopyFn)cfnetwork("CFHTTPCookieCopyComment"))(cookie);
-        CFStringAppendFormat(description, NULL, CFSTR("[%@=%@|%@]"), name, text, comment ? comment : CFSTR("-"));
-        if (name)
-            CFRelease(name);
-        if (text)
-            CFRelease(text);
-        if (comment)
-            CFRelease(comment);
-    }
-    if (cookies)
-        CFRelease(cookies);
-    return description;
-}
-
-// Rewrites |header| and answers what the parser then makes of it, so a case is stated in terms of the
-// cookies that reach the jar rather than the bytes in between.
-static void checkRewrite(const char *label, const char *header, const char *expected)
-{
-    CFURLRef url = CFURLCreateWithString(NULL, CFSTR("http://a.test/x"), NULL);
-    CFStringRef field = str(header);
-    CFStringRef rewritten = NULL;
-    wk_samesite_header_disposition disposition = wk_sameSiteRewriteSetCookieHeader(field, url, &rewritten);
-
-    CFStringRef described = parseAndDescribe(disposition == WK_SAMESITE_HEADER_REWRITTEN ? rewritten : field, url);
-
-    char *actual = utf8(described);
-    if (strcmp(actual, expected)) {
-        printf("  FAIL: %s\n        header   %s\n        expected %s\n        actual   %s\n",
-               label, header, expected, actual);
-        ++failures;
-    }
-    free(actual);
-    CFRelease(described);
-    if (rewritten)
-        CFRelease(rewritten);
-    CFRelease(field);
-    CFRelease(url);
-}
-
-
-// RFC 6265bis 5.5 at the HTTP seam: the set-cookie-strings of a folded field that carry no CTL other
-// than HTAB, folded back into one field. |expected| is NULL when every cookie in the field carries one.
-static void checkControlSplit(const char *label, const char *header, const char *expected)
-{
-    CFStringRef field = str(header);
-    CFStringRef kept = wk_copyFieldWithoutControlCookies(field);
-    char *actual = kept ? utf8(kept) : NULL;
-    bool same = expected ? (actual && !strcmp(actual, expected)) : !actual;
-    if (!same) {
-        printf("  FAIL: %s\n        header   %s\n        expected %s\n        actual   %s\n",
-               label, header, expected ? expected : "(the whole field ignored)",
-               actual ? actual : "(the whole field ignored)");
-        ++failures;
-    }
-    free(actual);
-    if (kept)
-        CFRelease(kept);
-    CFRelease(field);
-}
-
-
-// The division this layer makes must be the one 10.9's parser makes, so a field is never handed on
-// carrying more or fewer cookies than the server sent.
-static void checkRangeCountMatchesParser(const char *header)
-{
-    CFURLRef url = CFURLCreateWithString(NULL, CFSTR("http://a.test/x"), NULL);
-    CFStringRef field = str(header);
-    CFIndex ours = 0;
-    CFRange *ranges = wk_copySetCookieRanges(field, &ours);
-    const void *key = (const void *)CFSTR("Set-Cookie");
-    const void *value = (const void *)field;
-    CFDictionaryRef fields = CFDictionaryCreate(NULL, &key, &value, 1,
-        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    CFArrayRef parsed = ((ParseFn)cfnetwork("CFHTTPCookieCreateWithResponseHeaderFields"))(NULL, fields, url);
-    CFRelease(fields);
-    CFIndex theirs = parsed ? CFArrayGetCount(parsed) : 0;
-    if (ours != theirs) {
-        printf("  FAIL: the field divides into %ld cookies here and %ld in the parser\n        header %s\n",
-               (long)ours, (long)theirs, header);
-        ++failures;
-    }
-    free(ranges);
-    if (parsed)
-        CFRelease(parsed);
-    CFRelease(field);
-    CFRelease(url);
-}
-
 static void checkPolicy(const char *sameSite, wk_same_site_policy expected, const char *what)
 {
     CFStringRef policy = str(sameSite);
-    CFStringRef blob = wk_sameSiteCommentCreate(policy, NULL);
+    CFStringRef blob = wk_cookieBlobCreate(policy, NULL, NULL, NULL);
     check(blob && wk_sameSitePolicyOfComment(blob) == expected, what);
     if (blob)
         CFRelease(blob);
@@ -198,7 +199,7 @@ static void checkOnlyATopLevelDomain(const char *url, const char *mainDocumentUR
     CFStringRef urlText = str(url), mainText = str(mainDocumentURL);
     CFURLRef a = CFURLCreateWithString(NULL, urlText, NULL);
     CFURLRef b = CFURLCreateWithString(NULL, mainText, NULL);
-    check(wk_hostsShareOnlyATopLevelDomain(a, b) == expected, what);
+    check(wk_hostsHaveDifferentRegistrableDomains(a, b) == expected, what);
     if (a)
         CFRelease(a);
     if (b)
@@ -247,267 +248,18 @@ static void forgetCookiesOfDomain(NSHTTPCookieStorage *storage, NSString *domain
             [storage deleteCookie:held];
     }
 }
-
-// The bulk-merge report (polyfills/c/CFNetwork.c). A file-backed cookie storage takes in whatever
-// another process wrote to its file when it syncs, naming none of it; the hook snapshots the storage
-// either side of that merge and the watcher reports the difference. Driven here with two storages over
-// one file: the second writes, the first syncs, and the handlers say what moved.
-typedef CFHTTPCookieStorageRef (*CreateFromFileFn)(CFAllocatorRef, CFURLRef, CFDictionaryRef);
-typedef CFHTTPCookieStorageRef (*CreateInMemoryFn)(CFAllocatorRef, CFDictionaryRef);
-typedef void (*SyncNowFn)(CFHTTPCookieStorageRef);
-typedef void (*StorageSetCookieFn)(CFHTTPCookieStorageRef, CookieRef);
-typedef void (*StorageDeleteCookieFn)(CFHTTPCookieStorageRef, CookieRef);
-
-// -_initWithCFHTTPCookieStorage: is 10.9's own, so the public selector reaches it; the three handler
-// methods below are ones this layer adds, and an added method answers only the private selector the
-// layer registers it under ("wk_" and the real name), which is what a send made at runtime must name.
-static NSHTTPCookieStorage *wrapStorage(CFHTTPCookieStorageRef store)
-{
-    return [((id (*)(id, SEL, CFHTTPCookieStorageRef))objc_msgSend)([NSHTTPCookieStorage alloc],
-        sel_getUid("_initWithCFHTTPCookieStorage:"), store) autorelease];
-}
-
-static NSHTTPCookie *cookieNamed(NSString *name, NSString *value)
-{
-    return [NSHTTPCookie cookieWithProperties:@{ NSHTTPCookieName: name, NSHTTPCookieValue: value,
-        NSHTTPCookieDomain: @"merge.test", NSHTTPCookiePath: @"/" }];
-}
-
-// The reports the watcher has delivered, drained by spinning the run loop the handlers are queued on.
-static NSMutableArray *gAdded, *gRemoved;
-
-static void drain(void)
-{
-    for (int i = 0; i < 40; ++i)
-        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.02, true);
-}
-
-static NSString *describe(NSArray *cookies)
-{
-    NSMutableArray *parts = [NSMutableArray array];
-    for (NSHTTPCookie *c in [cookies sortedArrayUsingComparator:^NSComparisonResult(NSHTTPCookie *a, NSHTTPCookie *b) {
-            return [[a name] compare:[b name]]; }])
-        [parts addObject:[NSString stringWithFormat:@"%@=%@", [c name], [c value]]];
-    return [parts componentsJoinedByString:@","];
-}
-
-static void checkMerge(const char *label, NSString *gotAdded, const char *wantAdded,
-                       NSString *gotRemoved, const char *wantRemoved)
-{
-    if (strcmp([gotAdded UTF8String], wantAdded) || strcmp([gotRemoved UTF8String], wantRemoved)) {
-        printf("  FAIL: %s\n        added   expected [%s] got [%s]\n        removed expected [%s] got [%s]\n",
-               label, wantAdded, [gotAdded UTF8String], wantRemoved, [gotRemoved UTF8String]);
-        ++failures;
-    }
-}
-
-// The per-mutation report (polyfills/c/CFNetwork.c, wk_setCookieInternalLocked). A Set-Cookie whose
-// expiry has already passed names a cookie to remove; 10.9 takes it in and keeps it until the clock
-// passes that instant, so the hook deletes it. A subscriber is owed a removal only when there was a
-// cookie to remove -- an expired write over nothing changes nothing.
-static void checkExpiredWriteReport(void)
-{
-    CreateFromFileFn createFromFile = (CreateFromFileFn)cfnetwork("CFHTTPCookieStorageCreateFromFile");
-    NSString *path = [NSString stringWithFormat:@"/tmp/wk-expired-%d.cookies", (int)getpid()];
-    [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
-    CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)[path UTF8String],
-                                                           (CFIndex)strlen([path UTF8String]), false);
-    CFHTTPCookieStorageRef store = createFromFile(NULL, url, NULL);
-    if (!store) {
-        printf("  FAIL: a cookie storage for the expired-write report could not be made\n");
-        ++failures;
-        CFRelease(url);
-        return;
-    }
-
-    gAdded = [NSMutableArray array];
-    gRemoved = [NSMutableArray array];
-    NSHTTPCookieStorage *watched = wrapStorage(store);
-    ((void (*)(id, SEL, id, dispatch_queue_t))objc_msgSend)(watched, sel_getUid("wk__setCookiesChangedHandler:onQueue:"),
-        ^(NSArray *cookies, NSString *host) { (void)host; [gAdded addObjectsFromArray:cookies]; }, dispatch_get_main_queue());
-    ((void (*)(id, SEL, id, dispatch_queue_t))objc_msgSend)(watched, sel_getUid("wk__setCookiesRemovedHandler:onQueue:"),
-        ^(NSArray *cookies, NSString *host, BOOL all) { (void)host; (void)all; [gRemoved addObjectsFromArray:cookies]; }, dispatch_get_main_queue());
-    ((void (*)(id, SEL, id))objc_msgSend)(watched, sel_getUid("wk__setSubscribedDomainsForCookieChanges:"),
-        [NSSet setWithObject:@"merge.test"]);
-
-    NSHTTPCookie *(^expired)(NSString *) = ^NSHTTPCookie *(NSString *value) {
-        return [NSHTTPCookie cookieWithProperties:@{ NSHTTPCookieName: @"gone", NSHTTPCookieValue: value,
-            NSHTTPCookieDomain: @"merge.test", NSHTTPCookiePath: @"/",
-            NSHTTPCookieExpires: [NSDate dateWithTimeIntervalSinceNow:-10] }];
-    };
-
-    // (1) an expired write over a cookie the store does not hold
-    [watched setCookie:expired(@"x")];
-    drain();
-    checkMerge("an expired write over nothing raises no change", describe(gAdded), "", describe(gRemoved), "");
-    check(watched.cookies.count == 0, "and stores nothing");
-
-    // (2) an expired write over a stored cookie, carrying a different value than the stored one
-    [gAdded removeAllObjects]; [gRemoved removeAllObjects];
-    [watched setCookie:[NSHTTPCookie cookieWithProperties:@{ NSHTTPCookieName: @"gone",
-        NSHTTPCookieValue: @"here", NSHTTPCookieDomain: @"merge.test", NSHTTPCookiePath: @"/" }]];
-    drain();
-    [gAdded removeAllObjects]; [gRemoved removeAllObjects];
-    [watched setCookie:expired(@"different")];
-    drain();
-    checkMerge("an expired write over a stored cookie removes it", describe(gAdded), "", describe(gRemoved), "gone=different");
-    check(watched.cookies.count == 0, "and the stored cookie is gone");
-
-    ((void (*)(id, SEL, id))objc_msgSend)(watched, sel_getUid("wk__setSubscribedDomainsForCookieChanges:"), nil);
-    CFRelease(store);
-    CFRelease(url);
-    [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
-
-    // The same two cases on the process's own jar. That storage is ExternalCookieStorage, whose delete
-    // slot answers with a constant, so this is the configuration WebKit runs and the one a report made
-    // on the slot's answer alone gets wrong.
-    NSHTTPCookieStorage *shared = [NSHTTPCookieStorage sharedHTTPCookieStorage];
-    NSHTTPCookie *(^onShared)(NSString *, NSDate *) = ^NSHTTPCookie *(NSString *value, NSDate *expires) {
-        NSMutableDictionary *properties = [@{ NSHTTPCookieName: @"wkgone", NSHTTPCookieValue: value,
-            NSHTTPCookieDomain: @"expired.test", NSHTTPCookiePath: @"/" } mutableCopy];
-        if (expires)
-            properties[NSHTTPCookieExpires] = expires;
-        return [NSHTTPCookie cookieWithProperties:properties];
-    };
-    forgetCookiesOfDomain(shared, @"expired.test");
-
-    gAdded = [NSMutableArray array];
-    gRemoved = [NSMutableArray array];
-    ((void (*)(id, SEL, id, dispatch_queue_t))objc_msgSend)(shared, sel_getUid("wk__setCookiesChangedHandler:onQueue:"),
-        ^(NSArray *cookies, NSString *host) { (void)host; [gAdded addObjectsFromArray:cookies]; }, dispatch_get_main_queue());
-    ((void (*)(id, SEL, id, dispatch_queue_t))objc_msgSend)(shared, sel_getUid("wk__setCookiesRemovedHandler:onQueue:"),
-        ^(NSArray *cookies, NSString *host, BOOL all) { (void)host; (void)all; [gRemoved addObjectsFromArray:cookies]; }, dispatch_get_main_queue());
-    ((void (*)(id, SEL, id))objc_msgSend)(shared, sel_getUid("wk__setSubscribedDomainsForCookieChanges:"),
-        [NSSet setWithObject:@"expired.test"]);
-
-    [shared setCookie:onShared(@"x", [NSDate dateWithTimeIntervalSinceNow:-10])];
-    drain();
-    checkMerge("on the process's own jar, an expired write over nothing raises no change",
-               describe(gAdded), "", describe(gRemoved), "");
-
-    [gAdded removeAllObjects]; [gRemoved removeAllObjects];
-    [shared setCookie:onShared(@"here", nil)];
-    drain();
-    [gAdded removeAllObjects]; [gRemoved removeAllObjects];
-    [shared setCookie:onShared(@"different", [NSDate dateWithTimeIntervalSinceNow:-10])];
-    drain();
-    checkMerge("and an expired write over a stored cookie removes it once",
-               describe(gAdded), "", describe(gRemoved), "wkgone=different");
-
-    ((void (*)(id, SEL, id))objc_msgSend)(shared, sel_getUid("wk__setSubscribedDomainsForCookieChanges:"), nil);
-    forgetCookiesOfDomain(shared, @"expired.test");
-
-    // And on MemoryCookieStorage, which is the third patched family WebKit reaches: an ephemeral or
-    // private session runs on it.
-    CreateInMemoryFn createInMemory = (CreateInMemoryFn)cfnetwork("CFHTTPCookieStorageCreateInMemory");
-    CFHTTPCookieStorageRef memory = createInMemory ? createInMemory(NULL, NULL) : NULL;
-    if (!memory) {
-        printf("  FAIL: an in-memory cookie storage could not be made\n");
-        ++failures;
-        return;
-    }
-    NSHTTPCookieStorage *inMemory = wrapStorage(memory);
-    gAdded = [NSMutableArray array];
-    gRemoved = [NSMutableArray array];
-    ((void (*)(id, SEL, id, dispatch_queue_t))objc_msgSend)(inMemory, sel_getUid("wk__setCookiesChangedHandler:onQueue:"),
-        ^(NSArray *cookies, NSString *host) { (void)host; [gAdded addObjectsFromArray:cookies]; }, dispatch_get_main_queue());
-    ((void (*)(id, SEL, id, dispatch_queue_t))objc_msgSend)(inMemory, sel_getUid("wk__setCookiesRemovedHandler:onQueue:"),
-        ^(NSArray *cookies, NSString *host, BOOL all) { (void)host; (void)all; [gRemoved addObjectsFromArray:cookies]; }, dispatch_get_main_queue());
-    ((void (*)(id, SEL, id))objc_msgSend)(inMemory, sel_getUid("wk__setSubscribedDomainsForCookieChanges:"),
-        [NSSet setWithObject:@"expired.test"]);
-
-    [inMemory setCookie:onShared(@"x", [NSDate dateWithTimeIntervalSinceNow:-10])];
-    drain();
-    checkMerge("in memory, an expired write over nothing raises no change",
-               describe(gAdded), "", describe(gRemoved), "");
-
-    [gAdded removeAllObjects]; [gRemoved removeAllObjects];
-    [inMemory setCookie:onShared(@"here", nil)];
-    drain();
-    checkMerge("in memory, a new cookie is a change", describe(gAdded), "wkgone=here", describe(gRemoved), "");
-
-    // The same cookie again: the slot answers that the write was accepted, which is not a change.
-    [gAdded removeAllObjects]; [gRemoved removeAllObjects];
-    [inMemory setCookie:onShared(@"here", nil)];
-    drain();
-    checkMerge("in memory, storing an identical cookie raises no change",
-               describe(gAdded), "", describe(gRemoved), "");
-
-    [gAdded removeAllObjects]; [gRemoved removeAllObjects];
-    [inMemory setCookie:onShared(@"different", [NSDate dateWithTimeIntervalSinceNow:-10])];
-    drain();
-    checkMerge("in memory, an expired write over a stored cookie removes it once",
-               describe(gAdded), "", describe(gRemoved), "wkgone=different");
-
-    ((void (*)(id, SEL, id))objc_msgSend)(inMemory, sel_getUid("wk__setSubscribedDomainsForCookieChanges:"), nil);
-    CFRelease(memory);
-}
-
-static void checkBulkMergeReport(void)
-{
-    CreateFromFileFn createFromFile = (CreateFromFileFn)cfnetwork("CFHTTPCookieStorageCreateFromFile");
-    SyncNowFn syncNow = (SyncNowFn)cfnetwork("CFHTTPCookieStorageSyncStorageNow");
-
-    NSString *path = [NSString stringWithFormat:@"/tmp/wk-merge-%d.cookies", (int)getpid()];
-    [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
-    CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)[path UTF8String],
-                                                           (CFIndex)strlen([path UTF8String]), false);
-
-    CFHTTPCookieStorageRef observed = createFromFile(NULL, url, NULL);
-    CFHTTPCookieStorageRef writer = createFromFile(NULL, url, NULL);
-    if (!observed || !writer) {
-        printf("  FAIL: a file-backed cookie storage could not be made\n");
-        ++failures;
-        CFRelease(url);
-        return;
-    }
-
-    gAdded = [NSMutableArray array];
-    gRemoved = [NSMutableArray array];
-    NSHTTPCookieStorage *watched = wrapStorage(observed);
-    NSHTTPCookieStorage *writing = wrapStorage(writer);
-
-    ((void (*)(id, SEL, id, dispatch_queue_t))objc_msgSend)(watched, sel_getUid("wk__setCookiesChangedHandler:onQueue:"),
-        ^(NSArray *cookies, NSString *host) { (void)host; [gAdded addObjectsFromArray:cookies]; }, dispatch_get_main_queue());
-    ((void (*)(id, SEL, id, dispatch_queue_t))objc_msgSend)(watched, sel_getUid("wk__setCookiesRemovedHandler:onQueue:"),
-        ^(NSArray *cookies, NSString *host, BOOL all) { (void)host; (void)all; [gRemoved addObjectsFromArray:cookies]; }, dispatch_get_main_queue());
-    ((void (*)(id, SEL, id))objc_msgSend)(watched, sel_getUid("wk__setSubscribedDomainsForCookieChanges:"),
-        [NSSet setWithObject:@"merge.test"]);
-
-    // (1) a cookie another writer added arrives as an addition
-    [writing setCookie:cookieNamed(@"a", @"1")];
-    [writing setCookie:cookieNamed(@"b", @"2")];
-    syncNow(writer);
-    syncNow(observed);
-    drain();
-    checkMerge("a merge that adds cookies names them", describe(gAdded), "a=1,b=2", describe(gRemoved), "");
-
-    // (2) a value change under the same identity is a set, not a pair of edits
-    [gAdded removeAllObjects]; [gRemoved removeAllObjects];
-    [writing setCookie:cookieNamed(@"a", @"changed")];
-    syncNow(writer);
-    syncNow(observed);
-    drain();
-    checkMerge("a merge that changes a value names it once", describe(gAdded), "a=changed", describe(gRemoved), "");
-
-    // (3) a cookie another writer removed arrives as a removal
-    [gAdded removeAllObjects]; [gRemoved removeAllObjects];
-    [writing deleteCookie:cookieNamed(@"b", @"2")];
-    syncNow(writer);
-    syncNow(observed);
-    drain();
-    checkMerge("a merge that removes a cookie names it", describe(gAdded), "", describe(gRemoved), "b=2");
-
-    ((void (*)(id, SEL, id))objc_msgSend)(watched, sel_getUid("wk__setSubscribedDomainsForCookieChanges:"), nil);
-    CFRelease(observed);
-    CFRelease(writer);
-    CFRelease(url);
-    [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
-}
-
 int main(void)
 {
-    printf("SameSite encoding, rule and Set-Cookie rewrite:\n");
+    printf("Native cookie metadata and read policy:\n");
+    for (NSString *address in @[@"127.0.0.1", @"::1", @"[::1]", @"[2001:db8::1]"]) {
+        check(wk_hostIsIPAddress((CFStringRef)address), "native-cookie address parser recognizes IP literals");
+        check([address _web_looksLikeIPAddress], "Cocoa URL address predicate recognizes IP literals");
+    }
+    for (NSString *name in @[@"policy.test", @"1.2.3", @"999.1.1.1", @"[not-an-address]", @"[127.0.0.1]", @"a:b"]) {
+        check(!wk_hostIsIPAddress((CFStringRef)name), "native-cookie address parser rejects non-addresses");
+        check(![name _web_looksLikeIPAddress], "Cocoa URL address predicate rejects non-addresses");
+    }
+
 
     // The encoding carries the attribute and the server's comment, whatever either contains.
     checkRoundTrip("Strict", NULL);
@@ -526,204 +278,6 @@ int main(void)
     if (asComment)
         CFRelease(asComment);
     CFRelease(foreign);
-    // What a cookie must be to be stored at all: a Secure cookie needs a secure origin, and a name
-    // prefix is a promise the cookie has to keep. The prefixes match case-sensitively, as CFNetwork's do.
-    {
-        CFURLRef secure = CFURLCreateWithString(NULL, CFSTR("https://example.com/x/"), NULL);
-        CFURLRef plain = CFURLCreateWithString(NULL, CFSTR("http://example.com/x/"), NULL);
-        check(wk_cookieMayBeSet(CFSTR("a"), false, CFSTR("/"), false, plain),
-              "an ordinary cookie is set from a non-secure origin");
-        check(!wk_cookieMayBeSet(CFSTR("a"), true, CFSTR("/"), false, plain),
-              "a Secure cookie is not");
-        check(wk_cookieMayBeSet(CFSTR("__Secure-a"), true, CFSTR("/"), false, secure),
-              "a __Secure- cookie that is Secure and from a secure origin is set");
-        check(!wk_cookieMayBeSet(CFSTR("__Secure-a"), false, CFSTR("/"), false, secure),
-              "one without the attribute is not");
-        check(wk_cookieMayBeSet(CFSTR("__SeCuRe-a"), false, CFSTR("/"), false, secure),
-              "and the prefix is matched case-sensitively, as CFNetwork matches it");
-        check(wk_cookieMayBeSet(CFSTR("__Host-a"), true, CFSTR("/"), false, secure),
-              "a __Host- cookie with a root path and no Domain is set");
-        check(!wk_cookieMayBeSet(CFSTR("__Host-a"), true, CFSTR("/x"), false, secure),
-              "one with another path is not");
-        check(!wk_cookieMayBeSet(CFSTR("__Host-a"), true, CFSTR("/"), true, secure),
-              "and neither is one that carried a Domain attribute");
-
-        bool setsNothing = true;
-        CFStringRef kept = wk_cookieFieldWithoutRefusedCookiesCreate(
-            CFSTR("good=1; Path=/, __Host-bad=2; Secure; Path=/; Domain=example.com"), secure, &setsNothing);
-        check(kept && !setsNothing && CFStringFind(kept, CFSTR("good=1"), 0).location != kCFNotFound
-              && CFStringFind(kept, CFSTR("__Host-bad"), 0).location == kCFNotFound,
-              "a field keeps the cookies that may be set and drops the one that may not");
-        CFStringRef none = wk_cookieFieldWithoutRefusedCookiesCreate(
-            CFSTR("__Host-bad=2; Secure; Path=/x"), secure, &setsNothing);
-        check(none && setsNothing, "a field whose every cookie is refused sets nothing");
-
-        // The Domain attribute is read off the string: a cookie set with Domain= an IPv4 literal comes
-        // back from the parser with the host and no leading dot, exactly like a host-only cookie.
-        CFURLRef literal = CFURLCreateWithString(NULL, CFSTR("https://127.0.0.1/"), NULL);
-        CFStringRef refusedByDomain = wk_cookieFieldWithoutRefusedCookiesCreate(
-            CFSTR("__Host-a=1; Secure; Path=/; Domain=127.0.0.1"), literal, &setsNothing);
-        check(refusedByDomain && setsNothing, "a __Host- cookie with Domain= an address literal is refused");
-        CFStringRef keptWithoutDomain = wk_cookieFieldWithoutRefusedCookiesCreate(
-            CFSTR("__Host-a=1; Secure; Path=/"), literal, &setsNothing);
-        check(!keptWithoutDomain, "and the same cookie without the attribute is kept");
-        CFStringRef emptyDomain = wk_cookieFieldWithoutRefusedCookiesCreate(
-            CFSTR("__Host-a=1; Secure; Path=/; Domain="), literal, &setsNothing);
-        check(!emptyDomain, "an empty Domain= is no attribute at all");
-        if (refusedByDomain)
-            CFRelease(refusedByDomain);
-        if (keptWithoutDomain)
-            CFRelease(keptWithoutDomain);
-        if (emptyDomain)
-            CFRelease(emptyDomain);
-        CFRelease(literal);
-        if (kept)
-            CFRelease(kept);
-        if (none)
-            CFRelease(none);
-        CFRelease(secure);
-        CFRelease(plain);
-    }
-
-    // The 400-day ceiling, expressed by appending Max-Age to the cookies that exceed it.
-    {
-        CFURLRef url = CFURLCreateWithString(NULL, CFSTR("https://example.com/"), NULL);
-        CFStringRef longOne = wk_cookieLifetimeCappedHeaderCreate(
-            CFSTR("a=1; max-age=99999999999999999999999999999; path=/"), url);
-        check(longOne && CFStringFind(longOne, CFSTR("max-age=34560000"), 0).location != kCFNotFound
-              && CFStringFind(longOne, CFSTR("99999"), 0).location == kCFNotFound,
-              "a cookie past the ceiling has its Max-Age replaced");
-        CFStringRef byDate = wk_cookieLifetimeCappedHeaderCreate(
-            CFSTR("a=1; expires=Wed, 01 Jan 2094 00:00:00 GMT; path=/"), url);
-        check(byDate && CFStringHasSuffix(byDate, CFSTR("; Max-Age=34560000")),
-              "a cookie dated past the ceiling takes a Max-Age that decides its lifetime");
-        if (byDate)
-            CFRelease(byDate);
-        check(wk_cookieLifetimeCappedHeaderCreate(CFSTR("a=1; max-age=60; path=/"), url) == NULL,
-              "a short-lived cookie is left alone");
-        check(wk_cookieLifetimeCappedHeaderCreate(CFSTR("a=1; path=/"), url) == NULL,
-              "a session cookie has no lifetime to cap");
-        // A quoted value carries its own semicolons and its own "max-age": the scan must not anchor
-        // inside it, and no byte of the value may be rewritten.
-        CFStringRef quoted = wk_cookieLifetimeCappedHeaderCreate(
-            CFSTR("a=\"; max-age=1\"; expires=Wed, 01 Jan 2094 00:00:00 GMT"), url);
-        check(quoted && CFStringFind(quoted, CFSTR("a=\"; max-age=1\""), 0).location != kCFNotFound,
-              "a quoted cookie value survives the cap byte for byte");
-        check(quoted && CFStringHasSuffix(quoted, CFSTR("; Max-Age=34560000")),
-              "and the cookie is capped by an appended Max-Age");
-        if (quoted)
-            CFRelease(quoted);
-
-        CFStringRef pair = wk_cookieLifetimeCappedHeaderCreate(
-            CFSTR("a=1; max-age=60, b=2; max-age=99999999999"), url);
-        check(pair && CFStringFind(pair, CFSTR("a=1; max-age=60"), 0).location != kCFNotFound
-              && CFStringFind(pair, CFSTR("b=2; max-age=34560000"), 0).location != kCFNotFound,
-              "one cookie of a folded field is capped and the other is left alone");
-        if (longOne)
-            CFRelease(longOne);
-        if (pair)
-            CFRelease(pair);
-        if (url)
-            CFRelease(url);
-    }
-
-    // RFC 6265bis 5.6 takes the last attribute of each recognised name, and 5.2 trims OWS from around a
-    // name or a value. 10.9 keeps the first and trims only SP.
-    {
-        struct { const char *field; const char *expected; } cases[] = {
-            { "test=8; Path=/qux; Path=/", "test=8; Path=/" },
-            { "test=9; Path=/; Path=/qux", "test=9; Path=/qux" },
-            { "test=21; path=/dog; path=", "test=21; path=" },
-            { "a=1; \tpath\t=\t/zzz", "a=1; path=/zzz" },
-            // OWS around the cookie's own name and value too: one HTAB after the value makes 10.9 drop
-            // every attribute the cookie carries.
-            { "\ta\t=\t1\t; path=/x", "a=1; path=/x" },
-            { "sid=abc\t; Path=/; Secure", "sid=abc; Path=/; Secure" },
-            { "a=1\t", "a=1" },
-            // A name RFC 6265bis 5.6 does not act on is ignored, never deduplicated.
-            { "a=1; Colour=red; Colour=blue", NULL },
-            { "a=1; Domain=aaa.com; domain=host.test", "a=1; domain=host.test" },
-            { "a=1; Secure; HttpOnly; Secure", "a=1; HttpOnly; Secure" },
-            // A ';' inside a double-quoted value opens no attribute, so nothing here repeats.
-            { "a=\"; path=/x\"; Path=/one", NULL },
-            { "a=1; Path=/one", NULL },
-            { "a=1", NULL },
-        };
-        for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
-            CFStringRef field = CFStringCreateWithCString(NULL, cases[i].field, kCFStringEncodingUTF8);
-            CFStringRef got = field ? wk_cookieFieldWithLastAttributeWinningCreate(field) : NULL;
-            if (!cases[i].expected)
-                check(got == NULL, cases[i].field);
-            else {
-                CFStringRef want = CFStringCreateWithCString(NULL, cases[i].expected, kCFStringEncodingUTF8);
-                check(got && want && CFEqual(got, want), cases[i].field);
-                if (want)
-                    CFRelease(want);
-            }
-            if (got)
-                CFRelease(got);
-            if (field)
-                CFRelease(field);
-        }
-
-        // A folded field carries several set-cookie-strings and each is held to the rule on its own.
-        CFStringRef folded = CFSTR("a=1; Path=/one; Path=/two, b=2; Path=/three");
-        CFStringRef rebuilt = wk_cookieFieldWithLastAttributeWinningCreate(folded);
-        check(rebuilt && CFEqual(rebuilt, CFSTR("a=1; Path=/two, b=2; Path=/three")),
-              "a folded field keeps the last of each cookie's repeated attributes");
-        if (rebuilt)
-            CFRelease(rebuilt);
-
-        // A cookie whose value ends in an HTAB keeps its attributes through the pipeline: on 10.9's own
-        // parser it keeps none, so a Secure cookie arrives non-secure on the default path.
-        {
-            CFURLRef secure = CFURLCreateWithString(NULL, CFSTR("https://example.test/a/b/c.html"), NULL);
-            bool nothing = false;
-            CFStringRef held = wk_storableSetCookieFieldCreate(CFSTR("sid=abc\t; Path=/; Secure"), secure, &nothing);
-            NSArray *cookies = held ? [NSHTTPCookie cookiesWithResponseHeaderFields:@{ @"Set-Cookie": (NSString *)held }
-                                                                             forURL:(NSURL *)secure] : nil;
-            NSHTTPCookie *one = cookies.count == 1 ? cookies[0] : nil;
-            check(one && [one.name isEqualToString:@"sid"] && [one.value isEqualToString:@"abc"],
-                  "a trailing HTAB leaves the cookie's name and value as they were");
-            check(one && [one.path isEqualToString:@"/"] && one.isSecure,
-                  "and its Path and Secure attributes still reach the parser");
-            // 10.9's own reading of the same field, through the C parser this layer does not replace
-            // (the NSHTTPCookie one above is the polyfilled seam, so it would answer for the rule).
-            const void *name = (const void *)CFSTR("Set-Cookie");
-            const void *field = (const void *)CFSTR("sid=abc\t; Path=/; Secure");
-            CFDictionaryRef sent = CFDictionaryCreate(NULL, &name, &field, 1,
-                &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-            CFArrayRef asSent = sent ? ((ParseFn)cfnetwork("CFHTTPCookieCreateWithResponseHeaderFields"))(NULL, sent, (CFURLRef)secure) : NULL;
-            CookieRef raw = asSent && CFArrayGetCount(asSent) == 1 ? (CookieRef)CFArrayGetValueAtIndex(asSent, 0) : NULL;
-            CFStringRef rawPath = raw ? ((CopyFn)cfnetwork("CFHTTPCookieCopyPath"))(raw) : NULL;
-            check(rawPath && !CFEqual(rawPath, CFSTR("/")), "test premise: 10.9's own parser drops them");
-            if (rawPath)
-                CFRelease(rawPath);
-            if (asSent)
-                CFRelease(asSent);
-            if (sent)
-                CFRelease(sent);
-            if (held)
-                CFRelease(held);
-            if (secure)
-                CFRelease(secure);
-        }
-
-        // The rule runs through the whole pipeline, so 10.9's parser sees the surviving attribute.
-        CFURLRef url = CFURLCreateWithString(NULL, CFSTR("http://example.test/cookies/attributes/x.html"), NULL);
-        bool setsNothing = false;
-        CFStringRef storable = wk_storableSetCookieFieldCreate(CFSTR("test=8; Path=/qux; Path=/"), url, &setsNothing);
-        CFArrayRef parsed = storable ? (CFArrayRef)[NSHTTPCookie cookiesWithResponseHeaderFields:@{ @"Set-Cookie": (NSString *)storable }
-                                                                                          forURL:(NSURL *)url] : NULL;
-        NSHTTPCookie *cookie = parsed && CFArrayGetCount(parsed) == 1 ? (NSHTTPCookie *)CFArrayGetValueAtIndex(parsed, 0) : nil;
-        check(!setsNothing && cookie && [cookie.path isEqualToString:@"/"],
-              "the pipeline hands 10.9's parser the last Path, not the first");
-        if (storable)
-            CFRelease(storable);
-        if (url)
-            CFRelease(url);
-    }
-
     // RFC 6265 5.1.4: a cookie-path matches on a path-segment boundary. 10.9 tests only the prefix, so
     // -[NSHTTPCookieStorage cookiesForURL:] answers a Path=/cook cookie for /cookies/x without the
     // replacement in methods/Foundation.m.
@@ -791,7 +345,7 @@ int main(void)
     }
 
     check(wk_sameSiteCopyServerComment(NULL) == NULL, "no comment stays no comment");
-    check(wk_sameSiteCommentCreate(NULL, NULL) == NULL, "nothing to carry encodes to nothing");
+    check(wk_cookieBlobCreate(NULL, NULL, NULL, NULL) == NULL, "nothing to carry encodes to nothing");
 
     // The creation time a caller of +[NSHTTPCookie cookieWithProperties:] asked for rides in the same
     // blob, because 10.9's record cannot carry it (any "Created" a caller passes comes back as 1).
@@ -874,7 +428,7 @@ int main(void)
         CFMutableStringRef huge = CFStringCreateMutable(NULL, 0);
         for (int i = 0; i < 3000; ++i)
             CFStringAppend(huge, CFSTR("S"));
-        CFStringRef blob = wk_sameSiteCommentCreate(CFSTR("Lax"), huge);
+        CFStringRef blob = wk_cookieBlobCreate(CFSTR("Lax"), NULL, NULL, huge);
         CFStringRef carried = blob ? wk_sameSiteCopyServerComment(blob) : NULL;
         check(carried && CFEqual(carried, huge), "a comment of 3000 characters is carried whole");
         check(blob && wk_sameSitePolicyOfComment(blob) == WK_SAME_SITE_LAX, "alongside the attribute");
@@ -918,9 +472,18 @@ int main(void)
     checkRegistrableDomain("web-platform.test", "web-platform.test", "a two-label host is its own domain");
     checkRegistrableDomain("localhost", "localhost", "localhost is its own domain");
     checkRegistrableDomain("127.0.0.1", "127.0.0.1", "an address is its own domain");
+    check(wk_domainIsPublicSuffix(CFSTR("pages.dev")), "modern private public suffix");
+    check(wk_domainIsPublicSuffix(CFSTR("foo.ck")), "PSL wildcard suffix");
+    check(!wk_domainIsPublicSuffix(CFSTR("www.ck")), "PSL exception");
+    check(wk_domainIsPublicSuffix(CFSTR("公司.cn")), "Unicode PSL entry");
+    check(wk_domainIsPublicSuffix(CFSTR("xn--55qx5d.cn")), "ACE PSL entry");
+    checkRegistrableDomain("a.project.pages.dev", "project.pages.dev", "modern private registrable domain");
+    checkRegistrableDomain("a.www.ck", "www.ck", "PSL exception registrable domain");
+    checkSameSite("https://one.pages.dev/a", "https://two.pages.dev/b", false, "private-suffix tenants are separate sites");
 
     checkOnlyATopLevelDomain("https://not-web-platform.test/a", "https://web-platform.test/b", true,
         "two hosts sharing only a label the table predates");
+    checkOnlyATopLevelDomain("https://one.pages.dev/a", "https://two.pages.dev/b", true, "different private-suffix tenants");
     checkOnlyATopLevelDomain("https://evil.app/a", "https://victim.app/b", true, "the same under .app");
     checkOnlyATopLevelDomain("https://evil.com/a", "https://victim.com/b", true, "the same under .com");
     checkOnlyATopLevelDomain("https://www1.web-platform.test/a", "https://web-platform.test/b", false,
@@ -929,118 +492,6 @@ int main(void)
         "two hosts under one registrable domain");
     checkOnlyATopLevelDomain("https://web-platform.test/a", "https://web-platform.test/b", false,
         "one host with itself");
-
-    // The rewrite, stated as the cookies that reach the jar.
-    checkRewrite("no attribute", "a=1; Path=/", "[a=1|-]");
-    checkRewrite("one cookie", "a=1; Path=/; SameSite=Strict", "[a=1|wk:1 ss=Strict]");
-    checkRewrite("attribute and comment", "a=1; Path=/; Comment=mine; SameSite=Lax", "[a=1|wk:2 c=mine ss=Lax]");
-    checkRewrite("comment after attribute", "a=1; Path=/; SameSite=Lax; Comment=mine", "[a=1|wk:2 c=mine ss=Lax]");
-    checkRewrite("repeated attribute", "a=1; Path=/; SameSite=Lax; SameSite=Strict", "[a=1|wk:1 ss=Strict]");
-    checkRewrite("two cookies, one marked", "p=1; Path=/, q=2; Path=/; SameSite=Strict",
-                 "[p=1|-][q=2|wk:1 ss=Strict]");
-    checkRewrite("two cookies, both marked", "p=1; Path=/; SameSite=Lax, q=2; Path=/; SameSite=Strict",
-                 "[p=1|wk:1 ss=Lax][q=2|wk:1 ss=Strict]");
-    checkRewrite("a comment left alone", "p=1; Path=/; Comment=keep, q=2; Path=/; SameSite=Strict",
-                 "[p=1|keep][q=2|wk:1 ss=Strict]");
-    // A value carrying the literal text of the attribute keeps every byte of it.
-    checkRewrite("the text inside a value", "trap=\"x SameSite=Lax y\"; Path=/, q=2; Path=/; SameSite=Strict",
-                 "[trap=\"x SameSite=Lax y\"|-][q=2|wk:1 ss=Strict]");
-    checkRewrite("the text inside a value, past a semicolon",
-                 "trap=\"x; SameSite=Lax y\"; Path=/, q=2; Path=/; SameSite=Strict",
-                 "[trap=\"x; SameSite=Lax y\"|-][q=2|wk:1 ss=Strict]");
-
-    // None restricts nothing, so that cookie is left for 10.9 to drop and is stored exactly as it would
-    // have been without this layer. A value the constants do not name takes the default enforcement
-    // (RFC 6265bis 5.4.7), which does restrict, so it is carried.
-    checkRewrite("none", "a=1; Path=/; SameSite=None", "[a=1|-]");
-    checkRewrite("a value the constants do not name", "a=1; Path=/; SameSite=Sometimes",
-                 "[a=1|wk:1 ss=Sometimes]");
-    checkRewrite("none alongside a comment", "a=1; Path=/; Comment=mine; SameSite=None", "[a=1|mine]");
-    checkRewrite("none and a restriction in one field",
-                 "p=1; Path=/; SameSite=None, q=2; Path=/; SameSite=Lax", "[p=1|-][q=2|wk:1 ss=Lax]");
-    // The grammar allows space around an attribute's value.
-    checkRewrite("spaces around the value", "a=1; Path=/; SameSite = Lax ", "[a=1|wk:1 ss=Lax]");
-
-    // A comma inside an Expires date and a comma inside a value are not fold boundaries, so a cookie
-    // that shares a field with one carrying a control character keeps every byte the server sent it.
-    checkControlSplit("a date's comma is not a boundary",
-                      "a=1; Expires=Wed, 09 Jun 2027 10:18:14 GMT, b=2\x01",
-                      "a=1; Expires=Wed, 09 Jun 2027 10:18:14 GMT");
-    checkControlSplit("a comma with no name= after it divides nothing",
-                      "a=1,2, b=3\x01", "a=1,2");
-    checkControlSplit("the cookie carrying it is the only one dropped",
-                      "good=1, bad=2\x01, alsogood=3", "good=1, alsogood=3");
-    checkControlSplit("a field whose every cookie carries one", "bad=1\x01, worse=2\x02", NULL);
-    checkRangeCountMatchesParser("a=1");
-    checkRangeCountMatchesParser("a=1, b=2");
-    checkRangeCountMatchesParser("a=1,2, b=3");
-    checkRangeCountMatchesParser("a=1; Expires=Wed, 09 Jun 2027 10:18:14 GMT");
-    checkRangeCountMatchesParser("a=1; Expires=Wed, 09 Jun 2027 10:18:14 GMT, b=2");
-    checkRangeCountMatchesParser("a=\"x,y\"; Path=/");
-    checkRangeCountMatchesParser("a=\"x,y\"; Path=/, b=2");
-    checkRangeCountMatchesParser("a=1; Path=/; SameSite=Lax, b=2; SameSite=Strict");
-    checkRangeCountMatchesParser("a=1,b=2");
-    checkRangeCountMatchesParser("a=1 ,b=2");
-    checkRangeCountMatchesParser("a=1,\tb=2");
-    checkRangeCountMatchesParser("a=1,  b=2");
-    checkRangeCountMatchesParser("a=1, b=2,c=3");
-    checkRangeCountMatchesParser("a=1, b");
-    checkRangeCountMatchesParser("a=1, b;c=2");
-    checkRangeCountMatchesParser("a=1, =2");
-    checkRangeCountMatchesParser("a=1, \"b\"=2");
-    checkRangeCountMatchesParser("t=1; b,az=qux");
-    checkRangeCountMatchesParser("t=1; baz=q,ux");
-    checkRangeCountMatchesParser("t=1; foo=bar,a=b");
-    checkRangeCountMatchesParser("t=1; foo=bar, a=b");
-    checkRangeCountMatchesParser("t=1; foo, a=b");
-    checkRangeCountMatchesParser("t=1; Path=/,a=b");
-    checkRangeCountMatchesParser("t=1; Secure, a=b");
-    checkRangeCountMatchesParser("t=1; foo=bar, a");
-    checkRangeCountMatchesParser("t=1,a=b; Path=/");
-    checkRangeCountMatchesParser("t=1; max-age=3600, c=d; path=/");
-
-    checkControlSplit("a quoted comma is not a boundary",
-                      "a=\"x,y\"; Path=/, b=2\x01", "a=\"x,y\"; Path=/");
-    checkRewrite("a quoted semicolon begins no attribute",
-                 "a=\"x; SameSite=Strict\"; Path=/", "[a=\"x; SameSite=Strict\"|-]");
-
-    // A field carrying as many attributes as a busy response: every one of them is carried, and the
-    // cost is one parse for the round that attributes them all rather than one parse each.
-    {
-        CFMutableStringRef many = CFStringCreateMutable(NULL, 0);
-        CFMutableStringRef expected = CFStringCreateMutable(NULL, 0);
-        for (int i = 0; i < 100; ++i) {
-            CFStringAppendFormat(many, NULL, CFSTR("%sc%d=v%d; Path=/; SameSite=Lax"), i ? ", " : "", i, i);
-            CFStringAppendFormat(expected, NULL, CFSTR("[c%d=v%d|wk:1 ss=Lax]"), i, i);
-        }
-        char *text = utf8(many);
-        char *want = utf8(expected);
-        checkRewrite("a hundred cookies, each restricted", text, want);
-        free(text);
-        free(want);
-        CFRelease(many);
-        CFRelease(expected);
-    }
-
-    // A comment far longer than any field this layer writes for itself: the record carries it, so the
-    // rewrite carries it too rather than dropping the cookie that has it.
-    {
-        CFMutableStringRef longComment = CFStringCreateMutable(NULL, 0);
-        for (int i = 0; i < 500; ++i)
-            CFStringAppend(longComment, CFSTR("c"));
-        CFMutableStringRef header = CFStringCreateMutable(NULL, 0);
-        CFStringAppendFormat(header, NULL, CFSTR("a=1; Path=/; Comment=%@; SameSite=Strict"), longComment);
-        CFMutableStringRef expected = CFStringCreateMutable(NULL, 0);
-        CFStringAppendFormat(expected, NULL, CFSTR("[a=1|wk:2 c=%@ ss=Strict]"), longComment);
-        char *text = utf8(header);
-        char *want = utf8(expected);
-        checkRewrite("a long comment alongside the attribute", text, want);
-        free(text);
-        free(want);
-        CFRelease(longComment);
-        CFRelease(header);
-        CFRelease(expected);
-    }
 
     // A cookie's name and value are byte sequences, not ASCII. The constructors this layer replaces
     // rebuild the property dictionary, so they are the place a non-ASCII name or value could be lost.
@@ -1092,35 +543,6 @@ int main(void)
         }
     }
 
-    // RFC 6265 5.3's domain rules, over 10.9's storage spelling: it writes an explicit Domain= back with
-    // a leading dot ADDED, so the host-only carve-out has to be read off the canonicalised name or a
-    // dotless host loses every cookie that names its own host.
-    {
-        SEL parse = sel_getUid("wk__cookieForSetCookieString:forURL:partition:");
-        if (![NSHTTPCookie respondsToSelector:parse]) {
-            printf("  FAIL: the layer's +_cookieForSetCookieString:forURL:partition: is not installed\n");
-            ++failures;
-        } else {
-            struct { const char *url; const char *field; bool kept; const char *what; } cases[] = {
-                { "http://myserver/x", "a=1", true, "a dotless host keeps its host-only cookie" },
-                { "http://myserver/x", "a=1; Domain=myserver", true, "a dotless host keeps a cookie naming itself" },
-                { "http://myserver/x", "a=1; Domain=.myserver", true, "the same written with the dot" },
-                { "http://www.example.com/x", "a=1; Domain=example.com", true, "a registrable domain is kept" },
-                { "http://www.example.com/x", "a=1; Domain=com", false, "a public suffix is refused" },
-                { "http://www.evil.app/x", "a=1; Domain=app", false, "a suffix 10.9's table predates is refused" },
-                { "http://a.web-platform.test/x", "a=1; Domain=test", false, "a reserved top-level domain is refused" },
-                { "http://127.0.0.1/x", "a=1", true, "an address keeps its host-only cookie" },
-                { "http://127.0.0.1/x", "a=1; Domain=0.0.1", false, "an address refuses a suffix of itself" },
-            };
-            for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
-                NSURL *url = [NSURL URLWithString:[NSString stringWithUTF8String:cases[i].url]];
-                id built = ((id (*)(id, SEL, id, id, id))objc_msgSend)([NSHTTPCookie class], parse,
-                    [NSString stringWithUTF8String:cases[i].field], url, nil);
-                check((built != nil) == cases[i].kept, cases[i].what);
-            }
-        }
-    }
-
     // The constructors this layer replaces: a property dictionary's attribute travels into the Comment
     // the record has, and a value that restricts nothing leaves the cookie as the caller wrote it.
     {
@@ -1138,8 +560,8 @@ int main(void)
                                             @"SameSite": (NSString *)huge };
             id built = [((id (*)(id, SEL, id))objc_msgSend)([NSHTTPCookie alloc], initWithProperties, unrestricted) autorelease];
             check(built != nil, "a value the constants do not name still builds the cookie");
-            check(built && !((NSString *(*)(id, SEL))objc_msgSend)(built, sel_getUid("wk_sameSitePolicy")),
-                  "and the cookie reports no policy");
+            check(built && [((NSString *(*)(id, SEL))objc_msgSend)(built, sel_getUid("wk_sameSitePolicy")) isEqualToString:@"lax"],
+                  "an unrecognized SameSite value takes default enforcement");
             check(((id (*)(id, SEL, id))objc_msgSend)([NSHTTPCookie class], cookieWithProperties, unrestricted) != nil,
                   "and the class method builds it too");
             NSDictionary *restricted = @{ NSHTTPCookieName: @"c", NSHTTPCookieValue: @"v",
@@ -1153,34 +575,31 @@ int main(void)
             check(cookie && [((NSString *(*)(id, SEL))objc_msgSend)(cookie, sel_getUid("wk_comment"))
                              isEqualToString:(NSString *)huge], "and hands back the comment it was given");
 
-            // Text with no UTF-8 of its own, which a script can put in a comment: the cookie built from
-            // it is the one those properties make without a restriction at all -- 10.9 stores a lone
-            // surrogate as the empty comment (measured) -- rather than a process that ended.
+            // All NSString code units survive metadata encoding, including an unpaired surrogate.
             unichar loneSurrogate = 0xD800;
             NSString *unencodable = [NSString stringWithCharacters:&loneSurrogate length:1];
             NSDictionary *restrictedText = @{ NSHTTPCookieName: @"c", NSHTTPCookieValue: @"v",
-                                              NSHTTPCookiePath: @"/", NSHTTPCookieDomain: @"z.test",
-                                              NSHTTPCookieComment: unencodable, @"SameSite": @"Strict" };
-            NSDictionary *plainText = @{ NSHTTPCookieName: @"c", NSHTTPCookieValue: @"v",
-                                         NSHTTPCookiePath: @"/", NSHTTPCookieDomain: @"z.test",
-                                         NSHTTPCookieComment: unencodable };
+                NSHTTPCookiePath: @"/", NSHTTPCookieDomain: @"z.test",
+                NSHTTPCookieComment: unencodable, @"SameSite": @"Strict" };
             id kept = [((id (*)(id, SEL, id))objc_msgSend)([NSHTTPCookie alloc], initWithProperties, restrictedText) autorelease];
-            id plain = [((id (*)(id, SEL, id))objc_msgSend)([NSHTTPCookie alloc], initWithProperties, plainText) autorelease];
-            check(kept != nil, "a comment with no encoding still builds the cookie");
-            NSString *keptComment = ((NSString *(*)(id, SEL))objc_msgSend)(kept, sel_getUid("wk_comment"));
-            NSString *plainComment = ((NSString *(*)(id, SEL))objc_msgSend)(plain, sel_getUid("wk_comment"));
-            check(kept && plain && (keptComment ? [keptComment isEqualToString:plainComment] : !plainComment),
-                  "and is the cookie those properties make with no restriction at all");
-            check(kept && !((NSString *(*)(id, SEL))objc_msgSend)(kept, sel_getUid("wk_sameSitePolicy")),
-                  "and reports no policy rather than ending the process");
-            check(wk_sameSiteCommentCreate(CFSTR("Lax"), (CFStringRef)unencodable) == NULL,
-                  "and the encoding answers that it cannot carry it");
+            check(kept != nil, "a cookie with a UTF-16 comment is created");
+            check([((NSString *(*)(id, SEL))objc_msgSend)(kept, sel_getUid("wk_comment")) isEqualToString:unencodable],
+                "the original UTF-16 comment is preserved");
+            check([((NSString *(*)(id, SEL))objc_msgSend)(kept, sel_getUid("wk_sameSitePolicy")) isEqualToString:@"strict"],
+                "the SameSite restriction survives every comment value");
+            CFStringRef blob = wk_cookieBlobCreate(CFSTR("Lax"), NULL, NULL, (CFStringRef)unencodable);
+            CFStringRef decoded = wk_sameSiteCopyServerComment(blob);
+            check(decoded && CFEqual(decoded, (CFStringRef)unencodable), "UTF-16 metadata round-trips");
+            if (decoded)
+                CFRelease(decoded);
+            if (blob)
+                CFRelease(blob);
             CFRelease(huge);
         }
     }
 
-    checkBulkMergeReport();
-    checkExpiredWriteReport();
+    checkPublicSetterPolicy();
+    checkCookieObservers();
 
     printf(failures ? "  %d FAILED\n" : "  ok\n", failures);
     return failures ? 1 : 0;

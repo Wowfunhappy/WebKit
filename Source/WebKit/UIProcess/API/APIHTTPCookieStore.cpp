@@ -37,6 +37,9 @@
 #include <WebCore/HTTPCookieAcceptPolicy.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <wtf/CallbackAggregator.h>
+// MAVERICKS_BACKPORT: the legacy observer uses the same typed allocation and callback ownership as native API observers.
+#include <wtf/Function.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(IOS_FAMILY)
 #include "DefaultWebBrowserChecks.h"
@@ -54,6 +57,7 @@ HTTPCookieStore::HTTPCookieStore(WebKit::WebsiteDataStore& websiteDataStore)
 
 HTTPCookieStore::~HTTPCookieStore()
 {
+    stopObservingLegacyCookieChanges(); // MAVERICKS_BACKPORT: release the store-owned legacy registration before destruction.
     ASSERT(m_observers.isEmptyIgnoringNullReferences());
 }
 
@@ -181,6 +185,49 @@ void HTTPCookieStore::registerObserver(HTTPCookieStoreObserver& observer)
 
     if (RefPtr networkProcess = networkProcessLaunchingIfNecessary())
         networkProcess->send(Messages::WebCookieManager::StartObservingCookieChanges(m_sessionID), 0);
+}
+
+// MAVERICKS_BACKPORT: implement the old C client's Start/Stop contract through the existing observer pipeline.
+class LegacyCookieStoreObserver final : public HTTPCookieStoreObserver {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(LegacyCookieStoreObserver);
+public:
+    static Ref<LegacyCookieStoreObserver> create(Function<void(HTTPCookieStore&)>&& callback)
+    {
+        return adoptRef(*new LegacyCookieStoreObserver(WTF::move(callback)));
+    }
+
+private:
+    explicit LegacyCookieStoreObserver(Function<void(HTTPCookieStore&)>&& callback)
+        : m_callback(WTF::move(callback)) { }
+    void cookiesDidChange(HTTPCookieStore& store) final { m_callback(store); }
+    Function<void(HTTPCookieStore&)> m_callback;
+};
+
+void HTTPCookieStore::setLegacyCookieChangeCallback(Function<void(HTTPCookieStore&)>&& callback)
+{
+    if (m_legacyObserver && m_isObservingLegacyCookieChanges)
+        unregisterObserver(*m_legacyObserver);
+    m_legacyObserver = nullptr;
+    if (callback)
+        m_legacyObserver = LegacyCookieStoreObserver::create(WTF::move(callback));
+    if (m_legacyObserver && m_isObservingLegacyCookieChanges)
+        registerObserver(*m_legacyObserver);
+}
+
+void HTTPCookieStore::startObservingLegacyCookieChanges()
+{
+    if (std::exchange(m_isObservingLegacyCookieChanges, true))
+        return;
+    if (m_legacyObserver)
+        registerObserver(*m_legacyObserver);
+}
+
+void HTTPCookieStore::stopObservingLegacyCookieChanges()
+{
+    if (!std::exchange(m_isObservingLegacyCookieChanges, false))
+        return;
+    if (m_legacyObserver)
+        unregisterObserver(*m_legacyObserver);
 }
 
 void HTTPCookieStore::unregisterObserver(HTTPCookieStoreObserver& observer)

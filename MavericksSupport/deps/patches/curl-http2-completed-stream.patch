@@ -1,0 +1,17 @@
+--- a/lib/http2.c
++++ b/lib/http2.c
+@@ -1997,7 +1997,13 @@
+       Curl_multi_mark_dirty(data);
+   }
+   else if(r2) {
+-    result = r2;
++    /* A failed connection-level ACK cannot replace a stream result already
++     * established by END_STREAM or RST_STREAM (RFC 9113 section 8.1).
++     * Retire the connection and propagate the failure to unfinished streams. */
++    ctx->conn_closed = TRUE;
++    connclose(cf->conn);
++    if(!stream->closed)
++      result = r2;
+   }
+   CURL_TRC_CF(data, cf, "[%d] cf_recv(len=%zu) -> %d, %zu, "
+               "window=%d/%d, connection %d/%d",

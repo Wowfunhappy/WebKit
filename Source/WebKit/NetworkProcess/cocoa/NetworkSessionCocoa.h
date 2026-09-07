@@ -39,6 +39,10 @@ OBJC_CLASS NSURLCredentialStorage;
 #include "DownloadID.h"
 #include "NetworkDataTaskCocoa.h"
 #include "NetworkSession.h"
+// MAVERICKS_BACKPORT: the transport pool is shared with Cocoa legacy loaders.
+#include <WebCore/CocoaCurlConnection.h>
+// MAVERICKS_BACKPORT: HSTS remains a browser policy with native-session persistence boundaries.
+#include <WebCore/HTTPStrictTransportSecurityStore.h>
 #include "WebPageNetworkParameters.h"
 #include "WebPageProxyIdentifier.h"
 #include "WebSocketTask.h"
@@ -55,6 +59,9 @@ enum class AdvancedPrivacyProtections : uint16_t;
 
 namespace WebKit {
 
+// MAVERICKS_BACKPORT: curl has its own session-owned transport registry, separate from native IDs.
+using CurlNetworkScheduler = WebCore::CocoaCurlConnectionPool;
+
 enum class NegotiatedLegacyTLS : bool;
 class LegacyCustomProtocolManager;
 class NetworkSessionCocoa;
@@ -63,13 +70,17 @@ struct SessionWrapper : public CanMakeWeakPtr<SessionWrapper>, public CanMakeChe
     WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(SessionWrapper);
     WTF_STRUCT_OVERRIDE_DELETE_FOR_CHECKED_PTR(SessionWrapper);
 
-    SessionWrapper() = default;
+    // MAVERICKS_BACKPORT: construct the owning curl pointer where its complete type is visible.
+    // SessionWrapper() = default;
+    SessionWrapper();
     ~SessionWrapper();
 
     void initialize(NSURLSessionConfiguration*, NetworkSessionCocoa&, WebCore::StoredCredentialsPolicy, NavigatingToAppBoundDomain);
 
     void recreateSessionWithUpdatedProxyConfigurations(NetworkSessionCocoa&);
 
+    // MAVERICKS_BACKPORT: curl owns its typed task registry within the same credential/privacy partition.
+    RefPtr<CurlNetworkScheduler> curlScheduler;
     RetainPtr<NSURLSession> session;
     RetainPtr<WKNetworkSessionDelegate> delegate;
     // MAVERICKS_BACKPORT: 10.9's NSURLSessionTask.taskIdentifier is 0-based (the first task in a session is
@@ -142,6 +153,9 @@ public:
     NetworkSessionCocoa(NetworkProcess&, const NetworkSessionCreationParameters&);
     ~NetworkSessionCocoa();
 
+    // MAVERICKS_BACKPORT: the Cocoa session continues to own cookies, credentials, and native tasks.
+    Ref<CurlNetworkScheduler> curlNetworkScheduler(std::optional<WebPageProxyIdentifier>, const WebCore::ResourceRequest&, WebCore::StoredCredentialsPolicy, std::optional<NavigatingToAppBoundDomain>);
+
     SessionWrapper& initializeEphemeralStatelessSessionIfNeeded(std::optional<WebPageProxyIdentifier>, NavigatingToAppBoundDomain);
 
     const String& boundInterfaceIdentifier() const LIFETIME_BOUND { return m_boundInterfaceIdentifier; }
@@ -183,13 +197,16 @@ public:
     bool preventsSystemHTTPProxyAuthentication() const { return m_preventsSystemHTTPProxyAuthentication; }
 
     _NSHSTSStorage *hstsStorage() const;
+    // MAVERICKS_BACKPORT: curl and the website-data APIs share this browser-owned dynamic store.
+    WebCore::HTTPStrictTransportSecurityStore& httpStrictTransportSecurityStore() { return *m_httpStrictTransportSecurityStore; }
 
     NSURLCredentialStorage *nsCredentialStorage() const;
 
     void removeNetworkWebsiteData(std::optional<WallTime>, std::optional<HashSet<WebCore::RegistrableDomain>>&&, CompletionHandler<void()>&&) override;
 
     void removeDataTask(DataTaskIdentifier);
-    void removeBlobDataTask(DataTaskIdentifier);
+    // MAVERICKS_BACKPORT: blob and HTTP API tasks share removeDataTask.
+    // void removeBlobDataTask(DataTaskIdentifier);
 
 #if HAVE(NW_PROXY_CONFIG)
     const Vector<RetainPtr<nw_proxy_config_t>>& proxyConfigs() const LIFETIME_BOUND { return m_nwProxyConfigs; }
@@ -202,6 +219,8 @@ public:
     bool isLegacyTLSAllowed() const { return m_isLegacyTLSAllowed; }
 
 private:
+    // MAVERICKS_BACKPORT: ephemeral sessions retain this state only in memory.
+    std::unique_ptr<WebCore::HTTPStrictTransportSecurityStore> m_httpStrictTransportSecurityStore;
     void invalidateAndCancel() override;
     HashSet<WebCore::SecurityOriginData> originsWithCredentials() final;
     void removeCredentialsForOrigins(const Vector<WebCore::SecurityOriginData>&) final;
@@ -265,9 +284,12 @@ private:
     Markable<WTF::UUID> m_donatedEphemeralImpressionSessionID;
 #endif
 
-    class BlobDataTaskClient;
-    HashMap<DataTaskIdentifier, Ref<BlobDataTaskClient>> m_blobDataTasksForAPI;
-    HashMap<DataTaskIdentifier, RetainPtr<NSURLSessionDataTask>> m_dataTasksForAPI;
+    // MAVERICKS_BACKPORT: every API data task uses NetworkDataTask's transport and client contract.
+    // class BlobDataTaskClient;
+    // HashMap<DataTaskIdentifier, Ref<BlobDataTaskClient>> m_blobDataTasksForAPI;
+    // HashMap<DataTaskIdentifier, RetainPtr<NSURLSessionDataTask>> m_dataTasksForAPI;
+    class APIDataTaskClient;
+    HashMap<DataTaskIdentifier, Ref<APIDataTaskClient>> m_dataTasksForAPI;
 };
 
 } // namespace WebKit

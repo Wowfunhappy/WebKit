@@ -35,6 +35,8 @@
 #import "Logging.h"
 #import "NetworkDataTaskBlob.h"
 #import "NetworkDataTaskCocoa.h"
+// MAVERICKS_BACKPORT: retain the native task translation unit and both shared privacy/PCM helpers.
+#import "NetworkDataTaskCurlCocoa.h"
 #import "NetworkLoad.h"
 #import "NetworkProcess.h"
 #import "NetworkProcessProxyMessages.h"
@@ -667,7 +669,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if ([challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust]) {
         // MAVERICKS_BACKPORT: a certificate the user accepted for this host through Safari 7's
         // invalid-certificate sheet (WKContextAllowSpecificHTTPSCertificateForHost) is answered here, so
-        // the reload that follows the sheet succeeds instead of being asked about again.
+        // the reload that follows the sheet succeeds.
         if (sessionCocoa->isAllowedHTTPSCertificateForHost(challenge))
             return completionHandler(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust]);
 
@@ -701,7 +703,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
                 auto task = WTF::move(networkDataTask);
                 CheckedPtr session = sessionCocoa.get();
                 if (trustResult == noErr) {
-                    // MAVERICKS_BACKPORT: answer with the trust we just evaluated instead of PerformDefaultHandling.
+                    // MAVERICKS_BACKPORT: answer with the trust just evaluated.
                     // Upstream can defer to the platform here because modern CFNetwork answers from trustd's result
                     // cache; 10.9 has no such cache and re-evaluates in full (measured: 245ms, unchanged on repeat,
                     // for the same SecTrustRef), so deferring would pay for the same evaluation twice -- and pay for
@@ -1214,6 +1216,9 @@ void SessionWrapper::recreateSessionWithUpdatedProxyConfigurations(NetworkSessio
     RELEASE_ASSERT(session);
     RELEASE_ASSERT(delegate);
 
+    // MAVERICKS_BACKPORT: proxy reconfiguration retires the existing curl route and its connections.
+    if (auto scheduler = std::exchange(curlScheduler, nullptr))
+        scheduler->invalidate();
     auto withCredentials = delegate->_withCredentials;
     RetainPtr<NSURLSessionConfiguration> configuration = session.get().configuration;
 
@@ -1231,8 +1236,14 @@ void SessionWrapper::recreateSessionWithUpdatedProxyConfigurations(NetworkSessio
     webSocketDataTaskMap.clear();
 }
 
+// MAVERICKS_BACKPORT: SessionWrapper owns a complete curl scheduler in this translation unit.
+SessionWrapper::SessionWrapper() = default;
+
 SessionWrapper::~SessionWrapper()
 {
+    // MAVERICKS_BACKPORT: destroy the curl pool with its credential/privacy partition.
+    if (curlScheduler)
+        curlScheduler->invalidate();
     if (session)
         [session invalidateAndCancel];
 }
@@ -1281,10 +1292,16 @@ NetworkSessionCocoa::NetworkSessionCocoa(NetworkProcess& networkProcess, const N
     if (!m_sessionID.isEphemeral())
         m_blobRegistry.setFileDirectory(FileSystem::createTemporaryDirectory(@"BlobRegistryFiles"));
 
+    // MAVERICKS_BACKPORT: The session owns HTTP policy and HSTS persistence.
+/*
     if (!!parameters.hstsStorageDirectory && !m_sessionID.isEphemeral()) {
         SandboxExtension::consumePermanently(parameters.hstsStorageDirectoryExtensionHandle);
         configuration.get()._hstsStorage = adoptNS([[_NSHSTSStorage alloc] initPersistentStoreWithURL:adoptNS([[NSURL alloc] initFileURLWithPath:parameters.hstsStorageDirectory.createNSString().get() isDirectory:YES]).get()]).get();
     }
+*/ // MAVERICKS_BACKPORT: session-owned HSTS persistence below.
+    if (!parameters.hstsStorageDirectory.isEmpty() && !m_sessionID.isEphemeral())
+        SandboxExtension::consumePermanently(parameters.hstsStorageDirectoryExtensionHandle);
+    m_httpStrictTransportSecurityStore = makeUnique<WebCore::HTTPStrictTransportSecurityStore>(m_sessionID.isEphemeral() ? emptyString() : parameters.hstsStorageDirectory);
 
 #if HAVE(CFNETWORK_SEPARATE_CREDENTIAL_STORAGE)
     if (parameters.dataStoreIdentifier && !m_sessionID.isEphemeral())
@@ -1407,7 +1424,21 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 NetworkSessionCocoa::~NetworkSessionCocoa()
 {
+    // MAVERICKS_BACKPORT: release curl's sockets and pending callbacks with their platform session.
+    forEachSessionWrapper([](SessionWrapper& wrapper) {
+        if (wrapper.curlScheduler)
+            wrapper.curlScheduler->invalidate();
+    });
     notifyAdAttributionKitOfSessionTermination();
+}
+
+// MAVERICKS_BACKPORT: use the native session's isolation decision with a separate curl task registry.
+Ref<CurlNetworkScheduler> NetworkSessionCocoa::curlNetworkScheduler(std::optional<WebPageProxyIdentifier> page, const WebCore::ResourceRequest& request, WebCore::StoredCredentialsPolicy credentials, std::optional<NavigatingToAppBoundDomain> appBound)
+{
+    auto wrapper = sessionWrapperForTask(page, request, credentials, appBound);
+    if (!wrapper->curlScheduler)
+        wrapper->curlScheduler = CurlNetworkScheduler::create();
+    return Ref { *wrapper->curlScheduler };
 }
 
 void NetworkSessionCocoa::notifyAdAttributionKitOfSessionTermination()
@@ -1524,7 +1555,7 @@ CheckedRef<SessionWrapper> NetworkSessionCocoa::sessionWrapperForTask(std::optio
 
     switch (storedCredentialsPolicy) {
     case WebCore::StoredCredentialsPolicy::Use:
-        return sessionSetForPage(webPageProxyID).sessionWithCredentialStorage.get(); // MAVERICKS_BACKPORT: no longer shared with DoNotUse, see above.
+        return sessionSetForPage(webPageProxyID).sessionWithCredentialStorage.get(); // MAVERICKS_BACKPORT: the Use policy has its own session, see above.
     case WebCore::StoredCredentialsPolicy::DoNotUse: // MAVERICKS_BACKPORT: its own session, see above.
         return protect(sessionSetForPage(webPageProxyID))->initializeSessionWithoutCredentialStorageIfNeeded(*this);
     case WebCore::StoredCredentialsPolicy::EphemeralStateless:
@@ -1592,7 +1623,7 @@ CheckedRef<SessionWrapper> SessionSet::isolatedSession(WebCore::StoredCredential
     CheckedRef sessionWrapper = [this, protectedThis = Ref { *this }, &entry, isNavigatingToAppBoundDomain, session = CheckedRef { session }] (auto storedCredentialsPolicy) -> SessionWrapper& {
         switch (storedCredentialsPolicy) {
         case WebCore::StoredCredentialsPolicy::Use:
-            LOG(NetworkSession, "Using isolated NSURLSession."); // MAVERICKS_BACKPORT: no longer shared with DoNotUse, see above.
+            LOG(NetworkSession, "Using isolated NSURLSession."); // MAVERICKS_BACKPORT: the Use policy has its own session, see above.
             return entry->sessionWithCredentialStorage;
         case WebCore::StoredCredentialsPolicy::DoNotUse: { // MAVERICKS_BACKPORT: its own session, see above.
             LOG(NetworkSession, "Using isolated NSURLSession without credential storage.");
@@ -1675,6 +1706,12 @@ void NetworkSessionCocoa::invalidateAndCancel()
 {
     NetworkSession::invalidateAndCancel();
 
+    // MAVERICKS_BACKPORT: session invalidation also terminates its curl transport.
+    forEachSessionWrapper([](SessionWrapper& wrapper) {
+        if (wrapper.curlScheduler)
+            wrapper.curlScheduler->invalidate();
+    });
+
     invalidateAndCancelSessionSet(m_defaultSessionSet.get());
     for (auto& sessionSet : m_perPageSessionSets.values())
         invalidateAndCancelSessionSet(sessionSet.get());
@@ -1702,6 +1739,8 @@ HashSet<WebCore::SecurityOriginData> NetworkSessionCocoa::originsWithCredentials
 
 void NetworkSessionCocoa::removeCredentialsForOrigins(const Vector<WebCore::SecurityOriginData>& origins)
 {
+    // MAVERICKS_BACKPORT: new requests must not inherit authenticated connections or TLS tickets after credential deletion. In-flight transfers retain their owning pool until they finish.
+    forEachSessionWrapper([](SessionWrapper& wrapper) { wrapper.curlScheduler = nullptr; });
     RetainPtr credentialStorage = nsCredentialStorage();
     if (!credentialStorage)
         return;
@@ -1727,6 +1766,8 @@ void NetworkSessionCocoa::removeCredentialsForOrigins(const Vector<WebCore::Secu
 
 void NetworkSessionCocoa::clearCredentials(WallTime modifiedSince)
 {
+    // MAVERICKS_BACKPORT: dropping each owning pool retires connection-bound authentication and client-certificate sessions together with native credentials.
+    forEachSessionWrapper([](SessionWrapper& wrapper) { wrapper.curlScheduler = nullptr; });
     RetainPtr credentialStorage = nsCredentialStorage();
     if (!credentialStorage)
         return;
@@ -1905,6 +1946,8 @@ void NetworkSessionCocoa::addWebPageNetworkParameters(WebPageProxyIdentifier pag
     m_attributedBundleIdentifierFromPageIdentifiers.add(pageID, parameters.attributedBundleIdentifier());
 }
 
+// MAVERICKS_BACKPORT: retain the upstream blob-only client beside the common API client.
+#if 0
 // FIXME: This and WKURLSessionTaskDelegate are kind of duplicate code. Remove this.
 // NetworkSessionCocoa::dataTaskWithRequest and NetworkLoad's constructor are also kind of duplicate code.
 // Make NetworkLoad's redirection and challenge handling code pass everything to the NetworkLoadClient
@@ -1973,6 +2016,96 @@ private:
 };
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkSessionCocoa::BlobDataTaskClient);
+
+#endif // MAVERICKS_BACKPORT: one task client covers every supported API URL scheme.
+
+// MAVERICKS_BACKPORT: the API client forwards WebKit's redirect, challenge, response and terminal events.
+class NetworkSessionCocoa::APIDataTaskClient final : public RefCounted<APIDataTaskClient>, public NetworkDataTaskClient {
+    WTF_MAKE_TZONE_ALLOCATED(APIDataTaskClient);
+public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+    static Ref<APIDataTaskClient> create(NetworkSessionCocoa& session, const NetworkLoadParameters& parameters, DataTaskIdentifier identifier)
+    {
+        return adoptRef(*new APIDataTaskClient(session, parameters, identifier));
+    }
+    ~APIDataTaskClient()
+    {
+        m_task->clearClient();
+        m_task->cancel();
+    }
+    void resume() { m_task->resume(); }
+    void cancel()
+    {
+        Ref protectedThis { *this };
+        m_task->clearClient();
+        m_task->cancel();
+        complete(cancelledError(m_task->firstRequest()));
+    }
+private:
+    APIDataTaskClient(NetworkSessionCocoa& session, const NetworkLoadParameters& parameters, DataTaskIdentifier identifier)
+        : m_task([&]() -> Ref<NetworkDataTask> {
+            if (parameters.request.url().protocolIsBlob())
+                return NetworkDataTaskBlob::create(session, *this, parameters.request, Vector<Ref<WebCore::BlobDataFileReference>> { parameters.blobFileReferences }, parameters.topOrigin.get());
+            return NetworkDataTask::create(session, *this, parameters);
+        }())
+        , m_connection(session.networkProcess().parentProcessConnection())
+        , m_session(session)
+        , m_identifier(identifier)
+    { }
+    void willPerformHTTPRedirection(WebCore::ResourceResponse&& response, WebCore::ResourceRequest&& request, RedirectCompletionHandler&& completion) final
+    {
+        if (!m_connection)
+            return completion({ });
+        m_connection->sendWithAsyncReply(Messages::NetworkProcessProxy::DataTaskWillPerformHTTPRedirection(m_identifier, response, request), [request = WTF::move(request), completion = WTF::move(completion)](bool allowed) mutable {
+            completion(allowed ? WTF::move(request) : WebCore::ResourceRequest());
+        });
+    }
+    void didReceiveChallenge(WebCore::AuthenticationChallenge&& challenge, NegotiatedLegacyTLS, ChallengeCompletionHandler&& completion) final
+    {
+        if (!m_connection)
+            return completion(AuthenticationChallengeDisposition::Cancel, { });
+        m_connection->sendWithAsyncReply(Messages::NetworkProcessProxy::DataTaskReceivedChallenge(m_identifier, challenge), [completion = WTF::move(completion)](AuthenticationChallengeDisposition disposition, WebCore::Credential&& credential) mutable {
+            completion(disposition, credential);
+        });
+    }
+    // This API exposes response data and terminal errors; it has no upload-progress IPC event.
+    void didSendData(uint64_t, uint64_t) final { }
+    void wasBlocked() final { complete(blockedError(m_task->firstRequest())); }
+    void cannotShowURL() final { complete(cannotShowURLError(m_task->firstRequest())); }
+    void wasBlockedByRestrictions() final { complete(wasBlockedByRestrictionsError(m_task->firstRequest())); }
+    void wasBlockedByDisabledFTP() final { complete(ftpDisabledError(m_task->firstRequest())); }
+    void didReceiveResponse(WebCore::ResourceResponse&& response, NegotiatedLegacyTLS, PrivateRelayed, ResponseCompletionHandler&& completion) final
+    {
+        if (!m_connection)
+            return completion(WebCore::PolicyAction::Ignore);
+        m_connection->sendWithAsyncReply(Messages::NetworkProcessProxy::DataTaskDidReceiveResponse(m_identifier, response), [completion = WTF::move(completion)](bool allowed) mutable {
+            completion(allowed ? WebCore::PolicyAction::Use : WebCore::PolicyAction::Ignore);
+        });
+    }
+    void didReceiveData(const WebCore::SharedBuffer& buffer) final
+    {
+        if (m_connection) {
+            buffer.forEachSegment([&](auto segment) {
+                m_connection->send(Messages::NetworkProcessProxy::DataTaskDidReceiveData(m_identifier, segment), 0);
+            });
+        }
+    }
+    void didCompleteWithError(const WebCore::ResourceError& error, const WebCore::NetworkLoadMetrics&) final { complete(error); }
+    void complete(const WebCore::ResourceError& error)
+    {
+        Ref protectedThis { *this };
+        if (m_connection)
+            m_connection->send(Messages::NetworkProcessProxy::DataTaskDidCompleteWithError(m_identifier, error), 0);
+        if (m_session)
+            m_session->removeDataTask(m_identifier);
+    }
+    Ref<NetworkDataTask> m_task;
+    RefPtr<IPC::Connection> m_connection;
+    WeakPtr<NetworkSessionCocoa> m_session;
+    DataTaskIdentifier m_identifier;
+};
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkSessionCocoa::APIDataTaskClient);
 
 void NetworkSessionCocoa::loadImageForDecoding(WebCore::ResourceRequest&& request, WebPageProxyIdentifier pageID, size_t maximumBytesFromNetwork, CompletionHandler<void(Expected<Ref<WebCore::FragmentedSharedBuffer>, WebCore::ResourceError>&&)>&& completionHandler)
 {
@@ -2052,6 +2185,8 @@ void NetworkSessionCocoa::loadImageForDecoding(WebCore::ResourceRequest&& reques
     Client::create(*this, networkProcess(), pageID, loadParameters, maximumBytesFromNetwork, WTF::move(completionHandler));
 }
 
+// MAVERICKS_BACKPORT: NetworkDataTaskClient delivers API data-task events.
+#if 0
 void NetworkSessionCocoa::dataTaskWithRequest(WebPageProxyIdentifier pageID, WebCore::ResourceRequest&& request, const std::optional<WebCore::SecurityOriginData>& topOrigin, CompletionHandler<void(DataTaskIdentifier)>&& completionHandler)
 {
     auto identifier = DataTaskIdentifier::generate();
@@ -2097,6 +2232,37 @@ void NetworkSessionCocoa::removeDataTask(DataTaskIdentifier identifier)
 void NetworkSessionCocoa::removeBlobDataTask(DataTaskIdentifier identifier)
 {
     m_blobDataTasksForAPI.remove(identifier);
+}
+
+#endif // MAVERICKS_BACKPORT: NetworkDataTaskClient owns the API callbacks.
+
+// MAVERICKS_BACKPORT: all API requests use the same unconditional HTTP transport as page loads.
+void NetworkSessionCocoa::dataTaskWithRequest(WebPageProxyIdentifier pageID, WebCore::ResourceRequest&& request, const std::optional<WebCore::SecurityOriginData>& topOrigin, CompletionHandler<void(DataTaskIdentifier)>&& completionHandler)
+{
+    auto identifier = DataTaskIdentifier::generate();
+    NetworkLoadParameters parameters;
+    parameters.webPageProxyID = pageID;
+    parameters.request = WTF::move(request);
+    parameters.storedCredentialsPolicy = WebCore::StoredCredentialsPolicy::Use;
+    parameters.clientCredentialPolicy = WebCore::ClientCredentialPolicy::MayAskClientForCredentials;
+    parameters.topOrigin = topOrigin ? topOrigin->securityOrigin().ptr() : nullptr;
+    if (parameters.request.url().protocolIsBlob())
+        parameters.blobFileReferences = blobRegistry().filesInBlob(parameters.request.url(), topOrigin);
+    auto task = APIDataTaskClient::create(*this, parameters, identifier);
+    m_dataTasksForAPI.add(identifier, task.copyRef());
+    completionHandler(identifier);
+    task->resume();
+}
+
+void NetworkSessionCocoa::cancelDataTask(DataTaskIdentifier identifier)
+{
+    if (auto task = m_dataTasksForAPI.take(identifier))
+        task->cancel();
+}
+
+void NetworkSessionCocoa::removeDataTask(DataTaskIdentifier identifier)
+{
+    m_dataTasksForAPI.remove(identifier);
 }
 
 void NetworkSessionCocoa::removeWebPageNetworkParameters(WebPageProxyIdentifier pageID)

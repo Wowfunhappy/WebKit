@@ -72,6 +72,8 @@ class ProtectionSpace;
 class ResourceError;
 class ResourceHandleClient;
 class ResourceHandleInternal;
+// MAVERICKS_BACKPORT: expose native curl transfer adoption to the legacy download client.
+class CocoaCurlResourceHandle;
 class NetworkLoadMetrics;
 class ResourceRequest;
 class ResourceResponse;
@@ -112,6 +114,8 @@ public:
 
 #if PLATFORM(COCOA)
     WEBCORE_EXPORT NSURLConnection *NODELETE connection() const;
+    // MAVERICKS_BACKPORT: a paused HTTP transaction can become a download without another request.
+    WEBCORE_EXPORT CocoaCurlResourceHandle* cocoaCurlHandle() const;
     id makeDelegate(bool, RefPtr<SynchronousLoaderMessageQueue>&&);
     id delegate();
     void releaseDelegate();
@@ -205,6 +209,8 @@ private:
     NSURLRequest *applySniffingPoliciesIfNeeded(NSURLRequest *, bool shouldContentSniff, ContentEncodingSniffingPolicy);
 #endif
 
+    // MAVERICKS_BACKPORT: the Cocoa curl policy adapter owns the legacy HTTP handle state.
+    friend class CocoaCurlResourceHandle;
     friend class ResourceHandleInternal;
     std::unique_ptr<ResourceHandleInternal> d;
 };

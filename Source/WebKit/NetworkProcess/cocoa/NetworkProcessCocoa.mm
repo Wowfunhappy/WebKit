@@ -183,28 +183,41 @@ std::optional<audit_token_t> NetworkProcess::sourceApplicationAuditToken() const
 
 HashSet<String> NetworkProcess::hostNamesWithHSTSCache(PAL::SessionID sessionID) const
 {
+    // MAVERICKS_BACKPORT: query the store that actually applies HSTS to curl requests.
+/*
     HashSet<String> hostNames;
     if (CheckedPtr networkSession = downcast<NetworkSessionCocoa>(this->networkSession(sessionID))) {
         for (NSString *host in protect(networkSession->hstsStorage()).get().nonPreloadedHosts)
             hostNames.add(host);
     }
     return hostNames;
+*/ // MAVERICKS_BACKPORT: browser-owned HSTS store below.
+    if (CheckedPtr session = downcast<NetworkSessionCocoa>(networkSession(sessionID)))
+        return session->httpStrictTransportSecurityStore().hosts();
+    return { };
 }
 
 void NetworkProcess::deleteHSTSCacheForHostNames(PAL::SessionID sessionID, const Vector<String>& hostNames)
 {
     if (CheckedPtr networkSession = downcast<NetworkSessionCocoa>(this->networkSession(sessionID))) {
         for (auto& hostName : hostNames)
-            [protect(networkSession->hstsStorage()).get() resetHSTSForHost:hostName.createNSString().get()];
+            // MAVERICKS_BACKPORT: remove browser-owned dynamic HSTS along with website data.
+            // [protect(networkSession->hstsStorage()).get() resetHSTSForHost:hostName.createNSString().get()];
+            networkSession->httpStrictTransportSecurityStore().removeHost(hostName);
     }
 }
 
 void NetworkProcess::clearHSTSCache(PAL::SessionID sessionID, WallTime modifiedSince)
 {
+    // MAVERICKS_BACKPORT: modification-time deletion applies to WebCore's dynamic store.
+/*
     NSTimeInterval timeInterval = modifiedSince.secondsSinceEpoch().seconds();
     RetainPtr date = [NSDate dateWithTimeIntervalSince1970:timeInterval];
     if (CheckedPtr networkSession = downcast<NetworkSessionCocoa>(this->networkSession(sessionID)))
         [protect(networkSession->hstsStorage()).get() resetHSTSHostsSinceDate:date.get()];
+*/
+    if (CheckedPtr session = downcast<NetworkSessionCocoa>(networkSession(sessionID)))
+        session->httpStrictTransportSecurityStore().removeModifiedSince(modifiedSince);
 }
 
 // MAVERICKS_BACKPORT: the Cocoa half upstream dropped when it stopped implementing per-host

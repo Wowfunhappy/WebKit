@@ -20,6 +20,7 @@ if (MAVERICKS_WEBKITLEGACY_PHASE STREQUAL "LISTS")
 # WebView +initialize calls PAL::GCrypt::initialize() (WebCrypto is libgcrypt-backed on this port), so
 # WebKitLegacy needs gcrypt.h reachable.
 list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
+    "${MAVERICKS_SUPPORT}/source/WebKitLegacy/mac/Misc"
     "${MAVERICKS_DEPS}/include"
 )
 
@@ -43,6 +44,9 @@ list(REMOVE_ITEM WebKitLegacy_SOURCES
 
 list(APPEND WebKitLegacy_SOURCES
     mac/DefaultDelegates/WebDefaultPolicyDelegate.mm
+    # Safari's HTTP WebDownload over the shared curl transport; WebDownload.mm reaches its header by
+    # bare name, so the directory goes on the include path.
+    ${MAVERICKS_SUPPORT}/source/WebKitLegacy/mac/Misc/WebDownloadCurl.mm
 
     # The legacy socket provider and the WebKitLegacy inspector debuggable/controller, which the
     # modern upstream WebKitLegacy build omits.
@@ -90,6 +94,10 @@ set(WebKit_WEB_PREFERENCES_TEMPLATES
 )
 
 elseif (MAVERICKS_WEBKITLEGACY_PHASE STREQUAL "POST")
+
+# NSURLDownload file-format gzip decoding is separate from HTTP Content-Encoding.
+find_package(ZLIB REQUIRED)
+target_link_libraries(WebKitLegacy PRIVATE ZLIB::ZLIB)
 
 # Plain Objective-C sources compile as -std=gnu17. The classification loop above knows only C99_FILES
 # and CPP_FILES and hands everything else the -ObjC++ branch, which no .m file can take.

@@ -83,6 +83,10 @@ public:
     // MAVERICKS_BACKPORT: the same resume data in the CFURLDownload format Safari 7's resume path
     // consumes; see DownloadProxyCocoa.mm for why the WK2 blob cannot be handed over as-is.
     RefPtr<API::Data> legacyResumeDataForNSURLDownload() const;
+    // MAVERICKS_BACKPORT: native WebDownload cancellation must synchronously close the remote file writer.
+    RefPtr<API::Data> cancelForLegacyResume();
+    // MAVERICKS_BACKPORT: preserve the native resume response and byte offset before progress callbacks.
+    void didResumeWithResponse(const WebCore::ResourceResponse&, uint64_t);
 #endif
 
     void cancel(CompletionHandler<void(API::Data*)>&&);

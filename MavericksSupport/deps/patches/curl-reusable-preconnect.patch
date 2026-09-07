@@ -1,0 +1,82 @@
+--- a/include/curl/curl.h
++++ b/include/curl/curl.h
+@@ -2333,6 +2333,11 @@
+ 
+   /* Convenient "aliases" */
+ #define CURLOPT_RTSPHEADER CURLOPT_HTTPHEADER
++
++/* CURLOPT_CONNECT_ONLY mode: complete DNS, proxy and TLS setup without an
++ * application request, then return the connection to the multi handle pool.
++ * curl_easy_send/recv do not expose the pooled socket in this mode. */
++#define CURL_CONNECT_ONLY_REUSABLE 3L
+ 
+ /* These constants are for use with the CURLOPT_HTTP_VERSION option. */
+ #define CURL_HTTP_VERSION_NONE  0L /* setting this means we do not care, and
+--- a/lib/urldata.h
++++ b/lib/urldata.h
+@@ -1030,6 +1030,7 @@
+   BIT(connect_only); /* make connection/request, then let application use the
+                         socket */
+   BIT(connect_only_ws); /* special websocket connect-only level */
++  BIT(preconnect); /* complete after connecting; leave the connection reusable */
+ #ifndef CURL_DISABLE_SMTP
+   BIT(mail_rcpt_allowfails); /* allow RCPT TO command to fail for some
+                                 recipients */
+--- a/lib/setopt.c
++++ b/lib/setopt.c
+@@ -854,11 +854,12 @@
+       s->ipver = (unsigned char)arg;
+     break;
+   case CURLOPT_CONNECT_ONLY:
+-    if(arg < 0 || arg > 2)
++    if(arg < 0 || arg > CURL_CONNECT_ONLY_REUSABLE)
+       result = CURLE_BAD_FUNCTION_ARGUMENT;
+     else {
+       s->connect_only = !!arg;
+       s->connect_only_ws = (arg == 2);
++      s->preconnect = (arg == CURL_CONNECT_ONLY_REUSABLE);
+     }
+     break;
+ #ifdef USE_IPV6
+--- a/lib/url.c
++++ b/lib/url.c
+@@ -1201,7 +1201,7 @@
+   conn->bits.ftp_use_eprt = data->set.ftp_use_eprt;
+ #endif
+   conn->ip_version = data->set.ipver;
+-  conn->bits.connect_only = (bool)data->set.connect_only;
++  conn->bits.connect_only = data->set.connect_only && !data->set.preconnect;
+   conn->transport_wanted = TRNSPRT_TCP; /* most of them are TCP streams */
+ 
+   /* Store the local bind parameters that will be used for this connection */
+@@ -2304,7 +2304,7 @@
+    *   (like with HTTP followlocation)
+    *************************************************************/
+   if((!data->set.reuse_fresh || data->state.followlocation) &&
+-     !data->set.connect_only) {
++     (!data->set.connect_only || data->set.preconnect)) {
+     /* Ok, try to find and attach an existing one */
+     url_attach_existing(data, needle, &waitpipe);
+   }
+--- a/lib/multi.c
++++ b/lib/multi.c
+@@ -827,7 +827,7 @@
+   /* Tell event handling that this transfer is definitely going away */
+   Curl_multi_ev_xfer_done(multi, data);
+ 
+-  if(data->set.connect_only) {
++  if(data->set.connect_only && !data->set.preconnect) {
+     if(data->multi_easy) {
+       if(data->state.lastconnect_id != -1) {
+         /* Mark any connect-only connection for closure */
+--- a/lib/easy.c
++++ b/lib/easy.c
+@@ -1230,7 +1230,7 @@
+     return CURLE_BAD_FUNCTION_ARGUMENT;
+ 
+   /* only allow these to be called on handles with CURLOPT_CONNECT_ONLY */
+-  if(!data->set.connect_only) {
++  if(!data->set.connect_only || data->set.preconnect) {
+     failf(data, "CONNECT_ONLY is required");
+     return CURLE_UNSUPPORTED_PROTOCOL;
+   }

@@ -88,6 +88,9 @@ ResourceHandleInternal::~ResourceHandleInternal()
 
 ResourceHandle::~ResourceHandle()
 {
+    // MAVERICKS_BACKPORT: clear the policy client before queued curl callbacks can observe destruction.
+    if (d->m_cocoaCurlHandle)
+        d->m_cocoaCurlHandle->detach();
     releaseDelegate();
     d->m_currentWebChallenge.setAuthenticationClient(0);
 
@@ -230,12 +233,29 @@ bool ResourceHandle::start()
     if (!d->m_context)
         return false;
 
+    // MAVERICKS_BACKPORT: the page/context validity gate applies before selecting either native protocol or HTTP transport.
+    if (!d->m_context->isValid())
+        return false;
+
+    // MAVERICKS_BACKPORT: every legacy HTTP request uses the storage session's curl worker pool.
+    if (firstRequest().url().protocolIsInHTTPFamily()) {
+        auto* storage = d->m_context->storageSession();
+        if (!storage)
+            return false;
+        d->m_storageSession = storage->platformSession();
+        firstRequest().setStorageSession(d->m_storageSession.get());
+        d->m_cocoaCurlHandle = CocoaCurlResourceHandle::create(*this, *storage);
+        d->m_cocoaCurlHandle->start();
+        return true;
+    }
+
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
     // If NetworkingContext is invalid then we are no longer attached to a Page,
     // this must be an attempted load from an unload event handler, so let's just block it.
-    if (!d->m_context->isValid())
-        return false;
+    // MAVERICKS_BACKPORT: checked before the HTTP/native transport selection above.
+    // if (!d->m_context->isValid())
+    //     return false;
 
     if (auto* networkStorageSession = d->m_context->storageSession())
         d->m_storageSession = networkStorageSession->platformSession();
@@ -282,6 +302,11 @@ bool ResourceHandle::start()
 
 void ResourceHandle::cancel()
 {
+    // MAVERICKS_BACKPORT: cancel the HTTP worker without invoking NSURLConnection.
+    if (d->m_cocoaCurlHandle) {
+        d->m_cocoaCurlHandle->cancel();
+        return;
+    }
     LOG(Network, "Handle %p cancel connection %p", this, d->m_connection.get());
 
     // Leaks were seen on HTTP tests without this; can be removed once <rdar://problem/6886937> is fixed.
@@ -293,6 +318,11 @@ void ResourceHandle::cancel()
 
 void ResourceHandle::platformSetDefersLoading(bool defers)
 {
+    // MAVERICKS_BACKPORT: retain the legacy deferral contract on the curl transaction.
+    if (d->m_cocoaCurlHandle) {
+        d->m_cocoaCurlHandle->setDefersLoading(defers);
+        return;
+    }
     if (d->m_connection)
         [d->m_connection setDefersCallbacks:defers];
 }
@@ -338,6 +368,12 @@ void ResourceHandle::releaseDelegate()
     d->m_delegate = nil;
 }
 
+// MAVERICKS_BACKPORT: expose only the curl policy adapter for HTTP download adoption.
+CocoaCurlResourceHandle* ResourceHandle::cocoaCurlHandle() const
+{
+    return d->m_cocoaCurlHandle.get();
+}
+
 NSURLConnection *ResourceHandle::connection() const
 {
     return d->m_connection.get();
@@ -365,6 +401,22 @@ void ResourceHandle::platformLoadResourceSynchronously(NetworkingContext* contex
 
     if (context && handle->d->m_scheduledFailureType != NoFailure) {
         error = context->blockedError(request);
+        return;
+    }
+
+    // MAVERICKS_BACKPORT: the synchronous caller processes only its loader queue, while curl performs I/O on its worker.
+    if (request.url().protocolIsInHTTPFamily()) {
+        auto* storage = context->storageSession();
+        handle->d->m_cocoaCurlHandle = CocoaCurlResourceHandle::create(*handle, *storage, &client.messageQueue());
+        handle->d->m_cocoaCurlHandle->start();
+        while (!client.messageQueue().killed()) {
+            if (auto task = client.messageQueue().waitForMessage())
+                (*task)();
+        }
+        error = client.error();
+        if (error.isNull())
+            response = client.response();
+        data.swap(client.mutableData());
         return;
     }
 
@@ -485,7 +537,9 @@ void ResourceHandle::didReceiveAuthenticationChallenge(const AuthenticationChall
 
     // Proxy authentication is handled by CFNetwork internally. We can get here if the user cancels
     // CFNetwork authentication dialog, and we shouldn't ask the client to display another one in that case.
-    if (challenge.protectionSpace().isProxy()) {
+    // MAVERICKS_BACKPORT: curl proxy challenges use WebKit's credential contract; native non-HTTP handlers retain theirs.
+    // if (challenge.protectionSpace().isProxy()) {
+    if (challenge.protectionSpace().isProxy() && !d->m_cocoaCurlHandle) {
         // Cannot use receivedRequestToContinueWithoutCredential(), because current challenge is not yet set.
         [challenge.sender() continueWithoutCredentialForAuthenticationChallenge:challenge.nsURLAuthenticationChallenge()];
         return;

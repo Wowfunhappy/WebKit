@@ -626,3 +626,25 @@ set(MAVERICKS_ADDED_WEBKIT_COCOA_SOURCES
 
 MAVERICKS_FILTER_SOURCE_LIST("${WEBKIT_DIR}" WebKit_UNIFIED_SOURCE_LIST_FILES "Sources.txt" MAVERICKS_WITHHELD_WEBKIT_SOURCES MAVERICKS_ADDED_WEBKIT_SOURCES)
 MAVERICKS_FILTER_SOURCE_LIST("${WEBKIT_DIR}" WebKit_UNIFIED_SOURCE_LIST_FILES "SourcesCocoa.txt" MAVERICKS_WITHHELD_WEBKIT_COCOA_SOURCES MAVERICKS_ADDED_WEBKIT_COCOA_SOURCES)
+
+# The Cocoa curl transport's NetworkProcess task, Safari's native resume facade and its typed resume
+# record -- this backport's own sources, beside the rest of the 10.9 glue. NetworkDataTask.cpp and
+# the download code reach the headers by bare name, so the directories go on the include path.
+find_package(CURL 8.22 REQUIRED)
+find_library(CURL_TASK_SYSTEM_CONFIGURATION_LIBRARY SystemConfiguration REQUIRED)
+find_library(CURL_TASK_SSL_LIBRARY ssl PATHS "${MAVERICKS_DEPS}/lib" NO_DEFAULT_PATH REQUIRED)
+find_library(CURL_TASK_CRYPTO_LIBRARY crypto PATHS "${MAVERICKS_DEPS}/lib" NO_DEFAULT_PATH REQUIRED)
+list(APPEND WebKit_PRIVATE_LIBRARIES CURL::libcurl ${CURL_TASK_SSL_LIBRARY} ${CURL_TASK_CRYPTO_LIBRARY} ${CURL_TASK_SYSTEM_CONFIGURATION_LIBRARY})
+list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
+    "${MAVERICKS_SUPPORT}/source/WebKit/NetworkProcess/cocoa"
+    "${MAVERICKS_SUPPORT}/source/WebKit/Shared/Cocoa"
+)
+list(APPEND WebKit_SOURCES
+    ${MAVERICKS_SUPPORT}/source/WebKit/NetworkProcess/cocoa/NetworkDataTaskCurlCocoa.mm
+    ${MAVERICKS_SUPPORT}/source/WebKit/Shared/Cocoa/CocoaDownloadResumeData.mm
+    ${MAVERICKS_SUPPORT}/source/WebKit/UIProcess/Cocoa/CocoaCurlLegacyDownload.mm
+)
+# Serialization inputs are joined onto ${WEBKIT_DIR}, so the overlay file is named relative to it.
+list(APPEND WebKit_SERIALIZATION_IN_FILES
+    ../../MavericksSupport/source/WebKit/Shared/Cocoa/CocoaDownloadResumeData.serialization.in
+)

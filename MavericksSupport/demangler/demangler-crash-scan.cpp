@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: worker for neutralize-demangler-crashers.py.
+// worker for neutralize-demangler-crashers.py.
 //
 // Reads mangled names (one per line, passed verbatim to __cxa_demangle) and
 // demangles every one with the HOST 10.9 libc++abi demangler, which heap-

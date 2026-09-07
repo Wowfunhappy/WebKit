@@ -48,6 +48,8 @@ namespace WebKit {
 
 class NetworkTaskCocoa {
 public:
+    // MAVERICKS_BACKPORT: public and static, so the curl data task applies the same quirk on its redirects.
+    static bool needsFirstPartyCookieBlockingLatchModeQuirk(const URL& firstPartyURL, const URL& requestURL, const URL& redirectingURL);
     virtual ~NetworkTaskCocoa() = default;
 
     void willPerformHTTPRedirection(WebCore::ResourceResponse&&, WebCore::ResourceRequest&&, RedirectCompletionHandler&&);
@@ -79,7 +81,8 @@ protected:
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES)
     void updateTaskWithStoragePartitionIdentifier(const WebCore::ResourceRequest&);
 #endif
-    bool needsFirstPartyCookieBlockingLatchModeQuirk(const URL& firstPartyURL, const URL& requestURL, const URL& redirectingURL) const;
+    // MAVERICKS_BACKPORT: declared public and static above.
+    // bool needsFirstPartyCookieBlockingLatchModeQuirk(const URL& firstPartyURL, const URL& requestURL, const URL& redirectingURL) const;
     static NSString *lastRemoteIPAddress(NSURLSessionTask *);
     static WebCore::RegistrableDomain lastCNAMEDomain(String);
     WebCore::ThirdPartyCookieBlockingDecision requestThirdPartyCookieBlockingDecision(const WebCore::ResourceRequest&) const;

@@ -91,3 +91,11 @@ WEBKIT_DEPRECATED_MAC(10_4, 10_14)
 @end
 
 #endif /* WebDownload_h */
+
+#ifdef __cplusplus
+// MAVERICKS_BACKPORT: adopt a paused legacy HTTP transaction without initializing another wire loader.
+namespace WebCore { class CocoaCurlResourceHandle; }
+@interface WebDownload (CocoaCurlTransferAdoption)
+- (instancetype)_initWithCurlResourceHandle:(WebCore::CocoaCurlResourceHandle&)handle delegate:(id)delegate;
+@end
+#endif

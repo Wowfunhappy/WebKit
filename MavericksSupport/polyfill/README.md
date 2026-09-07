@@ -118,35 +118,14 @@ WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSURLSessionTask", "__NSCFURLSessionTask")
 
 Add the stub to `classes/<Framework>.m`.
 
-### Patching a private symbol of a system framework
+### Looking up a private symbol of a system framework
 
-**This interface may only be used with the maintainer's explicit approval, granted one use at a time,
-and a use that has it may not be removed without approval either.** It is not a general tool and not a
-technique to reach for: every use is a divergence from a system framework's own behaviour, and the
-approval attaches to one symbol in one process, never to the technique. Exhaust every form above
-first. If you are reading this section because none of them fit, the next step is to ask, not to write
-one.
+`polyfills/c/wk_symbols.h` provides image-local symbol lookup for the protection-space secure-coding
+bridge in `CFNetwork.c` (`SerializableArchive::add`). This lets the bridge archive the actual native
+protection space used by Safari's authentication and certificate APIs.
 
-What it is, for reading the uses that exist. `polyfills/c/wk_symbols.h` resolves a name in a loaded
-image's own symbol table -- a local symbol as readily as an exported one -- and replaces one
-pointer-sized value in the data that name reaches. `wk_pointer_patch` names the symbol directly and
-carries a `describes` predicate, the description of the system the patch was written against, so a
-system it does not describe keeps whatever it has. `wk_vtable_patch` names a C++ vtable and the
-function expected to occupy the slot; the slot is scanned for, so no slot offset is written down and
-the scan is itself the validation, and the call answers with that function, which is how the
-replacement reaches it.
-
-Data only: nothing here writes over an instruction, and there is no way to ask it to. A replacement
-calls the function it stands in for through the pointer it was answered with, so there are no
-trampolines and no displaced instructions.
-
-`libpolyfill.a` is force-loaded into every WebKit framework, so a load-time patch runs once per
-framework over one location. Whichever framework reaches it first does the write and the rest find the
-work done; `wk_patch_vtable_slot`'s `installed` says which one this was, so a set of patches whose
-replacements share state can check that one framework claimed the whole set rather than assume it.
-
-A patch that does not apply ends the process, naming itself. Silence is the failure mode that matters
-for anything security-relevant.
+Cookie parsing and mutation notifications are WebCore's. The polyfill keeps the native jar metadata
+10.9 needs to preserve SameSite across storage and process boundaries.
 
 ## Checking what actually happened
 

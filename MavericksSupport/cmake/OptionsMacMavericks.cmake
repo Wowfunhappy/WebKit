@@ -54,10 +54,6 @@ add_compile_definitions(WEBKIT_BUNDLE_VERSION="${WEBKIT_MAC_VERSION}")
 #                                 defaultUseGPUProcessForDOMRenderingEnabled); this port pins the
 #                                 drawing area, so it pins the paired half too. The GPU process still
 #                                 serves WebGL and canvas, upstream's own shape for its TCA Macs.
-#   SERVER_PRECONNECT             10.9 cannot warm a connection without transferring: a task flagged
-#                                 _preconnect performs a full GET when resumed, fetching every main
-#                                 resource twice and rotating a per-response Set-Cookie session out
-#                                 from under the page just rendered.
 #   DNS_SERVER_FOR_TESTING        its SPI is macOS 10.15+. The _IN_NETWORKING_PROCESS companion is stated
 #                                 too: its own block keys on `defined(ENABLE_DNS_SERVER_FOR_TESTING)`
 #                                 rather than the value, which a `=0` definition satisfies.
@@ -69,7 +65,6 @@ add_compile_definitions(
     ENABLE_PDF_PLUGIN=0
     ENABLE_REMOTE_LAYER_TREE_ON_MAC_BY_DEFAULT=0
     ENABLE_GPU_PROCESS_DOM_RENDERING_BY_DEFAULT=0
-    ENABLE_SERVER_PRECONNECT=0
     ENABLE_DNS_SERVER_FOR_TESTING=0
     ENABLE_DNS_SERVER_FOR_TESTING_IN_NETWORKING_PROCESS=0
 )
@@ -352,6 +347,10 @@ set(LIBXSLT_LIBRARIES "${MAVERICKS_DEPS}/lib/libxslt.1.dylib" CACHE FILEPATH "" 
 # beside the deps copy, which is the second image this whole arrangement exists to avoid. Seeding the
 # cache here answers its find_library(), which no-ops on a variable that already has a value.
 set(XML2_LIBRARY "${MAVERICKS_DEPS}/lib/libxml2.2.dylib" CACHE FILEPATH "" FORCE)
+
+# Cocoa transport dependencies; CF platform values remain selected.
+set(CURL_INCLUDE_DIR "${MAVERICKS_DEPS}/include" CACHE PATH "" FORCE)
+set(CURL_LIBRARY_RELEASE "${MAVERICKS_DEPS}/lib/libcurl.4.dylib" CACHE FILEPATH "" FORCE)
 
 # Polyfill libraries for macOS 10.9
 #

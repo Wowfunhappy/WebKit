@@ -25,6 +25,9 @@
 
 #import "config.h"
 #import "NetworkStorageSession.h"
+// MAVERICKS_BACKPORT: native-session lifetime owns legacy curl connections and HSTS policy.
+#import "CocoaCurlConnection.h"
+#import "HTTPStrictTransportSecurityStore.h"
 
 #import "ClientOrigin.h"
 #import "Cookie.h"
@@ -55,8 +58,39 @@
 
 namespace WebCore {
 
+// MAVERICKS_BACKPORT: lazily create the legacy pool within this jar's privacy boundary.
+CocoaCurlConnectionPool& NetworkStorageSession::cocoaCurlConnectionPool(bool allowStoredCredentials)
+{
+    ASSERT(isMainThread());
+    auto& pool = allowStoredCredentials ? m_cocoaCurlConnectionPool : m_cocoaCurlCredentiallessConnectionPool;
+    if (!pool)
+        pool = CocoaCurlConnectionPool::create();
+    return *pool;
+}
+
+// MAVERICKS_BACKPORT: in-flight transfers keep their pool; future exchanges cannot reuse its authentication or TLS sessions.
+void NetworkStorageSession::clearCocoaCurlCredentialState()
+{
+    ASSERT(isMainThread());
+    m_cocoaCurlConnectionPool = nullptr;
+    m_cocoaCurlCredentiallessConnectionPool = nullptr;
+}
+
+// MAVERICKS_BACKPORT: private sessions own memory-only HSTS; persistent legacy loads share the application's store.
+HTTPStrictTransportSecurityStore& NetworkStorageSession::httpStrictTransportSecurityStore()
+{
+    if (!m_httpStrictTransportSecurityStore)
+        m_httpStrictTransportSecurityStore = makeUnique<HTTPStrictTransportSecurityStore>((m_sessionID.isEphemeral() || m_isInMemoryCookieStore) ? emptyString() : HTTPStrictTransportSecurityStore::defaultStorageDirectory());
+    return *m_httpStrictTransportSecurityStore;
+}
+
 NetworkStorageSession::~NetworkStorageSession()
 {
+    // MAVERICKS_BACKPORT: invalidate outstanding legacy transfers before discarding their jar.
+    if (m_cocoaCurlConnectionPool)
+        m_cocoaCurlConnectionPool->invalidate();
+    if (m_cocoaCurlCredentiallessConnectionPool)
+        m_cocoaCurlCredentiallessConnectionPool->invalidate();
 #if HAVE(COOKIE_CHANGE_LISTENER_API)
     unregisterCookieChangeListenersIfNecessary();
 #endif

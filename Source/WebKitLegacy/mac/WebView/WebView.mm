@@ -9260,6 +9260,8 @@ FORWARD(toggleUnderline)
         return;
 
     networkingContext->storageSession()->credentialStorage().clearCredentials();
+    // MAVERICKS_BACKPORT: discard reusable authentication state alongside cached credentials.
+    networkingContext->storageSession()->clearCocoaCurlCredentialState();
 }
 
 // FIXME: One-shot drawing synchronization is no longer necessary since all AppKit rendering is driven by Core Animation.

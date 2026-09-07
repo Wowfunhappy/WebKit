@@ -10,6 +10,7 @@
 // literal. A polyfill's contract is the system API's modern behavior, so it is correct at every caller.
 
 #import "wk_cookie_storage.h"
+#import "wk_hosts.h"
 #import "wk_url_coding.h"
 #import "wk_polyfill.h"
 #import "wk_samesite.h"
@@ -43,6 +44,16 @@ extern void CFHTTPCookieStorageSetCookieAcceptPolicy(CFHTTPCookieStorageRef, CFI
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
+// NSString's 10.9 address predicate rejects bracketed IPv6, although WTF::URL::host() supplies
+// that URL representation. The modern predicate must recognize both bare and bracketed literals.
+// The shared parser also serves native cookie domain classification.
+WK_POLYFILL_REPLACE_METHODS(NSString)
+- (BOOL)_web_looksLikeIPAddress
+{
+    return wk_hostIsIPAddress((CFStringRef)self);
+}
+@end
+
 // ---------------------------------------------------------------------------------------------------
 // -[NSError underlyingErrors] (10.14+) is the array-valued successor to the single NSUnderlyingErrorKey
 // that 10.9's NSError already carries, so return that one error when the userInfo has it and an empty
@@ -64,118 +75,12 @@ WK_POLYFILL_ADD_METHODS(NSProcessInfo)
 - (BOOL)isLowPowerModeEnabled { return NO; }
 @end
 
-// -[NSHTTPCookieStorageInternal registerForPostingNotificationsWithContext:] (10.10+) makes a cookie
-// storage that is not the shared one post NSHTTPCookieManagerCookiesChangedNotification when its
-// cookies change. CookieStorageObserver::registerInternalsForNotifications asks it of every session but
-// the default, and 10.9 posts that notification only for the shared storage, so the notification
-// CookieStorageObserver waits on never arrives. 10.9's per-storage change signal is
-// CFHTTPCookieStorageAddObserver, delivered on the run loop it is given, which is what posts it here;
-// that observer names no cookies, and neither does the notification.
-typedef void (*WKCookieStoragePostProc)(CFHTTPCookieStorageRef store, void *context);
-extern void CFHTTPCookieStorageAddObserver(CFHTTPCookieStorageRef store, CFRunLoopRef runLoop, CFStringRef mode, WKCookieStoragePostProc callback, void *context);
-
-static void wk_postCookiesChangedNotification(CFHTTPCookieStorageRef store, void *context)
-{
-    (void)store;
-    [[NSNotificationCenter defaultCenter] postNotificationName:NSHTTPCookieManagerCookiesChangedNotification
-                                                        object:(NSHTTPCookieStorage *)context];
-}
-
-// One registration per store: CookieStorageObserver asks for this once per observer and never takes it
-// back, and a store reached through a second NSHTTPCookieStorage wrapper is the same store, so the flag
-// rides on the store rather than on the wrapper. The observer's context is owned for as long as the
-// registration it belongs to, which the store outlives.
-static const void *const wk_cookiePostingRegisteredKey = &wk_cookiePostingRegisteredKey;
-
-WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSHTTPCookieStorageInternal")
-- (void)registerForPostingNotificationsWithContext:(id)context
-{
-    CFHTTPCookieStorageRef store = ((CFHTTPCookieStorageRef (*)(id, SEL))objc_msgSend)(context, sel_registerName("_cookieStorage"));
-    if (!store || objc_getAssociatedObject((id)store, wk_cookiePostingRegisteredKey))
-        return;
-    objc_setAssociatedObject((id)store, wk_cookiePostingRegisteredKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    CFHTTPCookieStorageAddObserver(store, CFRunLoopGetMain(), kCFRunLoopCommonModes,
-        wk_postCookiesChangedNotification, [context retain]);
-}
-@end
-
 // ---------------------------------------------------------------------------------------------------
-// Private NSHTTPCookieStorage / NSHTTPCookie cookie SPI (10.10+) that WebCore's NetworkStorageSession
-// (Source/WebCore/platform/network/cocoa/NetworkStorageSessionCocoa.mm) uses for the modern
-// partition-/SameSite-aware cookie jar. None of these selectors exist on 10.9, so the NetworkProcess
-// aborted with an "unrecognized selector" NSInvalidArgumentException the moment a page read or wrote a
-// cookie or subscribed to cookie changes. 10.9 has no cookie partitioning, and on this build cookie
-// partitioning is off in every sense (NetworkStorageSession::m_isOptInCookiePartitioningEnabled is
-// false and CFN_COOKIE_ACCEPTS_POLICY_PARTITION is undefined, so the _getCookiesForPartition: path is
-// compiled out), which means the partition argument carries no information here. policyProperties does
-// carry information -- NetworkStorageSessionCocoa's policyProperties() fills in
-// _kCFHTTPCookiePolicyPropertySiteForCookies and _kCFHTTPCookiePolicyPropertyIsTopLevelNavigation on
-// every read and write -- but it is the SameSite context, and 10.9's parser discards a cookie's SameSite
-// attribute while reading Set-Cookie, so no cookie in this jar carries the attribute that context would
-// be matched against. Each modern selector therefore reduces to the classic 10.9 public API.
+// Cookie reads apply SameSite policy from the native record's encoded metadata. Partitioning is
+// disabled by this build; the policy dictionary supplies the request's site and navigation context.
 
-// RFC 6265 5.3: a cookie is kept only when its Domain attribute names neither a public suffix nor a
-// domain the request host fails to domain-match. 10.9's parser applies neither rule, so
-// `document.cookie = "x=1; domain=.com"` from any .com page is stored against `.com` and sent to
-// every other .com site. _CFHostIsDomainTopLevel is the public-suffix oracle WebCore's own
-// PublicSuffixStore asks on Cocoa, and 10.9 exports it; it answers on Unicode labels, so a name in
-// its A-label form is decoded first, as PublicSuffixStoreCocoa's decodeHostName does.
-extern Boolean _CFHostIsDomainTopLevel(CFStringRef domain);
-
-static NSString *wk_decodedHostName(NSString *name)
-{
-    if ([name rangeOfString:@"xn--" options:NSCaseInsensitiveSearch].location == NSNotFound)
-        return name;
-
-    typedef int32_t (*IDNToUnicodeFn)(const UniChar*, int32_t, UniChar*, int32_t, int32_t, void*, int32_t*);
-    static IDNToUnicodeFn idnToUnicode;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        idnToUnicode = (IDNToUnicodeFn)dlsym(RTLD_DEFAULT, "uidna_IDNToUnicode");
-    });
-    if (!idnToUnicode)
-        return name;
-
-    NSUInteger length = name.length;
-    UniChar source[256];
-    UniChar decoded[256];
-    if (length >= sizeof(source) / sizeof(source[0]))
-        return name;
-    [name getCharacters:source range:NSMakeRange(0, length)];
-
-    int32_t status = 0;
-    int32_t decodedLength = idnToUnicode(source, (int32_t)length, decoded,
-        (int32_t)(sizeof(decoded) / sizeof(decoded[0])), 0, NULL, &status);
-    if (status > 0 || decodedLength <= 0)
-        return name;
-    return [NSString stringWithCharacters:decoded length:(NSUInteger)decodedLength];
-}
-
-// A host that is an IP literal domain-matches only itself (RFC 6265 5.1.3), and no address is a
-// public suffix, so both tests below are skipped for one.
-static BOOL wk_hostIsIPLiteral(NSString *host)
-{
-    if ([host rangeOfString:@":"].location != NSNotFound)
-        return YES;
-    NSCharacterSet *nonAddress = [[NSCharacterSet characterSetWithCharactersInString:@"0123456789."] invertedSet];
-    return host.length && [host rangeOfCharacterFromSet:nonAddress].location == NSNotFound;
-}
-
-// RFC 6265bis 5.5: a set-cookie-string carrying a CTL other than HTAB -- %x00-08, %x0A-1F or %x7F --
-// is ignored, its attributes included. 10.9's parser keeps one.
-static BOOL wk_stringHasControlCharacter(NSString *text)
-{
-    NSUInteger length = text.length;
-    for (NSUInteger i = 0; i < length; ++i) {
-        unichar c = [text characterAtIndex:i];
-        if (c == '\t')
-            continue;
-        if (c <= 0x1f || c == 0x7f)
-            return YES;
-    }
-    return NO;
-}
-
+// The modern native-cookie setter validates domain scope before invoking the 10.9 jar.
+// Its native API contract shares WebCore's PSL and literal-address predicates.
 static NSHTTPCookie *wk_cookieWithUsableDomain(NSHTTPCookie *cookie, NSURL *url)
 {
     NSString *domain = [cookie domain];
@@ -201,10 +106,10 @@ static NSHTTPCookie *wk_cookieWithUsableDomain(NSHTTPCookie *cookie, NSURL *url)
 
     // An address domain-matches only itself (5.1.3), which the line above already answered, so nothing
     // else a cookie names for one can be right.
-    if (wk_hostIsIPLiteral(host))
+    if (wk_hostIsIPAddress((CFStringRef)host))
         return nil;
 
-    if (_CFHostIsDomainTopLevel((__bridge CFStringRef)wk_decodedHostName(bare)))
+    if (wk_domainIsPublicSuffix((CFStringRef)bare))
         return nil;
 
     if (![[host lowercaseString] hasSuffix:[[@"." stringByAppendingString:bare] lowercaseString]])
@@ -220,28 +125,6 @@ static NSHTTPCookie *wk_cookieWithUsableDomain(NSHTTPCookie *cookie, NSURL *url)
 // policy dictionary 10.9 cannot honour. _getCookiesForDomain: returns every unpartitioned cookie whose
 // domain attribute domain-matches the host (RFC 6265). _saveCookies: is polyfilled further down, over 10.9's
 // PRESENT argument-less -_saveCookies.
-// _setCookiesChangedHandler:onQueue:/_setCookiesRemovedHandler:onQueue:/
-// _setSubscribedDomainsForCookieChanges: are the HAVE(COOKIE_CHANGE_LISTENER_API) hooks
-// NetworkStorageSession::registerCookieChangeListenersIfNecessary installs. WebKit names a set of hosts
-// and is handed the cookies added to, or removed from, one of them; that is what keeps the WebProcess's
-// WebCookieCache -- the answer document.cookie reads -- and the CookieStore API's change events in step
-// with the cookies a network response stores. The cookies are named by the storage backend's own
-// mutation slots, which c/CFNetwork.c replaces; they report here through +reportCookie:ofStorage:change:
-// with the cookie each write stored or deleted, from under the storage's mutex, so nothing below reads
-// the storage back.
-//
-// The watcher belongs to the storage backend rather than to the NSHTTPCookieStorage it is reached
-// through, because NetworkStorageSession::nsCookieStorage() allocates a fresh wrapper on every call for
-// any session but the default one: the handlers and the subscribed hosts arrive on separate objects
-// over one store, and the backend is what the slots know a store by.
-typedef void (^WKCookiesChangedHandler)(NSArray<NSHTTPCookie *> *addedCookies, NSString *domainForChangedCookie);
-typedef void (^WKCookiesRemovedHandler)(NSArray<NSHTTPCookie *> *removedCookies, NSString *domainForRemovedCookies, BOOL removeAllCookies);
-
-// Foundation's own wrapper over a CFHTTPCookie, which retains it.
-@interface NSHTTPCookie (WKPolyfillCFHTTPCookie)
-+ (NSHTTPCookie *)cookieWithCFHTTPCookie:(CFTypeRef)cookie;
-@end
-
 // RFC 6265 5.1.3: a host-only cookie covers the host it names, a domain cookie that host and every
 // subdomain of it. Cookie domains are case-insensitive.
 static BOOL wk_cookieDomainMatchesHost(NSString *cookieDomain, NSString *host)
@@ -254,6 +137,8 @@ static BOOL wk_cookieDomainMatchesHost(NSString *cookieDomain, NSString *host)
         return NO;
     if ([host caseInsensitiveCompare:bare] == NSOrderedSame)
         return YES;
+    if (![cookieDomain hasPrefix:@"."])
+        return NO;
     NSUInteger hostLength = host.length, bareLength = bare.length;
     if (hostLength <= bareLength)
         return NO;
@@ -263,294 +148,337 @@ static BOOL wk_cookieDomainMatchesHost(NSString *cookieDomain, NSString *host)
     return [host characterAtIndex:suffix.location - 1] == '.';
 }
 
-// Name, domain and path are a stored cookie's identity (RFC 6265 5.3): a second Set-Cookie carrying all
-// three replaces the first rather than joining it.
-static NSString *wk_cookieIdentity(NSHTTPCookie *cookie)
-{
-    return [NSString stringWithFormat:@"%@\n%@\n%@", [cookie name], [cookie domain], [cookie path]];
-}
+// CFNetwork delivers in-process writes, expiry, and daemon merges through its storage observer.
+// Each CF handle owns one indexed snapshot; separate NS wrappers share handlers and subscriptions.
+typedef void (*WKCookieStorageChangedProc)(CFHTTPCookieStorageRef, void *);
+extern void CFHTTPCookieStorageAddObserver(CFHTTPCookieStorageRef, CFRunLoopRef, CFStringRef, WKCookieStorageChangedProc, void *);
+extern void CFHTTPCookieStorageRemoveObserver(CFHTTPCookieStorageRef, CFRunLoopRef, CFStringRef, WKCookieStorageChangedProc, void *);
+static CFHTTPCookieStorageRef wk_cfCookieStorageOf(id);
 
-static BOOL wk_cookieMatchesStoredCookie(NSHTTPCookie *cookie, NSHTTPCookie *other)
-{
-    if (![[cookie value] isEqualToString:[other value]])
-        return NO;
-
-    NSDate *expiry = [cookie expiresDate];
-    NSDate *otherExpiry = [other expiresDate];
-    if ((expiry || otherExpiry) && ![expiry isEqualToDate:otherExpiry])
-        return NO;
-
-    return [cookie isSecure] == [other isSecure] && [cookie isHTTPOnly] == [other isHTTPOnly];
-}
-
-// The cookies of |cookies| that |host| is subscribed to, by identity.
-static NSDictionary<NSString *, NSHTTPCookie *> *wk_cookiesForHost(NSArray<NSHTTPCookie *> *cookies, NSString *host)
-{
-    NSMutableDictionary<NSString *, NSHTTPCookie *> *matching = [NSMutableDictionary dictionary];
-    for (NSHTTPCookie *cookie in cookies) {
-        if (wk_cookieDomainMatchesHost([cookie domain], host))
-            [matching setObject:cookie forKey:wk_cookieIdentity(cookie)];
-    }
-    return matching;
-}
-
-@interface WKPolyfillCookieWatcher : NSObject {
-@private
-    const void *_backend;
-    WKCookiesChangedHandler _changedHandler;
-    dispatch_queue_t _changedQueue;
-    WKCookiesRemovedHandler _removedHandler;
-    dispatch_queue_t _removedQueue;
-    NSSet<NSString *> *_hosts;
-}
-+ (void)reportCookie:(CFTypeRef)cookie ofStorage:(const void *)backend change:(int)change;
-+ (BOOL)wantsReportsForStorage:(const void *)backend domain:(const char *)domain;
-+ (void)reportMergeOfStorage:(const void *)backend before:(CFArrayRef)before after:(CFArrayRef)after;
-- (instancetype)initWithBackend:(const void *)backend;
-- (void)reportCookie:(CFTypeRef)cookie change:(int)change;
-- (void)reportMergeBefore:(NSArray<NSHTTPCookie *> *)before after:(NSArray<NSHTTPCookie *> *)after;
-- (void)setChangedHandler:(WKCookiesChangedHandler)handler queue:(dispatch_queue_t)queue;
-- (void)setRemovedHandler:(WKCookiesRemovedHandler)handler queue:(dispatch_queue_t)queue;
-- (void)setSubscribedHosts:(NSSet<NSString *> *)hosts;
+@interface NSHTTPCookieStorage (WKCookieObservationStorage)
+- (instancetype)_initWithCFHTTPCookieStorage:(CFHTTPCookieStorageRef)storage;
+@end
+@interface NSHTTPCookie (WKCookieObservationPartition)
+- (NSString *)_storagePartition;
 @end
 
-static pthread_mutex_t wk_cookieWatcherLock = PTHREAD_MUTEX_INITIALIZER;
-static NSMutableDictionary<NSValue *, WKPolyfillCookieWatcher *> *wk_cookieWatchers;
+typedef void (^WKCookiesChangedHandler)(NSArray<NSHTTPCookie *> *, NSString *);
+typedef void (^WKCookiesRemovedHandler)(NSArray<NSHTTPCookie *> *, NSString *, bool);
 
-// The caller holds wk_cookieWatcherLock.
-static WKPolyfillCookieWatcher *wk_cookieWatcherForStorage(NSHTTPCookieStorage *storage, BOOL create)
+@interface WKCookieChangeSnapshot : NSObject {
+@public
+    NSSet *_domains;
+    NSMutableDictionary *_snapshot;
+    WKCookiesChangedHandler _changed;
+    WKCookiesRemovedHandler _removed;
+    dispatch_queue_t _changedQueue;
+    dispatch_queue_t _removedQueue;
+    BOOL _observing;
+}
+- (NSMutableDictionary *)snapshotOfStorage:(CFHTTPCookieStorageRef)storage;
+- (void)storageChanged:(CFHTTPCookieStorageRef)storage;
+- (void)storage:(CFHTTPCookieStorageRef)storage didSetCookies:(NSArray<NSHTTPCookie *> *)written;
+- (void)storageRemovedAllCookies;
+- (void)updateObservation:(CFHTTPCookieStorageRef)storage;
+@end
+
+static void wk_cookieSnapshotChanged(CFHTTPCookieStorageRef storage, void *context)
 {
-    CFHTTPCookieStorageRef store = ((CFHTTPCookieStorageRef (*)(id, SEL))objc_msgSend)(storage, sel_registerName("_cookieStorage"));
-    if (!store)
-        return nil;
-
-    const void *backend = wk_cookieStorageBackend(store);
-    NSValue *key = [NSValue valueWithPointer:backend];
-    WKPolyfillCookieWatcher *watcher = [wk_cookieWatchers objectForKey:key];
-    if (watcher || !create)
-        return watcher;
-
-    watcher = [[[WKPolyfillCookieWatcher alloc] initWithBackend:backend] autorelease];
-    if (!wk_cookieWatchers)
-        wk_cookieWatchers = [[NSMutableDictionary alloc] init];
-    [wk_cookieWatchers setObject:watcher forKey:key];
-    return watcher;
+    @autoreleasepool {
+        @synchronized ((id)storage) {
+            [(WKCookieChangeSnapshot *)context storageChanged:storage];
+        }
+    }
 }
 
-// A CFHTTPCookie is not the same object as an NSHTTPCookie -- the two are not bridged -- so the records
-// the storage was read for arrive as the wrapper Foundation makes of each.
-static NSArray<NSHTTPCookie *> *wk_cookiesFromCFCookies(CFArrayRef cfCookies)
+static NSArray *wk_cookieIndexKey(NSHTTPCookie *cookie)
 {
-    CFIndex count = cfCookies ? CFArrayGetCount(cfCookies) : 0;
-    NSMutableArray<NSHTTPCookie *> *cookies = [NSMutableArray arrayWithCapacity:(NSUInteger)count];
-    for (CFIndex i = 0; i < count; ++i)
-        [cookies addObject:[NSHTTPCookie cookieWithCFHTTPCookie:CFArrayGetValueAtIndex(cfCookies, i)]];
-    return cookies;
+    return @[cookie.name, cookie.domain.lowercaseString, cookie.path, [cookie _storagePartition] ?: @""];
 }
 
-@implementation WKPolyfillCookieWatcher
-
-- (instancetype)initWithBackend:(const void *)backend
+@implementation WKCookieChangeSnapshot
+- (NSMutableDictionary *)snapshotOfStorage:(CFHTTPCookieStorageRef)storage
 {
-    self = [super init];
-    if (!self)
-        return nil;
-    _backend = backend;
-    return self;
+    NSMutableDictionary *snapshot = [NSMutableDictionary dictionary];
+    NSHTTPCookieStorage *wrapper = [[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:storage];
+    for (NSHTTPCookie *cookie in [wrapper cookies]) {
+        for (NSString *domain in _domains) {
+            if (!wk_cookieDomainMatchesHost(cookie.domain, domain))
+                continue;
+            snapshot[wk_cookieIndexKey(cookie)] = cookie;
+            break;
+        }
+    }
+    [wrapper release];
+    return snapshot;
+}
+- (void)updateObservation:(CFHTTPCookieStorageRef)storage
+{
+    BOOL shouldObserve = (_changed || _removed) && _domains.count;
+    if (_observing == shouldObserve)
+        return;
+    _observing = shouldObserve;
+    if (_observing) {
+        _snapshot = [[self snapshotOfStorage:storage] retain];
+        CFHTTPCookieStorageAddObserver(storage, CFRunLoopGetMain(), kCFRunLoopCommonModes, wk_cookieSnapshotChanged, self);
+    } else {
+        CFHTTPCookieStorageRemoveObserver(storage, CFRunLoopGetMain(), kCFRunLoopCommonModes, wk_cookieSnapshotChanged, self);
+        [_snapshot release];
+        _snapshot = nil;
+    }
+}
+- (void)storageChanged:(CFHTTPCookieStorageRef)storage
+{
+    NSMutableDictionary *current = [self snapshotOfStorage:storage];
+    NSMutableArray *added = [NSMutableArray array];
+    NSMutableArray *removed = [NSMutableArray array];
+    for (NSArray *key in current) {
+        NSHTTPCookie *cookie = current[key];
+        NSHTTPCookie *old = _snapshot[key];
+        if (!old || ![cookie.properties isEqual:old.properties])
+            [added addObject:cookie];
+    }
+    for (NSArray *key in _snapshot) {
+        NSHTTPCookie *old = _snapshot[key];
+        NSHTTPCookie *cookie = current[key];
+        // A visible cookie overwritten by HttpOnly leaves the script-visible cookie set.
+        if (!cookie || (!old.HTTPOnly && cookie.HTTPOnly))
+            [removed addObject:old];
+    }
+    [_snapshot release];
+    _snapshot = [current retain];
+    [self deliverAdded:added removed:removed];
+}
+- (void)deliverAdded:(NSArray *)added removed:(NSArray *)removed
+{
+    for (NSString *domain in _domains) {
+        NSMutableArray *domainAdded = [NSMutableArray array];
+        NSMutableArray *domainRemoved = [NSMutableArray array];
+        for (NSHTTPCookie *cookie in added) {
+            if (wk_cookieDomainMatchesHost(cookie.domain, domain))
+                [domainAdded addObject:cookie];
+        }
+        for (NSHTTPCookie *cookie in removed) {
+            if (wk_cookieDomainMatchesHost(cookie.domain, domain))
+                [domainRemoved addObject:cookie];
+        }
+        // Captured blocks and immutable batches survive handler replacement and unsubscription.
+        WKCookiesRemovedHandler removedHandler = _removed;
+        WKCookiesChangedHandler changedHandler = _changed;
+        if (domainRemoved.count && removedHandler) {
+            NSArray *batch = [[domainRemoved copy] autorelease];
+            dispatch_async(_removedQueue, ^{ removedHandler(batch, domain, false); });
+        }
+        if (domainAdded.count && changedHandler) {
+            NSArray *batch = [[domainAdded copy] autorelease];
+            dispatch_async(_changedQueue, ^{ changedHandler(batch, domain); });
+        }
+    }
+}
+// -setCookies:forURL: adds and overwrites; a cookie leaves the jar through -deleteCookie: or expiry.
+// So the cookies stored for that URL carry every change this mutation can have made, and the whole
+// jar is not walked.
+// The cookies handed to -setCookies:forURL: are the only ones this mutation can have changed, so each
+// is looked up afterwards at its own domain and path: a Set-Cookie whose expiry has passed removes a
+// cookie, and one whose Path does not match the response URL is still stored under that Path.
+// A clear that takes the whole jar reaches the handler as the storage's own remove-all, which is how
+// a subscriber learns that cookies it never held are gone.
+- (void)storageRemovedAllCookies
+{
+    if (!_observing)
+        return;
+    [_snapshot removeAllObjects];
+    WKCookiesRemovedHandler removedHandler = _removed;
+    if (removedHandler)
+        dispatch_async(_removedQueue, ^{ removedHandler(@[], nil, true); });
 }
 
+- (void)storage:(CFHTTPCookieStorageRef)storage didSetCookies:(NSArray<NSHTTPCookie *> *)written
+{
+    if (!_observing || !written.count)
+        return;
+    NSHTTPCookieStorage *wrapper = [[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:storage];
+    NSMutableArray *added = [NSMutableArray array];
+    NSMutableArray *removed = [NSMutableArray array];
+    NSMutableDictionary *storedByScope = [NSMutableDictionary dictionary];
+    for (NSHTTPCookie *cookie in written) {
+        BOOL subscribed = NO;
+        for (NSString *domain in _domains) {
+            if (wk_cookieDomainMatchesHost(cookie.domain, domain)) {
+                subscribed = YES;
+                break;
+            }
+        }
+        if (!subscribed)
+            continue;
+        NSString *host = [cookie.domain hasPrefix:@"."] ? [cookie.domain substringFromIndex:1] : cookie.domain;
+        NSString *path = cookie.path.length ? cookie.path : @"/";
+        NSString *scope = [NSString stringWithFormat:@"%@%@", host, path];
+        NSDictionary *stored = storedByScope[scope];
+        if (!stored) {
+            NSMutableDictionary *index = [NSMutableDictionary dictionary];
+            // https so a Secure cookie is included; the URL carries the cookie's own path, so it path-matches.
+            NSURL *scopeURL = [NSURL URLWithString:[NSString stringWithFormat:@"https://%@%@", host, path]];
+            NSArray *jar = scopeURL ? [wrapper cookiesForURL:scopeURL] : [wrapper _getCookiesForDomain:cookie.domain];
+            for (NSHTTPCookie *candidate in jar)
+                index[wk_cookieIndexKey(candidate)] = candidate;
+            stored = index;
+            storedByScope[scope] = index;
+        }
+        NSArray *key = wk_cookieIndexKey(cookie);
+        NSHTTPCookie *now = stored[key];
+        NSHTTPCookie *old = _snapshot[key];
+        if (now) {
+            if (!old || ![now.properties isEqual:old.properties])
+                [added addObject:now];
+            // A visible cookie overwritten by HttpOnly leaves the script-visible cookie set.
+            if (old && !old.HTTPOnly && now.HTTPOnly)
+                [removed addObject:old];
+            _snapshot[key] = now;
+        } else if (old) {
+            [removed addObject:old];
+            [_snapshot removeObjectForKey:key];
+        }
+    }
+    [wrapper release];
+    [self deliverAdded:added removed:removed];
+}
 - (void)dealloc
 {
-    [_changedHandler release];
-    [_changedQueue release];
-    [_removedHandler release];
-    [_removedQueue release];
-    [_hosts release];
+    // The owning CF storage tears down its observers with the handle. Explicit unsubscription
+    // removes the observer in updateObservation while the handle is live.
+    [_domains release];
+    [_snapshot release];
+    [_changed release];
+    [_removed release];
+    if (_changedQueue)
+        dispatch_release(_changedQueue);
+    if (_removedQueue)
+        dispatch_release(_removedQueue);
     [super dealloc];
 }
+@end
 
-// The caller holds wk_cookieWatcherLock. A watcher with neither handler nor host retires.
-- (void)retireIfIdle
+static const void *const wk_cookieSnapshotKey = &wk_cookieSnapshotKey;
+static WKCookieChangeSnapshot *wk_cookieSnapshot(CFHTTPCookieStorageRef storage)
 {
-    if (_changedHandler || _removedHandler || [_hosts count])
-        return;
-    [[self retain] autorelease];
-    [wk_cookieWatchers removeObjectForKey:[NSValue valueWithPointer:_backend]];
+    WKCookieChangeSnapshot *snapshot = objc_getAssociatedObject((id)storage, wk_cookieSnapshotKey);
+    if (!snapshot) {
+        snapshot = [[[WKCookieChangeSnapshot alloc] init] autorelease];
+        objc_setAssociatedObject((id)storage, wk_cookieSnapshotKey, snapshot, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return snapshot;
+}
+// The snapshot a storage already has, or nil: a mutation on a storage nobody observes creates none.
+static WKCookieChangeSnapshot *wk_existingCookieSnapshot(CFHTTPCookieStorageRef storage)
+{
+    return objc_getAssociatedObject((id)storage, wk_cookieSnapshotKey);
 }
 
-- (void)setChangedHandler:(WKCookiesChangedHandler)handler queue:(dispatch_queue_t)queue
+WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
+- (void)_setCookiesChangedHandler:(WKCookiesChangedHandler)handler onQueue:(dispatch_queue_t)queue
 {
-    WKCookiesChangedHandler copied = handler ? [handler copy] : nil;
-    [_changedHandler release];
-    _changedHandler = copied;
-    [queue retain];
-    [_changedQueue release];
-    _changedQueue = queue;
-    [self retireIfIdle];
-}
-
-- (void)setRemovedHandler:(WKCookiesRemovedHandler)handler queue:(dispatch_queue_t)queue
-{
-    WKCookiesRemovedHandler copied = handler ? [handler copy] : nil;
-    [_removedHandler release];
-    _removedHandler = copied;
-    [queue retain];
-    [_removedQueue release];
-    _removedQueue = queue;
-    [self retireIfIdle];
-}
-
-- (void)setSubscribedHosts:(NSSet<NSString *> *)hosts
-{
-    NSSet<NSString *> *copied = [hosts copy];
-    [_hosts release];
-    _hosts = copied;
-    [self retireIfIdle];
-}
-
-// Whether a report for this domain would reach anyone. c/CFNetwork.c asks this before it asks the
-// storage what it already holds, which is the expensive half of deciding whether a write changed
-// anything: ExternalCookieStorage invalidates its per-domain cache on every write, so that question
-// costs a synchronous cookied round trip.
-+ (BOOL)wantsReportsForStorage:(const void *)backend domain:(const char *)domain
-{
-    if (!domain)
-        return NO;
-    @autoreleasepool {
-        pthread_mutex_lock(&wk_cookieWatcherLock);
-        WKPolyfillCookieWatcher *watcher = [[[wk_cookieWatchers objectForKey:[NSValue valueWithPointer:backend]] retain] autorelease];
-        pthread_mutex_unlock(&wk_cookieWatcherLock);
-        if (!watcher)
-            return NO;
-
-        pthread_mutex_lock(&wk_cookieWatcherLock);
-        BOOL anyHandler = watcher->_changedHandler || watcher->_removedHandler;
-        NSSet<NSString *> *hosts = [watcher->_hosts retain];
-        pthread_mutex_unlock(&wk_cookieWatcherLock);
-
-        BOOL wanted = NO;
-        if (anyHandler) {
-            NSString *text = [NSString stringWithUTF8String:domain];
-            for (NSString *host in hosts) {
-                if (text && wk_cookieDomainMatchesHost(text, host)) {
-                    wanted = YES;
-                    break;
-                }
-            }
-        }
-        [hosts release];
-        return wanted;
+    CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(self);
+    @synchronized ((id)storage) {
+        WKCookieChangeSnapshot *snapshot = wk_cookieSnapshot(storage);
+        WKCookiesChangedHandler copy = [handler copy];
+        if (queue)
+            dispatch_retain(queue);
+        [snapshot->_changed release];
+        if (snapshot->_changedQueue)
+            dispatch_release(snapshot->_changedQueue);
+        snapshot->_changed = copy;
+        snapshot->_changedQueue = queue;
+        [snapshot updateObservation:storage];
     }
 }
-
-+ (void)reportCookie:(CFTypeRef)cookie ofStorage:(const void *)backend change:(int)change
+- (void)_setCookiesRemovedHandler:(WKCookiesRemovedHandler)handler onQueue:(dispatch_queue_t)queue
 {
-    @autoreleasepool {
-        pthread_mutex_lock(&wk_cookieWatcherLock);
-        WKPolyfillCookieWatcher *watcher = [[[wk_cookieWatchers objectForKey:[NSValue valueWithPointer:backend]] retain] autorelease];
-        pthread_mutex_unlock(&wk_cookieWatcherLock);
-        [watcher reportCookie:cookie change:change];
+    CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(self);
+    @synchronized ((id)storage) {
+        WKCookieChangeSnapshot *snapshot = wk_cookieSnapshot(storage);
+        WKCookiesRemovedHandler copy = [handler copy];
+        if (queue)
+            dispatch_retain(queue);
+        [snapshot->_removed release];
+        if (snapshot->_removedQueue)
+            dispatch_release(snapshot->_removedQueue);
+        snapshot->_removed = copy;
+        snapshot->_removedQueue = queue;
+        [snapshot updateObservation:storage];
     }
 }
-
-// A file-backed storage's sync takes in whatever another process wrote to its file, in bulk. The two
-// sides of that merge name the cookies it moved, which is what a subscriber is owed.
-+ (void)reportMergeOfStorage:(const void *)backend before:(CFArrayRef)before after:(CFArrayRef)after
+- (void)_setSubscribedDomainsForCookieChanges:(NSSet<NSString *> *)domains
 {
-    @autoreleasepool {
-        pthread_mutex_lock(&wk_cookieWatcherLock);
-        WKPolyfillCookieWatcher *watcher = [[[wk_cookieWatchers objectForKey:[NSValue valueWithPointer:backend]] retain] autorelease];
-        pthread_mutex_unlock(&wk_cookieWatcherLock);
-        if (!watcher)
+    CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(self);
+    @synchronized ((id)storage) {
+        WKCookieChangeSnapshot *snapshot = wk_cookieSnapshot(storage);
+        if ([snapshot->_domains isEqual:domains])
             return;
-        [watcher reportMergeBefore:wk_cookiesFromCFCookies(before) after:wk_cookiesFromCFCookies(after)];
-    }
-}
-
-- (void)reportMergeBefore:(NSArray<NSHTTPCookie *> *)before after:(NSArray<NSHTTPCookie *> *)after
-{
-    pthread_mutex_lock(&wk_cookieWatcherLock);
-    WKCookiesChangedHandler changedHandler = [_changedHandler retain];
-    dispatch_queue_t changedQueue = [_changedQueue retain];
-    WKCookiesRemovedHandler removedHandler = [_removedHandler retain];
-    dispatch_queue_t removedQueue = [_removedQueue retain];
-    NSSet<NSString *> *hosts = [_hosts retain];
-    pthread_mutex_unlock(&wk_cookieWatcherLock);
-
-    for (NSString *host in hosts) {
-        NSDictionary<NSString *, NSHTTPCookie *> *was = wk_cookiesForHost(before, host);
-        NSDictionary<NSString *, NSHTTPCookie *> *now = wk_cookiesForHost(after, host);
-
-        NSMutableArray<NSHTTPCookie *> *added = [NSMutableArray array];
-        NSMutableArray<NSHTTPCookie *> *removed = [NSMutableArray array];
-        for (NSString *identity in now) {
-            NSHTTPCookie *cookie = [now objectForKey:identity];
-            NSHTTPCookie *stored = [was objectForKey:identity];
-            // A cookie whose value or attributes changed is a set, not a pair of edits: the merge
-            // replaces it under the same identity.
-            if (!stored || !wk_cookieMatchesStoredCookie(cookie, stored))
-                [added addObject:cookie];
-        }
-        for (NSString *identity in was) {
-            if (![now objectForKey:identity])
-                [removed addObject:[was objectForKey:identity]];
-        }
-
-        if ([added count] && changedHandler)
-            dispatch_async(changedQueue, ^{ changedHandler(added, host); });
-        if ([removed count] && removedHandler)
-            dispatch_async(removedQueue, ^{ removedHandler(removed, host, NO); });
-    }
-
-    [changedHandler release];
-    [changedQueue release];
-    [removedHandler release];
-    [removedQueue release];
-    [hosts release];
-}
-
-// A cookie is delivered under every subscribed host its domain covers, which is the host WebKit
-// registered its observers by.
-- (void)reportCookie:(CFTypeRef)cfCookie change:(int)change
-{
-    pthread_mutex_lock(&wk_cookieWatcherLock);
-    WKCookiesChangedHandler changedHandler = [_changedHandler retain];
-    dispatch_queue_t changedQueue = [_changedQueue retain];
-    WKCookiesRemovedHandler removedHandler = [_removedHandler retain];
-    dispatch_queue_t removedQueue = [_removedQueue retain];
-    NSSet<NSString *> *hosts = [_hosts retain];
-    pthread_mutex_unlock(&wk_cookieWatcherLock);
-
-    if (change == WK_COOKIE_ALL_DELETED) {
-        if (removedHandler)
-            dispatch_async(removedQueue, ^{ removedHandler(@[], @"", YES); });
-    } else if (cfCookie) {
-        NSHTTPCookie *cookie = [NSHTTPCookie cookieWithCFHTTPCookie:cfCookie];
-        NSArray<NSHTTPCookie *> *cookies = @[cookie];
-        NSString *domain = [cookie domain];
-        for (NSString *host in hosts) {
-            if (!wk_cookieDomainMatchesHost(domain, host))
-                continue;
-            if (change == WK_COOKIE_SET) {
-                if (changedHandler)
-                    dispatch_async(changedQueue, ^{ changedHandler(cookies, host); });
-            } else if (removedHandler) {
-                dispatch_async(removedQueue, ^{ removedHandler(cookies, host, NO); });
-            }
+        // Deliver pending mutations to existing subscribers before changing the observed set.
+        if (snapshot->_observing)
+            [snapshot storageChanged:storage];
+        NSSet *copy = [domains copy];
+        [snapshot->_domains release];
+        snapshot->_domains = copy;
+        [snapshot updateObservation:storage];
+        if (snapshot->_observing) {
+            [snapshot->_snapshot release];
+            snapshot->_snapshot = [[snapshot snapshotOfStorage:storage] retain];
         }
     }
-
-    [changedHandler release];
-    [changedQueue release];
-    [removedHandler release];
-    [removedQueue release];
-    [hosts release];
 }
 @end
-// ---------------------------------------------------------------------------------------------------
-// -comment is REPLACED below, so a reader of the encoded form has to reach the implementation that body
-// stands in for. @selector(comment) here is a selref of this library, rewritten to the body's private
-// selector like any other.
+
+// Internal notifications carry the exact NS wrapper that CookieStorageObserver registered.
+// The Internal object's token retains the CF handle and unregisters before releasing that handle.
+@interface WKCookieNotificationRegistration : NSObject {
+@public
+    CFHTTPCookieStorageRef _storage;
+    NSHTTPCookieStorage *_context;
+}
+- (instancetype)initWithContext:(NSHTTPCookieStorage *)context;
+@end
+
+static void wk_postCookiesChangedNotification(CFHTTPCookieStorageRef storage, void *value)
+{
+    (void)storage;
+    WKCookieNotificationRegistration *registration = value;
+    [[NSNotificationCenter defaultCenter] postNotificationName:NSHTTPCookieManagerCookiesChangedNotification object:registration->_context];
+}
+
+@implementation WKCookieNotificationRegistration
+- (instancetype)initWithContext:(NSHTTPCookieStorage *)context
+{
+    if (!(self = [super init]))
+        return nil;
+    _context = context;
+    _storage = (CFHTTPCookieStorageRef)CFRetain(wk_cfCookieStorageOf(context));
+    CFHTTPCookieStorageAddObserver(_storage, CFRunLoopGetMain(), kCFRunLoopCommonModes, wk_postCookiesChangedNotification, self);
+    return self;
+}
+- (void)dealloc
+{
+    CFHTTPCookieStorageRemoveObserver(_storage, CFRunLoopGetMain(), kCFRunLoopCommonModes, wk_postCookiesChangedNotification, self);
+    CFRelease(_storage);
+    [super dealloc];
+}
+@end
+
+static const void *const wk_cookieNotificationKey = &wk_cookieNotificationKey;
+WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSHTTPCookieStorageInternal")
+- (void)registerForPostingNotificationsWithContext:(NSHTTPCookieStorage *)context
+{
+    @synchronized (self) {
+        if (!objc_getAssociatedObject(self, wk_cookieNotificationKey)) {
+            WKCookieNotificationRegistration *registration = [[WKCookieNotificationRegistration alloc] initWithContext:context];
+            objc_setAssociatedObject(self, wk_cookieNotificationKey, registration, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [registration release];
+        }
+    }
+}
+@end
+
 static NSString *wk_rawCookieComment(NSHTTPCookie *cookie)
 {
     struct wk_original original = wk_original_of(cookie, @selector(comment));
@@ -602,7 +530,7 @@ static NSString *wk_createdFieldOfProperties(NSDictionary *properties)
 // A cookie's lifetime has a ceiling of 400 days from the moment it is created -- the limit RFC 6265bis
 // 4.1.2.1 sets and modern CFNetwork enforces, on a cookie a script sets and on one a response sends
 // alike. 10.9 keeps whatever the cookie names, so a page can plant one that outlives the machine. The
-// number and the text come from wk_samesite.h, which is where the Set-Cookie field pass takes them from.
+// native API constructor uses the shared limit in wk_samesite.h; HTTP Set-Cookie parsing is owned by WebCore.
 //
 // A property dictionary can spell the lifetime two ways, and NSHTTPCookieMaximumAge ("Max-Age") decides
 // over NSHTTPCookieExpires when it carries both (measured), so it is the one held to the ceiling.
@@ -629,6 +557,22 @@ static NSDictionary *wk_propertiesWithCappedExpiry(NSDictionary *properties)
     NSMutableDictionary *capped = [[properties mutableCopy] autorelease];
     capped[NSHTTPCookieExpires] = ceiling;
     return capped;
+}
+
+// NSHTTPCookieExpires is kept to the nearest second, so an expiry a fraction of a second in the past
+// becomes one a fraction of a second in the future and the jar keeps a cookie whose lifetime has ended.
+// Truncating toward the past leaves the expiry in the second the date already names.
+static NSDictionary *wk_propertiesWithWholeSecondExpiry(NSDictionary *properties)
+{
+    id expires = properties[NSHTTPCookieExpires];
+    if (![expires isKindOfClass:[NSDate class]])
+        return properties;
+    NSTimeInterval seconds = [(NSDate *)expires timeIntervalSince1970];
+    if (seconds == floor(seconds))
+        return properties;
+    NSMutableDictionary *truncated = [[properties mutableCopy] autorelease];
+    truncated[NSHTTPCookieExpires] = [NSDate dateWithTimeIntervalSince1970:floor(seconds)];
+    return truncated;
 }
 
 static NSDictionary *wk_propertiesWithSameSiteEncoded(NSDictionary *properties)
@@ -663,13 +607,108 @@ static NSDictionary *wk_propertiesWithSameSiteEncoded(NSDictionary *properties)
     id comment = properties[NSHTTPCookieComment];
     CFStringRef encoded = wk_cookieBlobCreate((CFStringRef)policy, (CFStringRef)created, (CFStringRef)setInJavaScript,
         [comment isKindOfClass:[NSString class]] ? (CFStringRef)comment : NULL);
-    // Text with no encoding -- a lone surrogate, which a script can put in a comment -- leaves the
-    // cookie as the caller wrote it, carrying what 10.9 carries for every cookie.
-    if (encoded)
-        translated[NSHTTPCookieComment] = [(NSString *)encoded autorelease];
+    if (!encoded)
+        return nil;
+    translated[NSHTTPCookieComment] = [(NSString *)encoded autorelease];
     return translated;
 }
 #pragma clang diagnostic pop
+
+// RFC 6265bis storage integrity, which modern CFNetwork applies beneath this boundary for every caller.
+static NSString *wk_bareCookieDomain(NSString *domain)
+{
+    return [domain hasPrefix:@"."] ? [domain substringFromIndex:1] : domain;
+}
+
+// |host| is |suffix| itself or a subdomain of it.
+static BOOL wk_domainCovers(NSString *host, NSString *suffix)
+{
+    if (!host.length || !suffix.length)
+        return NO;
+    if ([host caseInsensitiveCompare:suffix] == NSOrderedSame)
+        return YES;
+    if (wk_hostIsIPAddress((CFStringRef)host))
+        return NO;
+    NSString *dotted = [@"." stringByAppendingString:suffix];
+    NSRange found = [host rangeOfString:dotted options:NSCaseInsensitiveSearch | NSAnchoredSearch | NSBackwardsSearch];
+    return found.location != NSNotFound;
+}
+
+// A cookie whose Path is |candidate| is covered by a record whose Path is |stored| (RFC 6265 5.1.4).
+static BOOL wk_pathCovers(NSString *stored, NSString *candidate)
+{
+    if ([stored isEqualToString:candidate])
+        return YES;
+    if (!stored.length || ![candidate hasPrefix:stored])
+        return NO;
+    return [stored hasSuffix:@"/"] || (candidate.length > stored.length && [candidate characterAtIndex:stored.length] == '/');
+}
+
+// The records this write could overlay: HTTPS, so Secure records are included, at the candidate's own path.
+static NSArray<NSHTTPCookie *> *wk_cookiesACandidateWouldOverlay(NSHTTPCookieStorage *storage, NSHTTPCookie *candidate, NSURL *url)
+{
+    NSURLComponents *components = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
+    components.scheme = @"https";
+    components.path = candidate.path.length ? candidate.path : @"/";
+    NSURL *lookupURL = components.URL;
+    return lookupURL ? [storage cookiesForURL:lookupURL] : @[];
+}
+
+// RFC 6265bis 5.5: a write from an insecure origin may neither overwrite nor shadow a Secure record, and
+// a write that replaces a record keeps that record's creation time.
+static NSArray<NSHTTPCookie *> *wk_cookiesWithStorageIntegrity(NSHTTPCookieStorage *storage, NSArray<NSHTTPCookie *> *cookies, NSURL *url)
+{
+    BOOL secureOrigin = [url.scheme caseInsensitiveCompare:@"https"] == NSOrderedSame || [url.scheme caseInsensitiveCompare:@"wss"] == NSOrderedSame;
+    NSMutableArray<NSHTTPCookie *> *accepted = [NSMutableArray arrayWithCapacity:cookies.count];
+    for (NSHTTPCookie *candidate in cookies) {
+        if (!secureOrigin && candidate.isSecure)
+            continue;
+        NSHTTPCookie *replaced = nil;
+        BOOL shadowsSecureRecord = NO;
+        for (NSHTTPCookie *stored in wk_cookiesACandidateWouldOverlay(storage, candidate, url)) {
+            if (![stored.name isEqualToString:candidate.name])
+                continue;
+            if (![[stored _storagePartition] ?: @"" isEqualToString:[candidate _storagePartition] ?: @""])
+                continue;
+            if (!secureOrigin && !candidate.isSecure && stored.isSecure
+                && (wk_domainCovers(wk_bareCookieDomain(candidate.domain), wk_bareCookieDomain(stored.domain))
+                    || wk_domainCovers(wk_bareCookieDomain(stored.domain), wk_bareCookieDomain(candidate.domain)))
+                && wk_pathCovers(stored.path, candidate.path))
+                shadowsSecureRecord = YES;
+            if ([wk_cookieIndexKey(stored) isEqualToArray:wk_cookieIndexKey(candidate)])
+                replaced = stored;
+        }
+        if (shadowsSecureRecord)
+            continue;
+        id created = replaced ? replaced.properties[@"Created"] : nil;
+        if (!created) {
+            [accepted addObject:candidate];
+            continue;
+        }
+        NSMutableDictionary *properties = [[candidate.properties mutableCopy] autorelease];
+        properties[@"Created"] = created;
+        [accepted addObject:[[[NSHTTPCookie alloc] initWithProperties:properties] autorelease]];
+    }
+    return accepted;
+}
+
+// A script may neither set an HttpOnly cookie nor overwrite a record that carries it.
+static NSArray<NSHTTPCookie *> *wk_cookiesAScriptMaySet(NSHTTPCookieStorage *storage, NSArray<NSHTTPCookie *> *cookies, NSURL *url)
+{
+    NSMutableArray<NSHTTPCookie *> *accepted = [NSMutableArray arrayWithCapacity:cookies.count];
+    for (NSHTTPCookie *candidate in cookies) {
+        if (candidate.isHTTPOnly)
+            continue;
+        BOOL overwritesHTTPOnlyRecord = NO;
+        for (NSHTTPCookie *stored in wk_cookiesACandidateWouldOverlay(storage, candidate, url)) {
+            if (stored.isHTTPOnly && [wk_cookieIndexKey(stored) isEqualToArray:wk_cookieIndexKey(candidate)])
+                overwritesHTTPOnlyRecord = YES;
+        }
+        if (!overwritesHTTPOnlyRecord)
+            [accepted addObject:candidate];
+    }
+    return accepted;
+}
 
 WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
 - (void)_getCookiesForURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL partition:(NSString *)partition policyProperties:(NSDictionary *)policyProperties completionHandler:(void (^)(NSArray<NSHTTPCookie *> *))completionHandler
@@ -699,25 +738,12 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
     }
     completionHandler(cookies);
 }
+// The SPI every script-side write reaches this jar through, and the only one, so the rules that hold for
+// a script rather than for a response belong here.
 - (void)_setCookies:(NSArray<NSHTTPCookie *> *)cookies forURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL policyProperties:(NSDictionary *)policyProperties
 {
     (void)policyProperties;
-    // Every script-written cookie reaches the store through here, whether it was parsed from a
-    // Set-Cookie string or built by the Cookie Store API, so the domain rules apply here too.
-    NSMutableArray<NSHTTPCookie *> *usable = [NSMutableArray arrayWithCapacity:cookies.count];
-    for (NSHTTPCookie *cookie in cookies) {
-        if (wk_cookieWithUsableDomain(cookie, url))
-            [usable addObject:cookie];
-    }
-    // -setCookies:forURL:mainDocumentURL: holds these to the main document's domain under
-    // NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain, and answers "same domain" from a 2013 table of
-    // top-level domains, so a third party under a label registered since is read as the main document's
-    // own. Two hosts sharing only one label share only a top-level domain whatever that table holds.
-    if (self.cookieAcceptPolicy == NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain && mainDocumentURL
-        && wk_hostsShareOnlyATopLevelDomain((__bridge CFURLRef)url, (__bridge CFURLRef)mainDocumentURL)
-        && ![[self cookiesForURL:url] count])
-        return;
-    [self setCookies:usable forURL:url mainDocumentURL:mainDocumentURL];
+    [self setCookies:wk_cookiesAScriptMaySet(self, cookies, url) forURL:url mainDocumentURL:mainDocumentURL];
 }
 - (NSArray<NSHTTPCookie *> *)_getCookiesForDomain:(NSString *)domain
 {
@@ -728,51 +754,71 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
     }
     return result;
 }
-- (void)_setCookiesChangedHandler:(void (^)(NSArray<NSHTTPCookie *> *, NSString *))handler onQueue:(dispatch_queue_t)queue
+
+@end
+
+// A cookie whose expiry has passed is discarded at storage time rather than kept. 10.9's jar evaluates
+// expiry only against a record it already holds -- handed one whose name it does not know, -setCookies:
+// stores it, where it stays out of the per-URL view but remains in -cookies, so a Set-Cookie that only
+// removes a cookie leaves a dead one behind for every reader of the whole jar.
+static void wk_discardExpiredCookies(NSHTTPCookieStorage *storage, NSArray<NSHTTPCookie *> *cookies)
 {
-    pthread_mutex_lock(&wk_cookieWatcherLock);
-    [wk_cookieWatcherForStorage(self, handler != nil) setChangedHandler:handler queue:queue];
-    pthread_mutex_unlock(&wk_cookieWatcherLock);
+    NSDate *now = [NSDate date];
+    for (NSHTTPCookie *cookie in cookies) {
+        NSDate *expires = [cookie expiresDate];
+        if (expires && [expires compare:now] != NSOrderedDescending)
+            [storage deleteCookie:cookie];
+    }
 }
-- (void)_setCookiesRemovedHandler:(void (^)(NSArray<NSHTTPCookie *> *, NSString *, BOOL))handler onQueue:(dispatch_queue_t)queue
+
+// The public setter and the policy SPI share PSL acceptance at the native jar boundary.
+WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
+- (void)setCookie:(NSHTTPCookie *)cookie
 {
-    pthread_mutex_lock(&wk_cookieWatcherLock);
-    [wk_cookieWatcherForStorage(self, handler != nil) setRemovedHandler:handler queue:queue];
-    pthread_mutex_unlock(&wk_cookieWatcherLock);
+    WK_ORIGINAL_METHOD(void, (NSHTTPCookie *), cookie);
+    wk_discardExpiredCookies(self, @[cookie]);
+    CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(self);
+    @synchronized ((id)storage) {
+        [wk_existingCookieSnapshot(storage) storage:storage didSetCookies:@[cookie]];
+    }
 }
-- (void)_setSubscribedDomainsForCookieChanges:(NSSet<NSString *> *)domains
+
+- (void)setCookies:(NSArray<NSHTTPCookie *> *)cookies forURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL
 {
-    pthread_mutex_lock(&wk_cookieWatcherLock);
-    [wk_cookieWatcherForStorage(self, [domains count] > 0) setSubscribedHosts:domains ?: [NSSet set]];
-    pthread_mutex_unlock(&wk_cookieWatcherLock);
+    // WebCore HTTP, document.cookie and Cookie Store API mutations share this native jar boundary.
+    NSMutableArray<NSHTTPCookie *> *usable = [NSMutableArray arrayWithCapacity:cookies.count];
+    for (NSHTTPCookie *cookie in cookies) {
+        if (wk_cookieWithUsableDomain(cookie, url))
+            [usable addObject:cookie];
+    }
+    // The native main-document policy consults a 2013 PSL. Apply its registrable-domain
+    // boundary with the current PSL, retaining its existing-cookie exception.
+    if (self.cookieAcceptPolicy == NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain && mainDocumentURL
+        && wk_hostsHaveDifferentRegistrableDomains((__bridge CFURLRef)url, (__bridge CFURLRef)mainDocumentURL)
+        && ![[self cookiesForURL:url] count])
+        return;
+    usable = (NSMutableArray *)wk_cookiesWithStorageIntegrity(self, usable, url);
+    WK_ORIGINAL_METHOD(void, (NSArray *, NSURL *, NSURL *), usable, url, mainDocumentURL);
+    wk_discardExpiredCookies(self, usable);
+    // The change handlers are enqueued at the mutation, as CFNetwork's own storage enqueues them
+    // before a response continues; the run-loop observer that follows finds the snapshot current.
+    CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(self);
+    @synchronized ((id)storage) {
+        WKCookieChangeSnapshot *snapshot = wk_existingCookieSnapshot(storage);
+        [snapshot storage:storage didSetCookies:usable];
+    }
 }
 @end
 
 // -[NSHTTPCookie _storagePartition] is the per-cookie partition key; 10.9 stores everything
 // unpartitioned, so nil (the "no partition" value the callers already treat as the default) is honest.
-// +[NSHTTPCookie _cookieForSetCookieString:forURL:partition:] parses a single Set-Cookie header field
-// into a cookie — -cookiesWithResponseHeaderFields:forURL: is 10.9's parser for exactly that.
 // -[NSHTTPCookie sameSitePolicy] (10.13+) reports a cookie's stored SameSite attribute (paired with the
 // NSHTTPCookieSameSiteLax/Strict constants polyfilled in c/Foundation.m), which on 10.9 is what the
 // cookie carries in its Comment field (wk_samesite.h).
 WK_POLYFILL_ADD_METHODS(NSHTTPCookie)
 - (NSString *)sameSitePolicy { return wk_canonicalSameSitePolicy(self); }
 - (NSString *)_storagePartition { return nil; }
-+ (NSHTTPCookie *)_cookieForSetCookieString:(NSString *)setCookieString forURL:(NSURL *)url partition:(NSString *)partition
-{
-    (void)partition;
-    if (!setCookieString.length || !url)
-        return nil;
-    // RFC 6265bis 5.5: a set-cookie-string carrying a CTL other than HTAB is ignored entirely. The parse
-    // below drops the character and keeps the cookie, so the string is judged before it.
-    if (wk_stringHasControlCharacter(setCookieString))
-        return nil;
-    // A script's cookie carries the attribute in the same syntax and loses it the same way. This send is
-    // a selref of this library, so it reaches the body below, which is where the attribute goes into the
-    // Comment field.
-    NSHTTPCookie *cookie = [[NSHTTPCookie cookiesWithResponseHeaderFields:@{ @"Set-Cookie": setCookieString } forURL:url] firstObject];
-    return wk_cookieWithUsableDomain(cookie, url);
-}
+
 @end
 
 // The Comment a cookie carries the attribute in is the server's field, so no reader is ever handed the
@@ -826,41 +872,13 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookie)
 }
 + (NSHTTPCookie *)cookieWithProperties:(NSDictionary<NSHTTPCookiePropertyKey, id> *)properties
 {
-    return WK_ORIGINAL_METHOD(id, (NSDictionary *), wk_propertiesWithSameSiteEncoded(wk_propertiesWithCappedExpiry(properties)));
+    return WK_ORIGINAL_METHOD(id, (NSDictionary *), wk_propertiesWithSameSiteEncoded(wk_propertiesWithWholeSecondExpiry(wk_propertiesWithCappedExpiry(properties))));
 }
 - (instancetype)initWithProperties:(NSDictionary<NSHTTPCookiePropertyKey, id> *)properties
 {
-    return WK_ORIGINAL_METHOD(id, (NSDictionary *), wk_propertiesWithSameSiteEncoded(wk_propertiesWithCappedExpiry(properties)));
+    return WK_ORIGINAL_METHOD(id, (NSDictionary *), wk_propertiesWithSameSiteEncoded(wk_propertiesWithWholeSecondExpiry(wk_propertiesWithCappedExpiry(properties))));
 }
-// Used directly by WebKit as well as by the cookie jar (SOAuthorizationSession), so the attribute is
-// put into the Comment field here too, before the parser this stands in for sees the header.
-+ (NSArray<NSHTTPCookie *> *)cookiesWithResponseHeaderFields:(NSDictionary<NSString *, NSString *> *)headerFields forURL:(NSURL *)url
-{
-    NSString *name = nil;
-    for (NSString *field in headerFields) {
-        if ([field caseInsensitiveCompare:@"Set-Cookie"] == NSOrderedSame) {
-            name = field;
-            break;
-        }
-    }
-    id header = name ? headerFields[name] : nil;
-    if (![header isKindOfClass:[NSString class]] || !url)
-        return WK_ORIGINAL_METHOD(NSArray *, (NSDictionary *, NSURL *), headerFields, url);
 
-    // Everything a Set-Cookie field is held to, in the one pass the storage's own hook uses
-    // (wk_storableSetCookieFieldCreate, c/wk_samesite.c): the control-character rule, the cookies that
-    // may not be set at all, the lifetime ceiling and the SameSite attribute.
-    bool setsNothing = false;
-    NSString *storable = (NSString *)wk_storableSetCookieFieldCreate((CFStringRef)header, (CFURLRef)url, &setsNothing);
-    if (setsNothing)
-        return @[];
-    if (!storable)
-        return WK_ORIGINAL_METHOD(NSArray *, (NSDictionary *, NSURL *), headerFields, url);
-
-    NSMutableDictionary *replaced = [[headerFields mutableCopy] autorelease];
-    replaced[name] = [storable autorelease];
-    return WK_ORIGINAL_METHOD(NSArray *, (NSDictionary *, NSURL *), replaced, url);
-}
 @end
 
 // ---------------------------------------------------------------------------------------------------
@@ -1622,24 +1640,6 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
 }
 @end
 
-// An HttpOnly cookie the store holds is not a public caller's to replace or to delete; the rule, and
-// why both this pair and the CF pair carry it, is with wk_publicCallerMayChangeCookie in c/CFNetwork.c.
-// These two reach CFNetwork through Foundation's own call, which this archive does not rebind.
-WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
-- (void)setCookie:(NSHTTPCookie *)cookie
-{
-    if (wk_publicCallerMayChangeCookie(wk_cfCookieStorageOf(self), (CFStringRef)[cookie name],
-        (CFStringRef)[cookie domain], (CFStringRef)[cookie path], [cookie isHTTPOnly]))
-        WK_ORIGINAL_METHOD(void, (NSHTTPCookie *), cookie);
-}
-- (void)deleteCookie:(NSHTTPCookie *)cookie
-{
-    if (wk_publicCallerMayChangeCookie(wk_cfCookieStorageOf(self), (CFStringRef)[cookie name],
-        (CFStringRef)[cookie domain], (CFStringRef)[cookie path], [cookie isHTTPOnly]))
-        WK_ORIGINAL_METHOD(void, (NSHTTPCookie *), cookie);
-}
-@end
-
 // -[NSURLRequest HTTPShouldHandleCookies] is public, documented, scheme-agnostic Foundation API, and it
 // is how a caller withholds cookies from one request. 10.9 keeps the flag only for an http(s) URL:
 // set it on a ws://, wss:// or blob: request and it reads back NO however it was set (measured), so on
@@ -2039,6 +2039,13 @@ static CFDictionaryRef wk_storageSessionProperties(BOOL isPrivate, bool *outFail
     if (!properties)
         *outFailed = true;
     return properties;
+}
+
+void wk_cookieStorageDidRemoveAllCookies(CFHTTPCookieStorageRef storage)
+{
+    @synchronized ((id)storage) {
+        [wk_existingCookieSnapshot(storage) storageRemovedAllCookies];
+    }
 }
 
 // -removeCookiesSinceDate: (10.10+) takes every cookie created at or after |date|.

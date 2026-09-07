@@ -7,6 +7,7 @@
 #include <Security/Security.h>
 #include <Security/cssmtype.h>
 #include <Security/cssmapple.h>
+#include <Security/cssmerr.h>
 #include <objc/message.h>
 #include <objc/runtime.h>
 #include <dispatch/dispatch.h>
@@ -1084,8 +1085,6 @@ WK_POLYFILL_ABSENT("Security", SecKeyRef, SecCertificateCopyKey, (SecCertificate
 
 // 10.9's CSSM key API, all exported by this OS. Reached by name because Security is not linked into
 // every image that force-loads this archive.
-WK_SYSTEM_FN("Security", OSStatus, SecKeyRawSign, (SecKeyRef, uint32_t, const uint8_t *, size_t, uint8_t *, size_t *));
-WK_SYSTEM_FN("Security", OSStatus, SecKeyRawVerify, (SecKeyRef, uint32_t, const uint8_t *, size_t, const uint8_t *, size_t));
 WK_SYSTEM_FN("Security", OSStatus, SecKeyEncrypt, (SecKeyRef, uint32_t, const uint8_t *, size_t, uint8_t *, size_t *));
 WK_SYSTEM_FN("Security", OSStatus, SecKeyDecrypt, (SecKeyRef, uint32_t, const uint8_t *, size_t, uint8_t *, size_t *));
 WK_SYSTEM_FN("Security", OSStatus, SecKeyGeneratePair, (CFDictionaryRef, SecKeyRef *, SecKeyRef *));
@@ -1098,7 +1097,7 @@ WK_SYSTEM_FN("Security", OSStatus, SecItemImport, (CFDataRef, CFStringRef, SecEx
     SecKeychainRef, CFArrayRef *));
 
 // SecPadding values. The 10.9 SDK declares the digest-carrying ones for iOS only, so they are spelled
-// numerically here; this OS's implementation accepts them (measured above).
+// numerically here and translated to the native CSSM digest identifiers below.
 #define MAV_SEC_PADDING_NONE          0u
 #define MAV_SEC_PADDING_PKCS1         1u
 #define MAV_SEC_PADDING_PKCS1_SHA1    0x8002u
@@ -1107,9 +1106,80 @@ WK_SYSTEM_FN("Security", OSStatus, SecItemImport, (CFDataRef, CFStringRef, SecEx
 #define MAV_SEC_PADDING_PKCS1_SHA384  0x8005u
 #define MAV_SEC_PADDING_PKCS1_SHA512  0x8006u
 
+// KeyItem::RawSign/RawVerify call Context::set(PADDING, ...) before activation,
+// so 10.9 ignores the attribute and leaves the provider's PKCS#1 default. Select the padding
+// explicitly on a native CSSM context instead. The key remains a reference in
+// its original CSP, with SIGN/ANY credentials acquired from that SecKey.
+WK_SYSTEM_FN("Security", OSStatus, SecKeyGetCSPHandle, (SecKeyRef, CSSM_CSP_HANDLE *));
+WK_SYSTEM_FN("Security", OSStatus, SecKeyGetCredentials, (SecKeyRef, CSSM_ACL_AUTHORIZATION_TAG, SecCredentialType, const CSSM_ACCESS_CREDENTIALS **));
+WK_SYSTEM_FN("Security", CSSM_RETURN, CSSM_CSP_CreateSignatureContext, (CSSM_CSP_HANDLE, CSSM_ALGORITHMS, const CSSM_ACCESS_CREDENTIALS *, const CSSM_KEY *, CSSM_CC_HANDLE *));
+WK_SYSTEM_FN("Security", CSSM_RETURN, CSSM_UpdateContextAttributes, (CSSM_CC_HANDLE, uint32, const CSSM_CONTEXT_ATTRIBUTE *));
+WK_SYSTEM_FN("Security", CSSM_RETURN, CSSM_DeleteContext, (CSSM_CC_HANDLE));
+WK_SYSTEM_FN("Security", CSSM_RETURN, CSSM_SignData, (CSSM_CC_HANDLE, const CSSM_DATA *, uint32, CSSM_ALGORITHMS, CSSM_DATA *));
+WK_SYSTEM_FN("Security", CSSM_RETURN, CSSM_VerifyData, (CSSM_CC_HANDLE, const CSSM_DATA *, uint32, CSSM_ALGORITHMS, const CSSM_DATA *));
+static OSStatus mav_secKeySignature(SecKeyRef key, uint32_t padding, const uint8_t *input, size_t inputLength, uint8_t *signature, size_t *signatureLength, bool verify)
+{
+    if (!key || !input || !signature || !signatureLength)
+        return errSecParam;
+    CSSM_ALGORITHMS digest;
+    switch (padding) {
+    case MAV_SEC_PADDING_NONE:
+    case MAV_SEC_PADDING_PKCS1: digest = CSSM_ALGID_NONE; break;
+    case MAV_SEC_PADDING_PKCS1_SHA1: digest = CSSM_ALGID_SHA1; break;
+    case MAV_SEC_PADDING_PKCS1_SHA224: digest = CSSM_ALGID_SHA224; break;
+    case MAV_SEC_PADDING_PKCS1_SHA256: digest = CSSM_ALGID_SHA256; break;
+    case MAV_SEC_PADDING_PKCS1_SHA384: digest = CSSM_ALGID_SHA384; break;
+    case MAV_SEC_PADDING_PKCS1_SHA512: digest = CSSM_ALGID_SHA512; break;
+    default: return errSecParam;
+    }
+    CSSM_CSP_HANDLE csp = 0;
+    const CSSM_KEY *cssmKey = NULL;
+    const CSSM_ACCESS_CREDENTIALS *credentials = NULL;
+    OSStatus status = WK_SYSTEM(SecKeyGetCSPHandle)(key, &csp);
+    if (!status) status = WK_SYSTEM(SecKeyGetCSSMKey)(key, &cssmKey);
+    if (!status) status = WK_SYSTEM(SecKeyGetCredentials)(key, verify ? CSSM_ACL_AUTHORIZATION_ANY : CSSM_ACL_AUTHORIZATION_SIGN, kSecCredentialTypeDefault, &credentials);
+    if (status) return status;
+    CSSM_ALGORITHMS algorithm = cssmKey->KeyHeader.AlgorithmId;
+    if (algorithm != CSSM_ALGID_RSA && algorithm != CSSM_ALGID_ECDSA)
+        return errSecParam;
+    // SecKeyAlgorithmRSASignatureRaw treats a shorter input as a zero-prefixed
+    // modulus-sized integer. ECDSA consumes its digest without integer padding.
+    uint8_t *padded = NULL;
+    size_t blockSize = WK_SYSTEM(SecKeyGetBlockSize)(key);
+    if (algorithm == CSSM_ALGID_RSA && padding == MAV_SEC_PADDING_NONE) {
+        if (inputLength > blockSize) return errSecParam;
+        if (inputLength < blockSize) {
+            padded = calloc(1, blockSize);
+            if (!padded) return errSecAllocate;
+            memcpy(padded + blockSize - inputLength, input, inputLength);
+            input = padded;
+            inputLength = blockSize;
+        }
+    }
+    CSSM_CC_HANDLE context = 0;
+    status = WK_SYSTEM(CSSM_CSP_CreateSignatureContext)(csp, algorithm, credentials, cssmKey, &context);
+    CSSM_CONTEXT_ATTRIBUTE attribute = { 0 };
+    attribute.AttributeType = CSSM_ATTRIBUTE_PADDING;
+    attribute.AttributeLength = sizeof(uint32);
+    attribute.Attribute.Uint32 = padding == MAV_SEC_PADDING_NONE ? CSSM_PADDING_NONE : CSSM_PADDING_PKCS1;
+    if (!status) status = WK_SYSTEM(CSSM_UpdateContextAttributes)(context, 1, &attribute);
+    CSSM_DATA data = { inputLength, (uint8_t *)input };
+    CSSM_DATA output = { *signatureLength, signature };
+    if (!status)
+        status = verify ? WK_SYSTEM(CSSM_VerifyData)(context, &data, 1, digest, &output) : WK_SYSTEM(CSSM_SignData)(context, &data, 1, digest, &output);
+    if (context) WK_SYSTEM(CSSM_DeleteContext)(context);
+    free(padded);
+    if (!status && !verify) *signatureLength = output.Length;
+    return status == CSSMERR_CSP_VERIFY_FAILED ? errSecVerifyFailed : status;
+}
+static OSStatus mav_secKeySign(SecKeyRef key, uint32_t padding, const uint8_t *input, size_t length, uint8_t *signature, size_t *signatureLength)
+{
+    return mav_secKeySignature(key, padding, input, length, signature, signatureLength, false);
+}
+
 // Which digest, if any, the operation applies to its input before signing. A "digest-" algorithm is
 // handed a hash the caller computed; a "message-" algorithm is handed the message and hashes it
-// first. CSSM's SecKeyRawSign only ever signs a digest, so the message variants supply that step
+// first. The native CSSM operation consumes the digest, so message variants supply that step
 // themselves, from CommonCrypto.
 typedef enum {
     MAV_DIGEST_NONE = 0,
@@ -1175,6 +1245,32 @@ static CFDataRef mav_copyDigest(mav_digest digest, CFDataRef input)
     return CFDataCreate(kCFAllocatorDefault, buffer, produced);
 }
 
+static size_t mav_derLengthSize(size_t length)
+{
+    if (length < 128) return 1;
+    size_t size = 1;
+    do { ++size; length >>= 8; } while (length);
+    return size;
+}
+static OSStatus mav_signatureCapacity(SecKeyRef key, size_t *capacity)
+{
+    const CSSM_KEY *cssmKey = NULL;
+    OSStatus status = WK_SYSTEM(SecKeyGetCSSMKey)(key, &cssmKey);
+    if (status) return status;
+    if (!cssmKey) return errSecInternalError;
+    size_t blockSize = WK_SYSTEM(SecKeyGetBlockSize)(key);
+    if (!blockSize) return errSecParam;
+    if (cssmKey->KeyHeader.AlgorithmId != CSSM_ALGID_ECDSA) {
+        *capacity = blockSize;
+        return errSecSuccess;
+    }
+    // DER SEQUENCE(INTEGER r, INTEGER s), including each unsigned integer's sign octet.
+    size_t integerSize = blockSize + 1;
+    size_t contents = 2 * (1 + mav_derLengthSize(integerSize) + integerSize);
+    *capacity = 1 + mav_derLengthSize(contents) + contents;
+    return errSecSuccess;
+}
+
 // Sign, verify, encrypt and decrypt all shape the same way: translate the algorithm, size the output
 // from the key's block size, and hand the CSSM entry point the buffer.
 static CFDataRef mav_secKeyTransform(SecKeyRef key, CFStringRef algorithm, CFDataRef input,
@@ -1202,9 +1298,18 @@ static CFDataRef mav_secKeyTransform(SecKeyRef key, CFStringRef algorithm, CFDat
         input = digested;
     }
 
-    // An ECDSA signature is DER and runs past the block size, so the buffer carries the headroom the
-    // encoding needs; the call reports how much it used.
-    size_t capacity = WK_SYSTEM(SecKeyGetBlockSize)(key) + 32;
+    size_t capacity = 0;
+    OSStatus capacityStatus = errSecSuccess;
+    if (operation == mav_secKeySign)
+        capacityStatus = mav_signatureCapacity(key, &capacity);
+    else
+        capacity = WK_SYSTEM(SecKeyGetBlockSize)(key);
+    if (capacityStatus || !capacity) {
+        if (digested) CFRelease(digested);
+        // Preserve native keychain/authorization failures when sizing a signing operation.
+        mav_reportOSStatus(error, capacityStatus ? capacityStatus : errSecParam);
+        return NULL;
+    }
     uint8_t *buffer = (uint8_t *)malloc(capacity);
     if (!buffer) {
         if (digested)
@@ -1654,14 +1759,14 @@ WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCreateRandomKey, (CFDictionaryRe
 
 WK_POLYFILL_ABSENT("Security", CFDataRef, SecKeyCreateSignature, (SecKeyRef key, SecKeyAlgorithm algorithm, CFDataRef dataToSign, CFErrorRef *error))
 {
-    return mav_secKeyTransform(key, algorithm, dataToSign, WK_SYSTEM(SecKeyRawSign), error);
+    return mav_secKeyTransform(key, algorithm, dataToSign, mav_secKeySign, error);
 }
 
 WK_POLYFILL_ABSENT("Security", Boolean, SecKeyVerifySignature, (SecKeyRef key, SecKeyAlgorithm algorithm, CFDataRef signedData, CFDataRef signature, CFErrorRef *error))
 {
     uint32_t padding = 0;
     mav_digest digest = MAV_DIGEST_NONE;
-    if (!key || !signedData || !signature || !WK_SYSTEM(SecKeyRawVerify)
+    if (!key || !signedData || !signature
         || !mav_secPaddingForAlgorithm(algorithm, &padding, &digest)) {
         mav_reportUnimplemented(error);
         return false;
@@ -1675,9 +1780,10 @@ WK_POLYFILL_ABSENT("Security", Boolean, SecKeyVerifySignature, (SecKeyRef key, S
         }
         signedData = digested;
     }
-    OSStatus status = WK_SYSTEM(SecKeyRawVerify)(key, padding,
+    size_t signatureLength = CFDataGetLength(signature);
+    OSStatus status = mav_secKeySignature(key, padding,
         CFDataGetBytePtr(signedData), (size_t)CFDataGetLength(signedData),
-        CFDataGetBytePtr(signature), (size_t)CFDataGetLength(signature));
+        (uint8_t *)CFDataGetBytePtr(signature), &signatureLength, true);
     if (digested)
         CFRelease(digested);
     if (status == errSecSuccess)

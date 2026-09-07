@@ -32,6 +32,10 @@ messages -> DownloadProxy {
     DecideDestinationWithSuggestedFilename(WebCore::ResourceResponse response, String suggestedFilename) -> (String filename, WebKit::SandboxExtensionHandle handle, enum:bool WebKit::AllowOverwrite allowOverwrite, enum:bool WebKit::UseDownloadPlaceholder useDownloadPlaceholder, URL alternatePlaceholderURL, WebKit::SandboxExtensionHandle placeholderSandboxExtensionHandle, std::span<const uint8_t> placeholderBookmarkData, std::span<const uint8_t> activityAccessToken)
     DidReceiveData(uint64_t bytesWritten, uint64_t totalBytesWritten, uint64_t totalBytesExpectedToWrite)
     DidCreateDestination(String path)
+#if PLATFORM(COCOA)
+    # MAVERICKS_BACKPORT: the native resume callback precedes progress and destination callbacks.
+    DidResumeWithResponse(WebCore::ResourceResponse response, uint64_t offset)
+#endif
     DidFinish()
     DidFail(WebCore::ResourceError error, std::span<const uint8_t> resumeData)
 #if HAVE(MODERN_DOWNLOADPROGRESS)

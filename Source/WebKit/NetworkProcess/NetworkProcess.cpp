@@ -2322,6 +2322,16 @@ void NetworkProcess::resumeDownload(PAL::SessionID sessionID, DownloadID downloa
     protect(downloadManager())->resumeDownload(sessionID, downloadID, resumeData, path, WTF::move(sandboxExtensionHandle), callDownloadDidStart, activityAccessToken);
 }
 
+#if PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: cancellation is ordered on the same thread as the download writer, before returning its resume dictionary.
+void NetworkProcess::cancelDownloadForLegacyResume(DownloadID downloadID, CompletionHandler<void(std::optional<CocoaDownloadResumeData>&&)>&& completionHandler)
+{
+    cancelDownload(downloadID, [completionHandler = WTF::move(completionHandler)](std::span<const uint8_t> data) mutable {
+        completionHandler(CocoaDownloadResumeData::fromData(data));
+    });
+}
+#endif
+
 void NetworkProcess::cancelDownload(DownloadID downloadID, CompletionHandler<void(std::span<const uint8_t>)>&& completionHandler)
 {
     protect(downloadManager())->cancelDownload(downloadID, WTF::move(completionHandler));

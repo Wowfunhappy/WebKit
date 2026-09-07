@@ -27,6 +27,8 @@
 #include "WKCookieManager.h"
 
 #include "APIArray.h"
+// MAVERICKS_BACKPORT: copy and validate the versioned legacy callback structure using the standard C API client machinery.
+#include "APIClient.h"
 // MAVERICKS_BACKPORT: the restored bodies below run on API::HTTPCookieStore.
 #include "APIHTTPCookieStore.h"
 #include "APIString.h"
@@ -38,25 +40,47 @@
 
 using namespace WebKit;
 
-// MAVERICKS_BACKPORT: upstream gutted every body in this file to a no-op when it replaced the legacy
-// cookie manager with the per-data-store WKHTTPCookieStore API. Safari 7 has only this one, and imports
-// WKCookieManagerSetClient, ...GetHostnamesWithCookies, ...DeleteCookiesForHostname, ...DeleteAllCookies
-// and ...StartObservingCookieChanges -- so with the no-ops in place its Privacy pane lists nothing and
-// "Remove All Website Data" removes nothing. Restored over API::HTTPCookieStore, which is the same
-// machinery the modern API uses; a WKCookieManagerRef is that store.
+// MAVERICKS_BACKPORT: Safari 7 registers the version-zero cookie-change callback.
+namespace API {
+template<> struct ClientTraits<WKCookieManagerClientBase> {
+    using Versions = std::tuple<WKCookieManagerClientV0>;
+};
+}
+
+// MAVERICKS_BACKPORT: Safari 7's cookie manager C API operates on API::HTTPCookieStore.
+// Its Privacy pane uses these methods to list and remove cookies and observe storage changes.
 WKTypeID WKCookieManagerGetTypeID() // MAVERICKS_BACKPORT: a WKCookieManagerRef is an API::HTTPCookieStore.
 {
     return WebKit::toAPI(API::HTTPCookieStore::APIType);
 }
 
-// MAVERICKS_BACKPORT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID).
+// MAVERICKS_BACKPORT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
+// MAVERICKS_BACKPORT: the client registration belongs to the cookie store.
+/*
 void WKCookieManagerSetClient(WKCookieManagerRef, const WKCookieManagerClientBase*)
 {
-    // Cookie-change notifications are delivered through the observer registered by
-    // WKCookieManagerStartObservingCookieChanges; this client carries no other callback Safari uses.
+}
+*/ // MAVERICKS_BACKPORT: store-owned client registration.
+void WKCookieManagerSetClient(WKCookieManagerRef cookieManagerRef, const WKCookieManagerClientBase* client)
+{
+    // MAVERICKS_BACKPORT: the callback belongs to this cookie store and survives the caller's stack client.
+    if (!cookieManagerRef)
+        return;
+    API::Client<WKCookieManagerClientBase> copiedClient;
+    copiedClient.initialize(client);
+    auto callback = copiedClient.client().cookiesDidChange;
+    auto info = copiedClient.client().base.clientInfo;
+    Ref store = *WebKit::toImpl(cookieManagerRef);
+    if (!callback) {
+        store->setLegacyCookieChangeCallback({ });
+        return;
+    }
+    store->setLegacyCookieChangeCallback([callback, info](API::HTTPCookieStore& changedStore) {
+        callback(reinterpret_cast<WKCookieManagerRef>(WebKit::toAPI(&changedStore)), info);
+    });
 }
 
-// MAVERICKS_BACKPORT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID).
+// MAVERICKS_BACKPORT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
 void WKCookieManagerGetHostnamesWithCookies(WKCookieManagerRef cookieManagerRef, void* context, WKCookieManagerGetCookieHostnamesFunction callback)
 {
     if (!cookieManagerRef || !callback)
@@ -72,7 +96,7 @@ void WKCookieManagerGetHostnamesWithCookies(WKCookieManagerRef cookieManagerRef,
     });
 }
 
-// MAVERICKS_BACKPORT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID).
+// MAVERICKS_BACKPORT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
 void WKCookieManagerDeleteCookiesForHostname(WKCookieManagerRef cookieManagerRef, WKStringRef hostname)
 {
     if (!cookieManagerRef)
@@ -80,7 +104,7 @@ void WKCookieManagerDeleteCookiesForHostname(WKCookieManagerRef cookieManagerRef
     protect(WebKit::toImpl(cookieManagerRef))->deleteCookiesForHostnames({ WebKit::toWTFString(hostname) }, [] { });
 }
 
-// MAVERICKS_BACKPORT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID).
+// MAVERICKS_BACKPORT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
 void WKCookieManagerDeleteAllCookies(WKCookieManagerRef cookieManagerRef)
 {
     if (!cookieManagerRef)
@@ -88,7 +112,7 @@ void WKCookieManagerDeleteAllCookies(WKCookieManagerRef cookieManagerRef)
     protect(WebKit::toImpl(cookieManagerRef))->deleteAllCookies([] { });
 }
 
-// MAVERICKS_BACKPORT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID).
+// MAVERICKS_BACKPORT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
 void WKCookieManagerDeleteAllCookiesModifiedAfterDate(WKCookieManagerRef cookieManagerRef, double date)
 {
     if (!cookieManagerRef)
@@ -128,7 +152,7 @@ void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRe
 MAVERICKS_BACKPORT */
 }
 
-// MAVERICKS_BACKPORT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID).
+// MAVERICKS_BACKPORT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
 void WKCookieManagerGetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRef, void* context, WKCookieManagerGetHTTPCookieAcceptPolicyFunction callback)
 {
     if (!cookieManagerRef || !callback)
@@ -138,13 +162,25 @@ void WKCookieManagerGetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRe
     });
 }
 
-// MAVERICKS_BACKPORT: restored over API::HTTPCookieStore (see the note above WKCookieManagerGetTypeID).
+// MAVERICKS_BACKPORT: implemented through API::HTTPCookieStore (see WKCookieManagerGetTypeID).
+// MAVERICKS_BACKPORT: Start/Stop control the cookie store observer registration.
+/*
 void WKCookieManagerStartObservingCookieChanges(WKCookieManagerRef)
 {
-    // API::HTTPCookieStore starts observing when an observer registers; Safari's client carries no
-    // cookiesDidChange callback, so there is nothing further to wire up.
 }
 
 void WKCookieManagerStopObservingCookieChanges(WKCookieManagerRef)
 {
+}
+*/ // MAVERICKS_BACKPORT: cookie store observer registration.
+void WKCookieManagerStartObservingCookieChanges(WKCookieManagerRef cookieManagerRef)
+{
+    if (cookieManagerRef)
+        protect(WebKit::toImpl(cookieManagerRef))->startObservingLegacyCookieChanges();
+}
+
+void WKCookieManagerStopObservingCookieChanges(WKCookieManagerRef cookieManagerRef)
+{
+    if (cookieManagerRef)
+        protect(WebKit::toImpl(cookieManagerRef))->stopObservingLegacyCookieChanges();
 }

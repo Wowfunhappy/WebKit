@@ -219,9 +219,14 @@ for bin in $MACHOS; do
             # The polyfill dylib carries an @rpath install_name (build-polyfill.sh), so the build records
             # @rpath/<leaf> and it resolves from the staged copy in $LIBDIR — no rewrite needed. Only the
             # post-10.9 system frameworks the build links directly need redirecting onto the reexporting polyfill.
-            for fw in $REDIRECT_FRAMEWORKS; do
-                repoint_all "$bin" "/System/Library/Frameworks/${fw}.framework/" "$POLY"
-            done;;
+            # A reexport provider must retain its native dependencies. Redirecting its own
+            # imports back to its install ID makes a self-reexport cycle in dyld.
+            install_id=$("$CCTOOLS/otool" -D "$bin" 2>/dev/null | tail -n +2)
+            if [ "$install_id" != "$POLY" ]; then
+                for fw in $REDIRECT_FRAMEWORKS; do
+                    repoint_all "$bin" "/System/Library/Frameworks/${fw}.framework/" "$POLY"
+                done
+            fi;;
     esac
     # C++ runtime in @rpath form under every path a load command may carry, resolved through the
     # LC_RPATHs; the unwinder is the system one, under any path the private one may carry.

@@ -1,0 +1,166 @@
+--- a/lib/http.c
++++ b/lib/http.c
+@@ -4327,11 +4327,12 @@
+             if(ISBLANK(p[2])) {
+               k->httpversion = (unsigned char)(10 + (p[1] - '0'));
+               p += 3;
+-              if(ISDIGIT(p[0]) && ISDIGIT(p[1]) && ISDIGIT(p[2])) {
++              if(ISDIGIT(p[0]) && ISDIGIT(p[1]) && ISDIGIT(p[2]) &&
++                 (ISBLANK(p[3]) || p[3] == '\r' || p[3] == '\n')) {
+                 k->httpcode = ((p[0] - '0') * 100) + ((p[1] - '0') * 10) +
+                   (p[2] - '0');
+                 /* RFC 9112 requires a single space following the status code,
+-                   but the browsers do not so let's not insist */
++                   but an empty reason phrase may omit it. Extra digits are not a reason phrase */
+                 fine_statusline = TRUE;
+               }
+             }
+--- a/lib/http_chunks.c
++++ b/lib/http_chunks.c
+@@ -105,6 +105,76 @@
+   return ch->state == CHUNK_DONE;
+ }
+ 
++/* RFC 9112 section 7.1.1. Parse ignored extensions incrementally so arbitrary
++ * bytes after the hexadecimal size cannot turn an invalid size into a chunk. */
++static bool chunk_token(unsigned char c)
++{
++  return ISALNUM(c) || (c && strchr("!#$%&'*+-.^_`|~", c));
++}
++
++static bool chunk_extension(struct Curl_chunker *ch, unsigned char c)
++{
++  switch(ch->state) {
++  case CHUNK_EXT:
++  case CHUNK_EXT_NAME_END:
++  case CHUNK_EXT_VALUE_END:
++    if(ISBLANK(c))
++      return TRUE;
++    if(c == ';')
++      ch->state = CHUNK_EXT_NAME_START;
++    else if(c == '\r')
++      ch->state = CHUNK_LF;
++    else if(c == '=' && ch->state == CHUNK_EXT_NAME_END)
++      ch->state = CHUNK_EXT_VALUE_START;
++    else
++      return FALSE;
++    return TRUE;
++  case CHUNK_EXT_NAME_START:
++    if(ISBLANK(c))
++      return TRUE;
++    if(!chunk_token(c))
++      return FALSE;
++    ch->state = CHUNK_EXT_NAME;
++    return TRUE;
++  case CHUNK_EXT_NAME:
++    if(chunk_token(c))
++      return TRUE;
++    ch->state = CHUNK_EXT_NAME_END;
++    return chunk_extension(ch, c);
++  case CHUNK_EXT_VALUE_START:
++    if(ISBLANK(c))
++      return TRUE;
++    if(c == '"')
++      ch->state = CHUNK_EXT_QUOTED;
++    else if(chunk_token(c))
++      ch->state = CHUNK_EXT_VALUE;
++    else
++      return FALSE;
++    return TRUE;
++  case CHUNK_EXT_VALUE:
++    if(chunk_token(c))
++      return TRUE;
++    ch->state = CHUNK_EXT_VALUE_END;
++    return chunk_extension(ch, c);
++  case CHUNK_EXT_QUOTED:
++    if(c == '"')
++      ch->state = CHUNK_EXT_VALUE_END;
++    else if(c == '\\')
++      ch->state = CHUNK_EXT_ESCAPED;
++    else if(!(c == '\t' || c == ' ' || c == '!' ||
++              (c >= '#' && c <= '[') || (c >= ']' && c <= '~') || c >= 128))
++      return FALSE;
++    return TRUE;
++  case CHUNK_EXT_ESCAPED:
++    if(!(c == '\t' || c == ' ' || (c >= '!' && c <= '~') || c >= 128))
++      return FALSE;
++    ch->state = CHUNK_EXT_QUOTED;
++    return TRUE;
++  default:
++    return FALSE;
++  }
++}
++
+ static CURLcode httpchunk_readwrite(struct Curl_easy *data,
+                                     struct Curl_chunker *ch,
+                                     struct Curl_cwriter *cw_next,
+@@ -170,8 +240,28 @@
+           ch->last_code = CHUNKE_ILLEGAL_HEX;
+           return CURLE_RECV_ERROR;
+         }
+-        ch->state = CHUNK_LF; /* now wait for the CRLF */
+-      }
++        ch->state = CHUNK_EXT; /* optional extensions, then CRLF */
++      }
++      break;
++
++    case CHUNK_EXT:
++    case CHUNK_EXT_NAME_START:
++    case CHUNK_EXT_NAME:
++    case CHUNK_EXT_NAME_END:
++    case CHUNK_EXT_VALUE_START:
++    case CHUNK_EXT_VALUE:
++    case CHUNK_EXT_VALUE_END:
++    case CHUNK_EXT_QUOTED:
++    case CHUNK_EXT_ESCAPED:
++      if(!chunk_extension(ch, (unsigned char)*buf)) {
++        failf(data, "invalid chunk extension or size delimiter");
++        ch->state = CHUNK_FAILED;
++        ch->last_code = CHUNKE_BAD_CHUNK;
++        return CURLE_RECV_ERROR;
++      }
++      buf++;
++      blen--;
++      (*pconsumed)++;
+       break;
+ 
+     case CHUNK_LF:
+@@ -186,6 +276,12 @@
+           CURL_TRC_WRITE(data, "http_chunked, chunk start of %"
+                          FMT_OFF_T " bytes", ch->datasize);
+         }
++      }
++
++      else {
++        ch->state = CHUNK_FAILED;
++        ch->last_code = CHUNKE_BAD_CHUNK;
++        return CURLE_RECV_ERROR;
+       }
+ 
+       buf++;
+--- a/lib/http_chunks.h
++++ b/lib/http_chunks.h
+@@ -40,10 +40,21 @@
+ 
+ typedef enum {
+   /* await and buffer all hexadecimal digits until we get one that is not a
+-     hexadecimal digit. When done, we go CHUNK_LF */
++     hexadecimal digit. When done, we parse optional extensions */
+   CHUNK_HEX,
+ 
+-  /* wait for LF, ignore all else */
++  /* Optional chunk extensions, parsed without buffering. */
++  CHUNK_EXT,
++  CHUNK_EXT_NAME_START,
++  CHUNK_EXT_NAME,
++  CHUNK_EXT_NAME_END,
++  CHUNK_EXT_VALUE_START,
++  CHUNK_EXT_VALUE,
++  CHUNK_EXT_VALUE_END,
++  CHUNK_EXT_QUOTED,
++  CHUNK_EXT_ESCAPED,
++
++  /* The CR ending a chunk-size line has been consumed; require LF. */
+   CHUNK_LF,
+ 
+   /* We eat the amount of data specified. When done, we move on to the

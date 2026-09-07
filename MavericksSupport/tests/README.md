@@ -4,6 +4,13 @@
 API tests that exercise this port's own surface), run through `scripts/run-layout-tests.sh
 --port-surface` and `scripts/run-api-tests.sh --port-surface`.
 
+`cocoa-curl/` is not a manual page either: it holds the programs that exercise the Cocoa curl
+transport directly -- transfers, uploads, cookies, HSTS, proxies and PAC, HTTP and proxy
+authentication, client certificates, downloads and resume, the WebKitLegacy ResourceHandle, the
+NetworkProcess data task -- with the Python fixture servers they talk to. `cocoa-curl/build.sh`
+builds them against the current `WebKitBuild/Release` into `WebKitBuild/Release/cocoa-curl-tests/`;
+each program's leading comment names the fixture it expects and the port.
+
 Hand-driven pages for the 10.9 backport. Serve them over http, never `file://`:
 
     cd /Users/jonathan/Desktop/webkit && python3 -m http.server 8899
