@@ -304,6 +304,8 @@ _ninja_log | grep -E 'error:|file not found|FAILED:' | grep -vE 'warning:' | sed
 #   check-absent-references.sh  a reference to a symbol 10.9 lacks binds to 0 and faults on first use
 #   check-sandbox-profiles.sh   a profile 10.9's sandbox cannot compile CRASH()es WebContent at launch
 #   check-abi-gap.sh            every symbol Safari 7 binds from our frameworks must be exported
+#   check-imageio-decode.sh     no shipped binary may construct a CGImageSource: images decode in
+#                               WebCore, never in 10.9's ImageIO
 if [ "$RC" = 0 ]; then
     echo "==================== STAGING ===================="
     bash "$ROOT/MavericksSupport/scripts/stage-frameworks.sh" || RC=$?
@@ -331,7 +333,7 @@ else
     echo "### staging skipped: the link failed, so there is nothing complete to stage"
 fi
 
-for audit in scripts/check-absent-references.sh scripts/check-gap-archive-current.sh sandbox/scripts/check-sandbox-profiles.sh host-abi/check-abi-gap.sh; do
+for audit in scripts/check-absent-references.sh scripts/check-gap-archive-current.sh scripts/check-imageio-decode.sh sandbox/scripts/check-sandbox-profiles.sh host-abi/check-abi-gap.sh; do
     [ "$RC" = 0 ] || break
     echo "### $audit"
     bash "$ROOT/MavericksSupport/$audit" || RC=$?

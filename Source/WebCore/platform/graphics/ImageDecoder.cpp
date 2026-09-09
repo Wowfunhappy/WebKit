@@ -111,14 +111,17 @@ RefPtr<ImageDecoder> ImageDecoder::create(FragmentedSharedBuffer& data, const St
         return ImageDecoderGStreamer::create(data, mimeType, alphaOption, gammaAndColorProfileOption);
 #endif
 
-#if USE(CG)
+// MAVERICKS_BACKPORT: no ImageDecoderCG on this port. Web content is never handed to 10.9's
+// ImageIO, so every format the engine draws is one WebCore decodes itself and there is nothing to
+// fall back to; the Mac build takes the same branch as the ports that have no CGImageSource.
+#if USE(CG) && !PLATFORM(MAC)
     // ScalableImageDecoder is used on CG ports for some specific image formats which the platform doesn't support directly.
     if (auto imageDecoder = ScalableImageDecoder::create(data, alphaOption, gammaAndColorProfileOption))
         return imageDecoder;
     return ImageDecoderCG::create(data, alphaOption, gammaAndColorProfileOption);
 #else
     return ScalableImageDecoder::create(data, alphaOption, gammaAndColorProfileOption);
-#endif
+#endif // MAVERICKS_BACKPORT: closes the narrowed guard above.
 }
 
 ImageDecoder::ImageDecoder() = default;
@@ -127,13 +130,15 @@ ImageDecoder::~ImageDecoder() = default;
 
 bool ImageDecoder::supportsMediaType(MediaType type)
 {
-#if USE(CG)
+// MAVERICKS_BACKPORT: same reason as ImageDecoder::create above -- the decoder this port builds is
+// ScalableImageDecoder, so it is the one that answers for images.
+#if USE(CG) && !PLATFORM(MAC)
     if (ImageDecoderCG::supportsMediaType(type))
         return true;
 #else
     if (ScalableImageDecoder::supportsMediaType(type))
         return true;
-#endif
+#endif // MAVERICKS_BACKPORT: closes the narrowed guard above.
 
 #if HAVE(AVASSETREADER)
 #if ENABLE(GPU_PROCESS)

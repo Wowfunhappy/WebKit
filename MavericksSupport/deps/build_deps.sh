@@ -6,10 +6,14 @@
 #   libgpg-error, libgcrypt, libtasn1   -> WebCore USE(GCRYPT) WebCrypto
 #   brotli (common/dec/enc)             -> WOFF2 + Brotli Content-Encoding
 #   woff2 (decoder)                     -> WOFF2 web font decompression
-#   libwebp 1.3.2 (static)              -> WebCore's WEBPImageDecoder (10.9's ImageIO
-#                                          cannot decode WebP)
-#   libpng 1.6.43 (static)              -> WebCore's PNGImageDecoder, for animated PNG (10.9's
-#                                          ImageIO decodes only the first frame)
+#   libwebp 1.3.2 (static)              -> WebCore's WEBPImageDecoder. This build decodes every
+#                                          image format in WebCore rather than in 10.9's ImageIO,
+#                                          so each of the image libraries below is on the path
+#                                          every page's images take.
+#   libpng 1.6.43 (static)              -> WebCore's PNGImageDecoder
+#   libjpeg-turbo 3.1.2 (static)        -> WebCore's JPEGImageDecoder
+#   lcms2 2.16 (static)                 -> the ICC engine those two apply embedded profiles with
+#   libtiff 4.7.0 (static, on libjpeg)  -> this port's TIFFImageDecoder
 #   libavif 1.3.0 (static, on dav1d)    -> WebCore's AVIFImageDecoder (10.9's ImageIO
 #                                          predates AVIF)
 #   libxml2 2.13.6 (shared)             -> WebCore XML/SVG parsing, in place of 10.9's
@@ -550,6 +554,91 @@ if ! built libpng install/lib/libpng16.a; then
            -DCMAKE_INSTALL_PREFIX="$STAGE" .. \
       && "$NINJA" -j2 && "$NINJA" install ) || exit 1
     finished libpng "$d"
+fi
+
+echo "==== libjpeg-turbo 3.1.2 ===="
+# WebCore's own JPEGImageDecoder. Every JPEG the engine draws decodes here, so the SIMD
+# paths are required rather than optional -- REQUIRE_SIMD makes a missing nasm a configure failure
+# instead of a silent fall back to the C scalar decoder. The TurboJPEG wrapper API and the Java
+# bindings have no caller in WebKit.
+u=https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.1.2/libjpeg-turbo-3.1.2.tar.gz
+if ! built libjpeg install/lib/libjpeg.a; then
+    d=$(get "$u" libjpeg)
+    ( cd "$d" && mkdir -p out && cd out \
+      && "$CMAKE" -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
+           -DCMAKE_BUILD_TYPE=Release \
+           -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_CXX_COMPILER="$CXX_BIN" \
+           ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE" -DCMAKE_CXX_COMPILER_LAUNCHER="$CCACHE"} \
+           -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
+           -DCMAKE_ASM_NASM_COMPILER="$NASM" \
+           -DENABLE_SHARED=OFF -DENABLE_STATIC=ON -DREQUIRE_SIMD=ON \
+           -DWITH_TURBOJPEG=OFF -DWITH_JAVA=OFF \
+           -DCMAKE_INSTALL_PREFIX="$STAGE" -DCMAKE_INSTALL_LIBDIR=lib .. \
+      && "$NINJA" -j2 && "$NINJA" install ) || exit 1
+    finished libjpeg "$d"
+fi
+# REQUIRE_SIMD makes nasm's absence a configure error, not this: ask the archive whether the SIMD
+# objects are in it, the same question the libavif dav1d check below asks.
+"$NMBIN" "$STAGE/lib/libjpeg.a" 2>/dev/null | grep "jsimd_ycc_rgb_convert_avx2" > /dev/null \
+  || { echo "  FATAL: libjpeg.a carries no AVX2 SIMD (jsimd_ycc_rgb_convert_avx2 absent)."; exit 1; }
+# nasm stamps S_ATTR_LOC_RELOC/S_ATTR_EXT_RELOC on any section it relocates, and ld64.lld gives an
+# output section the attributes of the first input section reaching it -- so one such object leading
+# WebCore.framework's __text leaves 10.9 dyld mapping the whole segment non-executable. The
+# toolchain's nasm is patched not to stamp them (toolchain/patches/nasm-macho-object-reloc-attrs.patch);
+# this is the assertion that the patch is in the nasm that built these objects. Every member is asked,
+# because which one leads a link is not decided here.
+_jpegobjs="$SCRATCH/jpeg-objs"
+rm -rf "$_jpegobjs"; mkdir -p "$_jpegobjs"
+( cd "$_jpegobjs" && "$AR" x "$STAGE/lib/libjpeg.a" ) || exit 1
+for _o in "$_jpegobjs"/*.o; do
+  _f=$("$CCTOOLS/otool" -lv "$_o" 2>/dev/null \
+       | awk '/sectname __text/{ found = 1 } found && /attributes/{ sub(/.*attributes[ \t]*/, ""); print; exit }')
+  case "$_f" in *LOC_RELOC*|*EXT_RELOC*)
+    echo "  FATAL: $(basename "$_o") carries __text relocation attributes ($_f); nasm is unpatched."; exit 1;;
+  esac
+done
+rm -rf "$_jpegobjs"
+echo "  ok: libjpeg.a has SIMD and no __text relocation attributes"
+
+echo "==== lcms2 2.16 ===="
+# Little-CMS, the ICC engine WebCore's JPEG and PNG decoders transform profiled images with
+# (USE_LCMS). ImageBackingStore tags every decoded frame sRGB, so an image carrying its own profile
+# shows in its own colours only if the decoder converts the pixels first, and this is what converts
+# them. Built straight out of src/ like woff2: thirty translation units and no configure-time choice
+# this build would make differently.
+u=https://github.com/mm2/Little-CMS/releases/download/lcms2.16/lcms2-2.16.tar.gz
+if ! built lcms2 install/lib/liblcms2.a; then
+    d=$(get "$u" lcms2)
+    ( cd "$d" \
+      && $CC $CFLAGS -Iinclude -Isrc -c src/*.c \
+      && "$AR" rcs liblcms2.a *.o \
+      && cp liblcms2.a "$STAGE/lib/" \
+      && cp include/lcms2.h include/lcms2_plugin.h "$STAGE/include/" ) || exit 1
+    finished lcms2 "$d"
+fi
+
+echo "==== libtiff 4.7.0 ===="
+# TIFFImageDecoder (MavericksSupport/source). TIFF is the macOS pasteboard's image currency --
+# Pasteboard::write(PasteboardImage) writes public.tiff and Pasteboard::read hands image/tiff to the
+# editor -- so copy-image and paste-image both need a TIFF decoder that is not ImageIO's.
+# JPEG-in-TIFF is common enough (scanners, digital cameras) to link the libjpeg above; the other
+# optional codecs and the command-line tools have no caller here.
+u=https://download.osgeo.org/libtiff/tiff-4.7.0.tar.gz
+if ! built libtiff install/lib/libtiff.a; then
+    d=$(get "$u" libtiff)
+    ( cd "$d" && mkdir -p out && cd out \
+      && "$CMAKE" -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
+           -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+           -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_CXX_COMPILER="$CXX_BIN" \
+           ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE" -DCMAKE_CXX_COMPILER_LAUNCHER="$CCACHE"} \
+           -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
+           -Dtiff-tools=OFF -Dtiff-tests=OFF -Dtiff-docs=OFF -Dtiff-contrib=OFF \
+           -Dtiff-deprecated=OFF -Dcxx=OFF -Dzlib=ON -Djpeg=ON -Dold-jpeg=OFF \
+           -Dwebp=OFF -Dzstd=OFF -Dlzma=OFF -Djbig=OFF -Dlerc=OFF -Dlibdeflate=OFF \
+           -DJPEG_INCLUDE_DIR="$STAGE/include" -DJPEG_LIBRARY="$STAGE/lib/libjpeg.a" \
+           -DCMAKE_INSTALL_PREFIX="$STAGE" -DCMAKE_INSTALL_LIBDIR=lib .. \
+      && "$NINJA" -j2 && "$NINJA" install ) || exit 1
+    finished libtiff "$d"
 fi
 
 # ============================ GStreamer media runtime ============================
@@ -1354,6 +1443,15 @@ cp -Rp "$STAGE/include/brotli"     "$DEST/include/"
 cp -Rp "$STAGE/include/woff2"      "$DEST/include/"
 cp -Rp "$STAGE/include/webp"       "$DEST/include/"
 cp -Rp "$STAGE/include/avif"       "$DEST/include/"
+# libjpeg-turbo, lcms2 and libtiff all install flat headers at the include root, which is where
+# JPEGImageDecoder's <jpeglib.h>, LCMSUniquePtr.h's <lcms2.h> and TIFFImageDecoder's <tiffio.h>
+# look for them. jpeglib.h includes jconfig.h and jmorecfg.h; jerror.h comes with the decoder's
+# error handler. tiffio.h includes tiffvers.h and tiffconf.h.
+cp -p "$STAGE/include/jpeglib.h" "$STAGE/include/jconfig.h" "$STAGE/include/jmorecfg.h" \
+      "$STAGE/include/jerror.h" "$DEST/include/"
+cp -p "$STAGE/include/lcms2.h" "$STAGE/include/lcms2_plugin.h" "$DEST/include/"
+cp -p "$STAGE/include/tiffio.h" "$STAGE/include/tiff.h" "$STAGE/include/tiffvers.h" \
+      "$STAGE/include/tiffconf.h" "$DEST/include/"
 # libpng installs its headers at the include root and again under libpng16/; PNGImageDecoder
 # includes <png.h>, and png.h includes pngconf.h, which includes pnglibconf.h.
 cp -p "$STAGE/include/png.h" "$STAGE/include/pngconf.h" "$STAGE/include/pnglibconf.h" "$DEST/include/"
@@ -1380,7 +1478,8 @@ cp -p "$STAGE/lib/glib-2.0/include/glibconfig.h" "$DEST/lib/glib-2.0/include/"
 for l in libicuuc.a libicui18n.a libicudata.a \
          libgpg-error.a libgcrypt.a libtasn1.a \
          libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a \
-         libwebp.a libwebpdemux.a libsharpyuv.a libavif.a libyuv.a libpng16.a; do
+         libwebp.a libwebpdemux.a libsharpyuv.a libavif.a libyuv.a libpng16.a \
+         libjpeg.a liblcms2.a libtiff.a; do
   cp -p "$STAGE/lib/$l" "$DEST/lib/"
 done
 
@@ -1564,11 +1663,15 @@ require_glob "$DEST/lib/libc++abi.1.dylib"
 # dropout now instead of as an unresolved-symbol link failure in WebCore.
 for a in libicuuc.a libicui18n.a libicudata.a libgpg-error.a libgcrypt.a libtasn1.a \
          libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a \
-         libwebp.a libwebpdemux.a libsharpyuv.a libavif.a libyuv.a libpng16.a; do
+         libwebp.a libwebpdemux.a libsharpyuv.a libavif.a libyuv.a libpng16.a \
+         libjpeg.a liblcms2.a libtiff.a; do
   require_glob "$DEST/lib/$a"
 done
 require_glob "$DEST/include/webp/decode.h"
 require_glob "$DEST/include/png.h"
+require_glob "$DEST/include/jpeglib.h"
+require_glob "$DEST/include/lcms2.h"
+require_glob "$DEST/include/tiffio.h"
 require_glob "$DEST/include/avif/avif.h"
 require_glob "$DEST/include/libxml2/libxml/parser.h"
 require_glob "$DEST/include/libxslt/xslt.h"

@@ -3583,8 +3583,14 @@ static RetainPtr<NSMenuItem> createShareMenuItem(const WebCore::HitTestResult& h
     }
 
     if (auto* image = hitTestResult.image()) {
-        if (RefPtr<const WebCore::FragmentedSharedBuffer> buffer = image->data())
-            [items addObject:adoptNS([[NSImage alloc] initWithData:buffer->makeContiguous()->createNSData().get()]).get()];
+        // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than
+        // deleted so the divergence stays visible in place. -[NSImage initWithData:] parses the
+        // page's image bytes inside ImageIO; the adapter's NSImage is built from the frames WebCore
+        // has already decoded, which is what WebContextMenuProxyMac's share sheet gets too.
+        // if (RefPtr<const WebCore::FragmentedSharedBuffer> buffer = image->data())
+        //     [items addObject:adoptNS([[NSImage alloc] initWithData:buffer->makeContiguous()->createNSData().get()]).get()];
+        if (RetainPtr nsImage = image->adapter().nsImage())
+            [items addObject:nsImage.get()];
     }
 
     if (!hitTestResult.selectedText().isEmpty()) {

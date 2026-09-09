@@ -30,9 +30,9 @@
 #include "APIData.h"
 #include "WKAPICast.h"
 #include "WKSharedAPICast.h"
-// MAVERICKS_BACKPORT: the store, plus WebCore's image decoding — used rather than ImageIO directly so a
-// favicon in a format only WebCore can decode (WebP, via the in-tree WEBPImageDecoder that
-// ScalableImageDecoder tries ahead of ImageDecoderCG) is a usable icon here too (#49, github #76).
+// MAVERICKS_BACKPORT: the store, plus WebCore's image decoding — the same decoders that draw a
+// page's images, so a favicon in any format this port renders is a usable icon here too
+// (#49, github #76).
 #include "WebIconDatabase.h"
 #include <WebCore/ImageDecoder.h>
 #include <WebCore/SharedBuffer.h>
@@ -45,16 +45,15 @@ using namespace WebKit;
 Vector<RetainPtr<CGImageRef>> WebKit::decodeIconData(API::Data& data)
 {
     // MAVERICKS_BACKPORT: ImageDecoder directly rather than BitmapImage: decoding here must be synchronous (the answer is
-    // the return value), and this is the same decoder selection WebCore uses for page images — on CG
-    // ports ScalableImageDecoder first (which is where this port's vendored WEBPImageDecoder lives),
-    // then ImageDecoderCG. The MIME type is left empty on purpose: both decoders sniff the bytes, and
-    // the store keeps no type — the honest test is whether the bytes decode, not what a server called them.
+    // the return value), and this is the same decoder selection WebCore uses for page images.
+    // The MIME type is left empty on purpose: the decoders sniff the bytes, and the store keeps no
+    // type — the honest test is whether the bytes decode, not what a server called them.
     Ref buffer = WebCore::SharedBuffer::create(data.span());
     RefPtr decoder = WebCore::ImageDecoder::create(buffer, String(), WebCore::AlphaOption::Premultiplied, WebCore::GammaAndColorProfileOption::Applied);
     if (!decoder)
         return { };
-    // ImageDecoderCG's constructor makes an INCREMENTAL CGImageSource and ingests nothing; the data
-    // arrives here. (Missing this rejected every icon, since the status stays Unknown.)
+    // A decoder is constructed with nothing ingested; the data arrives here. (Missing this rejected
+    // every icon, since the status stays Unknown.)
     decoder->setData(buffer, true);
     if (decoder->encodedDataStatus() != WebCore::EncodedDataStatus::Complete)
         return { };

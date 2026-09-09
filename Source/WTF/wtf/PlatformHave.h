@@ -1115,11 +1115,11 @@
 #define HAVE_APPLE_PUSH_SERVICE_URL_TOKEN_SUPPORT 1
 #endif
 
-// MAVERICKS_BACKPORT: AVIF decode goes through CGImageSource, which only gained AVIF in macOS 11.
-// The 10.9 deploy target cannot decode AVIF, so do not claim HAVE(AVIF) on Mac. Otherwise the image
-// Accept header advertises image/avif and content-negotiating image CDNs (e.g. img.clerk.com) serve
-// AVIF that then fails to decode (broken image), and the MIME/UTI registries falsely list it as a
-// supported image type. WebP (vendored libwebp) stays advertised and decodable.
+// MAVERICKS_BACKPORT: HAVE(AVIF) says the platform's CGImageSource decodes AVIF, which it only does
+// from macOS 11, so it stays off at a 10.9 deploy target. AVIF itself is decoded and advertised
+// through USE(AVIF) and the vendored libavif, which is what the image Accept header and the MIME
+// registry read (`HAVE(AVIF) || USE(AVIF)`); what this flag still governs here is the AV1 entry in
+// the VideoToolbox codec restrictions and the UTI registry's view of ImageIO.
 #if PLATFORM(COCOA) && (!PLATFORM(MAC) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000)
 #define HAVE_AVIF 1
 #endif
@@ -1378,9 +1378,10 @@
 #define HAVE_JPEGXL 1
 #endif
 
-// MAVERICKS_BACKPORT: HEIC decode goes through CGImageSource, added in macOS 10.13. The 10.9 deploy
-// target cannot decode HEIC, so do not claim HAVE(HEIC) on Mac (same Accept-header / MIME+UTI-registry
-// reasoning as HAVE(AVIF)) — otherwise content-negotiating CDNs serve undecodable HEIC.
+// MAVERICKS_BACKPORT: HAVE(HEIC) says the platform's CGImageSource decodes HEIC, added in macOS
+// 10.13, so it stays off at a 10.9 deploy target. Nothing else here decodes a still HEIF item
+// either, so the image Accept header must not advertise it: content-negotiating CDNs would serve
+// HEIC no decoder reads. HEIF image SEQUENCES are separate; see HAVE(HEIF_IMAGE_SEQUENCE).
 #if PLATFORM(COCOA) && (!PLATFORM(MAC) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300)
 #define HAVE_HEIC 1
 #endif

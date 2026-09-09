@@ -27,24 +27,22 @@
 #include "SharedBuffer.h"
 #include <wtf/TZoneMallocInlines.h>
 
-#if !PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: each `!PLATFORM(COCOA)` in this file reads `|| PLATFORM(MAC)`. This port
+// decodes every image format in WebCore rather than in 10.9's ImageIO, so the Mac build takes the
+// same byte-signature dispatch as the ports that have no CGImageSource at all.
+#if !PLATFORM(COCOA) || PLATFORM(MAC)
 #include "BMPImageDecoder.h"
 #include "GIFImageDecoder.h"
 #include "ICOImageDecoder.h"
 #include "JPEGImageDecoder.h"
 #include "PNGImageDecoder.h"
-// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note just below the block.
-// #include "WEBPImageDecoder.h"
-// (end MAVERICKS_BACKPORT restored block)
-#endif
-// MAVERICKS_BACKPORT: WEBPImageDecoder also compiled on PLATFORM(MAC) so libwebp
-// can decode WebP responses that ImageIO can't handle on this build.
 #include "WEBPImageDecoder.h"
-// MAVERICKS_BACKPORT: PNGImageDecoder likewise, for the animated PNGs ImageIO decodes as one frame.
-// USE(PNG) follows the vendored libpng the decoder includes <png.h> from (OptionsMacMavericks.cmake).
-#if USE(PNG)
-#include "PNGImageDecoder.h"
-#endif
+#endif // MAVERICKS_BACKPORT: closes the widened guard above.
+// MAVERICKS_BACKPORT: TIFF has no upstream ScalableImageDecoder. macOS hands images between
+// applications as TIFF, so this port carries one (MavericksSupport/source, on libtiff).
+#if USE(TIFF)
+#include "TIFFImageDecoder.h"
+#endif // MAVERICKS_BACKPORT: closes the USE(TIFF) guard above.
 #if USE(AVIF)
 #include "AVIFImageDecoder.h"
 #endif
@@ -72,22 +70,19 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(ScalableImageDecoder);
 
 namespace {
 
-#if !PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: each `!PLATFORM(COCOA)` in this file reads `|| PLATFORM(MAC)`. This port
+// decodes every image format in WebCore rather than in 10.9's ImageIO, so the Mac build takes the
+// same byte-signature dispatch as the ports that have no CGImageSource at all.
+#if !PLATFORM(COCOA) || PLATFORM(MAC)
 static bool matchesGIFSignature(std::span<const uint8_t> contents)
 {
     return spanHasPrefix(contents, "GIF87a"_span) || spanHasPrefix(contents, "GIF89a"_span);
 }
 
-#endif // MAVERICKS_BACKPORT: closes the !PLATFORM(COCOA) guard above, so the PNG signature below is reachable on Cocoa.
-
-#if !PLATFORM(COCOA) || USE(PNG) // MAVERICKS_BACKPORT: matchesAnimatedPNGSignature reads this on PLATFORM(MAC).
 static bool matchesPNGSignature(std::span<const uint8_t> contents)
 {
     return spanHasPrefix(contents, unsafeMakeSpan("\x89\x50\x4E\x47\x0D\x0A\x1A\x0A", 8));
 }
-#endif // MAVERICKS_BACKPORT: closes the guard above.
-
-#if !PLATFORM(COCOA) // MAVERICKS_BACKPORT: reopens the guard for the signatures Cocoa does not use.
 
 static bool matchesJPEGSignature(std::span<const uint8_t> contents)
 {
@@ -109,53 +104,28 @@ static bool matchesCURSignature(std::span<const uint8_t> contents)
     return spanHasPrefix(contents, unsafeMakeSpan("\x00\x00\x02\x00", 4));
 }
 
-#endif
-
-// MAVERICKS_BACKPORT: also needed on PLATFORM(MAC) for the WebP fallback path.
 static bool matchesWebPSignature(std::span<const uint8_t> contents)
 {
     return spanHasPrefix(contents, "RIFF"_span) && spanHasPrefix(contents.subspan(8), "WEBPVP"_span);
 }
-// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
-// #endif
-// (end MAVERICKS_BACKPORT restored block)
+#endif // MAVERICKS_BACKPORT: closes the widened guard above.
+
+// MAVERICKS_BACKPORT: the TIFF header is a byte-order mark followed by the version -- 42 for a
+// classic TIFF, 43 for a BigTIFF -- in that byte order.
+#if USE(TIFF)
+static bool matchesTIFFSignature(std::span<const uint8_t> contents)
+{
+    return spanHasPrefix(contents, unsafeMakeSpan("\x49\x49\x2A\x00", 4))
+        || spanHasPrefix(contents, unsafeMakeSpan("\x4D\x4D\x00\x2A", 4))
+        || spanHasPrefix(contents, unsafeMakeSpan("\x49\x49\x2B\x00", 4))
+        || spanHasPrefix(contents, unsafeMakeSpan("\x4D\x4D\x00\x2B", 4));
+}
+#endif // MAVERICKS_BACKPORT: closes the USE(TIFF) guard above.
 
 #if USE(AVIF)
-// MAVERICKS_BACKPORT: an animated PNG carries an acTL chunk ahead of its first IDAT. 10.9's ImageIO
-// decodes a PNG's default image alone -- CGImageSourceGetCount() answers 1 through every creation path,
-// there is no {PNG} container dictionary, and the per-frame dictionary holds InterlaceType and nothing
-// else -- so a file with acTL goes to WebCore's own decoder, which reads acTL, fcTL and fdAT. A PNG
-// without acTL is left to ImageIO, which keeps its colour management, subsampling and asynchronous
-// decoding for the ordinary case.
-#if USE(PNG)
-static bool matchesAnimatedPNGSignature(std::span<const uint8_t> contents, FragmentedSharedBuffer& data)
-{
-    if (!matchesPNGSignature(contents))
-        return false;
-
-    auto sharedBuffer = data.makeContiguous();
-    auto bytes = sharedBuffer->span();
-    // Chunks follow the 8-byte signature as [length][type][data][CRC]; acTL and IDAT are both near the
-    // front, so a buffer that holds the header holds the answer.
-    for (size_t offset = 8; offset + 8 <= bytes.size();) {
-        auto type = bytes.subspan(offset + 4, 4);
-        if (spanHasPrefix(type, "acTL"_span))
-            return true;
-        if (spanHasPrefix(type, "IDAT"_span))
-            return false;
-        uint32_t length = (static_cast<uint32_t>(bytes[offset]) << 24) | (static_cast<uint32_t>(bytes[offset + 1]) << 16)
-            | (static_cast<uint32_t>(bytes[offset + 2]) << 8) | static_cast<uint32_t>(bytes[offset + 3]);
-        if (length > bytes.size() - offset)
-            return false;
-        offset += static_cast<size_t>(length) + 12;
-    }
-    return false;
-}
-#endif // MAVERICKS_BACKPORT: closes the USE(PNG) guard on the animated-PNG sniff above.
-
 static bool matchesAVIFSignature(std::span<const uint8_t> contents, FragmentedSharedBuffer& data)
 {
-// MAVERICKS_BACKPORT: the CG flavor of this check asks ImageIO to name the data's UTI, and 10.9's
+// MAVERICKS_BACKPORT: the CG flavour of this check asks ImageIO to name the data's UTI, and 10.9's
 // ImageIO predates AVIF -- decodeUTI can never answer public.avif/avis, so the decoder below would
 // never run. Use upstream's non-CG byte signature instead, like the WebP dispatch above.
 #if USE(CG) && !PLATFORM(MAC)
@@ -197,7 +167,10 @@ RefPtr<ScalableImageDecoder> ScalableImageDecoder::create(FragmentedSharedBuffer
 
     std::span contentsSpan { contents };
 
-#if !PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: each `!PLATFORM(COCOA)` in this file reads `|| PLATFORM(MAC)`. This port
+// decodes every image format in WebCore rather than in 10.9's ImageIO, so the Mac build takes the
+// same byte-signature dispatch as the ports that have no CGImageSource at all.
+#if !PLATFORM(COCOA) || PLATFORM(MAC)
     if (matchesGIFSignature(contentsSpan))
         return GIFImageDecoder::create(alphaOption, gammaAndColorProfileOption);
 
@@ -212,21 +185,16 @@ RefPtr<ScalableImageDecoder> ScalableImageDecoder::create(FragmentedSharedBuffer
 
     if (matchesBMPSignature(contentsSpan))
         return BMPImageDecoder::create(alphaOption, gammaAndColorProfileOption);
-// MAVERICKS_BACKPORT: the WebP dispatch is lifted out of this !PLATFORM(COCOA) block into the PLATFORM(MAC)-inclusive block below.
-#endif
 
-#if PLATFORM(MAC) || !PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: ImageIO on this build doesn't decode WebP, so fall back to the
-    // libwebp-backed scalable decoder. iOS Cocoa's ImageIO handles WebP natively.
     if (matchesWebPSignature(contentsSpan))
         return WEBPImageDecoder::create(alphaOption, gammaAndColorProfileOption);
-#endif
+#endif // MAVERICKS_BACKPORT: closes the widened guard above.
 
-#if PLATFORM(MAC) && USE(PNG)
-    // MAVERICKS_BACKPORT: animated PNGs only; see matchesAnimatedPNGSignature above.
-    if (matchesAnimatedPNGSignature(contentsSpan, data))
-        return PNGImageDecoder::create(alphaOption, gammaAndColorProfileOption);
-#endif
+// MAVERICKS_BACKPORT: this port's TIFF decoder; see the include above.
+#if USE(TIFF)
+    if (matchesTIFFSignature(contentsSpan))
+        return TIFFImageDecoder::create(alphaOption, gammaAndColorProfileOption);
+#endif // MAVERICKS_BACKPORT: closes the USE(TIFF) guard above.
 
 #if USE(AVIF)
     if (matchesAVIFSignature(contentsSpan, data))

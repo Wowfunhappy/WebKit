@@ -47,12 +47,12 @@ using namespace WebCore;
 // MAVERICKS_BACKPORT: hand a favicon's bytes to the revived WebIconDatabase (#49).
 //
 // The store refuses bytes it cannot decode, which for a favicon that downloaded fine means they are in
-// a format ImageIO cannot read. On 10.9 that is above all SVG: CGImageSourceCopyTypeIdentifiers lists
-// the classic raster formats and camera raw, no SVG at all, so a page whose only declared favicon is an
-// SVG — news.ycombinator.com's y18.svg, and increasingly common elsewhere — would have no site icon
+// a format no image decoder reads. That is above all SVG, which is a document rather than a bitmap
+// and belongs to no image decoder on any port, so a page whose only declared favicon is an SVG —
+// news.ycombinator.com's y18.svg, and increasingly common elsewhere — would have no site icon
 // whatsoever. WebKit renders SVG perfectly well, and upstream already converts image data the platform
 // cannot use into an .ico for exactly this reason: the web process rasterizes (SVGImage when the bytes
-// are not a bitmap) and the UI process packs the frames into an .ico, which this OS's ImageIO does read.
+// are not a bitmap) and the UI process packs the frames into an .ico, which the ICOImageDecoder reads.
 // 16 and 32 are the only sizes Safari 7 ever asks for (IconController's smallIconSize and
 // mediumIconSize).
 //

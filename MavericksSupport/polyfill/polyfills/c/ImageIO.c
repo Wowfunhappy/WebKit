@@ -1,21 +1,12 @@
-// ImageIO: entry points and constants modern WebKit references that 10.9's ImageIO does not export,
-// or exports with behaviour that has to be replaced.
+// ImageIO: the decode-policy entry points modern WebKit calls that 10.9's ImageIO does not export.
+// Nothing here decodes: this port hands image bytes to WebCore's own decoders, and what is left is
+// the process-wide restriction WebKit installs over whatever else in the process reaches ImageIO.
 #include "wk_polyfill.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <ImageIO/ImageIO.h>
 #include <objc/runtime.h>
 #include <stdbool.h>
-
-// kCGImagePropertyWebPDictionary (ImageIO, macOS 11.0) is a key WebKit passes to
-// CFDictionaryGetValue on a *system-provided* CGImageSource properties dict — so unlike the
-// round-tripped token keys above, its value must be ImageIO's REAL value, not the symbol
-// name. ImageIO's per-format dictionary keys are "{TYPE}" with
-// the format's canonical mixed casing (verified on-host across 20 sibling keys: {GIF} {PNG} {Exif}
-// {ExifAux} {MakerApple} …), so WebP is "{WebP}". Behavior-neutral on 10.9 (that ImageIO has no WebP
-// animation dict, so the lookup returns NULL and the caller falls through to the PNG dict either way).
-WK_POLYFILL_CONST("ImageIO", CFStringRef, kCGImagePropertyWebPDictionary, CFSTR("{WebP}"));
-WK_POLYFILL_CONST("ImageIO", CFStringRef, kCGImageSourceUseHardwareAcceleration, CFSTR("kCGImageSourceUseHardwareAcceleration"));
 
 // ---------------------------------------------------------------------------------------------------
 // ImageIO decode-policy controls (newer, security hardening).
@@ -34,10 +25,10 @@ WK_POLYFILL_ABSENT("ImageIO", int, CGImageSourceDisableHardwareDecoding, (void))
 }
 
 // "Enter restricted decoding mode." 10.9's ImageIO has no restricted mode to enter, so nothing is
-// restricted and unimpErr is the truth. Reporting noErr would tell WebProcessCocoa.mm:473 that the
-// WebContent decode path is hardened before it enables HEIC/AVIF, which it is not. The call site
-// checks the status with ASSERT_UNUSED, compiled out of the Release build this port ships, so the
-// honest status costs no shipping behaviour.
+// restricted and unimpErr is the truth. Reporting noErr would tell WebProcessCocoa.mm that ImageIO's
+// decode path is hardened, which it is not. The call site checks the status with ASSERT_UNUSED,
+// compiled out of the Release build this port ships, so the honest status costs no shipping
+// behaviour.
 WK_POLYFILL_ABSENT("ImageIO", int, CGImageSourceEnableRestrictedDecoding, (void))
 {
     return -4; /* unimpErr */
@@ -46,24 +37,22 @@ WK_POLYFILL_ABSENT("ImageIO", int, CGImageSourceEnableRestrictedDecoding, (void)
 // "Restrict ImageIO to this UTI set." 10.9's ImageIO has no such mode, so the restriction is
 // implemented here, at the same seam ImageIO enforces it: a source whose container type is outside
 // the set never produces pixels. WebKit sets the list once per process
-// (UTIUtilities.mm setImageSourceAllowableTypes, from WebPageCocoa.mm), and it is a real security
-// boundary -- it is what keeps a hostile `image/*` response away from ImageIO's other codecs inside
-// WebContent. Reporting success without applying it would tell WebKit a boundary exists that does not.
+// (UTIUtilities.mm setImageSourceAllowableTypes, from WebPageCocoa.mm). Reporting success without
+// applying it would tell WebKit a boundary exists that does not.
 //
 // Enforcement sits on the two image-PRODUCING entry points, and only those. That is where the real
-// API enforces, and it is the only point an INCREMENTAL source (the one ImageDecoderCG.cpp:306 uses)
-// can be judged at all -- at construction it has no bytes and no type. Refusing to CREATE a source
-// for a disallowed container would be a contract the real API does not have: a caller that opens a
-// source purely to read CGImageSourceGetType, the frame count or the properties of a container
-// outside the set still gets its source from real ImageIO, and still does from this one.
+// API enforces, and it is the only point an INCREMENTAL source can be judged at all -- at
+// construction it has no bytes and no type. Refusing to CREATE a source for a disallowed container
+// would be a contract the real API does not have: a caller that opens a source purely to read
+// CGImageSourceGetType, the frame count or the properties of a container outside the set still gets
+// its source from real ImageIO, and still does from this one.
 // A NULL/unknown type is never rejected: "not yet determined" is not "not allowed".
 //
 // The restriction is inert until WebKit installs a non-empty list, so every other process, and
 // WebKit itself before that call, behaves exactly as stock 10.9.
 // The list lives in PROCESS-global storage, not a plain C static. libpolyfill.a is force-loaded into
 // every framework, so a file-scope static is duplicated per image: WebCore's copy would be the only
-// one the setter ever reaches, while the enforcement hooks linked into WebKit2 (WebModelPlayer.mm,
-// ImageAnalysisUtilities.mm, WebIconUtilities.mm all create image sources there) would read a copy
+// one the setter ever reaches, while the enforcement hooks linked into WebKit2 would read a copy
 // that is forever empty -- and CGImageSourceSetAllowableTypes would still report noErr, claiming a
 // process-wide restriction that covers one framework. The ObjC runtime's associated-object table is
 // process-global, and a SEL makes a process-global key because the runtime uniques selector names.
@@ -153,56 +142,4 @@ WK_POLYFILL_REPLACES("ImageIO", CGImageRef, CGImageSourceCreateThumbnailAtIndex,
     if (!WK_ORIGINAL(CGImageSourceCreateThumbnailAtIndex) || !wk_imageSourceIsAllowed(source))
         return NULL;
     return WK_ORIGINAL(CGImageSourceCreateThumbnailAtIndex)(source, index, options);
-}
-
-// A GIF's kCGImagePropertyGIFLoopCount. 10.9's ImageIO reports the Netscape-extension loop count the
-// file carries -- an image that plays twice reports 1 -- where later ImageIO reports the number of
-// plays, which is the value every caller of this dictionary now expects (0 keeps its meaning, "play
-// forever", in both). The count is reported here as plays. Only the {GIF} dictionary carries this
-// difference; other formats' loop counts are already play counts.
-WK_POLYFILL_REPLACES("ImageIO", CFDictionaryRef, CGImageSourceCopyProperties, (CGImageSourceRef source, CFDictionaryRef options))
-{
-    if (!WK_ORIGINAL(CGImageSourceCopyProperties))
-        return NULL;
-    CFDictionaryRef properties = WK_ORIGINAL(CGImageSourceCopyProperties)(source, options);
-    if (!properties)
-        return NULL;
-
-    CFDictionaryRef gif = (CFDictionaryRef)CFDictionaryGetValue(properties, kCGImagePropertyGIFDictionary);
-    if (!gif || CFGetTypeID(gif) != CFDictionaryGetTypeID())
-        return properties;
-
-    CFNumberRef loops = (CFNumberRef)CFDictionaryGetValue(gif, kCGImagePropertyGIFLoopCount);
-    int count = 0;
-    if (!loops || CFGetTypeID(loops) != CFNumberGetTypeID()
-        || !CFNumberGetValue(loops, kCFNumberIntType, &count) || count <= 0)
-        return properties;
-
-    CFMutableDictionaryRef updated = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, properties);
-    CFMutableDictionaryRef updatedGIF = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, gif);
-    int plays = count + 1;
-    CFNumberRef playsNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &plays);
-    if (!updated || !updatedGIF || !playsNumber) {
-        if (updated) CFRelease(updated);
-        if (updatedGIF) CFRelease(updatedGIF);
-        if (playsNumber) CFRelease(playsNumber);
-        return properties;
-    }
-    CFDictionarySetValue(updatedGIF, kCGImagePropertyGIFLoopCount, playsNumber);
-    CFDictionarySetValue(updated, kCGImagePropertyGIFDictionary, updatedGIF);
-    CFRelease(playsNumber);
-    CFRelease(updatedGIF);
-    CFRelease(properties);
-    return updated;
-}
-
-// CGImageSourceGetPrimaryImageIndex (10.14+): the primary-image concept (a HEIF/HEIC container's
-// primary item) postdates 10.9, and 10.9's ImageIO exports no such symbol. On 10.9 the primary frame
-// is always index 0 (single-frame images have only frame 0; animated GIF/APNG treat frame 0 as
-// primary). Declared in the 26.1 SDK's ImageIO headers, so ImageDecoderCG.cpp calls the upstream name
-// unchanged.
-WK_POLYFILL_ABSENT("ImageIO", size_t, CGImageSourceGetPrimaryImageIndex, (CGImageSourceRef source))
-{
-    (void)source;
-    return 0;
 }

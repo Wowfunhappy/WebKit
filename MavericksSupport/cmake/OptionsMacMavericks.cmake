@@ -95,7 +95,11 @@ include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/MavericksSourceLists.cmake)
 # to content would advertise a payment method that can never authorize, which breaks checkout flows
 # that feature-detect it -- a wrong answer, not an inert one.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_APPLE_PAY PRIVATE OFF)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_LCMS PRIVATE OFF)
+# ON. ImageBackingStore tags every frame WebCore's own decoders produce sRGB, so a JPEG or PNG that
+# carries an ICC profile is shown in its own colours only if the decoder transforms the pixels first,
+# and USE(LCMS) is what makes JPEGImageDecoder and PNGImageDecoder do that. lcms2 comes from
+# deps/build_deps.sh.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_LCMS PRIVATE ON)
 # ENABLE WOFF2 web fonts. Our modern UA makes servers (Google Fonts, Material
 # Icons, etc.) send WOFF2; without a decoder CGFontCreateWithDataProvider fails on the raw bytes
 # and icon/web fonts render as empty boxes. Decoder = locally-built libwoff2dec + libbrotli (see
@@ -146,13 +150,21 @@ WEBKIT_OPTION_DEFINE(ENABLE_MEDIA_SOURCE_IN_WORKERS "Toggle MediaSource in Worke
 # answers kCGColorSpaceDisplayP3 with P3's own primaries (polyfills/c/CoreGraphics.c).
 WEBKIT_OPTION_DEFINE(ENABLE_PREDEFINED_COLOR_SPACE_DISPLAY_P3 "Toggle predefined display-p3 color space support" PRIVATE ON)
 
-# ON once deps/build_deps.sh has produced libpng: WebCore's PNGImageDecoder decodes the animated PNGs
-# 10.9's ImageIO renders as a single static frame. The value follows the artifact because the decoder
-# includes <png.h>, so a tree whose deps predate the libpng recipe compiles as it did before, and the
-# deps run's own required-artifacts gate is what fails loudly when the library is meant to be there.
-if (EXISTS "${MAVERICKS_DEPS}/lib/libpng16.a")
-    SET_AND_EXPOSE_TO_BUILD(USE_PNG TRUE)
-endif ()
+# This port decodes every image format in WebCore rather than in 10.9's ImageIO, so the decoders'
+# libraries are as required as libgcrypt above -- a tree without them builds a WebKit that draws no
+# JPEG, PNG or TIFF at all. Asked here, by name, rather than left to a link failure inside WebCore.
+foreach (_image_lib libpng16 libjpeg liblcms2 libtiff)
+    if (NOT EXISTS "${MAVERICKS_DEPS}/lib/${_image_lib}.a")
+        message(FATAL_ERROR
+            "${MAVERICKS_DEPS}/lib/${_image_lib}.a is missing.\n"
+            "Run MavericksSupport/deps/build_deps.sh.")
+    endif ()
+endforeach ()
+
+# ON. TIFF is the only format WebCore has no decoder for, and macOS hands images between
+# applications as TIFF -- Pasteboard::write(PasteboardImage) writes public.tiff and Pasteboard::read
+# hands image/tiff to the editor -- so this port carries one, in MavericksSupport/source on libtiff.
+SET_AND_EXPOSE_TO_BUILD(USE_TIFF TRUE)
 
 # OFF — Web Inspector extensions are not part of the 10.9 drop-in scope.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_INSPECTOR_EXTENSIONS PRIVATE OFF)

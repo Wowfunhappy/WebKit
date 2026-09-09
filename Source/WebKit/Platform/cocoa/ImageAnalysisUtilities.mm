@@ -33,6 +33,9 @@
 #import "TransactionID.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebCore/AttributedString.h>
+// MAVERICKS_BACKPORT: requestBackgroundRemoval below decodes in WebCore, not in ImageIO.
+#import <WebCore/ImageDecoder.h>
+#import <WebCore/SharedBuffer.h>
 #import <WebCore/TextRecognitionResult.h>
 #import <pal/cocoa/VisionKitCoreSoftLink.h>
 #import <pal/cocoa/VisionSoftLink.h>
@@ -296,8 +299,20 @@ void requestBackgroundRemoval(CGImageRef image, CompletionHandler<void(CGImageRe
         return;
     }
 
-    auto transcodedImageSource = adoptCF(CGImageSourceCreateWithData((__bridge CFDataRef)tiffData.get(), nullptr));
-    auto transcodedImage = adoptCF(CGImageSourceCreateImageAtIndex(transcodedImageSource.get(), 0, nullptr));
+    // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted
+    // so the divergence stays visible in place. No image bytes are parsed by 10.9's ImageIO on this
+    // port, these included.
+    // auto transcodedImageSource = adoptCF(CGImageSourceCreateWithData((__bridge CFDataRef)tiffData.get(), nullptr));
+    // auto transcodedImage = adoptCF(CGImageSourceCreateImageAtIndex(transcodedImageSource.get(), 0, nullptr));
+    Ref transcodedBuffer = WebCore::SharedBuffer::create(tiffData.get());
+    RefPtr transcodedDecoder = WebCore::ImageDecoder::create(transcodedBuffer.get(), String(), WebCore::AlphaOption::Premultiplied, WebCore::GammaAndColorProfileOption::Applied);
+    if (!transcodedDecoder) {
+        completion(nullptr);
+        return;
+    }
+
+    transcodedDecoder->setData(transcodedBuffer.get(), true);
+    RetainPtr transcodedImage = transcodedDecoder->createFrameImageAtIndex(transcodedDecoder->primaryFrameIndex());
     if (!transcodedImage) {
         completion(nullptr);
         return;

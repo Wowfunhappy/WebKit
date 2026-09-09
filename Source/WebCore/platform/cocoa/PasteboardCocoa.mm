@@ -26,6 +26,9 @@
 #import "config.h"
 #import "Pasteboard.h"
 
+// MAVERICKS_BACKPORT: convertTIFFToPNG below decodes and encodes in WebCore, not in ImageIO.
+#import "ImageDecoder.h"
+#import "ImageUtilities.h"
 #import "LegacyNSPasteboardTypes.h"
 #import "PasteboardStrategy.h"
 #import "PlatformStrategies.h"
@@ -41,12 +44,15 @@
 
 namespace WebCore {
 
-#if PLATFORM(MAC)
-static NSBitmapImageFileType NODELETE bitmapPNGFileType()
-{
-    return NSBitmapImageFileTypePNG;
-}
-#endif // PLATFORM(MAC)
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so
+// the divergence stays visible in place. Its one caller was the NSBitmapImageRep encode inside
+// convertTIFFToPNG, which encodes through WebCore now, so the function has no reader left.
+// #if PLATFORM(MAC)
+// static NSBitmapImageFileType NODELETE bitmapPNGFileType()
+// {
+//     return NSBitmapImageFileTypePNG;
+// }
+// #endif // PLATFORM(MAC)
 
 enum class ImageType {
     Invalid = 0,
@@ -207,9 +213,23 @@ Vector<String> Pasteboard::typesForLegacyUnsafeBindings()
 #if PLATFORM(MAC)
 static Ref<SharedBuffer> convertTIFFToPNG(FragmentedSharedBuffer& tiffBuffer)
 {
-    RetainPtr image = adoptNS([[NSBitmapImageRep alloc] initWithData: tiffBuffer.makeContiguous()->createNSData().get()]);
-    RetainPtr<NSData> pngData = [image representationUsingType:bitmapPNGFileType() properties:@{ }];
-    return SharedBuffer::create(pngData.get());
+    // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted
+    // so the divergence stays visible in place. -[NSBitmapImageRep initWithData:] parses these bytes
+    // inside ImageIO, and they are pasteboard bytes on their way into a page; this port decodes them
+    // with its own TIFF decoder and encodes the PNG the same way canvas toDataURL does.
+    // RetainPtr image = adoptNS([[NSBitmapImageRep alloc] initWithData: tiffBuffer.makeContiguous()->createNSData().get()]);
+    // RetainPtr<NSData> pngData = [image representationUsingType:bitmapPNGFileType() properties:@{ }];
+    // return SharedBuffer::create(pngData.get());
+    RefPtr decoder = ImageDecoder::create(tiffBuffer, "image/tiff"_s, AlphaOption::Premultiplied, GammaAndColorProfileOption::Applied);
+    if (!decoder)
+        return SharedBuffer::create();
+
+    decoder->setData(tiffBuffer, true);
+    RetainPtr image = decoder->createFrameImageAtIndex(decoder->primaryFrameIndex());
+    if (!image)
+        return SharedBuffer::create();
+
+    return SharedBuffer::create(encodeData(image.get(), "image/png"_s));
 }
 #endif
 

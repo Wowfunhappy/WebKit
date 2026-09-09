@@ -179,6 +179,18 @@ if (NOT TARGET WOFF2::dec)
     )
 endif ()
 
+# Little-CMS (USE_LCMS=ON): the ICC engine JPEGImageDecoder and PNGImageDecoder transform profiled
+# images with. WebCore/CMakeLists.txt does `list(APPEND WebCore_LIBRARIES LCMS2::LCMS2)` when
+# USE_LCMS is ON -- and adds the lcms include directory and LCMSUniquePtr.h itself -- so all this
+# side needs is the imported target find_package(LCMS2) would have defined.
+if (NOT TARGET LCMS2::LCMS2)
+    add_library(LCMS2::LCMS2 UNKNOWN IMPORTED GLOBAL)
+    set_target_properties(LCMS2::LCMS2 PROPERTIES
+        IMPORTED_LOCATION "${MAVERICKS_DEPS}/lib/liblcms2.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${MAVERICKS_DEPS}/include"
+    )
+endif ()
+
 # platform/ios holds several files the Mac build genuinely needs once
 # ENABLE(VIDEO_PRESENTATION_MODE) is on -- WebAVPlayerController and the PlaybackSessionInterface /
 # VideoPresentationInterface family, all of which compile under PLATFORM(COCOA) rather than
@@ -266,6 +278,12 @@ list(REMOVE_ITEM WebCore_SOURCES
     # and hands them to this list to compile standalone.
     platform/audio/cocoa/AudioDecoderCocoa.cpp
     platform/audio/cocoa/AudioEncoderCocoa.cpp
+
+    # ImageDecoderCG is 10.9's ImageIO, and this port decodes every image format in WebCore instead.
+    # Same two-listing shape as the pair above: PlatformMac.cmake names it here and SourcesCocoa.txt
+    # names it too, so withholding it from the unified list alone drops its HEADER_FILE_ONLY marking
+    # and leaves this list compiling it standalone.
+    platform/graphics/cg/ImageDecoderCG.cpp
 )
 
 # The mock content filter belongs to the WebCore target in WebCore.xcodeproj, and WebKit.framework links
@@ -287,6 +305,16 @@ list(REMOVE_ITEM WebCoreTestSupport_SOURCES
 # GStreamer backend this port selects for media and WebCodecs, or built on frameworks, SPI and
 # languages this deployment target and toolchain do not have.
 set(MAVERICKS_WITHHELD_COCOA_SOURCES
+    # ImageDecoderCG is 10.9's ImageIO. This port decodes every image format in WebCore instead, so
+    # the class is not built: a call site that reached for it again would fail to link rather than
+    # quietly hand web content back to ImageIO. PlatformMac.cmake's own listing of it is removed from
+    # WebCore_SOURCES above; both are needed to keep it out of the build.
+    "platform/graphics/cg/ImageDecoderCG.cpp"
+    # ScalableImageDecoder.cpp now includes PNGImageDecoder.h and JPEGImageDecoder.h, which pull in
+    # <png.h> and <jpeglib.h>; jmorecfg.h defines FAR, boolean, TRUE and FALSE at file scope, so the
+    # file compiles alone rather than in a bundle with unrelated Cocoa sources. It is re-added to
+    # WebCore_SOURCES below, beside the decoders it dispatches to.
+    "platform/image-decoders/ScalableImageDecoder.cpp"
     # decodeAudioData decodes through GStreamer here, as it does on the glib port. The Cocoa reader
     # decodes compressed data with AudioToolbox's AudioConverter, demuxing a WebM container itself
     # through libwebm first; 10.9's AudioConverter answers kAudioFormatProperty_DecodeFormatIDs with 28
@@ -469,14 +497,35 @@ if (USE_GSTREAMER)
     )
 endif ()
 
-# WebCore's PNGImageDecoder, for the animated PNGs 10.9's ImageIO decodes as a single frame. Compiled
-# as its own source rather than through the unified list, next to the libpng it includes <png.h> from;
-# ScalableImageDecoder::create routes only files carrying acTL to it, so ordinary PNGs stay with ImageIO.
-if (USE_PNG)
-    list(APPEND WebCore_SOURCES "${WEBCORE_DIR}/platform/image-decoders/png/PNGImageDecoder.cpp")
-    list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES "${WEBCORE_DIR}/platform/image-decoders/png")
-    list(APPEND WebCore_LIBRARIES "${MAVERICKS_DEPS}/lib/libpng16.a")
-endif ()
+# WebCore's own image decoders, and the dispatcher that picks one. This port hands no web content to
+# 10.9's ImageIO, so these decode every image the engine draws. Each is its own translation unit
+# rather than a member of a unified bundle: <png.h>, <jpeglib.h> and <tiffio.h> define FAR, boolean,
+# TRUE and FALSE at file scope, which no bundle can share with unrelated sources.
+list(APPEND WebCore_SOURCES
+    "${WEBCORE_DIR}/platform/image-decoders/ScalableImageDecoder.cpp"
+    "${WEBCORE_DIR}/platform/image-decoders/bmp/BMPImageDecoder.cpp"
+    "${WEBCORE_DIR}/platform/image-decoders/bmp/BMPImageReader.cpp"
+    "${WEBCORE_DIR}/platform/image-decoders/gif/GIFImageDecoder.cpp"
+    "${WEBCORE_DIR}/platform/image-decoders/gif/GIFImageReader.cpp"
+    "${WEBCORE_DIR}/platform/image-decoders/ico/ICOImageDecoder.cpp"
+    "${WEBCORE_DIR}/platform/image-decoders/jpeg/JPEGImageDecoder.cpp"
+    "${WEBCORE_DIR}/platform/image-decoders/png/PNGImageDecoder.cpp"
+    "${MAVERICKS_SUPPORT}/source/WebCore/platform/image-decoders/tiff/TIFFImageDecoder.cpp"
+)
+list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
+    "${WEBCORE_DIR}/platform/image-decoders/bmp"
+    "${WEBCORE_DIR}/platform/image-decoders/gif"
+    "${WEBCORE_DIR}/platform/image-decoders/ico"
+    "${WEBCORE_DIR}/platform/image-decoders/jpeg"
+    "${WEBCORE_DIR}/platform/image-decoders/png"
+    "${MAVERICKS_SUPPORT}/source/WebCore/platform/image-decoders/tiff"
+)
+list(APPEND WebCore_LIBRARIES
+    "${MAVERICKS_DEPS}/lib/libpng16.a"
+    # libtiff reads JPEG-compressed TIFFs through libjpeg, so libjpeg follows it on the link line.
+    "${MAVERICKS_DEPS}/lib/libtiff.a"
+    "${MAVERICKS_DEPS}/lib/libjpeg.a"
+)
 
 MAVERICKS_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES "SourcesCocoa.txt" MAVERICKS_WITHHELD_COCOA_SOURCES MAVERICKS_ADDED_COCOA_SOURCES)
 MAVERICKS_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES "platform/SourcesGStreamer.txt" MAVERICKS_WITHHELD_GSTREAMER_SOURCES MAVERICKS_ADDED_GSTREAMER_SOURCES)

@@ -32,6 +32,10 @@
 
 #import <JavaScriptCore/InitializeThreading.h>
 #import <WebCore/Image.h>
+// MAVERICKS_BACKPORT: defaultIconWithSize below decodes in WebCore, not in ImageIO.
+#import <WebCore/BitmapImage.h>
+#import <WebCore/ImageAdapter.h>
+#import <WebCore/SharedBuffer.h>
 #import <WebCore/ThreadCheck.h>
 #import <WebCore/WebCoreJITOperations.h>
 #import <WebCore/WebCoreMainThread.h>
@@ -134,8 +138,15 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 - (NSImage *)defaultIconWithSize:(NSSize)size
 {
     static NeverDestroyed<RetainPtr<NSImage>> defaultImage = [] {
-        RetainPtr imageData = adoptNS([[NSData alloc] initWithBytes:defaultIconData length:sizeof(defaultIconData)]);
-        return adoptNS([[NSImage alloc] initWithData:imageData.get()]);
+        // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than
+        // deleted so the divergence stays visible in place. defaultIconData is a big-endian TIFF,
+        // and -[NSImage initWithData:] parses it inside ImageIO -- the one image parser nothing in
+        // this port reaches. WebCore decodes it and the adapter wraps the frame.
+        // RetainPtr imageData = adoptNS([[NSData alloc] initWithBytes:defaultIconData length:sizeof(defaultIconData)]);
+        // return adoptNS([[NSImage alloc] initWithData:imageData.get()]);
+        auto image = WebCore::BitmapImage::create();
+        image->setData(WebCore::SharedBuffer::create(std::span<const uint8_t> { defaultIconData, sizeof(defaultIconData) }), true);
+        return RetainPtr<NSImage> { image->adapter().nsImage() };
     }();
     
     return defaultImage.get().get();

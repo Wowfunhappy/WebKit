@@ -32,6 +32,10 @@
 #import "DragData.h"
 #import "Image.h"
 #import "ImageAdapter.h"
+// MAVERICKS_BACKPORT: bufferConvertedToPasteboardType below decodes in WebCore, not in ImageIO,
+// and writes the decoder's orientation into the file it encodes.
+#import "ImageDecoder.h"
+#import "ImageUtilities.h"
 #import "LegacyNSPasteboardTypes.h"
 #import "LoaderNSURLExtras.h"
 #import "MIMETypeRegistry.h"
@@ -850,23 +854,42 @@ RefPtr<WebCore::SharedBuffer> Pasteboard::bufferConvertedToPasteboardType(const 
     if (pasteboardBuffer.type == String(UTTypeTIFF.identifier))
         return pasteboardBuffer.data;
 
-    auto sourceData = Ref { *pasteboardBuffer.data }->createCFData();
-    auto sourceType = pasteboardBuffer.type.createCFString();
-
-    const void* key = kCGImageSourceTypeIdentifierHint;
-    const void* value = sourceType.get();
-    auto options = adoptCF(CFDictionaryCreate(kCFAllocatorDefault, &key, &value, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
-
-    auto source = adoptCF(CGImageSourceCreateWithData(sourceData.get(), options.get()));
-    if (!source)
+    // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted
+    // so the divergence stays visible in place. The bytes arriving here are the page's, and this
+    // port decodes those in WebCore rather than in 10.9's ImageIO. The destination is untouched:
+    // it encodes an already-decoded image and parses nothing.
+    // auto sourceData = Ref { *pasteboardBuffer.data }->createCFData();
+    // auto sourceType = pasteboardBuffer.type.createCFString();
+    //
+    // const void* key = kCGImageSourceTypeIdentifierHint;
+    // const void* value = sourceType.get();
+    // auto options = adoptCF(CFDictionaryCreate(kCFAllocatorDefault, &key, &value, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
+    //
+    // auto source = adoptCF(CGImageSourceCreateWithData(sourceData.get(), options.get()));
+    // if (!source)
+    //     return nullptr;
+    Ref sourceBuffer = *pasteboardBuffer.data;
+    RefPtr decoder = ImageDecoder::create(sourceBuffer.get(), MIMETypeFromUTI(pasteboardBuffer.type), AlphaOption::Premultiplied, GammaAndColorProfileOption::Applied);
+    if (!decoder)
         return nullptr;
+
+    decoder->setData(sourceBuffer.get(), true); // MAVERICKS_BACKPORT
+    auto primaryIndex = decoder->primaryFrameIndex();
+    RetainPtr sourceImage = decoder->createFrameImageAtIndex(primaryIndex);
+    if (!sourceImage)
+        return nullptr;
+    // MAVERICKS_BACKPORT: the orientation CGImageDestinationAddImageFromSource carried across.
+    auto sourceProperties = imagePropertiesForOrientation(decoder->frameOrientationAtIndex(primaryIndex));
 
     auto data = adoptCF(CFDataCreateMutable(0, 0));
     auto destination = adoptCF(CGImageDestinationCreateWithData(data.get(), bridge_cast(UTTypeTIFF.identifier), 1, NULL));
     if (!destination)
         return nullptr;
 
-    CGImageDestinationAddImageFromSource(destination.get(), source.get(), 0, NULL);
+    // MAVERICKS_BACKPORT: upstream's version of the line below, kept commented rather than deleted
+    // so the divergence stays visible in place; the image comes from WebCore's decoder now.
+    // CGImageDestinationAddImageFromSource(destination.get(), source.get(), 0, NULL);
+    CGImageDestinationAddImage(destination.get(), sourceImage.get(), sourceProperties.get());
     if (!CGImageDestinationFinalize(destination.get()))
         return nullptr;
 

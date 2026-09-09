@@ -29,6 +29,9 @@
 #if PLATFORM(MAC)
 
 #import "Document.h"
+// MAVERICKS_BACKPORT: readBuffer below decodes and encodes in WebCore, not in ImageIO.
+#import "ImageDecoder.h"
+#import "ImageUtilities.h"
 #import "SharedBuffer.h"
 #import <wtf/cocoa/VectorCocoa.h>
 
@@ -37,12 +40,30 @@ namespace WebCore {
 void ClipboardImageReader::readBuffer(const String&, const String&, Ref<SharedBuffer>&& buffer)
 {
     if (m_mimeType == "image/png"_s) {
-        auto image = adoptNS([[NSImage alloc] initWithData:buffer->createNSData().get()]);
-        if (RetainPtr cgImage = [image CGImageForProposedRect:nil context:nil hints:nil]) {
-            auto representation = adoptNS([[NSBitmapImageRep alloc] initWithCGImage:cgImage.get()]);
-            RetainPtr<NSData> nsData = [representation representationUsingType:NSBitmapImageFileTypePNG properties:@{ }];
-            m_result = Blob::create(m_document.get(), makeVector(nsData.get()), m_mimeType);
-        }
+        // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than
+        // deleted so the divergence stays visible in place. These are pasteboard bytes becoming a
+        // Blob the page reads, and -[NSImage initWithData:] parses them inside ImageIO; the decode
+        // and the re-encode both happen in WebCore here.
+        // auto image = adoptNS([[NSImage alloc] initWithData:buffer->createNSData().get()]);
+        // if (RetainPtr cgImage = [image CGImageForProposedRect:nil context:nil hints:nil]) {
+        //     auto representation = adoptNS([[NSBitmapImageRep alloc] initWithCGImage:cgImage.get()]);
+        //     RetainPtr<NSData> nsData = [representation representationUsingType:NSBitmapImageFileTypePNG properties:@{ }];
+        //     m_result = Blob::create(m_document.get(), makeVector(nsData.get()), m_mimeType);
+        // }
+        RefPtr decoder = ImageDecoder::create(buffer.get(), m_mimeType, AlphaOption::Premultiplied, GammaAndColorProfileOption::Applied);
+        if (!decoder)
+            return;
+
+        decoder->setData(buffer.get(), true);
+        RetainPtr platformImage = decoder->createFrameImageAtIndex(decoder->primaryFrameIndex());
+        if (!platformImage)
+            return;
+
+        auto encoded = encodeData(platformImage.get(), m_mimeType);
+        if (encoded.isEmpty())
+            return;
+
+        m_result = Blob::create(m_document.get(), WTF::move(encoded), m_mimeType);
     }
 }
 

@@ -5,8 +5,10 @@ them all from source with the in-tree toolchain into **`build/`** (`build/lib` +
 `build/include` + `build/bin`):
 
 - the static libraries WebKit links directly — ICU 74.2, libgcrypt/libgpg-error/libtasn1,
-  brotli, woff2, libwebp 1.3.2, and libavif 1.3.0 (decode-only, on the dav1d below, for the
-  AVIFImageDecoder);
+  brotli, woff2, and the image codecs. This build decodes every image format in WebCore rather
+  than in 10.9's ImageIO, so libjpeg-turbo 3.1.2, libpng 1.6.43, libwebp 1.3.2, libtiff 4.7.0 and
+  libavif 1.3.0 (on the dav1d below) are on the path every page's images take, with lcms2 2.16
+  transforming the ones that carry an ICC profile;
 - libxml2 2.13 (`lib/libxml2.2.dylib`, `include/libxml2`), which WebCore links in place of
   the crash-prone 10.9 system libxml2 2.9;
 - the complete GStreamer 1.28.5 runtime — glib 2.80.5, gstreamer core/base/good/bad,

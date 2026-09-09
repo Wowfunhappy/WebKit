@@ -33,7 +33,8 @@ MavericksSupport/
 ├── source/                     out-of-tree WebKit source the overlays add to the build (WKViewMavericks.mm, webpushd, …)
 ├── scripts/                    stage-frameworks.sh (the build's last phase: assemble WebKitBuild/Release/staged),
 │                               framework-layout.sh (sourced: the installed layout, shared by stage + install),
-│                               check-absent-references.sh and check-gap-archive-current.sh (build gates),
+│                               check-absent-references.sh, check-gap-archive-current.sh and
+│                               check-imageio-decode.sh (build gates),
 │                               check-backport-markers.sh (divergence gate),
 │                               run-layout-tests.sh (--wk1 | --wk2), build-localized-strings.py
 ├── polyfill/                   the polyfill layer -- see polyfill/README.md

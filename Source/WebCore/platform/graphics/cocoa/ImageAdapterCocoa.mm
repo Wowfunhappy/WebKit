@@ -137,16 +137,41 @@ CFDataRef ImageAdapter::tiffRepresentation()
 }
 
 #if USE(APPKIT)
+// MAVERICKS_BACKPORT: an NSImage over the frames themselves. Both functions below used to encode a
+// TIFF and hand it back to -[NSImage initWithData:], which parses it inside ImageIO -- the one
+// parser this port keeps page image bytes away from. A representation built from the decoded frame
+// carries the same pixels and skips the round trip entirely.
+static RetainPtr<NSImage> nsImageFromNativeImages(const Vector<Ref<NativeImage>>& nativeImages)
+{
+    RetainPtr image = adoptNS([[NSImage alloc] initWithSize:NSZeroSize]);
+    for (auto& nativeImage : nativeImages) {
+        RetainPtr representation = adoptNS([[NSBitmapImageRep alloc] initWithCGImage:nativeImage->platformImage().get()]);
+        if (!representation)
+            continue;
+        [image addRepresentation:representation.get()];
+    }
+
+    RetainPtr representations = [image representations];
+    if (![representations count])
+        return nullptr;
+
+    [image setSize:[[representations objectAtIndex:0] size]];
+    return image;
+}
+
 NSImage* ImageAdapter::nsImage()
 {
     if (m_nsImage)
         return m_nsImage.get();
 
-    CFDataRef data = tiffRepresentation();
-    if (!data)
-        return nullptr;
-
-    m_nsImage = adoptNS([[NSImage alloc] initWithData:(__bridge NSData *)data]);
+    // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted
+    // so the divergence stays visible in place. See the note on nsImageFromNativeImages above.
+    // CFDataRef data = tiffRepresentation();
+    // if (!data)
+    //     return nullptr;
+    //
+    // m_nsImage = adoptNS([[NSImage alloc] initWithData:(__bridge NSData *)data]);
+    m_nsImage = nsImageFromNativeImages(allNativeImages());
     return m_nsImage.get();
 }
 
@@ -156,11 +181,14 @@ RetainPtr<NSImage> ImageAdapter::snapshotNSImage()
     if (!nativeImage)
         return nullptr;
 
-    auto data = tiffRepresentation({ nativeImage.releaseNonNull() });
-    if (!data)
-        return nullptr;
-
-    return adoptNS([[NSImage alloc] initWithData:(__bridge NSData *)data.get()]);
+    // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted
+    // so the divergence stays visible in place. See the note on nsImageFromNativeImages above.
+    // auto data = tiffRepresentation({ nativeImage.releaseNonNull() });
+    // if (!data)
+    //     return nullptr;
+    //
+    // return adoptNS([[NSImage alloc] initWithData:(__bridge NSData *)data.get()]);
+    return nsImageFromNativeImages({ nativeImage.releaseNonNull() });
 }
 #endif
 

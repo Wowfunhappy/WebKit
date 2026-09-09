@@ -29,13 +29,18 @@
 #include "FloatRect.h"
 #include "GraphicsContext.h"
 #include "ImageBuffer.h"
-#include "ImageDecoderCG.h"
+// MAVERICKS_BACKPORT: upstream's version of the line below, kept commented rather than deleted so
+// the divergence stays visible in place. This port has no ImageDecoderCG -- web content is never
+// handed to 10.9's ImageIO -- so the decoders below are reached through ImageDecoder::create.
+// #include "ImageDecoderCG.h"
+#include "ImageDecoder.h"
 #include "Logging.h"
 #include "MIMETypeRegistry.h"
 #include "NativeImage.h"
 #include "PixelBuffer.h"
 #include "SVGImage.h"
 #include "SVGImageForContainer.h"
+#include "SharedBuffer.h" // MAVERICKS_BACKPORT: transcodeImage below reads the source file's bytes.
 #include "UTIRegistry.h"
 #include "UTIUtilities.h"
 #include <CoreFoundation/CoreFoundation.h>
@@ -59,16 +64,101 @@ WorkQueue& sharedImageTranscodingQueueSingleton()
     return queue.get();
 }
 
+// MAVERICKS_BACKPORT: a ScalableImageDecoder names its format by filename extension, where
+// ImageDecoderCG named it by the UTI ImageIO read off the container. These are the extensions the
+// decoders this build carries answer with, and the UTIs UTIRegistry.mm names for the same formats.
+// The table is what answers, not 10.9's UTI database: that database predates WebP and AVIF, so
+// asking it would make the two formats this port most deliberately decodes report as unsupported.
+static String utiFromImageDecoder(const ImageDecoder& decoder)
+{
+    auto uti = decoder.uti();
+    if (!uti.isEmpty())
+        return uti;
+
+    auto extension = decoder.filenameExtension();
+    static constexpr std::pair<ASCIILiteral, ASCIILiteral> decoderUTIs[] = {
+        { "avif"_s, "public.avif"_s },
+        { "bmp"_s, "com.microsoft.bmp"_s },
+        { "gif"_s, "com.compuserve.gif"_s },
+        { "ico"_s, "com.microsoft.ico"_s },
+        { "jpg"_s, "public.jpeg"_s },
+        { "jxl"_s, "public.jxl"_s },
+        { "png"_s, "public.png"_s },
+        { "tiff"_s, "public.tiff"_s },
+        { "webp"_s, "org.webmproject.webp"_s },
+    };
+    for (auto& [decoderExtension, decoderUTI] : decoderUTIs) {
+        if (extension == decoderExtension)
+            return decoderUTI;
+    }
+
+    // A decoder this table does not name yet still gets whatever the registries can say.
+    auto mimeType = MIMETypeRegistry::mimeTypeForExtension(extension);
+    return mimeType.isEmpty() ? nullString() : UTIFromMIMEType(mimeType);
+}
+
+// MAVERICKS_BACKPORT: see ImageUtilities.h. kCGImagePropertyOrientation is the EXIF value, and
+// ImageOrientation converts to exactly that.
+RetainPtr<CFDictionaryRef> imagePropertiesForOrientation(ImageOrientation orientation)
+{
+    if (orientation == ImageOrientation::Orientation::None || orientation == ImageOrientation::Orientation::FromImage)
+        return nullptr;
+
+    int exifValue = orientation;
+    auto number = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &exifValue));
+    if (!number)
+        return nullptr;
+
+    const void* key = kCGImagePropertyOrientation;
+    const void* value = number.get();
+    return adoptCF(CFDictionaryCreate(kCFAllocatorDefault, &key, &value, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
+}
+
+// MAVERICKS_BACKPORT: the whole-file decode the three functions below share. `allDataReceived` is
+// true because the bytes are all here.
+static RefPtr<ImageDecoder> decodeAllOf(FragmentedSharedBuffer& buffer, const String& mimeType = String())
+{
+    RefPtr decoder = ImageDecoder::create(buffer, mimeType, AlphaOption::Premultiplied, GammaAndColorProfileOption::Applied);
+    if (!decoder)
+        return nullptr;
+    decoder->setData(buffer, true);
+    if (decoder->encodedDataStatus() == EncodedDataStatus::Error)
+        return nullptr;
+    return decoder;
+}
+
 static String transcodeImage(const String& path, const String& destinationUTI, const String& destinationExtension)
 {
-    auto sourceURL = adoptCF(CFURLCreateWithFileSystemPath(kCFAllocatorDefault, path.createCFString().get(), kCFURLPOSIXPathStyle, false));
-    auto source = adoptCF(CGImageSourceCreateWithURL(sourceURL.get(), nullptr));
-    if (!source)
+    // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted
+    // so the divergence stays visible in place. The source file is decoded in WebCore; the
+    // destination stays ImageIO's, which encodes a decoded image and parses nothing.
+    // auto sourceURL = adoptCF(CFURLCreateWithFileSystemPath(kCFAllocatorDefault, path.createCFString().get(), kCFURLPOSIXPathStyle, false));
+    // auto source = adoptCF(CGImageSourceCreateWithURL(sourceURL.get(), nullptr));
+    // if (!source)
+    //     return nullString();
+    //
+    // auto sourceUTI = String(CGImageSourceGetType(source.get()));
+    // if (!sourceUTI || sourceUTI == destinationUTI)
+    //     return nullString();
+    RefPtr sourceBuffer = SharedBuffer::createWithContentsOfFile(path);
+    if (!sourceBuffer)
         return nullString();
 
-    auto sourceUTI = String(CGImageSourceGetType(source.get()));
+    RefPtr sourceDecoder = decodeAllOf(*sourceBuffer, MIMETypeRegistry::mimeTypeForPath(path)); // MAVERICKS_BACKPORT
+    if (!sourceDecoder)
+        return nullString();
+
+    auto sourceUTI = utiFromImageDecoder(*sourceDecoder);
     if (!sourceUTI || sourceUTI == destinationUTI)
         return nullString();
+
+    // MAVERICKS_BACKPORT: the image the destination below encodes, from WebCore's decoder, and the
+    // orientation CGImageDestinationAddImageFromSource used to carry across with it.
+    auto primaryIndex = sourceDecoder->primaryFrameIndex();
+    RetainPtr sourceImage = sourceDecoder->createFrameImageAtIndex(primaryIndex);
+    if (!sourceImage)
+        return nullString();
+    auto sourceProperties = imagePropertiesForOrientation(sourceDecoder->frameOrientationAtIndex(primaryIndex));
 
     // It is important to add the appropriate file extension to the temporary file path.
     // The File object depends solely on the extension to know the MIME type of the file.
@@ -96,7 +186,10 @@ static String transcodeImage(const String& path, const String& destinationUTI, c
     auto consumer = adoptCF(CGDataConsumerCreate(&destinationFileHandle, &callbacks));
     auto destination = adoptCF(CGImageDestinationCreateWithDataConsumer(consumer.get(), destinationUTI.createCFString().get(), 1, nullptr));
 
-    CGImageDestinationAddImageFromSource(destination.get(), source.get(), 0, nullptr);
+    // MAVERICKS_BACKPORT: upstream's version of the line below, kept commented rather than deleted
+    // so the divergence stays visible in place; the image comes from WebCore's decoder now.
+    // CGImageDestinationAddImageFromSource(destination.get(), source.get(), 0, nullptr);
+    CGImageDestinationAddImage(destination.get(), sourceImage.get(), sourceProperties.get());
 
     if (!CGImageDestinationFinalize(destination.get())) {
         RELEASE_LOG_ERROR(Images, "transcodeImage: Image transcoding fails: %s %s\n", path.utf8().data(), destinationUTI.utf8().data());
@@ -158,13 +251,24 @@ String descriptionString(ImageDecodingError error)
 Expected<std::pair<String, Vector<IntSize>>, ImageDecodingError> utiAndAvailableSizesFromImageData(std::span<const uint8_t> data)
 {
     Ref buffer = SharedBuffer::create(data);
-    Ref imageDecoder = ImageDecoderCG::create(buffer.get(), AlphaOption::Premultiplied, GammaAndColorProfileOption::Applied);
-    imageDecoder->setData(buffer.get(), true);
-    if (imageDecoder->encodedDataStatus() == EncodedDataStatus::Error)
+    // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted
+    // so the divergence stays visible in place. A ScalableImageDecoder exists only for bytes that
+    // matched one of the decoders this build carries, which is the question isSupportedImageType
+    // put to ImageIO's list.
+    // Ref imageDecoder = ImageDecoderCG::create(buffer.get(), AlphaOption::Premultiplied, GammaAndColorProfileOption::Applied);
+    // imageDecoder->setData(buffer.get(), true);
+    // if (imageDecoder->encodedDataStatus() == EncodedDataStatus::Error)
+    //     return makeUnexpected(ImageDecodingError::BadData);
+    //
+    // auto uti = imageDecoder->uti();
+    // if (!isSupportedImageType(uti))
+    //     return makeUnexpected(ImageDecodingError::UnsupportedType);
+    RefPtr imageDecoder = decodeAllOf(buffer.get());
+    if (!imageDecoder)
         return makeUnexpected(ImageDecodingError::BadData);
 
-    auto uti = imageDecoder->uti();
-    if (!isSupportedImageType(uti))
+    auto uti = utiFromImageDecoder(*imageDecoder); // MAVERICKS_BACKPORT
+    if (!uti)
         return makeUnexpected(ImageDecodingError::UnsupportedType);
 
     size_t frameCount = imageDecoder->frameCount();
@@ -183,13 +287,18 @@ Expected<std::pair<String, Vector<IntSize>>, ImageDecodingError> utiAndAvailable
 static RefPtr<NativeImage> tryCreateNativeImageFromBitmapImageData(std::span<const uint8_t> data, std::optional<FloatSize> preferredSize)
 {
     Ref buffer = SharedBuffer::create(data);
-    Ref imageDecoder = ImageDecoderCG::create(buffer.get(), AlphaOption::Premultiplied, GammaAndColorProfileOption::Applied);
-    imageDecoder->setData(buffer.get(), true);
-    if (imageDecoder->encodedDataStatus() == EncodedDataStatus::Error)
-        return nullptr;
-
-    auto sourceUTI = imageDecoder->uti();
-    if (!isSupportedImageType(sourceUTI))
+    // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted
+    // so the divergence stays visible in place; same substitution as utiAndAvailableSizesFromImageData.
+    // Ref imageDecoder = ImageDecoderCG::create(buffer.get(), AlphaOption::Premultiplied, GammaAndColorProfileOption::Applied);
+    // imageDecoder->setData(buffer.get(), true);
+    // if (imageDecoder->encodedDataStatus() == EncodedDataStatus::Error)
+    //     return nullptr;
+    //
+    // auto sourceUTI = imageDecoder->uti();
+    // if (!isSupportedImageType(sourceUTI))
+    //     return nullptr;
+    RefPtr imageDecoder = decodeAllOf(buffer.get());
+    if (!imageDecoder)
         return nullptr;
 
     auto preferredIndex = [&]() -> size_t {

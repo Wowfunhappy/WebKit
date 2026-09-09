@@ -35,8 +35,13 @@
 #import <WebCore/Editor.h>
 #import <WebCore/FocusController.h>
 #import <WebCore/FrameSelection.h>
+// MAVERICKS_BACKPORT: didShareImageData below decodes and re-encodes in WebCore, not in ImageIO.
+#import <WebCore/ImageDecoder.h>
+#import <WebCore/ImageUtilities.h>
+#import <WebCore/SharedBuffer.h>
 #import <WebCore/LocalFrameInlines.h>
 #import <WebCore/Page.h>
+#import <wtf/cocoa/SpanCocoa.h> // MAVERICKS_BACKPORT: WTF::toNSData for the encoded TIFF below.
 
 static NSString *serviceControlsPasteboardName = @"WebKitServiceControlsPasteboard";
 
@@ -127,19 +132,43 @@ RetainPtr<NSImage> WebSharingServicePickerClient::imageForCurrentSharingServiceP
     if (!page)
         return;
 
+    RetainPtr<NSData> tiffData = data; // MAVERICKS_BACKPORT: replaced below when confirmData asks.
     if (confirmData) {
-        RetainPtr<NSImage> nsImage = adoptNS([[NSImage alloc] initWithData:data]);
-        if (!nsImage) {
+        // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than
+        // deleted so the divergence stays visible in place. These bytes came from the page, and
+        // -[NSImage initWithData:] parses them inside ImageIO; WebCore decodes them and encodes the
+        // TIFF the pasteboard wants, which is the same confirmation and the same conversion.
+        // RetainPtr<NSImage> nsImage = adoptNS([[NSImage alloc] initWithData:data]);
+        // if (!nsImage) {
+        //     LOG_ERROR("Shared image data cannot create a valid NSImage");
+        //     return;
+        // }
+        //
+        // data = [nsImage TIFFRepresentation];
+        Ref buffer = WebCore::SharedBuffer::create(data);
+        RefPtr decoder = WebCore::ImageDecoder::create(buffer.get(), String(), WebCore::AlphaOption::Premultiplied, WebCore::GammaAndColorProfileOption::Applied);
+        RetainPtr<CGImageRef> platformImage;
+        if (decoder) {
+            decoder->setData(buffer.get(), true);
+            platformImage = decoder->createFrameImageAtIndex(decoder->primaryFrameIndex());
+        }
+        if (!platformImage) {
             LOG_ERROR("Shared image data cannot create a valid NSImage");
             return;
         }
 
-        data = [nsImage TIFFRepresentation];
+        auto encoded = WebCore::encodeData(platformImage.get(), "image/tiff"_s); // MAVERICKS_BACKPORT
+        if (encoded.isEmpty()) {
+            LOG_ERROR("Shared image data cannot create a valid NSImage");
+            return;
+        }
+
+        tiffData = WTF::toNSData(encoded.span());
     }
 
     NSPasteboard *pasteboard = [NSPasteboard pasteboardWithName:serviceControlsPasteboardName];
     [pasteboard declareTypes:@[ NSPasteboardTypeTIFF ] owner:nil];
-    [pasteboard setData:data forType:NSPasteboardTypeTIFF];
+    [pasteboard setData:tiffData.get() forType:NSPasteboardTypeTIFF]; // MAVERICKS_BACKPORT
 
     if (RefPtr node = page->contextMenuController().context().hitTestResult().innerNode()) {
         if (RefPtr frame = node->document().frame())

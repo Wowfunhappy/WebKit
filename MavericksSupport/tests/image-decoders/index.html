@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>image decoders</title>
+<style>
+  body { font: 13px -apple-system, "Helvetica Neue", sans-serif; margin: 20px; }
+  #verdict { font-size: 20px; font-weight: 600; padding: 8px 12px; border-radius: 4px; display: inline-block; }
+  .pass { background: #dff5df; color: #14532d; }
+  .fail { background: #fde2e2; color: #7f1d1d; }
+  table { border-collapse: collapse; margin-top: 16px; }
+  th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; vertical-align: top; }
+  td.bad { background: #fde2e2; }
+  img { image-rendering: pixelated; width: 32px; height: 32px; border: 1px solid #ccc; }
+</style>
+<h1>image decoders</h1>
+<p>Every file in <code>corpus/</code> holds the same picture at its own size: the pixel at
+(<i>x</i>,&nbsp;<i>y</i>) is <code>rgb(x*256/w, y*256/h, 64)</code>, opaque in the left half and
+<code>alpha 128</code> in the right, dropped where the format cannot carry it. Each row below
+decodes one encoding and samples four pixels through a canvas.
+<code>corpus-unspecified-alpha.tiff</code> and <code>corpus-no-extrasamples.tiff</code> hold a fourth
+sample the file does not describe; both expect libtiff's reading of it, which is associated alpha.
+Regenerate the corpus with <code>python3 MavericksSupport/tests/image-decoders/make-corpus.py</code>.</p>
+<div id="verdict">running…</div>
+<table id="results"><thead><tr><th>file</th><th>image</th><th>size</th><th>pixels</th><th></th></tr></thead><tbody></tbody></table>
+
+<script>
+// The picture, as the generator writes it, at whatever size the file carries.
+function expected(x, y, mode, width, height)
+{
+    const red = x * Math.floor(256 / width);
+    const green = y * Math.floor(256 / height);
+    if (mode === "gif")
+        return [red, 0, 0, 255];                    // one channel through the palette
+    if (mode === "gray")
+        return [green, green, green, 255];
+    // The two quarter turns an EXIF Orientation asks for: the pixel shown at (x, y) is the one the
+    // file stores at the rotated position.
+    if (mode === "exif6")
+        return expected(y, width - 1 - x, "opaque", width, height);
+    if (mode === "exif8")
+        return expected(height - 1 - y, x, "opaque", width, height);
+    const alpha = mode === "opaque" ? 255 : (x < width / 2 ? 255 : 128);
+    return [red, green, 64, alpha];
+}
+
+function samplePoints(width, height)
+{
+    // The two either side of the alpha boundary, the first pixel, and the last -- which is the one
+    // a mis-ordered window or a mirrored row lands in the wrong place.
+    return [[0, 0], [width / 2 - 1, 3], [width / 2, 3], [width - 1, height - 1]];
+}
+
+const CASES = [
+    { file: "corpus.png",                 mode: "alpha",  width: 16, height: 16, tolerance: 2 },
+    { file: "corpus-opaque.png",          mode: "opaque", width: 16, height: 16, tolerance: 2 },
+    { file: "corpus-animated.png",        mode: "alpha",  width: 16, height: 16, tolerance: 2 },
+    { file: "corpus.gif",                 mode: "gif",    width: 16, height: 16, tolerance: 2 },
+    { file: "corpus-animated.gif",        mode: "gif",    width: 16, height: 16, tolerance: 2 },
+    { file: "corpus.bmp",                 mode: "opaque", width: 16, height: 16, tolerance: 2 },
+    { file: "corpus.ico",                 mode: "alpha",  width: 16, height: 16, tolerance: 2 },
+    { file: "corpus.jpg",                 mode: "opaque", width: 16, height: 16, tolerance: 20 },
+    { file: "corpus-rotated-right.jpg",   mode: "exif6",  width: 16, height: 16, tolerance: 20 },
+    { file: "corpus-rotated-left.jpg",    mode: "exif8",  width: 16, height: 16, tolerance: 20 },
+    // TIFF, one file per branch the decoder has: both byte orders, greyscale, each flavour of
+    // alpha including the two libtiff decides for itself, one strip and many, top origin and
+    // bottom, tiles, and a page sequence.
+    { file: "corpus-rgb.tiff",            mode: "opaque", width: 16, height: 16, tolerance: 2 },
+    { file: "corpus-bigendian.tiff",      mode: "opaque", width: 16, height: 16, tolerance: 2 },
+    { file: "corpus-gray.tiff",           mode: "gray",   width: 16, height: 16, tolerance: 2 },
+    { file: "corpus-unassociated.tiff",   mode: "alpha",  width: 16, height: 16, tolerance: 3 },
+    { file: "corpus-associated.tiff",     mode: "alpha",  width: 16, height: 16, tolerance: 3 },
+    { file: "corpus-unspecified-alpha.tiff", mode: "alpha", width: 16, height: 16, tolerance: 3 },
+    { file: "corpus-no-extrasamples.tiff", mode: "alpha", width: 16, height: 16, tolerance: 3 },
+    { file: "corpus-strips.tiff",         mode: "opaque", width: 16, height: 16, tolerance: 2 },
+    { file: "corpus-bottom.tiff",         mode: "opaque", width: 16, height: 16, tolerance: 2 },
+    { file: "corpus-strips-bottom.tiff",  mode: "opaque", width: 16, height: 16, tolerance: 2 },
+    { file: "corpus-tiled.tiff",          mode: "opaque", width: 32, height: 32, tolerance: 2 },
+    { file: "corpus-multipage.tiff",      mode: "opaque", width: 16, height: 16, tolerance: 2 },
+];
+
+function load(url)
+{
+    return new Promise(resolve => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => resolve(null);
+        image.src = url;
+    });
+}
+
+function sample(image, points)
+{
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext("2d");
+    context.drawImage(image, 0, 0);
+    return points.map(([x, y]) => Array.from(context.getImageData(x, y, 1, 1).data));
+}
+
+async function run()
+{
+    const body = document.querySelector("#results tbody");
+    let failures = 0;
+
+    for (const testCase of CASES) {
+        const row = body.insertRow();
+        row.insertCell().textContent = testCase.file;
+
+        const image = await load("corpus/" + testCase.file);
+        const preview = row.insertCell();
+        const problems = [];
+
+        if (!image) {
+            problems.push("did not decode");
+            row.insertCell().textContent = "-";
+            row.insertCell().textContent = "-";
+        } else {
+            preview.appendChild(image);
+            row.insertCell().textContent = image.naturalWidth + "x" + image.naturalHeight;
+            if (image.naturalWidth !== testCase.width || image.naturalHeight !== testCase.height)
+                problems.push("size is " + image.naturalWidth + "x" + image.naturalHeight);
+
+            const points = samplePoints(testCase.width, testCase.height);
+            const got = problems.length ? [] : sample(image, points);
+            row.insertCell().textContent = got.map(p => p.join(",")).join("  |  ");
+            points.forEach(([x, y], i) => {
+                const want = expected(x, y, testCase.mode, testCase.width, testCase.height);
+                for (let channel = 0; channel < 4; channel++) {
+                    if (Math.abs(got[i][channel] - want[channel]) > testCase.tolerance) {
+                        problems.push("(" + x + "," + y + ") is " + got[i].join(",") + ", expected " + want.join(","));
+                        break;
+                    }
+                }
+            });
+        }
+
+        const verdict = row.insertCell();
+        verdict.textContent = problems.length ? problems.join("; ") : "PASS";
+        if (problems.length) {
+            verdict.className = "bad";
+            failures++;
+        }
+    }
+
+    const banner = document.getElementById("verdict");
+    banner.textContent = failures ? "FAIL - " + failures + " of " + CASES.length : "PASS - all " + CASES.length;
+    banner.className = failures ? "fail" : "pass";
+    document.title = banner.textContent;
+}
+
+run();
+</script>

@@ -47,7 +47,10 @@
 #import "_WKCaptionStyleMenuController.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebCore/GraphicsContext.h>
+// MAVERICKS_BACKPORT: the share sheet's image is decoded in WebCore, not in ImageIO.
+#import <WebCore/ImageDecoder.h>
 #import <WebCore/IntRect.h>
+#import <WebCore/SharedBuffer.h>
 #import <WebCore/LocalizedStrings.h>
 #import <WebCore/ShareableBitmap.h>
 #import <pal/spi/cocoa/WritingToolsSPI.h>
@@ -480,6 +483,33 @@ static void updateMenuItemImage(NSMenuItem *menuItem, const WebCore::ContextMenu
 }
 #endif
 
+// MAVERICKS_BACKPORT: an NSImage over pixels WebCore decoded, for createShareMenuItem below.
+// -[NSImage initWithData:] would hand the page's image bytes to ImageIO, which is the one parser
+// this port keeps them away from; AppKit gets a decoded representation instead.
+static RetainPtr<NSImage> nsImageFromImageData(NSData *data)
+{
+    if (!data)
+        return nullptr;
+
+    Ref buffer = WebCore::SharedBuffer::create(data);
+    RefPtr decoder = WebCore::ImageDecoder::create(buffer.get(), String(), WebCore::AlphaOption::Premultiplied, WebCore::GammaAndColorProfileOption::Applied);
+    if (!decoder)
+        return nullptr;
+
+    decoder->setData(buffer.get(), true);
+    RetainPtr platformImage = decoder->createFrameImageAtIndex(decoder->primaryFrameIndex());
+    if (!platformImage)
+        return nullptr;
+
+    RetainPtr representation = adoptNS([[NSBitmapImageRep alloc] initWithCGImage:platformImage.get()]);
+    if (!representation)
+        return nullptr;
+
+    RetainPtr image = adoptNS([[NSImage alloc] initWithSize:[representation size]]);
+    [image addRepresentation:representation.get()];
+    return image;
+}
+
 RetainPtr<NSMenuItem> WebContextMenuProxyMac::createShareMenuItem(ShareMenuItemType type)
 {
     ASSERT(m_context.webHitTestResultData());
@@ -507,7 +537,11 @@ RetainPtr<NSMenuItem> WebContextMenuProxyMac::createShareMenuItem(ShareMenuItemT
     if (hitTestData.imageSharedMemory) {
         if (usePlaceholder)
             [items addObject:adoptNS([[NSImage alloc] init]).get()];
-        else if (auto image = adoptNS([[NSImage alloc] initWithData:protect(*hitTestData.imageSharedMemory)->toNSData().get()])) {
+        // MAVERICKS_BACKPORT: upstream's version of the line below, kept commented rather than
+        // deleted so the divergence stays visible in place. The bytes are the page's image, and
+        // -[NSImage initWithData:] parses them inside ImageIO -- in the UI process at that.
+        // else if (auto image = adoptNS([[NSImage alloc] initWithData:protect(*hitTestData.imageSharedMemory)->toNSData().get()])) {
+        else if (auto image = nsImageFromImageData(protect(*hitTestData.imageSharedMemory)->toNSData().get())) {
             RetainPtr title = hitTestData.imageText.createNSString();
             if (![title length])
                 title = WEB_UI_NSSTRING(@"Image", "Fallback title for images in the share sheet");

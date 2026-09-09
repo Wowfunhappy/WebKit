@@ -1,0 +1,28 @@
+<!DOCTYPE html><meta charset=utf-8><title>copy-paste</title>
+<style>body{font:13px -apple-system;margin:20px} div[contenteditable]{border:1px solid #999;padding:8px;min-height:60px;margin:8px 0}</style>
+<h3>copy image, paste image</h3>
+<div id="src" contenteditable><img id="i" src="/MavericksSupport/tests/image-decoders/corpus/corpus.png" width="16" height="16"></div>
+<div id="dst" contenteditable></div>
+<p id="out">-</p>
+<script>
+function selectImage() {
+  const r = document.createRange();
+  r.selectNode(document.getElementById("i"));
+  const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+  document.getElementById("src").focus();
+  return "selected";
+}
+function focusDst() { document.getElementById("dst").focus(); return "focused"; }
+function report() {
+  const imgs = document.querySelectorAll("#dst img");
+  if (!imgs.length) return "NO IMAGE PASTED";
+  const im = imgs[0];
+  if (!im.complete || !im.naturalWidth) return "PASTED BUT NOT DECODED src=" + im.src.slice(0, 40);
+  const c = document.createElement("canvas");
+  c.width = im.naturalWidth; c.height = im.naturalHeight;
+  const g = c.getContext("2d"); g.drawImage(im, 0, 0);
+  const px = (x,y) => Array.from(g.getImageData(x,y,1,1).data).join(",");
+  return "DECODED " + im.naturalWidth + "x" + im.naturalHeight + " src=" + im.src.slice(0,22) +
+         " (0,0)=" + px(0,0) + " (15,15)=" + px(15,15);
+}
+</script>

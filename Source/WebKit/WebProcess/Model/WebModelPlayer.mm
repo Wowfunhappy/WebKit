@@ -40,6 +40,8 @@
 #import <WebCore/GraphicsLayer.h>
 #import <WebCore/GraphicsLayerContentsDisplayDelegate.h>
 #import <WebCore/HTMLModelElement.h>
+// MAVERICKS_BACKPORT: loadIBL below decodes in WebCore, not in ImageIO.
+#import <WebCore/ImageDecoder.h>
 #import <WebCore/ModelPlayerGraphicsLayerConfiguration.h>
 #import <WebCore/Navigator.h>
 #import <WebCore/Page.h>
@@ -199,14 +201,29 @@ static MTLPixelFormat computePixelFormat(size_t bytesPerComponent, size_t channe
 
 static std::optional<WebModel::ImageAsset> loadIBL(Ref<WebCore::SharedBuffer>&& data)
 {
-    RetainPtr imageAssetData = data->createNSData();
-    RetainPtr imageSource = adoptCF(CGImageSourceCreateWithData((CFDataRef)imageAssetData.get(), nullptr));
-    if (!imageSource) {
+    // MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted
+    // so the divergence stays visible in place. No image bytes are parsed by 10.9's ImageIO on this
+    // port, these included.
+    // RetainPtr imageAssetData = data->createNSData();
+    // RetainPtr imageSource = adoptCF(CGImageSourceCreateWithData((CFDataRef)imageAssetData.get(), nullptr));
+    // if (!imageSource) {
+    //     ASSERT_NOT_REACHED();
+    //     return std::nullopt;
+    // }
+    //
+    // RetainPtr platformImage = adoptCF(CGImageSourceCreateImageAtIndex(imageSource.get(), 0, nullptr));
+    // if (!platformImage) {
+    //     ASSERT_NOT_REACHED();
+    //     return std::nullopt;
+    // }
+    RefPtr decoder = WebCore::ImageDecoder::create(data.get(), String(), WebCore::AlphaOption::Premultiplied, WebCore::GammaAndColorProfileOption::Applied);
+    if (!decoder) {
         ASSERT_NOT_REACHED();
         return std::nullopt;
     }
 
-    RetainPtr platformImage = adoptCF(CGImageSourceCreateImageAtIndex(imageSource.get(), 0, nullptr));
+    decoder->setData(data.get(), true); // MAVERICKS_BACKPORT
+    RetainPtr platformImage = decoder->createFrameImageAtIndex(decoder->primaryFrameIndex());
     if (!platformImage) {
         ASSERT_NOT_REACHED();
         return std::nullopt;

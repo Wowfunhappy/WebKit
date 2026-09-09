@@ -41,7 +41,13 @@
 #import <CoreMedia/CoreMedia.h>
 #import <ImageIO/ImageIO.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+// MAVERICKS_BACKPORT: iconForImageFile below decodes in WebCore, not in ImageIO, and applies the
+// orientation itself where kCGImageSourceCreateThumbnailWithTransform used to.
+#import <WebCore/FloatSize.h>
+#import <WebCore/ImageDecoder.h>
+#import <WebCore/ImageOrientation.h>
 #import <WebCore/PlatformImage.h>
+#import <WebCore/SharedBuffer.h> // MAVERICKS_BACKPORT: for that decode.
 #import <wtf/MathExtras.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Vector.h>
@@ -126,12 +132,65 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
 }
 
+// MAVERICKS_BACKPORT: only the ImageIO path below reads this key, and that path is not taken on
+// this port; the guard keeps the declaration where upstream has it without leaving it unused.
+#if !PLATFORM(MAC)
 const CFStringRef kCGImageSourceEnableRestrictedDecoding = CFSTR("kCGImageSourceEnableRestrictedDecoding");
+#else
+// MAVERICKS_BACKPORT: kCGImageSourceCreateThumbnailWithTransform baked the file's orientation into
+// the thumbnail ImageIO returned. A decoded frame carries its orientation beside the pixels instead,
+// so it is baked here, by the sequence createDragImageFromImage uses (DragImageCocoa.mm): flip into
+// ImageOrientation's top-left space, apply, flip back for the draw.
+static RetainPtr<CGImageRef> imageWithOrientationApplied(CGImageRef image, WebCore::ImageOrientation orientation)
+{
+    if (!image || orientation == WebCore::ImageOrientation::Orientation::None
+        || orientation == WebCore::ImageOrientation::Orientation::FromImage)
+        return image;
+
+    WebCore::FloatSize sourceSize(CGImageGetWidth(image), CGImageGetHeight(image));
+    auto drawnSize = orientation.usesWidthAsHeight() ? sourceSize.transposedSize() : sourceSize;
+
+    RetainPtr colorSpace = CGImageGetColorSpace(image);
+    if (!colorSpace || !CGColorSpaceSupportsOutput(colorSpace.get()))
+        colorSpace = adoptCF(CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
+
+    auto context = adoptCF(CGBitmapContextCreate(nullptr, drawnSize.width(), drawnSize.height(), 8, 0,
+        colorSpace.get(), kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host));
+    if (!context)
+        return image;
+
+    CGAffineTransform transform = CGAffineTransformMakeTranslation(0, drawnSize.height());
+    transform = CGAffineTransformScale(transform, 1, -1);
+    transform = CGAffineTransformConcat(orientation.transformFromDefault(drawnSize), transform);
+    transform = CGAffineTransformTranslate(transform, 0, sourceSize.height());
+    transform = CGAffineTransformScale(transform, 1, -1);
+    CGContextConcatCTM(context.get(), transform);
+
+    CGContextDrawImage(context.get(), CGRectMake(0, 0, sourceSize.width(), sourceSize.height()), image);
+    RetainPtr<CGImageRef> rotated = adoptCF(CGBitmapContextCreateImage(context.get()));
+    return rotated ? rotated : RetainPtr<CGImageRef> { image };
+}
+#endif // MAVERICKS_BACKPORT: closes the split above.
 
 RetainPtr<CocoaImage> iconForImageFile(NSURL *file)
 {
     ASSERT_ARG(file, [file isFileURL]);
 
+// MAVERICKS_BACKPORT: the file is one the page's <input type=file> asked for, and this port decodes
+// image bytes in WebCore rather than in 10.9's ImageIO. There is no thumbnail-sized decode to ask
+// for, so the frame is decoded whole and thumbnailSizedImageForImage below scales it, as it already
+// does for the thumbnail ImageIO returns.
+#if PLATFORM(MAC)
+    RetainPtr<CGImageRef> thumbnail;
+    if (RefPtr fileBuffer = WebCore::SharedBuffer::createWithContentsOfFile(String(file.path))) {
+        if (RefPtr decoder = WebCore::ImageDecoder::create(*fileBuffer, String(), WebCore::AlphaOption::Premultiplied, WebCore::GammaAndColorProfileOption::Applied)) {
+            decoder->setData(*fileBuffer, true);
+            auto primaryIndex = decoder->primaryFrameIndex();
+            thumbnail = imageWithOrientationApplied(decoder->createFrameImageAtIndex(primaryIndex).get(),
+                decoder->frameOrientationAtIndex(primaryIndex));
+        }
+    }
+#else
     NSDictionary *options = @{
         (id)kCGImageSourceCreateThumbnailFromImageIfAbsent: @YES,
         (id)kCGImageSourceThumbnailMaxPixelSize: @(iconSideLength),
@@ -140,6 +199,7 @@ RetainPtr<CocoaImage> iconForImageFile(NSURL *file)
     };
     RetainPtr<CGImageSource> imageSource = adoptCF(CGImageSourceCreateWithURL((CFURLRef)file, 0));
     RetainPtr<CGImageRef> thumbnail = adoptCF(CGImageSourceCreateThumbnailAtIndex(imageSource.get(), 0, (CFDictionaryRef)options));
+#endif // MAVERICKS_BACKPORT: closes the split above.
     if (!thumbnail) {
         LOG_ERROR("Error creating thumbnail image for image: %@", file);
         return fallbackIconForFile(file);
