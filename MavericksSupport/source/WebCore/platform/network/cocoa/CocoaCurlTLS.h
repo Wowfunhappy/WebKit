@@ -19,6 +19,9 @@ namespace WebCore {
 class CocoaCurlTLSVerification;
 struct CocoaCurlTLSState {
     WEBCORE_EXPORT static CURLcode install(SSL_CTX*, const std::shared_ptr<CocoaCurlTLSState>&);
+    // For a transport that owns its handshaking thread: the same ClientHello and the same native trust
+    // evaluation, run inside the handshake rather than through the scheduler's pause and resume.
+    WEBCORE_EXPORT static CURLcode installSynchronously(SSL_CTX*, const std::shared_ptr<CocoaCurlTLSState>&);
     WEBCORE_EXPORT static std::shared_ptr<CocoaCurlTLSState> fromSSL(SSL*);
     WEBCORE_EXPORT static RetainPtr<CFArrayRef> certificateAuthorities(SSL*);
     URL url;
@@ -38,6 +41,8 @@ struct CocoaCurlTLSState {
     void (*previousInfoCallback)(const SSL*, int, int) { nullptr };
     int receivedAlert { -1 };
     RetainPtr<NSArray> clientCertificates;
+    // -[WebPreferences setAllowsAnySSLCertificate:] and the socket stream's own flag.
+    bool acceptAnyCertificate { false };
     bool evaluated { false };
     bool verificationRequested { false };
     bool accepted { false };

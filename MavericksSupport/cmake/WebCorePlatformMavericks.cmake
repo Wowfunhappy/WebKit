@@ -934,6 +934,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlProxyResolver.h
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlResourceHandle.h
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlScheduler.h
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlSocketGate.h
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlTLS.h
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaCurlTransfer.h
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CocoaDownloadTransport.h

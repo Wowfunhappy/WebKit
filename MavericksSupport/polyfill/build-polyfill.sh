@@ -111,8 +111,15 @@ done
 
 echo "### compiling polyfills/webkit (WebKit.framework only)"
 # MINC rather than INC: websocket.mm asks c/ for the protection space its server-trust challenge carries.
+# deps/build/include holds ICU, libpng, libxml2 and the rest of the vendored roots, so it reaches only
+# the one unit that needs curl and openssl from it -- websocket.mm, which runs its transport on libcurl
+# and builds its ClientHello from CocoaCurlClientHello.h, the header WebCore and the deps gate compile.
 for f in "$PF"/webkit/*.mm; do
-    cc_queue "$CLANG" -c $MODERN $BLOCKCF $MINC -fobjc-arc -DWK_POLYFILL_UNIT="$(basename "${f%.mm}")" -o "$OBJ/webkit/$(basename "${f%.mm}").o" "$f"
+    case "$(basename "$f")" in
+        websocket.mm) UNITINC="$MINC -I$REPO/MavericksSupport/deps/build/include -I$REPO/MavericksSupport/source/WebCore/platform/network/cocoa" ;;
+        *) UNITINC="$MINC" ;;
+    esac
+    cc_queue "$CLANG" -c $MODERN $BLOCKCF $UNITINC -fobjc-arc -DWK_POLYFILL_UNIT="$(basename "${f%.mm}")" -o "$OBJ/webkit/$(basename "${f%.mm}").o" "$f"
 done
 
 # --- availability inside method bodies -----------------------------------------------------------

@@ -20,8 +20,8 @@
 // definition satisfies the weak `_OBJC_CLASS_$_NSURLSessionWebSocketMessage` import in
 // WebSocketTaskCocoa.mm. It provides:
 //   * NSURLSessionWebSocketMessage  — the value object WebSocketTaskCocoa constructs.
-//   * WKWebSocketStream             — an RFC 6455 client over CFStream (TLS via
-//     kCFStreamSocketSecurityLevelNegotiatedSSL) that masquerades as the NSURLSessionWebSocketTask
+//   * WKWebSocketStream             — an RFC 6455 client over a libcurl connection (carrying the
+//     browser ClientHello of CocoaCurlClientHello.h) that masquerades as the NSURLSessionWebSocketTask
 //     WebSocketTaskCocoa drives (resume/cancel/currentRequest/response/closeCode/taskIdentifier/
 //     receiveMessageWithCompletionHandler:/sendMessage:completionHandler:/cancelWithCloseCode:reason:).
 //   * -[NSURLSession webSocketTaskWithRequest:] — a WebKit-scoped polyfill block (wk_selref_scope.h)
@@ -33,8 +33,12 @@
 // delegateQueue, which is where NSURLSession delivers them (see wsDispatchToCallbackQueue); socket I/O
 // runs on a private serial queue.
 //
-// Compiled with -fobjc-arc (see MavericksSupport/polyfill/build-polyfill.sh). The CFStream client context retains self, so the
-// stream outlives any in-flight socket callbacks until teardown clears the client.
+// The transport is a libcurl handle in CONNECT_ONLY mode: curl resolves the host, opens the proxy
+// tunnel and completes TLS, so a WebSocket reaches a server over the same TLS a page load uses and
+// presents the same browser doing it. Frames travel through curl_easy_send and curl_easy_recv.
+//
+// Compiled with -fobjc-arc (see MavericksSupport/polyfill/build-polyfill.sh). The dispatch sources
+// hold a weak reference and teardown cancels them before the handle closes.
 
 #import "wk_selref_scope.h"
 
@@ -51,6 +55,10 @@ extern "C" void WebCoreCookieStorageSetHTTPResponseCookies(CFTypeRef, CFArrayRef
 #import <objc/runtime.h>
 #import <netdb.h>
 #import <sys/socket.h>
+#import <curl/curl.h>
+#import <openssl/ssl.h>
+#import "CocoaCurlClientHello.h"
+#import "CocoaCurlSocketGate.h"
 #import <unistd.h>
 #import <atomic>
 
@@ -94,14 +102,13 @@ extern "C" void WebCoreCookieStorageSetHTTPResponseCookies(CFTypeRef, CFArrayRef
 @end
 
 // ---------------------------------------------------------------------------------------------------
-// WKWebSocketStream: RFC 6455 client over CFStream, shaped like NSURLSessionWebSocketTask.
+// WKWebSocketStream: RFC 6455 client over a libcurl connection, shaped like NSURLSessionWebSocketTask.
 // ---------------------------------------------------------------------------------------------------
 
 static NSString * const kWebSocketGUID = @"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 typedef NS_ENUM(NSInteger, WKWSState) {
     WKWSStateConnecting,
-    WKWSStateProxyConnect,  // awaiting the proxy's "200 Connection established"
     WKWSStateHandshaking,
     WKWSStateOpen,
     WKWSStateClosing,
@@ -122,19 +129,24 @@ typedef NS_ENUM(NSInteger, WKWSState) {
     NSUInteger _taskIdentifier;
     NSInteger _closeCode;
 
-    CFReadStreamRef _readStream;
-    CFWriteStreamRef _writeStream;
+    CURL *_curl;                    // CONNECT_ONLY: DNS, the proxy tunnel and TLS
+    curl_socket_t _socket;
+    dispatch_source_t _readSource;
+    BOOL _readSourceActive;
+    dispatch_source_t _writeSource;
+    BOOL _writeSourceActive;
+    CocoaCurlSocketGate *_gate;     // the connecting descriptor, held jointly with the curl handle
+    SecTrustRef _peerTrust;         // taken during the handshake, answered for by the delegate
     dispatch_queue_t _ioQueue;      // socket I/O + frame parsing run here
 
     WKWSState _state;
-    BOOL _writeStreamOpen;
+    BOOL _transportOpen;
     BOOL _sentClose;
     uint16_t _sentCloseCode;        // status the close reports; 1005 when the sent Close frame carried no code
 
     BOOL _secure;                   // wss
     BOOL _peerTrustAnswered;        // the server's certificate has been put to the delegate and accepted
     BOOL _peerTrustPending;         // a server-trust challenge is with the delegate, awaiting its answer
-    BOOL _usingProxy;               // tunneling through an HTTP CONNECT proxy
     NSString *_targetHost;          // origin host (for CONNECT + TLS peer name)
     UInt32 _targetPort;             // origin port
 
@@ -415,6 +427,12 @@ static void wsDispatchToCallbackQueue(NSURLSession *session, void (^work)(void))
     dispatch_async(dispatch_get_main_queue(), work);
 }
 
+// What the verification callback below reaches on the task it belongs to.
+@interface WKWebSocketStream (WKWebSocketTransport)
+- (NSString *)targetHost;
+- (void)adoptPeerTrust:(SecTrustRef)trust;
+@end
+
 @implementation WKWebSocketStream
 
 - (instancetype)initWithRequest:(NSURLRequest *)request protocol:(NSString *)protocol session:(NSURLSession *)session taskIdentifier:(NSUInteger)identifier
@@ -436,6 +454,10 @@ static void wsDispatchToCallbackQueue(NSURLSession *session, void (^work)(void))
     _incomingMessages = [NSMutableArray array];
     _maximumMessageSize = 1024 * 1024;
     _lock = [[NSLock alloc] init];
+    _socket = CURL_SOCKET_BAD;
+    _gate = cocoaCurlSocketGateCreate();
+    if (!_gate)
+        return nil;
     _ioQueue = dispatch_queue_create("com.apple.WebKit.LegacyWebSocket", DISPATCH_QUEUE_SERIAL);
     return self;
 }
@@ -518,18 +540,22 @@ static void wsDispatchToCallbackQueue(NSURLSession *session, void (^work)(void))
     });
 }
 
+// A connect in progress owns _ioQueue, so the request to stop reaches it by shutting the descriptor
+// curl is connecting on, not through the queue the teardown is waiting on.
 - (void)cancel
 {
-    dispatch_async(_ioQueue, ^{ [self teardownStreams]; });
+    cocoaCurlSocketGateCancel(_gate);
+    dispatch_async(_ioQueue, ^{ [self teardownTransport]; });
 }
 
-// Sends a Close frame and leaves the connection open until the peer's Close frame (processInput) or its
-// EOF (handleReadEvent) completes the closing handshake and delivers didCloseWithCode:.
+// Sends a Close frame and leaves the connection open. The peer's Close frame, or the end of the
+// connection, completes the closing handshake and delivers didCloseWithCode:.
 - (void)cancelWithCloseCode:(NSInteger)closeCode reason:(NSData *)reason
 {
+    cocoaCurlSocketGateCancel(_gate);
     dispatch_async(_ioQueue, ^{
         if (self->_state != WKWSStateOpen) {
-            [self teardownStreams];
+            [self teardownTransport];
             return;
         }
         self->_state = WKWSStateClosing;
@@ -669,8 +695,71 @@ static void wsDispatchToCallbackQueue(NSURLSession *session, void (^work)(void))
 
 // ----- connection + TLS (on _ioQueue) -----
 
-static void *wsContextRetain(void *info) { return (void *)CFRetain((CFTypeRef)info); }
-static void wsContextRelease(void *info) { CFRelease((CFTypeRef)info); }
+// The chain the handshake presented, as a trust object the session delegate can be asked about. It
+// is taken here because this is where the connection's SSL object is alive: the handle stops handing
+// it out once the transfer that built it has returned.
+static SecTrustRef wsCopyTrustForPeer(SSL *ssl, NSString *host)
+{
+    STACK_OF(X509) *chain = SSL_get_peer_full_cert_chain(ssl);
+    if (!chain || !sk_X509_num(chain))
+        return NULL;
+    CFMutableArrayRef certificates = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+    if (!certificates)
+        return NULL;
+    for (size_t i = 0; i < sk_X509_num(chain); ++i) {
+        unsigned char *der = NULL;
+        int length = i2d_X509(sk_X509_value(chain, i), &der);
+        SecCertificateRef certificate = NULL;
+        if (length > 0 && der) {
+            CFDataRef data = CFDataCreate(NULL, der, length);
+            if (data) {
+                certificate = SecCertificateCreateWithData(NULL, data);
+                CFRelease(data);
+            }
+        }
+        OPENSSL_free(der);
+        if (!certificate) {
+            CFRelease(certificates);
+            return NULL;
+        }
+        CFArrayAppendValue(certificates, certificate);
+        CFRelease(certificate);
+    }
+    SecPolicyRef policy = SecPolicyCreateSSL(true, (__bridge CFStringRef)host);
+    SecTrustRef trust = NULL;
+    OSStatus status = SecTrustCreateWithCertificates(certificates, policy, &trust);
+    CFRelease(certificates);
+    if (policy)
+        CFRelease(policy);
+    if (status != errSecSuccess) {
+        if (trust)
+            CFRelease(trust);
+        return NULL;
+    }
+    return trust;
+}
+
+// The chain is not judged here: a WebSocket task puts its server's certificate to the session
+// delegate the way every other NSURLSession task does (verifyPeerTrustThenContinue below), and a
+// transport that decided for itself would either refuse before the delegate could answer or hide the
+// question.
+static enum ssl_verify_result_t wsCollectPeerTrust(SSL *ssl, uint8_t *alert)
+{
+    (void)alert;
+    WKWebSocketStream *stream = (__bridge WKWebSocketStream *)SSL_CTX_get_app_data(SSL_get_SSL_CTX(ssl));
+    [stream adoptPeerTrust:wsCopyTrustForPeer(ssl, stream.targetHost)];
+    return ssl_verify_ok;
+}
+
+static CURLcode wsInstallClientHello(CURL *curl, void *ctx, void *stream)
+{
+    (void)curl;
+    if (!cocoaCurlInstallClientHello((SSL_CTX *)ctx))
+        return CURLE_SSL_CIPHER;
+    SSL_CTX_set_app_data((SSL_CTX *)ctx, stream);
+    SSL_CTX_set_custom_verify((SSL_CTX *)ctx, SSL_VERIFY_PEER, wsCollectPeerTrust);
+    return CURLE_OK;
+}
 
 - (void)startConnection
 {
@@ -687,11 +776,6 @@ static void wsContextRelease(void *info) { CFRelease((CFTypeRef)info); }
     _targetHost = host;
     _targetPort = port;
 
-    // Raw CFSocketStreams ignore kCFStreamPropertyHTTPProxy, and adding TLS to an already-open CFStream
-    // (deferred TLS after a CONNECT) is unreliable. So a proxied connection opens its tunnel on a plain
-    // BSD socket (blocking HTTP CONNECT — cheap, the proxy is local), then wraps the established socket
-    // in CFStreams with TLS configured BEFORE opening, which engages reliably.
-    //
     // Which hosts to tunnel is CFNetworkCopyProxiesForURL's answer, not the proxy dictionary's raw
     // HTTPSEnable/HTTPSProxy fields: the settings also carry an exception list, ExcludeSimpleHostnames,
     // PAC scripts and an implicit loopback exclusion, and reading the fields alone tunnels hosts the rest
@@ -703,11 +787,11 @@ static void wsContextRelease(void *info) { CFRelease((CFTypeRef)info); }
     // An IPv6 literal reaches here unbracketed, because -[NSURL host] strips the brackets. Handing that
     // to NSURLComponents percent-escapes the colons into a host that names nothing, and the settings are
     // then resolved against the wrong question.
-    NSString *lookupHost = ([host rangeOfString:@":"].location != NSNotFound && ![host hasPrefix:@"["])
+    NSString *authority = ([host rangeOfString:@":"].location != NSNotFound && ![host hasPrefix:@"["])
         ? [NSString stringWithFormat:@"[%@]", host] : host;
     NSURLComponents *proxyLookup = [[NSURLComponents alloc] init];
     proxyLookup.scheme = secure ? @"https" : @"http";
-    proxyLookup.host = lookupHost;
+    proxyLookup.host = authority;
     proxyLookup.port = @(port);
     NSURL *proxyLookupURL = proxyLookup.URL;
     if (sys && proxyLookupURL) {
@@ -727,195 +811,157 @@ static void wsContextRelease(void *info) { CFRelease((CFTypeRef)info); }
         }
     }
 
-    if (proxyHost.length) {
-        int fd = [self openProxyTunnel:proxyHost port:(proxyPort ? proxyPort.unsignedIntValue : (secure ? 443 : 80)) targetHost:host targetPort:port];
-        if (fd < 0) {
-            [self failWithReason:@"Proxy CONNECT failed"];
-            return;
-        }
-        CFStreamCreatePairWithSocket(kCFAllocatorDefault, (CFSocketNativeHandle)fd, &_readStream, &_writeStream);
-        if (!_readStream || !_writeStream) {
-            close(fd);
-            [self failWithReason:@"Could not wrap tunnel socket"];
-            return;
-        }
-        CFReadStreamSetProperty(_readStream, kCFStreamPropertyShouldCloseNativeSocket, kCFBooleanTrue);
-        CFWriteStreamSetProperty(_writeStream, kCFStreamPropertyShouldCloseNativeSocket, kCFBooleanTrue);
-    } else {
-        CFStreamCreatePairWithSocketToHost(kCFAllocatorDefault, (__bridge CFStringRef)host, port, &_readStream, &_writeStream);
-        if (!_readStream || !_writeStream) {
-            [self failWithReason:@"Could not create socket streams"];
-            return;
-        }
+    _curl = curl_easy_init();
+    if (!_curl) {
+        [self failWithReason:@"Could not create the WebSocket connection"];
+        return;
     }
+    // Released where the handle is cleaned up: curl closes its socket then, which can be after this
+    // object is gone.
+    cocoaCurlSocketGateRetain(_gate);
+    NSString *endpoint = [NSString stringWithFormat:@"%@://%@:%u/", secure ? @"https" : @"http", authority, port];
+    curl_easy_setopt(_curl, CURLOPT_URL, endpoint.UTF8String);
+    // The connection is handed over once it stands: curl sends no request of its own, and the RFC 6455
+    // handshake below is written onto the socket it returns.
+    curl_easy_setopt(_curl, CURLOPT_CONNECT_ONLY, 1L);
+    // An RFC 6455 handshake is an HTTP/1.1 upgrade, so http/1.1 is the only protocol ALPN offers:
+    // a connection that negotiated h2 would carry these frames through curl's HTTP/2 filter.
+    curl_easy_setopt(_curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+    curl_easy_setopt(_curl, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(_curl, CURLOPT_CONNECTTIMEOUT, 30L);
+    curl_easy_setopt(_curl, CURLOPT_OPENSOCKETFUNCTION, cocoaCurlSocketGateOpen);
+    curl_easy_setopt(_curl, CURLOPT_OPENSOCKETDATA, _gate);
+    curl_easy_setopt(_curl, CURLOPT_CLOSESOCKETFUNCTION, cocoaCurlSocketGateClose);
+    curl_easy_setopt(_curl, CURLOPT_CLOSESOCKETDATA, _gate);
+    if (proxyHost.length) {
+        NSString *proxyURL = [NSString stringWithFormat:@"http://%@:%u", proxyHost,
+            proxyPort ? proxyPort.unsignedIntValue : (secure ? 443 : 80)];
+        curl_easy_setopt(_curl, CURLOPT_PROXY, proxyURL.UTF8String);
+        curl_easy_setopt(_curl, CURLOPT_HTTPPROXYTUNNEL, 1L);
+    } else {
+        curl_easy_setopt(_curl, CURLOPT_PROXY, "");
+        curl_easy_setopt(_curl, CURLOPT_NOPROXY, "*");
+    }
+    if (secure) {
+        curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, 1L);
+        curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, 0L);
+        curl_easy_setopt(_curl, CURLOPT_CAINFO, NULL);
+        curl_easy_setopt(_curl, CURLOPT_CAPATH, NULL);
+        curl_easy_setopt(_curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+        curl_easy_setopt(_curl, CURLOPT_SSL_CTX_FUNCTION, wsInstallClientHello);
+        curl_easy_setopt(_curl, CURLOPT_SSL_CTX_DATA, (__bridge void *)self);
+    }
+    CURLcode rc = curl_easy_perform(_curl);
+    if (cocoaCurlSocketGateCancelled(_gate)) {
+        [self teardownTransport];
+        return;
+    }
+    if (rc != CURLE_OK) {
+        [self failWithReason:[NSString stringWithFormat:@"WebSocket connection failed: %s", curl_easy_strerror(rc)]];
+        return;
+    }
+    curl_socket_t connected = CURL_SOCKET_BAD;
+    if (curl_easy_getinfo(_curl, CURLINFO_ACTIVESOCKET, &connected) != CURLE_OK || connected == CURL_SOCKET_BAD) {
+        [self failWithReason:@"WebSocket connection returned no socket"];
+        return;
+    }
+    _socket = connected;
+    // From here the teardown reaches the connection through _ioQueue, which is free again.
+    cocoaCurlSocketGateForget(_gate);
+    _transportOpen = YES;
+    __weak WKWebSocketStream *weakSelf = self;
+    _readSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, (uintptr_t)_socket, 0, _ioQueue);
+    dispatch_source_set_event_handler(_readSource, ^{ [weakSelf readAvailableInput]; });
+    // Resumed only while curl has taken less than the whole of _outBuffer.
+    _writeSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_WRITE, (uintptr_t)_socket, 0, _ioQueue);
+    dispatch_source_set_event_handler(_writeSource, ^{ [weakSelf flushOutput]; });
+    _readSourceActive = YES;
+    dispatch_resume(_readSource);
 
-    if (secure)
-        [self enableTLS];
-
-    CFStreamClientContext context = { 0, (__bridge void *)self, wsContextRetain, wsContextRelease, NULL };
-    CFOptionFlags readFlags = kCFStreamEventHasBytesAvailable | kCFStreamEventErrorOccurred | kCFStreamEventEndEncountered | kCFStreamEventOpenCompleted;
-    CFOptionFlags writeFlags = kCFStreamEventCanAcceptBytes | kCFStreamEventErrorOccurred | kCFStreamEventEndEncountered | kCFStreamEventOpenCompleted;
-    CFReadStreamSetClient(_readStream, readFlags, readStreamCallback, &context);
-    CFWriteStreamSetClient(_writeStream, writeFlags, writeStreamCallback, &context);
-    CFReadStreamSetDispatchQueue(_readStream, _ioQueue);
-    CFWriteStreamSetDispatchQueue(_writeStream, _ioQueue);
-    CFReadStreamOpen(_readStream);
-    CFWriteStreamOpen(_writeStream);
     _state = WKWSStateHandshaking;
     [self sendHandshake];
 }
 
-// Blocking HTTP CONNECT through the proxy. Returns a connected, tunneled native socket (or -1).
-- (int)openProxyTunnel:(NSString *)proxyHost port:(UInt32)proxyPort targetHost:(NSString *)host targetPort:(UInt32)targetPort
+// The peer ended the connection.
+- (void)handleEndOfConnection
 {
-    struct addrinfo hints;
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    struct addrinfo *res = NULL;
-    NSString *portStr = [NSString stringWithFormat:@"%u", proxyPort];
-    if (getaddrinfo(proxyHost.UTF8String, portStr.UTF8String, &hints, &res) || !res)
-        return -1;
-    int fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    if (fd < 0 || connect(fd, res->ai_addr, res->ai_addrlen)) {
-        if (fd >= 0) close(fd);
-        freeaddrinfo(res);
-        return -1;
-    }
-    freeaddrinfo(res);
-
-    NSData *req = [[NSString stringWithFormat:@"CONNECT %@:%u HTTP/1.1\r\nHost: %@:%u\r\n\r\n", host, targetPort, host, targetPort] dataUsingEncoding:NSUTF8StringEncoding];
-    const uint8_t *p = (const uint8_t *)req.bytes;
-    size_t remaining = req.length;
-    while (remaining) {
-        ssize_t w = write(fd, p, remaining);
-        if (w <= 0) { close(fd); return -1; }
-        p += w; remaining -= w;
-    }
-
-    NSMutableData *resp = [NSMutableData data];
-    uint8_t buf[512];
-    NSData *crlfcrlf = [NSData dataWithBytes:"\r\n\r\n" length:4];
-    while (1) {
-        ssize_t r = read(fd, buf, sizeof(buf));
-        if (r <= 0) { close(fd); return -1; }
-        [resp appendBytes:buf length:r];
-        if ([resp rangeOfData:crlfcrlf options:0 range:NSMakeRange(0, resp.length)].location != NSNotFound)
-            break;
-        if (resp.length > 8192) { close(fd); return -1; }
-    }
-    NSString *statusLine = [[[NSString alloc] initWithData:resp encoding:NSISOLatin1StringEncoding] componentsSeparatedByString:@"\r\n"].firstObject;
-    NSArray<NSString *> *parts = [statusLine componentsSeparatedByString:@" "];
-    NSInteger status = parts.count >= 2 ? [parts[1] integerValue] : 0;
-    if (status != 200) { close(fd); return -1; }
-    return fd;
+    if (_state != WKWSStateClosed && _state != WKWSStateClosing) {
+        [self failWithReason:@"WebSocket connection closed unexpectedly"];
+    } else if (_state == WKWSStateClosing && _sentClose) {
+        // The peer ended the connection without echoing a Close frame: the close completes with the
+        // status this side sent.
+        [self deliverDidCloseWithCode:_sentCloseCode reason:nil];
+        [self deliverError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNetworkConnectionLost userInfo:nil]];
+        [self teardownTransport];
+    } else
+        [self teardownTransport];
 }
 
-- (void)enableTLS
-{
-    // Enable TLS first, then apply the SSL settings LAST. kCFStreamSSLPeerName both validates the cert
-    // and sets the TLS SNI server-name; the proxy's MITM requires SNI, so the settings must not be
-    // clobbered by a later kCFStreamPropertySocketSecurityLevel write (which resets the peer name).
-    CFReadStreamSetProperty(_readStream, kCFStreamPropertySocketSecurityLevel, kCFStreamSocketSecurityLevelNegotiatedSSL);
-    CFWriteStreamSetProperty(_writeStream, kCFStreamPropertySocketSecurityLevel, kCFStreamSocketSecurityLevelNegotiatedSSL);
-    // The chain is not checked by the stream: a WebSocket task puts its server's certificate to the
-    // session delegate the way every other NSURLSession task does (verifyPeerTrust below), and a stream
-    // that decided for itself would either refuse before the delegate could answer or hide the question.
-    NSDictionary *ssl = @{ (__bridge id)kCFStreamSSLPeerName: _targetHost,
-                           (__bridge id)kCFStreamSSLValidatesCertificateChain: @NO };
-    CFReadStreamSetProperty(_readStream, kCFStreamPropertySSLSettings, (__bridge CFDictionaryRef)ssl);
-    CFWriteStreamSetProperty(_writeStream, kCFStreamPropertySSLSettings, (__bridge CFDictionaryRef)ssl);
-}
-
-static void readStreamCallback(CFReadStreamRef, CFStreamEventType type, void *info)
-{
-    [(__bridge WKWebSocketStream *)info handleReadEvent:type];
-}
-static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *info)
-{
-    [(__bridge WKWebSocketStream *)info handleWriteEvent:type];
-}
-
-- (void)handleReadEvent:(CFStreamEventType)type
-{
-    switch (type) {
-    case kCFStreamEventHasBytesAvailable:
-        [self readAvailableInput];
-        break;
-    case kCFStreamEventErrorOccurred: {
-        NSError *e = (__bridge_transfer NSError *)CFReadStreamCopyError(_readStream);
-        [self failWithError:e reason:@"WebSocket socket read error"];
-        break;
-    }
-    case kCFStreamEventEndEncountered:
-        if (_state != WKWSStateClosed && _state != WKWSStateClosing) {
-            [self failWithReason:@"WebSocket connection closed unexpectedly"];
-        } else if (_state == WKWSStateClosing && _sentClose) {
-            // The peer ended the connection without echoing a Close frame: the close completes with the
-            // status this side sent.
-            [self deliverDidCloseWithCode:_sentCloseCode reason:nil];
-            [self deliverError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNetworkConnectionLost userInfo:nil]];
-            [self teardownStreams];
-        } else
-            [self teardownStreams];
-        break;
-    default:
-        break;
-    }
-}
-
-// A secure connection is answered for before any of it is used: while the certificate is with the
-// delegate the bytes stay in the stream, so no handshake is parsed, no cookie is stored and no callback
-// is delivered on a connection the delegate has not accepted. Decrypted bytes mean the TLS handshake
-// finished, so this is also where the question is put.
+// A secure connection is answered for before any of it is used: nothing is read while the certificate
+// is with the delegate, so no handshake is parsed, no cookie is stored and no callback is delivered on
+// a connection the delegate has not accepted. Decrypted bytes mean the TLS handshake finished, so this
+// is also where the question is put.
 - (void)readAvailableInput
 {
-    if (!_readStream)
+    if (!_curl)
         return;
     if (_secure && !_peerTrustAnswered) {
         [self verifyPeerTrustThenContinue];
         return;
     }
     uint8_t buf[16384];
-    while (CFReadStreamHasBytesAvailable(_readStream)) {
-        CFIndex n = CFReadStreamRead(_readStream, buf, sizeof(buf));
-        if (n <= 0)
+    NSString *transportError = nil;
+    BOOL ended = NO;
+    for (;;) {
+        size_t received = 0;
+        CURLcode rc = curl_easy_recv(_curl, buf, sizeof(buf), &received);
+        // A readable socket can still hold less than one TLS record, and one record can hold several
+        // frames, so the loop ends on the transport saying so rather than on the socket.
+        if (rc == CURLE_AGAIN)
             break;
-        [_inBuffer appendBytes:buf length:n];
+        if (rc != CURLE_OK) {
+            transportError = [NSString stringWithFormat:@"WebSocket read failed: %s", curl_easy_strerror(rc)];
+            break;
+        }
+        if (!received) {
+            ended = YES;
+            break;
+        }
+        [_inBuffer appendBytes:buf length:received];
     }
+    // A peer that sends its Close frame and closes carries both in one readable pass, so what was read
+    // is parsed before the end of the connection is acted on.
     [self processInput];
-}
-
-- (void)handleWriteEvent:(CFStreamEventType)type
-{
-    switch (type) {
-    case kCFStreamEventOpenCompleted:
-        _writeStreamOpen = YES;
-        [self flushOutput];
-        break;
-    case kCFStreamEventCanAcceptBytes:
-        [self flushOutput];
-        break;
-    case kCFStreamEventErrorOccurred: {
-        NSError *e = (__bridge_transfer NSError *)CFWriteStreamCopyError(_writeStream);
-        [self failWithError:e reason:@"WebSocket socket write error"];
-        break;
-    }
-    default:
-        break;
-    }
+    if (!_curl)
+        return;
+    if (transportError)
+        [self failWithReason:transportError];
+    else if (ended)
+        [self handleEndOfConnection];
 }
 
 // The server's certificate, asked about exactly as NSURLSession asks: the session delegate is handed a
 // server-trust challenge and its answer decides. A delegate that is not there, or that asks for the
 // default handling, gets what the system would have done on its own -- the evaluation below.
+- (NSString *)targetHost
+{
+    return _targetHost;
+}
+
+- (void)adoptPeerTrust:(SecTrustRef)trust
+{
+    if (_peerTrust)
+        CFRelease(_peerTrust);
+    _peerTrust = trust;
+}
+
 - (void)verifyPeerTrustThenContinue
 {
     // One challenge per connection: every write event and every read event arriving before the answer
     // reaches this, and a delegate is asked about a certificate once.
-    if (_peerTrustPending || !_readStream)
+    if (_peerTrustPending || !_curl)
         return;
-    SecTrustRef trust = (SecTrustRef)CFReadStreamCopyProperty(_readStream, kCFStreamPropertySSLPeerTrust);
+    SecTrustRef trust = _peerTrust ? (SecTrustRef)CFRetain(_peerTrust) : NULL;
     if (!trust) {
         [self failWithReason:@"WebSocket TLS connection has no server certificate"];
         return;
@@ -938,6 +984,9 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
     dispatch_queue_t ioQueue = _ioQueue;
     NSURL *requestURL = _request.URL;
     _peerTrustPending = YES;
+    // A dispatch read source re-arms the moment its handler returns, and the server's session ticket
+    // leaves the socket readable, so it stays suspended for as long as the question is out.
+    [self suspendReadSource];
     wsDispatchToCallbackQueue(_session, ^{
         void (^answer)(BOOL) = ^(BOOL accepted) {
             dispatch_async(ioQueue, ^{ [taskSelf peerTrustAnswered:accepted]; CFRelease(trust); });
@@ -972,6 +1021,7 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
 - (void)peerTrustAnswered:(BOOL)accepted
 {
     _peerTrustPending = NO;
+    [self resumeReadSource];
     if (_state == WKWSStateClosed)
         return;
     if (!accepted) {
@@ -981,32 +1031,75 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
     }
     _peerTrustAnswered = YES;
     [self flushOutput];
-    // Bytes that arrived while the question was out were left in the stream, and the read event that
-    // announced them will not come again.
     [self readAvailableInput];
 }
 
 - (void)flushOutput
 {
+    if (!_curl)
+        return;
     // Nothing goes out over a secure connection until its certificate has been answered for.
     if (_secure && !_peerTrustAnswered) {
-        if (_writeStreamOpen && CFWriteStreamCanAcceptBytes(_writeStream))
+        if (_transportOpen)
             [self verifyPeerTrustThenContinue];
+        [self suspendWriteSource];
         return;
     }
 
-    while (_outBuffer.length && CFWriteStreamCanAcceptBytes(_writeStream)) {
-        CFIndex n = CFWriteStreamWrite(_writeStream, (const uint8_t *)_outBuffer.bytes, _outBuffer.length);
-        if (n <= 0)
-            break;
-        [_outBuffer replaceBytesInRange:NSMakeRange(0, n) withBytes:NULL length:0];
+    while (_outBuffer.length) {
+        size_t sent = 0;
+        CURLcode rc = curl_easy_send(_curl, _outBuffer.bytes, _outBuffer.length, &sent);
+        if (rc == CURLE_AGAIN) {
+            [self resumeWriteSource];
+            return;
+        }
+        if (rc != CURLE_OK) {
+            [self failWithReason:[NSString stringWithFormat:@"WebSocket write failed: %s", curl_easy_strerror(rc)]];
+            return;
+        }
+        [_outBuffer replaceBytesInRange:NSMakeRange(0, sent) withBytes:NULL length:0];
+    }
+    [self suspendWriteSource];
+}
+
+- (void)resumeReadSource
+{
+    if (_readSource && !_readSourceActive) {
+        _readSourceActive = YES;
+        dispatch_resume(_readSource);
+    }
+}
+
+- (void)suspendReadSource
+{
+    if (_readSource && _readSourceActive) {
+        _readSourceActive = NO;
+        dispatch_suspend(_readSource);
+    }
+}
+
+// The write source runs only while curl has taken less than the whole buffer, so an idle connection
+// costs no wakeups; a suspended source is resumed before it is cancelled.
+- (void)resumeWriteSource
+{
+    if (_writeSource && !_writeSourceActive) {
+        _writeSourceActive = YES;
+        dispatch_resume(_writeSource);
+    }
+}
+
+- (void)suspendWriteSource
+{
+    if (_writeSource && _writeSourceActive) {
+        _writeSourceActive = NO;
+        dispatch_suspend(_writeSource);
     }
 }
 
 - (void)writeBytes:(NSData *)data
 {
     [_outBuffer appendData:data];
-    if (_writeStreamOpen)
+    if (_transportOpen)
         [self flushOutput];
 }
 
@@ -1080,29 +1173,6 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
 
 - (void)processInput
 {
-    if (_state == WKWSStateProxyConnect) {
-        const char terminator[] = "\r\n\r\n";
-        NSRange end = [_inBuffer rangeOfData:[NSData dataWithBytes:terminator length:4] options:0 range:NSMakeRange(0, _inBuffer.length)];
-        if (end.location == NSNotFound)
-            return;
-        NSUInteger headerEnd = end.location + end.length;
-        NSData *respData = [_inBuffer subdataWithRange:NSMakeRange(0, headerEnd)];
-        [_inBuffer replaceBytesInRange:NSMakeRange(0, headerEnd) withBytes:NULL length:0];
-        NSString *resp = [[NSString alloc] initWithData:respData encoding:NSISOLatin1StringEncoding];
-        NSString *statusLine = [resp componentsSeparatedByString:@"\r\n"].firstObject;
-        NSArray<NSString *> *parts = [statusLine componentsSeparatedByString:@" "];
-        NSInteger status = parts.count >= 2 ? [parts[1] integerValue] : 0;
-        if (status != 200) {
-            [self failWithReason:[NSString stringWithFormat:@"Proxy CONNECT failed (%ld)", (long)status]];
-            return;
-        }
-        // Tunnel established. Start TLS to the origin inside it (for wss), then the WebSocket handshake.
-        if (_secure)
-            [self enableTLS];
-        _state = WKWSStateHandshaking;
-        [self sendHandshake];
-        return; // the handshake response arrives later (after TLS); _inBuffer is empty here
-    }
     if (_state == WKWSStateHandshaking) {
         const char terminator[] = "\r\n\r\n";
         NSRange end = [_inBuffer rangeOfData:[NSData dataWithBytes:terminator length:4] options:0 range:NSMakeRange(0, _inBuffer.length)];
@@ -1356,7 +1426,7 @@ static BOOL wsHeaderHasValidHTTPVersion(const uint8_t *line, NSUInteger length)
     if (++_redirectCount > kWKWSMaximumRedirects) {
         _state = WKWSStateClosed;
         [self deliverError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorHTTPTooManyRedirects userInfo:nil]];
-        [self teardownStreams];
+        [self teardownTransport];
         return NO;
     }
 
@@ -1369,11 +1439,11 @@ static BOOL wsHeaderHasValidHTTPVersion(const uint8_t *line, NSUInteger length)
     if ([newRequest valueForHTTPHeaderField:@"Origin"] && !wsURLsAreSameOrigin(_request.URL, newURL))
         [newRequest setValue:@"null" forHTTPHeaderField:@"Origin"];
 
-    [self teardownStreams];
+    [self teardownTransport];
     _state = WKWSStateConnecting;
     [_inBuffer setLength:0];
     [_outBuffer setLength:0];
-    _writeStreamOpen = NO;
+    _transportOpen = NO;
     _peerTrustAnswered = NO;
     _peerTrustPending = NO;
 
@@ -1416,7 +1486,7 @@ static BOOL wsHeaderHasValidHTTPVersion(const uint8_t *line, NSUInteger length)
     _state = WKWSStateClosed;
     NSString *desc = [NSString stringWithFormat:@"WebSocket handshake failed (HTTP %ld)", (long)statusCode];
     [self deliverError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorBadServerResponse userInfo:@{ NSLocalizedDescriptionKey: desc }]];
-    [self teardownStreams];
+    [self teardownTransport];
     return NO;
 }
 
@@ -1622,7 +1692,7 @@ static void maskBytes(uint8_t *bytes, NSUInteger length, const uint8_t key[4])
         _state = WKWSStateClosing;
         [self deliverDidCloseWithCode:code reason:reason];
         [self deliverError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNetworkConnectionLost userInfo:nil]];
-        [self teardownStreams];
+        [self teardownTransport];
         break;
     }
     case 0x9:
@@ -1708,7 +1778,7 @@ static void maskBytes(uint8_t *bytes, NSUInteger length, const uint8_t key[4])
     _state = WKWSStateClosed;
     NSError *delivered = error ?: [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNetworkConnectionLost userInfo:@{ NSLocalizedDescriptionKey: reason }];
     [self deliverError:delivered];
-    [self teardownStreams];
+    [self teardownTransport];
 }
 
 - (void)failWithReason:(NSString *)reason
@@ -1727,23 +1797,61 @@ static void maskBytes(uint8_t *bytes, NSUInteger length, const uint8_t key[4])
         userInfo:@{ NSLocalizedDescriptionKey: reason }] reason:reason];
 }
 
-- (void)teardownStreams
+// libdispatch aborts the process on the release of a suspended source, and the easy handle owns the
+// socket, so the transport is taken down on whichever release ends the task.
+- (void)dealloc
+{
+    [self teardownTransport];
+    if (_gate)
+        cocoaCurlSocketGateRelease(_gate);
+}
+
+- (void)teardownTransport
 {
     _state = WKWSStateClosed;
-    _writeStreamOpen = NO;
-    if (_readStream) {
-        CFReadStreamSetClient(_readStream, kCFStreamEventNone, NULL, NULL);
-        CFReadStreamSetDispatchQueue(_readStream, NULL);
-        CFReadStreamClose(_readStream);
-        CFRelease(_readStream);
-        _readStream = NULL;
+    _transportOpen = NO;
+    CURL *handle = _curl;
+    CocoaCurlSocketGate *gate = _gate;
+    _curl = NULL;
+    _socket = CURL_SOCKET_BAD;
+    dispatch_source_t read = _readSource;
+    dispatch_source_t write = _writeSource;
+    BOOL readActive = _readSourceActive;
+    BOOL writeActive = _writeSourceActive;
+    _readSource = nil;
+    _writeSource = nil;
+    _readSourceActive = NO;
+    _writeSourceActive = NO;
+    if (read || write) {
+        // The handle owns the descriptor the sources are armed on, so it closes only once both have
+        // finished cancelling; a source still armed on a closed descriptor is a libdispatch error.
+        __block int remaining = (read ? 1 : 0) + (write ? 1 : 0);
+        dispatch_block_t closeHandle = ^{
+            if (!--remaining && handle) {
+                curl_easy_cleanup(handle);
+                cocoaCurlSocketGateRelease(gate);
+            }
+        };
+        if (read) {
+            // A suspended source cannot be cancelled: resume it first.
+            if (!readActive)
+                dispatch_resume(read);
+            dispatch_source_set_cancel_handler(read, closeHandle);
+            dispatch_source_cancel(read);
+        }
+        if (write) {
+            if (!writeActive)
+                dispatch_resume(write);
+            dispatch_source_set_cancel_handler(write, closeHandle);
+            dispatch_source_cancel(write);
+        }
+    } else if (handle) {
+        curl_easy_cleanup(handle);
+        cocoaCurlSocketGateRelease(gate);
     }
-    if (_writeStream) {
-        CFWriteStreamSetClient(_writeStream, kCFStreamEventNone, NULL, NULL);
-        CFWriteStreamSetDispatchQueue(_writeStream, NULL);
-        CFWriteStreamClose(_writeStream);
-        CFRelease(_writeStream);
-        _writeStream = NULL;
+    if (_peerTrust) {
+        CFRelease(_peerTrust);
+        _peerTrust = NULL;
     }
 }
 

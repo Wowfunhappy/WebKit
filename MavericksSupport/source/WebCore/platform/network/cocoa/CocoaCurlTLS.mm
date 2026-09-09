@@ -84,8 +84,10 @@ static bool evaluateNativeTrust(CocoaCurlTLSState& state, X509_STORE_CTX* store)
     auto policy = adoptCF(SecPolicyCreateSSL(true, (__bridge CFStringRef)state.url.createNSURL().get().host));
     SecTrustRef trust = nullptr;
     if (!state.peerChain || !policy || SecTrustCreateWithCertificates(state.peerChain.get(), policy.get(), &trust))
-        return false;
+        return state.acceptAnyCertificate;
     state.trust = adoptCF(trust);
+    if (state.acceptAnyCertificate)
+        return true;
     SecTrustResultType result = kSecTrustResultInvalid;
     OSStatus status = SecTrustEvaluate(trust, &result);
     if (!status && (result == kSecTrustResultProceed || result == kSecTrustResultUnspecified))
@@ -147,6 +149,7 @@ std::unique_ptr<CocoaCurlTLSVerification> CocoaCurlTLSVerification::create(SSL* 
     impl.result.url = state.url.isolatedCopy();
     impl.result.acceptedChain = state.acceptedChain;
     impl.result.allowedTrust = state.allowedTrust;
+    impl.result.acceptAnyCertificate = state.acceptAnyCertificate;
     if (!X509_STORE_CTX_init(impl.context, impl.store, sk_X509_value(impl.chain, 0), impl.chain)
         || !X509_STORE_CTX_set_ex_data(impl.context, verificationStateIndex(), &impl.result))
         return nullptr;
@@ -319,6 +322,33 @@ CURLcode CocoaCurlTLSState::install(SSL_CTX* ssl, const std::shared_ptr<CocoaCur
                 state->previousInfoCallback(connection, event, value);
         }
     });
+    return CURLE_OK;
+}
+
+// BoringSSL's own verification operation carries the connection, so the state is reached through the
+// SSL rather than through the X509 context the asynchronous path builds for the trust queue.
+static int synchronousVerifyCallback(int, X509_STORE_CTX* store)
+{
+    auto* connection = static_cast<SSL*>(X509_STORE_CTX_get_ex_data(store, SSL_get_ex_data_X509_STORE_CTX_idx()));
+    auto state = connection ? CocoaCurlTLSState::fromSSL(connection) : nullptr;
+    if (!state)
+        return 0;
+    if (!std::exchange(state->evaluated, true))
+        state->accepted = evaluateNativeTrust(*state, store);
+    X509_STORE_CTX_set_error(store, state->accepted ? X509_V_OK : X509_V_ERR_CERT_REJECTED);
+    return state->accepted;
+}
+
+CURLcode CocoaCurlTLSState::installSynchronously(SSL_CTX* ssl, const std::shared_ptr<CocoaCurlTLSState>& state)
+{
+    if (!cocoaCurlInstallClientHello(ssl))
+        return CURLE_SSL_CIPHER;
+    auto retained = std::make_unique<std::shared_ptr<CocoaCurlTLSState>>(state);
+    if (tlsStateIndex() < 0 || !SSL_CTX_set_ex_data(ssl, tlsStateIndex(), retained.get()))
+        return CURLE_OUT_OF_MEMORY;
+    retained.release();
+    SSL_CTX_set_verify(ssl, SSL_VERIFY_PEER, synchronousVerifyCallback);
+    SSL_CTX_set_reverify_on_resume(ssl, 1);
     return CURLE_OK;
 }
 

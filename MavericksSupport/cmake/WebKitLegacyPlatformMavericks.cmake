@@ -53,11 +53,12 @@ list(APPEND WebKitLegacy_SOURCES
     WebCoreSupport/LegacySocketProvider.cpp
     WebCoreSupport/LegacyWebPageDebuggable.cpp
     WebCoreSupport/LegacyWebPageInspectorController.cpp
-    # The in-process SocketStreamHandle (CFNetwork) and the legacy WebSocketChannel, the
-    # WebKitLegacy-side backing for the 10.9 WebSocket implementation.
+    # The in-process SocketStreamHandle and the legacy WebSocketChannel, the WebKitLegacy-side backing
+    # for the 10.9 WebSocket implementation. Its transport is this port's curl one rather than
+    # upstream's CFStream file, so a WebSocket handshake presents the browser's ClientHello.
     WebCoreSupport/SocketStreamHandle.cpp
     WebCoreSupport/SocketStreamHandleImpl.cpp
-    WebCoreSupport/SocketStreamHandleImplCFNet.cpp
+    ${MAVERICKS_SUPPORT}/source/WebKitLegacy/WebCoreSupport/SocketStreamHandleImplCurl.cpp
     WebCoreSupport/WebSocketChannel.cpp
     # WebCrypto is libgcrypt-backed on this port, and WebKit1 needs its own client for it.
     WebCoreSupport/WebCryptoClient.mm

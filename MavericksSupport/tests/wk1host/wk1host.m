@@ -5,6 +5,7 @@
 
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
+#import <dlfcn.h>
 
 @interface Host : NSObject {
 @public
@@ -71,6 +72,16 @@ int main(int argc, const char *argv[])
     @autoreleasepool {
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+
+        // WK1 has no API for it, so WK1HOST_ALLOW_ANY_SSL reaches the global the way the layout tests
+        // do, to drive the accept-any-certificate path a page cannot ask for.
+        if (getenv("WK1HOST_ALLOW_ANY_SSL")) {
+            void *webCore = dlopen("/System/Library/Frameworks/WebKit.framework/Versions/A/Frameworks/WebCore.framework/WebCore", RTLD_LAZY);
+            void (*setAllowsAnySSLCertificate)(bool) = webCore ? (void (*)(bool))dlsym(webCore, "_ZN7WebCore24DeprecatedGlobalSettings26setAllowsAnySSLCertificateEb") : NULL;
+            printf("ALLOW_ANY_SSL %s\n", setAllowsAnySSLCertificate ? "set" : "UNAVAILABLE");
+            if (setAllowsAnySSLCertificate)
+                setAllowsAnySSLCertificate(true);
+        }
 
         NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(80, 80, 1000, 700)
             styleMask:NSTitledWindowMask | NSClosableWindowMask | NSResizableWindowMask

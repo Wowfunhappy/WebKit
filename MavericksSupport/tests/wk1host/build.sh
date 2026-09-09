@@ -10,3 +10,10 @@ mkdir -p "$HERE/build"
 /usr/bin/clang -isysroot "$SDK" -o "$HERE/build/wk1host" "$HERE/wk1host.m" \
     -framework Cocoa -framework WebKit -Wno-deprecated-declarations -O0 -g 2>&1 | tee -a /tmp/wk_build.log
 echo "built $HERE/build/wk1host"
+
+# The self-signed wss server links the vendored BoringSSL, so it speaks the protocol versions the
+# browser's ClientHello offers; the system's own OpenSSL 0.9.8 does not.
+DEPS="$HERE/../../deps/build"
+/usr/bin/clang -w -o "$HERE/build/wsselfsigned" "$HERE/wsselfsigned.c" \
+    -I"$DEPS/include" -L"$DEPS/lib" -lssl -lcrypto -Wl,-rpath,"$DEPS/lib" 2>&1 | tee -a /tmp/wk_build.log
+echo "built $HERE/build/wsselfsigned"
