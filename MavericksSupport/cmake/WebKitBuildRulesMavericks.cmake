@@ -137,10 +137,21 @@ macro(_WEBKIT_FORCE_LOAD_POLYFILL _target)
             "${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill.a")
         # The libcompression polyfill (polyfills/compression.c) codes Brotli through the vendored
         # codec, so every force-load consumer needs the brotli archives (plain, not force-loaded).
+        # The CoreText polyfill decodes an sbix colour-bitmap strike with the vendored libpng for the
+        # same reason it is vendored for WebCore: those bytes come from a downloadable font, and
+        # nothing in this port hands page bytes to 10.9's ImageIO.
         target_link_libraries(${_target} PRIVATE
             "${MAVERICKS_DEPS}/lib/libbrotlienc.a"
             "${MAVERICKS_DEPS}/lib/libbrotlidec.a"
             "${MAVERICKS_DEPS}/lib/libbrotlicommon.a"
+            # The sbix strike decoders in the CoreText polyfill. libtiff precedes libjpeg because
+            # it calls into it.
+            "${MAVERICKS_DEPS}/lib/libpng16.a"
+            "${MAVERICKS_DEPS}/lib/libtiff.a"
+            "${MAVERICKS_DEPS}/lib/libjpeg.a"
+            # libpng's and libtiff's own inflate and CRC. WebCore already reaches the system zlib
+            # through its other dependencies; JavaScriptCore and the XPC services do not.
+            "z"
             "${MAVERICKS_DEPS}/lib/libpsl.5.dylib")
         get_target_property(_wkPolyfillTargetType ${_target} TYPE)
         if (_wkPolyfillTargetType STREQUAL "EXECUTABLE")

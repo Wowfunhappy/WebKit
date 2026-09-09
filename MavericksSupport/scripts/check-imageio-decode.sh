@@ -1,5 +1,7 @@
 #!/bin/bash
-# Fail the build if anything in this port can hand image bytes to 10.9's ImageIO.
+# Report whether anything in this port can hand image bytes to 10.9's ImageIO. Run by hand
+# after touching image decoding, encoding or the polyfill layer; it reads the staged tree and
+# the source, and changes neither.
 #
 # The port decodes every image format in WebCore -- ScalableImageDecoder and the vendored libjpeg,
 # libpng, libwebp, libavif, libtiff behind it -- so that a hostile image response is parsed by code
@@ -9,9 +11,33 @@
 #
 # ImageIO is reachable two ways, and each needs its own measurement:
 #
-#   (a) DIRECTLY, through CGImageSource. An image cannot be decoded without one, and one cannot
-#       exist without an entry point below, so no shipped binary may reference any of them. This is
-#       measured over the linked product, which is the strongest form the question takes.
+#   (a) DIRECTLY, through the C API. An image cannot be decoded without a CGImageSource, and one
+#       cannot exist without a constructor below, so no shipped binary may reference any of them.
+#       The destination side is measured with it: encoding is kept, because CGImageDestination is
+#       the only image encoder this OS has and a page can always reach one (canvas toBlob), but an
+#       encoder that takes a CGImage is handed finished pixels and a named colour space, while the
+#       entry points that take a source, a metadata object or an auxiliary-data dictionary hand it
+#       the container again and put a page's bytes back inside ImageIO's parsers. Only the
+#       pixels-in spelling may be referenced. This is measured over the linked product, which is
+#       the strongest form the question takes.
+#
+#   (c) THROUGH A NAME RESOLVED AT RUNTIME. A symbol reached by name -- the polyfill layer's
+#       WK_SYSTEM_FN / WK_ORIGINAL / wk_polyfill_original, a WK_POLYFILL_REPLACES that DEFINES the
+#       symbol so WebKit's own references bind inside libpolyfill.a, WTF's SOFT_LINK_FUNCTION_*, a
+#       bare dlsym -- emits no undefined reference, so (a) is blind to it exactly as it is to (b).
+#       The CoreText polyfill decoded a font's sbix colour bitmaps that way, and a downloadable font
+#       makes those page-controlled bytes. Measured over the polyfill layer and over both trees of
+#       first-party source.
+#
+#       What it looks for is a CGImageSource CONSTRUCTOR by name. The two entry points the polyfill
+#       layer does define -- CGImageSourceCreateImageAtIndex and CGImageSourceCreateThumbnailAtIndex,
+#       which enforce CGImageSourceSetAllowableTypes -- take a source rather than bytes and are not
+#       constructors, so they are outside the pattern rather than exempted from it: no line is ever
+#       dropped whole, and a line that names one of them AND a constructor still fails.
+#
+#       In Source/ a constructor named directly is (a)'s to catch, since a direct call that compiles
+#       leaves an undefined reference; only a name RESOLVED there escapes (a), so that is what this
+#       half reads. In the polyfill layer any mention at all fails: nothing there may name one.
 #
 #   (b) THROUGH APPKIT. -[NSImage initWithData:] and its NSImageRep siblings parse their argument
 #       inside ImageIO and leave no _CGImageSource* reference at all, so (a) cannot see them. They
@@ -20,11 +46,6 @@
 #       URL or a pasteboard is named, because the one that gets added later is the one nobody
 #       thought to list.
 #
-# The two entry points the polyfill layer does define -- CGImageSourceCreateImageAtIndex and
-# CGImageSourceCreateThumbnailAtIndex, which enforce CGImageSourceSetAllowableTypes -- are
-# deliberately absent from (a). They take a source rather than bytes, they are reached through
-# wk_polyfill_original's dynamic lookup rather than a link-time reference, and with no source
-# constructible they have nothing to act on.
 set -euo pipefail
 export LC_ALL=C
 
@@ -72,16 +93,19 @@ xargs -0 "$NM" -arch all -m < "$WORK/inventory" 2> "$WORK/nmerr" | awk '
     /\(undefined\)/ {
         symbol = $NF
         for (i = 1; i <= NF; i++)
-            if ($i ~ /^_CGImageSource/) symbol = $i
-        if (symbol ~ /^_CGImageSourceCreateWith/ || symbol ~ /^_CGImageSourceCreateIncremental$/ || symbol ~ /^_CGImageSourceUpdateData/)
+            if ($i ~ /^_CGImage(Source|Destination)/) symbol = $i
+        if (symbol ~ /^_CGImageSourceCreateWith/ || symbol ~ /^_CGImageSourceCreateIncremental$/ || symbol ~ /^_CGImageSourceUpdateData/ \
+            || symbol ~ /^_CGImageDestinationAddImageFromSource$/ || symbol ~ /^_CGImageDestinationCopyImageSource$/ \
+            || symbol ~ /^_CGImageDestinationAddImageAndMetadata$/ || symbol ~ /^_CGImageDestinationAddAuxiliaryDataInfo$/)
             print image "\t" architecture "\t" symbol
     }
 ' | sort -u > "$WORK/sources"
 
 if [ -s "$WORK/sources" ]; then
-    echo "  ImageIO-decode check: FAILED -- these images can construct a CGImageSource:"
+    echo "  ImageIO-decode check: FAILED -- these images can hand encoded image bytes to ImageIO:"
     sed "s|^$STAGED/|    |" "$WORK/sources"
-    echo "  Decode through WebCore::ImageDecoder::create instead."
+    echo "  Decode through WebCore::ImageDecoder::create, and encode a decoded frame with"
+    echo "  CGImageDestinationAddImage."
     exit 1
 fi
 
@@ -101,6 +125,39 @@ if [ -s "$WORK/appkit" ]; then
     exit 1
 fi
 
-echo "  ImageIO-decode check: clean -- $BINCOUNT staged binaries construct no CGImageSource in the"
-echo "                        slices this port builds;"
-echo "                        no NSImage/NSImageRep in Source/ decodes bytes"
+# --- (c) a CGImageSource constructor reached by name, over first-party source ---------------------
+# Every line either pattern can match contains the literal CGImageSource, so narrowing to the files
+# that hold it cannot drop a match, and it is what keeps this half off 24k files it can never match.
+CONSTRUCTOR='CGImageSource(CreateWith[A-Za-z]*|CreateIncremental|UpdateData[A-Za-z]*)'
+RESOLVED='SOFT_LINK|dlsym|wk_polyfill_original|WK_ORIGINAL|WK_SYSTEM_FN|WK_POLYFILL_'
+POLYFILL_SCOPE="$REPO/MavericksSupport/polyfill/polyfills $REPO/MavericksSupport/polyfill/mechanism"
+SOURCE_SCOPE="$REPO/Source $REPO/MavericksSupport/source"
+
+: > "$WORK/dynamic"
+
+# The polyfill layer: naming a constructor at all is the finding.
+if grep -rlF "CGImageSource" $POLYFILL_SCOPE > "$WORK/polyfill-files" 2>/dev/null && [ -s "$WORK/polyfill-files" ]; then
+    xargs -I{} grep -nE "$CONSTRUCTOR" {} /dev/null < "$WORK/polyfill-files" 2>/dev/null \
+        | grep -vE ":[0-9]+: *(//|\*)" >> "$WORK/dynamic" || true
+fi
+
+# Source trees: a constructor RESOLVED by name. Source/ThirdParty is not ours. Commented-out lines
+# are skipped, because a divergence keeps the upstream text in place and that text is not code.
+if grep -rlF "CGImageSource" $SOURCE_SCOPE --include=*.cpp --include=*.mm --include=*.m --include=*.h 2>/dev/null \
+        | grep -v "^$REPO/Source/ThirdParty" > "$WORK/source-files" && [ -s "$WORK/source-files" ]; then
+    xargs -I{} grep -nE "$CONSTRUCTOR" {} /dev/null < "$WORK/source-files" 2>/dev/null \
+        | grep -E "$RESOLVED" \
+        | grep -vE ":[0-9]+: *(//|\*)" >> "$WORK/dynamic" || true
+fi
+
+if [ -s "$WORK/dynamic" ]; then
+    echo "  ImageIO-decode check: FAILED -- these reach a CGImageSource constructor by name:"
+    sed "s|^$REPO/||" "$WORK/dynamic" | sed 's/^/    /'
+    echo "  A name resolved at runtime emits no undefined symbol, so the binary scan above cannot see it."
+    exit 1
+fi
+
+echo "  ImageIO-decode check: clean -- $BINCOUNT staged binaries construct no CGImageSource and encode"
+echo "                        only decoded frames, in the slices this port builds;"
+echo "                        no NSImage/NSImageRep in Source/ decodes bytes;"
+echo "                        no first-party source reaches a CGImageSource constructor by name"

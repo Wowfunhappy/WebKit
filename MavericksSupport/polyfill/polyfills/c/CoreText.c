@@ -8,15 +8,19 @@
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
 #include <CoreText/SFNTLayoutTypes.h>
-#include <ImageIO/ImageIO.h>
+#include <jpeglib.h>
 #include <math.h>
+#include <png.h>
+#include <setjmp.h>
 #include <objc/runtime.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <string.h>
+#include <tiffio.h>
 
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontCSSFamilyCursive, CFSTR("kCTFontCSSFamilyCursive"));
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontCSSFamilyFantasy, CFSTR("kCTFontCSSFamilyFantasy"));
@@ -117,8 +121,375 @@ static uint32_t wk_be32(const uint8_t *p) { return ((uint32_t)p[0] << 24) | ((ui
 // 0.075 em below that point, and CTFontGetBoundingRectsForGlyphs reports every glyph of a font that
 // carries an sbix table the same distance low, so the two replacements at the end of this file draw
 // and measure colour-bitmap glyphs from the record and the outline instead.
-WK_SYSTEM_FN("ImageIO", CGImageSourceRef, CGImageSourceCreateWithData, (CFDataRef, CFDictionaryRef));
-WK_SYSTEM_FN("ImageIO", CGImageRef, CGImageSourceCreateImageAtIndex, (CGImageSourceRef, size_t, CFDictionaryRef));
+// A strike's payload is font bytes, and a font is downloadable, so these are page-controlled bytes.
+// They decode through the same libpng, libjpeg and libtiff WebCore decodes every other image with,
+// never through CGImageSourceCreateWithData: nothing in this port hands page bytes to 10.9's ImageIO.
+typedef struct {
+    const uint8_t *bytes;
+    size_t length;
+    size_t offset;
+} WKSbixSource;
+
+static void wk_sbixPixelsRelease(void *info, const void *data, size_t size) { (void)data; (void)size; free(info); }
+
+// Present on this OS, declared 10.12 in the SDK this builds against.
+WK_SYSTEM_FN("CoreGraphics", CGColorSpaceRef, CGColorSpaceCreateWithICCData, (CFTypeRef));
+
+// The strike's own colour space when it carries an ICC profile, sRGB otherwise. 10.10+ CoreText
+// paints an sbix strike through the profile ImageIO attaches to the image, so a profiled strike
+// tagged sRGB here would draw in the wrong colours. Only a three-component profile describes the
+// RGBA the decoders below produce; a strike that carries any other kind is drawn as sRGB.
+static CGColorSpaceRef wk_sbixColorSpace(const uint8_t *profile, size_t profileLength)
+{
+    if (profile && profileLength) {
+        CFDataRef data = CFDataCreate(kCFAllocatorDefault, (const UInt8 *)profile, (CFIndex)profileLength);
+        if (data) {
+            CGColorSpaceRef space = WK_SYSTEM(CGColorSpaceCreateWithICCData)
+                ? WK_SYSTEM(CGColorSpaceCreateWithICCData)(data) : NULL;
+            CFRelease(data);
+            if (space) {
+                if (CGColorSpaceGetNumberOfComponents(space) == 3)
+                    return space;
+                CGColorSpaceRelease(space);
+            }
+        }
+    }
+    return CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+}
+
+// Takes ownership of pixels and space either way. Premultiplies unless the decoder already did,
+// because CGImageCreate below is told the alpha is premultiplied, which is what a drawn glyph needs.
+static CGImageRef wk_sbixImageFromRGBA(uint8_t *pixels, size_t width, size_t height,
+                                       CGColorSpaceRef space, bool premultiplied)
+{
+    size_t stride = width * 4;
+    CGDataProviderRef provider = pixels && space ? CGDataProviderCreateWithData(pixels, pixels, height * stride, wk_sbixPixelsRelease) : NULL;
+    if (!provider) {
+        free(pixels);
+        if (space)
+            CGColorSpaceRelease(space);
+        return NULL;
+    }
+    if (!premultiplied) {
+        for (size_t i = 0; i < height * stride; i += 4) {
+            uint8_t alpha = pixels[i + 3];
+            if (alpha == 255)
+                continue;
+            pixels[i] = (uint8_t)((pixels[i] * alpha + 127) / 255);
+            pixels[i + 1] = (uint8_t)((pixels[i + 1] * alpha + 127) / 255);
+            pixels[i + 2] = (uint8_t)((pixels[i + 2] * alpha + 127) / 255);
+        }
+    }
+    CGImageRef image = CGImageCreate(width, height, 8, 32, stride, space,
+                                     kCGImageAlphaPremultipliedLast | kCGBitmapByteOrderDefault,
+                                     provider, NULL, true, kCGRenderingIntentDefault);
+    CGDataProviderRelease(provider);
+    CGColorSpaceRelease(space);
+    return image;
+}
+
+// Four bytes a pixel and a row pointer each, both of which have to be expressible. Bounded by what
+// the buffer can address rather than by a chosen maximum.
+static bool wk_sbixUsableDimensions(size_t width, size_t height)
+{
+    return width && height && height <= SIZE_MAX / sizeof(void *) && width <= (SIZE_MAX / 4) / height;
+}
+
+static void wk_sbixPNGRead(png_structp png, png_bytep out, png_size_t count)
+{
+    WKSbixSource *source = (WKSbixSource *)png_get_io_ptr(png);
+    if (!source || count > source->length - source->offset) {
+        png_error(png, "truncated");
+        return;
+    }
+    memcpy(out, source->bytes + source->offset, count);
+    source->offset += count;
+}
+
+static void wk_sbixPNGError(png_structp png, png_const_charp message)
+{
+    (void)message;
+    longjmp(png_jmpbuf(png), 1);
+}
+
+static void wk_sbixPNGWarning(png_structp png, png_const_charp message) { (void)png; (void)message; }
+
+static CGImageRef wk_sbixDecodePNG(const uint8_t *bytes, size_t length)
+{
+    if (!bytes || length < 8 || png_sig_cmp((png_const_bytep)bytes, 0, 8))
+        return NULL;
+
+    png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, wk_sbixPNGError, wk_sbixPNGWarning);
+    if (!png)
+        return NULL;
+    png_infop info = png_create_info_struct(png);
+    if (!info) {
+        png_destroy_read_struct(&png, NULL, NULL);
+        return NULL;
+    }
+
+    // The two locals the longjmp branch reads are volatile: C leaves an ordinary automatic that is
+    // modified between setjmp and longjmp indeterminate there. The image is assembled after the last
+    // call that can longjmp, so ownership of the pixels never moves inside this region.
+    uint8_t * volatile pixels = NULL;
+    png_bytep * volatile rows = NULL;
+    if (setjmp(png_jmpbuf(png))) {
+        free(pixels);
+        free(rows);
+        png_destroy_read_struct(&png, &info, NULL);
+        return NULL;
+    }
+
+    WKSbixSource source = { bytes, length, 0 };
+    png_set_read_fn(png, &source, wk_sbixPNGRead);
+    png_read_info(png, info);
+
+    png_uint_32 width = 0, height = 0;
+    int depth = 0, colorType = 0;
+    png_get_IHDR(png, info, &width, &height, &depth, &colorType, NULL, NULL, NULL);
+    if (!wk_sbixUsableDimensions(width, height))
+        png_error(png, "unusable dimensions");
+
+    png_charp profileName = NULL;
+    png_bytep profile = NULL;
+    png_uint_32 profileLength = 0;
+    int profileCompression = 0;
+    if (!png_get_iCCP(png, info, &profileName, &profileCompression, &profile, &profileLength)) {
+        profile = NULL;
+        profileLength = 0;
+    }
+
+    // Whatever the file holds, in 8-bit RGBA.
+    if (colorType == PNG_COLOR_TYPE_PALETTE)
+        png_set_palette_to_rgb(png);
+    if (colorType == PNG_COLOR_TYPE_GRAY && depth < 8)
+        png_set_expand_gray_1_2_4_to_8(png);
+    if (png_get_valid(png, info, PNG_INFO_tRNS))
+        png_set_tRNS_to_alpha(png);
+    if (depth == 16)
+        png_set_strip_16(png);
+    if (colorType == PNG_COLOR_TYPE_GRAY || colorType == PNG_COLOR_TYPE_GRAY_ALPHA)
+        png_set_gray_to_rgb(png);
+    png_set_filler(png, 0xFF, PNG_FILLER_AFTER);
+    png_set_interlace_handling(png);
+    png_read_update_info(png, info);
+    if (png_get_rowbytes(png, info) != (png_size_t)width * 4)
+        png_error(png, "not four channels");
+
+    size_t stride = (size_t)width * 4;
+    pixels = (uint8_t *)calloc(height, stride);
+    rows = (png_bytep *)calloc(height, sizeof(png_bytep));
+    if (!pixels || !rows)
+        png_error(png, "no space");
+    for (png_uint_32 y = 0; y < height; ++y)
+        rows[y] = pixels + (size_t)y * stride;
+    png_read_image(png, rows);
+    png_read_end(png, NULL);
+
+    // Built while the read struct that owns the profile bytes is still alive.
+    CGColorSpaceRef space = wk_sbixColorSpace(profile, profileLength);
+    uint8_t *owned = pixels;
+    pixels = NULL;
+    free(rows);
+    rows = NULL;
+    png_destroy_read_struct(&png, &info, NULL);
+    return wk_sbixImageFromRGBA(owned, width, height, space, false);
+}
+
+typedef struct {
+    struct jpeg_error_mgr base;
+    jmp_buf escape;
+} WKSbixJPEGError;
+
+static void wk_sbixJPEGFail(j_common_ptr cinfo) { longjmp(((WKSbixJPEGError *)cinfo->err)->escape, 1); }
+static void wk_sbixJPEGSilent(j_common_ptr cinfo) { (void)cinfo; }
+
+static CGImageRef wk_sbixDecodeJPEG(const uint8_t *bytes, size_t length)
+{
+    if (!bytes || length < 4)
+        return NULL;
+
+    struct jpeg_decompress_struct cinfo;
+    WKSbixJPEGError error;
+    memset(&cinfo, 0, sizeof(cinfo));
+    cinfo.err = jpeg_std_error(&error.base);
+    error.base.error_exit = wk_sbixJPEGFail;
+    error.base.output_message = wk_sbixJPEGSilent;
+
+    uint8_t * volatile pixels = NULL;
+    JSAMPROW * volatile rows = NULL;
+    JOCTET * volatile profile = NULL;
+    if (setjmp(error.escape)) {
+        free(pixels);
+        free(rows);
+        free(profile);
+        jpeg_destroy_decompress(&cinfo);
+        return NULL;
+    }
+
+    jpeg_create_decompress(&cinfo);
+    jpeg_save_markers(&cinfo, JPEG_APP0 + 2, 0xFFFF);
+    jpeg_mem_src(&cinfo, bytes, (unsigned long)length);
+    if (jpeg_read_header(&cinfo, TRUE) != JPEG_HEADER_OK)
+        longjmp(error.escape, 1);
+
+    // libjpeg converts grayscale and YCbCr to RGB itself, but neither CMYK nor YCCK, so those come
+    // out as four-component CMYK and are converted below. Either way four bytes a pixel.
+    bool cmyk = cinfo.jpeg_color_space == JCS_CMYK || cinfo.jpeg_color_space == JCS_YCCK;
+    cinfo.out_color_space = cmyk ? JCS_CMYK : JCS_EXT_RGBX;
+    jpeg_start_decompress(&cinfo);
+    if (cinfo.output_components != 4 || !wk_sbixUsableDimensions(cinfo.output_width, cinfo.output_height))
+        longjmp(error.escape, 1);
+
+    size_t width = cinfo.output_width, height = cinfo.output_height, stride = width * 4;
+    pixels = (uint8_t *)calloc(height, stride);
+    rows = (JSAMPROW *)calloc(height, sizeof(JSAMPROW));
+    if (!pixels || !rows)
+        longjmp(error.escape, 1);
+    for (size_t y = 0; y < height; ++y)
+        rows[y] = (JSAMPROW)(pixels + y * stride);
+    while (cinfo.output_scanline < cinfo.output_height)
+        jpeg_read_scanlines(&cinfo, &rows[cinfo.output_scanline], cinfo.output_height - cinfo.output_scanline);
+    // Inverted CMYK to RGB: R = iC*iK/255, and G and B likewise (Source/WebCore/platform/
+    // image-decoders/jpeg/JPEGImageDecoder.cpp). Otherwise only the fourth byte needs filling, which
+    // libjpeg-turbo leaves undefined for the RGBX spellings.
+    for (size_t i = 0; i < height * stride; i += 4) {
+        if (cmyk) {
+            unsigned k = pixels[i + 3];
+            pixels[i] = (uint8_t)(pixels[i] * k / 255);
+            pixels[i + 1] = (uint8_t)(pixels[i + 1] * k / 255);
+            pixels[i + 2] = (uint8_t)(pixels[i + 2] * k / 255);
+        }
+        pixels[i + 3] = 0xFF;
+    }
+
+    unsigned int profileLength = 0;
+    JOCTET *readProfile = NULL;
+    if (jpeg_read_icc_profile(&cinfo, &readProfile, &profileLength))
+        profile = readProfile;
+    jpeg_finish_decompress(&cinfo);
+
+    CGColorSpaceRef space = wk_sbixColorSpace(profile, profileLength);
+    uint8_t *owned = pixels;
+    pixels = NULL;
+    free(rows);
+    rows = NULL;
+    free(profile);
+    profile = NULL;
+    jpeg_destroy_decompress(&cinfo);
+    return wk_sbixImageFromRGBA(owned, width, height, space, true);
+}
+
+static tmsize_t wk_sbixTIFFRead(thandle_t handle, void *buffer, tmsize_t count)
+{
+    WKSbixSource *source = (WKSbixSource *)handle;
+    if (count < 0 || (size_t)count > source->length - source->offset)
+        count = (tmsize_t)(source->length - source->offset);
+    memcpy(buffer, source->bytes + source->offset, (size_t)count);
+    source->offset += (size_t)count;
+    return count;
+}
+
+static tmsize_t wk_sbixTIFFWrite(thandle_t handle, void *buffer, tmsize_t count)
+{
+    (void)handle; (void)buffer; (void)count;
+    return 0;
+}
+
+static toff_t wk_sbixTIFFSeek(thandle_t handle, toff_t offset, int whence)
+{
+    WKSbixSource *source = (WKSbixSource *)handle;
+    uint64_t base = whence == SEEK_CUR ? source->offset : (whence == SEEK_END ? source->length : 0);
+    uint64_t wanted = base + offset;
+    if (wanted > source->length)
+        wanted = source->length;
+    source->offset = (size_t)wanted;
+    return (toff_t)source->offset;
+}
+
+static int wk_sbixTIFFClose(thandle_t handle) { (void)handle; return 0; }
+static toff_t wk_sbixTIFFSize(thandle_t handle) { return (toff_t)((WKSbixSource *)handle)->length; }
+
+// The strike is already a contiguous span of the font, so libtiff reads an uncompressed tile
+// straight out of it rather than through a staging buffer of its own.
+static int wk_sbixTIFFMap(thandle_t handle, void **base, toff_t *size)
+{
+    WKSbixSource *source = (WKSbixSource *)handle;
+    *base = (void *)source->bytes;
+    *size = (toff_t)source->length;
+    return 1;
+}
+
+static void wk_sbixTIFFUnmap(thandle_t handle, void *base, toff_t size) { (void)handle; (void)base; (void)size; }
+
+// Per handle rather than libtiff's process-global setters: WebCore's own TIFF decoder shares this
+// vendored copy, and a strike that will not decode is this function's answer, not a line on the
+// process's stderr. Returning 1 tells libtiff the diagnostic is handled.
+static int wk_sbixTIFFSilent(TIFF *tiff, void *context, const char *module, const char *format, va_list arguments)
+{
+    (void)tiff; (void)context; (void)module; (void)format; (void)arguments;
+    return 1;
+}
+
+static CGImageRef wk_sbixDecodeTIFF(const uint8_t *bytes, size_t length)
+{
+    if (!bytes || length < 8)
+        return NULL;
+
+    TIFFOpenOptions *options = TIFFOpenOptionsAlloc();
+    if (!options)
+        return NULL;
+    TIFFOpenOptionsSetErrorHandlerExtR(options, wk_sbixTIFFSilent, NULL);
+    TIFFOpenOptionsSetWarningHandlerExtR(options, wk_sbixTIFFSilent, NULL);
+
+    WKSbixSource source = { bytes, length, 0 };
+    TIFF *tiff = TIFFClientOpenExt("sbix", "r", (thandle_t)&source, wk_sbixTIFFRead, wk_sbixTIFFWrite,
+                                   wk_sbixTIFFSeek, wk_sbixTIFFClose, wk_sbixTIFFSize,
+                                   wk_sbixTIFFMap, wk_sbixTIFFUnmap, options);
+    TIFFOpenOptionsFree(options);
+    if (!tiff)
+        return NULL;
+
+    uint32_t width = 0, height = 0;
+    TIFFGetField(tiff, TIFFTAG_IMAGEWIDTH, &width);
+    TIFFGetField(tiff, TIFFTAG_IMAGELENGTH, &height);
+    if (!wk_sbixUsableDimensions(width, height)) {
+        TIFFClose(tiff);
+        return NULL;
+    }
+
+    size_t stride = (size_t)width * 4;
+    uint8_t *pixels = (uint8_t *)calloc(height, stride);
+    // The raster is uint32 per pixel, which on this architecture lays the channels down as RGBA, and
+    // TIFFReadRGBAImageOriented always returns alpha already associated with the colour.
+    if (!pixels || !TIFFReadRGBAImageOriented(tiff, width, height, (uint32_t *)pixels, ORIENTATION_TOPLEFT, 0)) {
+        free(pixels);
+        TIFFClose(tiff);
+        return NULL;
+    }
+
+    uint32_t profileLength = 0;
+    void *profile = NULL;
+    if (!TIFFGetField(tiff, TIFFTAG_ICCPROFILE, &profileLength, &profile))
+        profile = NULL;
+    CGColorSpaceRef space = wk_sbixColorSpace((const uint8_t *)profile, profile ? profileLength : 0);
+    TIFFClose(tiff);
+    return wk_sbixImageFromRGBA(pixels, width, height, space, true);
+}
+
+// The strike image for a record, in each of the graphic types the sbix format defines for one.
+static CGImageRef wk_sbixDecodeStrike(uint32_t graphicType, const uint8_t *bytes, size_t length)
+{
+    switch (graphicType) {
+    case 'png ':
+        return wk_sbixDecodePNG(bytes, length);
+    case 'jpg ':
+        return wk_sbixDecodeJPEG(bytes, length);
+    case 'tiff':
+        return wk_sbixDecodeTIFF(bytes, length);
+    }
+    return NULL;
+}
 
 static pthread_mutex_t wkSbixLock = PTHREAD_MUTEX_INITIALIZER;
 static const void *wk_sbixTableKey(void) { static char key; return &key; }
@@ -159,7 +530,7 @@ static bool wk_sbixFont(CTFontRef font)
 // that big, else the largest the font has. A 'dupe' record names another glyph in the same strike.
 static bool wk_sbixRecord(const uint8_t *bytes, CFIndex length, CFIndex glyphCount, CGGlyph glyph,
                           double wantedPPEM, uint16_t *outPPEM, int16_t *originX, int16_t *originY,
-                          const uint8_t **data, size_t *dataLength)
+                          const uint8_t **data, size_t *dataLength, uint32_t *graphicType)
 {
     if (!bytes || length < 8 || glyph >= glyphCount)
         return false;
@@ -204,9 +575,12 @@ static bool wk_sbixRecord(const uint8_t *bytes, CFIndex length, CFIndex glyphCou
             return false;
         uint32_t start = wk_be32(strike + 4 + (CFIndex)target * 4);
         uint32_t end = wk_be32(strike + 4 + ((CFIndex)target + 1) * 4);
-        if (end <= start || end - start < 8 || (CFIndex)(chosenOffset + end) > length)
+        // Widened before they are added: both come from the font, and a 32-bit sum of them wraps.
+        CFIndex recordStart = (CFIndex)chosenOffset + (CFIndex)start;
+        CFIndex recordEnd = (CFIndex)chosenOffset + (CFIndex)end;
+        if (end <= start || end - start < 8 || recordStart < 0 || recordEnd > length)
             return false;
-        const uint8_t *record = strike + start;
+        const uint8_t *record = bytes + recordStart;
         if (wk_be32(record + 4) == 'dupe') {
             if (end - start < 10)
                 return false;
@@ -215,6 +589,8 @@ static bool wk_sbixRecord(const uint8_t *bytes, CFIndex length, CFIndex glyphCou
         }
         *originX = (int16_t)wk_be16(record);
         *originY = (int16_t)wk_be16(record + 2);
+        if (graphicType)
+            *graphicType = wk_be32(record + 4);
         *data = record + 8;
         *dataLength = (size_t)(end - start - 8);
         return true;
@@ -242,7 +618,8 @@ static bool wk_sbixBitmap(CTFontRef font, CGGlyph glyph, CGFloat devicePixelsPer
     int16_t originX = 0, originY = 0;
     const uint8_t *data = NULL;
     size_t dataLength = 0;
-    if (!wk_sbixRecord(bytes, length, glyphCount, glyph, devicePixelsPerEm, &ppem, &originX, &originY, &data, &dataLength) || !ppem)
+    uint32_t graphicType = 0;
+    if (!wk_sbixRecord(bytes, length, glyphCount, glyph, devicePixelsPerEm, &ppem, &originX, &originY, &data, &dataLength, &graphicType) || !ppem)
         return false;
     if (!outImage && !outRect)
         return true;
@@ -263,18 +640,8 @@ static bool wk_sbixBitmap(CTFontRef font, CGGlyph glyph, CGFloat devicePixelsPer
     // An entry is the image paired with its rectangle; an empty one records a strike that would not decode.
     CFArrayRef entry = (CFArrayRef)CFDictionaryGetValue(cache, cacheKey);
     if (!entry) {
-        CGImageRef image = NULL;
         CGRect rect = CGRectZero;
-        if (WK_SYSTEM(CGImageSourceCreateWithData) && WK_SYSTEM(CGImageSourceCreateImageAtIndex)) {
-            // The bytes belong to the table the font holds, which outlives this source.
-            CFDataRef imageData = CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, data, (CFIndex)dataLength, kCFAllocatorNull);
-            CGImageSourceRef source = imageData ? WK_SYSTEM(CGImageSourceCreateWithData)(imageData, NULL) : NULL;
-            image = source ? WK_SYSTEM(CGImageSourceCreateImageAtIndex)(source, 0, NULL) : NULL;
-            if (source)
-                CFRelease(source);
-            if (imageData)
-                CFRelease(imageData);
-        }
+        CGImageRef image = wk_sbixDecodeStrike(graphicType, data, dataLength);
         if (image) {
             CGFloat scale = CTFontGetSize(font) / ppem;
             rect = CGRectMake(originX * scale, originY * scale,
@@ -306,28 +673,22 @@ static bool wk_sbixBitmap(CTFontRef font, CGGlyph glyph, CGFloat devicePixelsPer
     return true;
 }
 
-// The glyphs in a run this layer draws itself, or NULL when it draws none of them. Presence is the
-// record alone -- a strike is only decoded where one is actually painted.
-static bool *wk_sbixBitmapGlyphs(CTFontRef font, const CGGlyph *glyphs, size_t count)
+// The end of the longest stretch of the run starting at `from` whose glyphs are all drawn the same
+// way, and which way that is. Presence is the record alone -- a strike is only decoded where one is
+// actually painted. Answering from the run itself rather than from a marks array means the split
+// cannot fail: there is no allocation here to run out, and so no state in which the caller knows a
+// glyph carries a record but has nowhere to write it down.
+static size_t wk_sbixRunGroup(CTFontRef font, const CGGlyph *glyphs, size_t count, size_t from, bool *outBitmap)
 {
-    if (!font || !glyphs || !count)
-        return NULL;
     pthread_mutex_lock(&wkSbixLock);
-    bool *bitmapGlyphs = NULL;
-    if (wk_sbixTable(font)) {
-        bitmapGlyphs = (bool *)calloc(count, sizeof(bool));
-        bool any = false;
-        for (size_t i = 0; bitmapGlyphs && i < count; ++i) {
-            bitmapGlyphs[i] = wk_sbixBitmap(font, glyphs[i], CTFontGetSize(font), NULL, NULL);
-            any = any || bitmapGlyphs[i];
-        }
-        if (bitmapGlyphs && !any) {
-            free(bitmapGlyphs);
-            bitmapGlyphs = NULL;
-        }
-    }
+    CGFloat pointSize = CTFontGetSize(font);
+    bool bitmap = wk_sbixBitmap(font, glyphs[from], pointSize, NULL, NULL);
+    size_t next = from + 1;
+    while (next < count && wk_sbixBitmap(font, glyphs[next], pointSize, NULL, NULL) == bitmap)
+        ++next;
     pthread_mutex_unlock(&wkSbixLock);
-    return bitmapGlyphs;
+    *outBitmap = bitmap;
+    return next;
 }
 
 // CTFontGetSbixImageSizeForGlyphAndContentsScale (10.13+) reports the pixel size of the strike a
@@ -349,7 +710,7 @@ WK_POLYFILL_ABSENT("CoreText", CGFloat, CTFontGetSbixImageSizeForGlyphAndContent
         size_t dataLength = 0;
         double wanted = CTFontGetSize(font) * (contentsScale > 0 ? contentsScale : 1);
         if (wk_sbixRecord(CFDataGetBytePtr(table), CFDataGetLength(table), glyphCount, glyph, wanted,
-                          &ppem, &originX, &originY, &data, &dataLength))
+                          &ppem, &originX, &originY, &data, &dataLength, NULL))
             strikeSize = ppem;
     }
     pthread_mutex_unlock(&wkSbixLock);
@@ -3633,8 +3994,10 @@ static void wk_drawGlyphRun(CTFontRef font, const CGGlyph *glyphs, const CGPoint
 
 WK_POLYFILL_REPLACES("CoreText", void, CTFontDrawGlyphs, (CTFontRef font, const CGGlyph *glyphs, const CGPoint *positions, size_t count, CGContextRef context))
 {
-    bool *bitmapGlyphs = positions && context ? wk_sbixBitmapGlyphs(font, glyphs, count) : NULL;
-    if (!bitmapGlyphs) {
+    // A font with no sbix table has no glyph this layer draws, so the whole run goes to CoreText.
+    // Past this point it may, and a glyph carrying a record is never handed to the original: this
+    // OS decodes an sbix strike in ImageIO, and a strike's bytes are a downloadable font's bytes.
+    if (!glyphs || !positions || !context || !count || !wk_sbixFont(font)) {
         wk_drawGlyphRun(font, glyphs, positions, count, context);
         return;
     }
@@ -3647,50 +4010,80 @@ WK_POLYFILL_REPLACES("CoreText", void, CTFontDrawGlyphs, (CTFontRef font, const 
     // intersects the clip with an empty rectangle, which is the same outcome. The bitmaps are painted
     // before that call installs the clip.
     CGTextDrawingMode mode = WK_SYSTEM(CGContextGetTextDrawingMode) ? WK_SYSTEM(CGContextGetTextDrawingMode)(context) : kCGTextFill;
+
+    // kCGTextInvisible paints nothing at all. The outlined glyphs still reach CoreText, which paints
+    // nothing for them either, so whatever a call carries with it is unchanged; splitting the run is
+    // free here because no clip is being intersected.
+    if (mode == kCGTextInvisible) {
+        size_t i = 0;
+        while (i < count) {
+            bool bitmap = false;
+            size_t next = wk_sbixRunGroup(font, glyphs, count, i, &bitmap);
+            if (!bitmap)
+                wk_drawGlyphRun(font, &glyphs[i], &positions[i], next - i, context);
+            i = next;
+        }
+        return;
+    }
+
     if (mode >= kCGTextFillClip) {
-        CGGlyph *outlined = (CGGlyph *)malloc(count * sizeof(CGGlyph));
-        CGPoint *outlinedPositions = (CGPoint *)malloc(count * sizeof(CGPoint));
-        if (!outlined || !outlinedPositions) {
+        // A run this layer draws none of goes to CoreText whole, which is also the only shape that
+        // needs no gathering.
+        bool anyBitmap = false;
+        for (size_t i = 0; i < count && !anyBitmap; ) {
+            bool bitmap = false;
+            i = wk_sbixRunGroup(font, glyphs, count, i, &bitmap);
+            anyBitmap = bitmap;
+        }
+        if (!anyBitmap) {
             wk_drawGlyphRun(font, glyphs, positions, count, context);
-            free(outlined);
-            free(outlinedPositions);
-            free(bitmapGlyphs);
             return;
         }
+
+        // One block for both arrays, positions first so the glyphs after them stay aligned. Without
+        // it the outlined glyphs cannot be gathered into the single call the clip needs, and the run
+        // clips to nothing -- which is what a run of colour glyphs alone already does.
+        CGPoint *outlinedPositions = (CGPoint *)malloc(count * (sizeof(CGPoint) + sizeof(CGGlyph)));
+        CGGlyph *outlined = outlinedPositions ? (CGGlyph *)(void *)(outlinedPositions + count) : NULL;
         size_t outlinedCount = 0;
-        for (size_t i = 0; i < count; ++i) {
-            if (bitmapGlyphs[i]) {
-                wk_drawSbixGlyph(font, glyphs[i], positions[i], context);
-                continue;
+        size_t i = 0;
+        while (i < count) {
+            bool bitmap = false;
+            size_t next = wk_sbixRunGroup(font, glyphs, count, i, &bitmap);
+            for (size_t j = i; j < next; ++j) {
+                if (bitmap) {
+                    // kCGTextClip establishes a clip and paints no ink; the other clip modes fill or
+                    // stroke as well, and a colour bitmap is what their fill looks like.
+                    if (mode != kCGTextClip)
+                        wk_drawSbixGlyph(font, glyphs[j], positions[j], context);
+                } else if (outlined) {
+                    outlinedPositions[outlinedCount] = positions[j];
+                    outlined[outlinedCount] = glyphs[j];
+                    ++outlinedCount;
+                }
             }
-            outlined[outlinedCount] = glyphs[i];
-            outlinedPositions[outlinedCount] = positions[i];
-            ++outlinedCount;
+            i = next;
         }
         if (outlinedCount)
             wk_drawGlyphRun(font, outlined, outlinedPositions, outlinedCount, context);
         else
             CGContextClipToRect(context, CGRectZero);
-        free(outlined);
         free(outlinedPositions);
-        free(bitmapGlyphs);
         return;
     }
 
     // A painting run keeps its order, so glyphs composite as one CoreText call would paint them.
     size_t i = 0;
     while (i < count) {
-        size_t next = i + 1;
-        while (next < count && bitmapGlyphs[next] == bitmapGlyphs[i])
-            ++next;
-        if (bitmapGlyphs[i]) {
+        bool bitmap = false;
+        size_t next = wk_sbixRunGroup(font, glyphs, count, i, &bitmap);
+        if (bitmap) {
             for (size_t j = i; j < next; ++j)
                 wk_drawSbixGlyph(font, glyphs[j], positions[j], context);
         } else
             wk_drawGlyphRun(font, &glyphs[i], &positions[i], next - i, context);
         i = next;
     }
-    free(bitmapGlyphs);
 }
 
 // This OS reports every glyph of a font that carries an sbix table 0.075 em below where it draws it,

@@ -333,7 +333,7 @@ WK_POLYFILL_SIBLING="$T/wk_polyfill_sibling.dylib" "$T/wk_polyfill_test"
 "$T/color_popover_top_bar"
 # Probes that link the SHIPPED archive (without -force_load, so only the members they reach are pulled)
 # and call the polyfilled symbols exactly as WebKit will.
-PROBE_LIBS="$OUT/libpolyfill.a $REPO/MavericksSupport/deps/build/lib/libpsl.5.dylib -Wl,-rpath,$REPO/MavericksSupport/deps/build/lib -framework Foundation -framework CoreFoundation -framework Security -framework CoreMedia -lsqlite3 -lbsm -lsandbox -lobjc"
+PROBE_LIBS="$OUT/libpolyfill.a $REPO/MavericksSupport/deps/build/lib/libpng16.a $REPO/MavericksSupport/deps/build/lib/libtiff.a $REPO/MavericksSupport/deps/build/lib/libjpeg.a $REPO/MavericksSupport/deps/build/lib/libpsl.5.dylib -Wl,-rpath,$REPO/MavericksSupport/deps/build/lib -framework Foundation -framework CoreFoundation -framework Security -framework CoreMedia -lsqlite3 -lbsm -lsandbox -lobjc -lz"
 "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/dispatch_activate" "$TBEHAV/libSystem-dispatch.m" $PROBE_LIBS
 "$T/dispatch_activate"
 "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/sectask_identity" "$TBEHAV/Security-sectask.m" $PROBE_LIBS
