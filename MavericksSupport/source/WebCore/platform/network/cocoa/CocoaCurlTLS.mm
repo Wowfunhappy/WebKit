@@ -10,6 +10,7 @@
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
 #include <openssl/pool.h>
+#include "CocoaCurlClientHello.h"
 
 // the Security framework evaluates server trust and signs with selected native identities.
 extern "C" CFTypeRef wk_createProtectionSpace(CFStringRef, int, int, CFStringRef, int, CFArrayRef, SecTrustRef);
@@ -299,6 +300,8 @@ static int clientCertificateCallback(SSL* ssl, void*)
 
 CURLcode CocoaCurlTLSState::install(SSL_CTX* ssl, const std::shared_ptr<CocoaCurlTLSState>& state)
 {
+    if (!cocoaCurlInstallClientHello(ssl))
+        return CURLE_SSL_CIPHER;
     auto retained = std::make_unique<std::shared_ptr<CocoaCurlTLSState>>(state);
     if (tlsStateIndex() < 0 || !SSL_CTX_set_ex_data(ssl, tlsStateIndex(), retained.get()))
         return CURLE_OUT_OF_MEMORY;

@@ -1,0 +1,259 @@
+diff --git a/include/openssl/ssl.h b/include/openssl/ssl.h
+index ff68ba6..df14820 100644
+--- a/include/openssl/ssl.h
++++ b/include/openssl/ssl.h
+@@ -1468,6 +1468,9 @@ DEFINE_CONST_STACK_OF(SSL_CIPHER)
+ #define SSL_CIPHER_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256 0xccac
+ #define SSL_CIPHER_ECDHE_ECDSA_WITH_AES_128_CBC_SHA 0xc009
+ #define SSL_CIPHER_ECDHE_ECDSA_WITH_AES_256_CBC_SHA 0xc00a
++// The ECDHE 3DES suites the platform TLS stack offers.
++#define SSL_CIPHER_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA 0xc008
++#define SSL_CIPHER_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA 0xc012
+ #define SSL_CIPHER_ECDHE_RSA_WITH_AES_128_CBC_SHA 0xc013
+ #define SSL_CIPHER_ECDHE_RSA_WITH_AES_256_CBC_SHA 0xc014
+ #define SSL_CIPHER_ECDHE_PSK_WITH_AES_128_CBC_SHA 0xc035
+@@ -2559,6 +2562,15 @@ OPENSSL_EXPORT int SSL_CTX_set1_group_ids(SSL_CTX *ctx,
+                                           const uint16_t *group_ids,
+                                           size_t num_group_ids);
+ 
++// SSL_CTX_set1_tls13_cipher_ids sets the TLS 1.3 cipher
++// suites a client offers, and the order it offers them in. Each element of
++// |cipher_ids| must be a TLS 1.3 cipher suite. An empty list restores the
++// default order, which depends on whether the host has AES hardware. It
++// returns one on success and zero on failure.
++OPENSSL_EXPORT int SSL_CTX_set1_tls13_cipher_ids(SSL_CTX *ctx,
++                                                 const uint16_t *cipher_ids,
++                                                 size_t num_cipher_ids);
++
+ // SSL_set1_group_ids sets the preferred groups for |ssl| to |group_ids|. Each
+ // element of |group_ids| should be a unique one of the |SSL_GROUP_*| constants.
+ // If |group_ids| is empty, a default list will be set instead. It returns one
+@@ -3017,6 +3029,13 @@ OPENSSL_EXPORT int SSL_CTX_set_verify_algorithm_prefs(SSL_CTX *ctx,
+                                                       const uint16_t *prefs,
+                                                       size_t num_prefs);
+ 
++// SSL_CTX_set_repeated_verify_algorithm_prefs configures |ctx| to use |prefs| as the
++// preference list for verifying the peer's signatures, as
++// |SSL_CTX_set_verify_algorithm_prefs| does, and additionally accepts a list that
++// names an algorithm more than once. It returns one on success and zero on error.
++OPENSSL_EXPORT int SSL_CTX_set_repeated_verify_algorithm_prefs(
++    SSL_CTX *ctx, const uint16_t *prefs, size_t num_prefs);
++
+ // SSL_set_verify_algorithm_prefs configures |ssl| to use |prefs| as the
+ // preference list when verifying signatures from the peer's long-term key in
+ // TLS 1.2 and up. It returns one on zero on error. |prefs| should not include
+diff --git a/include/openssl/tls1.h b/include/openssl/tls1.h
+index ea55e2a..05dd183 100644
+--- a/include/openssl/tls1.h
++++ b/include/openssl/tls1.h
+@@ -185,6 +185,9 @@ extern "C" {
+ #define TLS1_CK_RSA_WITH_AES_256_GCM_SHA384 0x0300009D
+ #define TLS1_CK_ECDHE_ECDSA_WITH_AES_128_CBC_SHA 0x0300C009
+ #define TLS1_CK_ECDHE_ECDSA_WITH_AES_256_CBC_SHA 0x0300C00A
++// The ECDHE 3DES suites the platform TLS stack offers.
++#define TLS1_CK_ECDHE_ECDSA_WITH_DES_192_CBC3_SHA 0x0300C008
++#define TLS1_CK_ECDHE_RSA_WITH_DES_192_CBC3_SHA 0x0300C012
+ #define TLS1_CK_ECDHE_RSA_WITH_AES_128_CBC_SHA 0x0300C013
+ #define TLS1_CK_ECDHE_RSA_WITH_AES_256_CBC_SHA 0x0300C014
+ #define TLS1_CK_ECDHE_RSA_WITH_AES_128_CBC_SHA256 0x0300C027
+@@ -218,6 +221,9 @@ extern "C" {
+ #define TLS1_TXT_RSA_WITH_AES_256_GCM_SHA384 "AES256-GCM-SHA384"
+ #define TLS1_TXT_ECDHE_ECDSA_WITH_AES_128_CBC_SHA "ECDHE-ECDSA-AES128-SHA"
+ #define TLS1_TXT_ECDHE_ECDSA_WITH_AES_256_CBC_SHA "ECDHE-ECDSA-AES256-SHA"
++// Names for the ECDHE 3DES suites above.
++#define TLS1_TXT_ECDHE_ECDSA_WITH_DES_192_CBC3_SHA "ECDHE-ECDSA-DES-CBC3-SHA"
++#define TLS1_TXT_ECDHE_RSA_WITH_DES_192_CBC3_SHA "ECDHE-RSA-DES-CBC3-SHA"
+ #define TLS1_TXT_ECDHE_RSA_WITH_AES_128_CBC_SHA "ECDHE-RSA-AES128-SHA"
+ #define TLS1_TXT_ECDHE_RSA_WITH_AES_256_CBC_SHA "ECDHE-RSA-AES256-SHA"
+ #define TLS1_TXT_ECDHE_RSA_WITH_AES_128_CBC_SHA256 "ECDHE-RSA-AES128-SHA256"
+diff --git a/ssl/handshake_client.cc b/ssl/handshake_client.cc
+index c96dedc..a853605 100644
+--- a/ssl/handshake_client.cc
++++ b/ssl/handshake_client.cc
+@@ -129,8 +129,11 @@ static bool ssl_write_client_cipher_list(const SSL_HANDSHAKE *hs, CBB *out,
+     const bool has_aes_hw = ssl->config->aes_hw_override
+                                 ? ssl->config->aes_hw_override_value
+                                 : EVP_has_aes_hardware();
++    // An explicitly configured order wins over both.
+     const bssl::Span<const uint16_t> ciphers =
+-        ssl->config->compliance_policy == ssl_compliance_policy_cnsa_202407
++        !ssl->config->tls13_cipher_list.empty()
++            ? bssl::Span<const uint16_t>(ssl->config->tls13_cipher_list)
++        : ssl->config->compliance_policy == ssl_compliance_policy_cnsa_202407
+             ? bssl::Span<const uint16_t>(kCiphersCNSA)
+             : (has_aes_hw ? bssl::Span<const uint16_t>(kCiphersAESHardware)
+                           : bssl::Span<const uint16_t>(kCiphersNoAESHardware));
+diff --git a/ssl/internal.h b/ssl/internal.h
+index a69505b..b03b619 100644
+--- a/ssl/internal.h
++++ b/ssl/internal.h
+@@ -3292,6 +3292,10 @@ struct SSL_CONFIG {
+   // a valid subsequence of the supported group list.
+   Array<uint16_t> supported_group_list;
+ 
++  // The TLS 1.3 cipher suites a client offers, in order.
++  // Empty means the hardware-dependent default order.
++  Array<uint16_t> tls13_cipher_list;
++
+   // For a client, this may contain a subsequence of the group IDs in
+   // |suppported_group_list|, which gives the groups for which key shares should
+   // be sent in the client's key_share extension. This is non-nullopt iff
+@@ -3949,6 +3953,9 @@ struct ssl_ctx_st : public bssl::RefCounted<ssl_ctx_st> {
+   // Supported group values inherited by SSL structure
+   bssl::Array<uint16_t> supported_group_list;
+ 
++  // TLS 1.3 cipher order inherited by SSL structure
++  bssl::Array<uint16_t> tls13_cipher_list;
++
+   // channel_id_private is the client's Channel ID private key, or null if
+   // Channel ID should not be offered on this connection.
+   bssl::UniquePtr<EVP_PKEY> channel_id_private;
+diff --git a/ssl/ssl_cipher.cc b/ssl/ssl_cipher.cc
+index 010e2ae..03b9ba3 100644
+--- a/ssl/ssl_cipher.cc
++++ b/ssl/ssl_cipher.cc
+@@ -165,6 +165,19 @@ static constexpr SSL_CIPHER kCiphers[] = {
+         SSL_HANDSHAKE_MAC_SHA256,
+     },
+ 
++    // Cipher C008, one of the ECDHE 3DES suites the platform TLS stack offers.
++    // Deprecated, so only an explicit cipher string selects it.
++    {
++        TLS1_TXT_ECDHE_ECDSA_WITH_DES_192_CBC3_SHA,
++        "TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA",
++        SSL_CIPHER_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA,
++        SSL_kECDHE,
++        SSL_aECDSA,
++        SSL_3DES,
++        SSL_SHA1,
++        SSL_HANDSHAKE_MAC_DEFAULT,
++    },
++
+     // Cipher C009
+     {
+         TLS1_TXT_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
+@@ -189,6 +202,18 @@ static constexpr SSL_CIPHER kCiphers[] = {
+         SSL_HANDSHAKE_MAC_DEFAULT,
+     },
+ 
++    // Cipher C012, the RSA half of the pair above.
++    {
++        TLS1_TXT_ECDHE_RSA_WITH_DES_192_CBC3_SHA,
++        "TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA",
++        SSL_CIPHER_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA,
++        SSL_kECDHE,
++        SSL_aRSA_SIGN,
++        SSL_3DES,
++        SSL_SHA1,
++        SSL_HANDSHAKE_MAC_DEFAULT,
++    },
++
+     // Cipher C013
+     {
+         TLS1_TXT_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+@@ -1035,6 +1060,9 @@ bool ssl_create_cipher_list(UniquePtr<SSLCipherPreferenceList> *out_cipher_list,
+       SSL_CIPHER_RSA_WITH_AES_256_CBC_SHA,
+       SSL_CIPHER_PSK_WITH_AES_256_CBC_SHA,
+       SSL_CIPHER_RSA_WITH_3DES_EDE_CBC_SHA,
++      // The ECDHE 3DES suites join the legacy tail.
++      SSL_CIPHER_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA,
++      SSL_CIPHER_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA,
+   };
+ 
+   // Set up a linked list of ciphers.
+diff --git a/ssl/ssl_lib.cc b/ssl/ssl_lib.cc
+index f64b103..75991fd 100644
+--- a/ssl/ssl_lib.cc
++++ b/ssl/ssl_lib.cc
+@@ -532,6 +532,8 @@ SSL *SSL_new(SSL_CTX *ctx) {
+   ssl->config->compliance_policy = ctx->compliance_policy;
+ 
+   if (!ssl->config->supported_group_list.CopyFrom(ctx->supported_group_list) ||
++      // Carry the configured TLS 1.3 cipher order over.
++      !ssl->config->tls13_cipher_list.CopyFrom(ctx->tls13_cipher_list) ||
+       !ssl->config->alpn_client_proto_list.CopyFrom(
+           ctx->alpn_client_proto_list) ||
+       !ssl->config->verify_sigalgs.CopyFrom(ctx->verify_sigalgs)) {
+@@ -1884,6 +1886,25 @@ int SSL_CTX_set1_group_ids(SSL_CTX *ctx, const uint16_t *group_ids,
+   return check_group_ids(span) && ctx->supported_group_list.CopyFrom(span);
+ }
+ 
++// An explicit TLS 1.3 cipher order for the ClientHello.
++static bool check_tls13_cipher_ids(Span<const uint16_t> ids) {
++  for (uint16_t id : ids) {
++    const SSL_CIPHER *cipher = SSL_get_cipher_by_value(id);
++    if (cipher == nullptr ||
++        SSL_CIPHER_get_min_version(cipher) < TLS1_3_VERSION) {
++      OPENSSL_PUT_ERROR(SSL, SSL_R_NO_CIPHER_MATCH);
++      return false;
++    }
++  }
++  return true;
++}
++
++int SSL_CTX_set1_tls13_cipher_ids(SSL_CTX *ctx, const uint16_t *cipher_ids,
++                                  size_t num_cipher_ids) {
++  auto span = Span(cipher_ids, num_cipher_ids);
++  return check_tls13_cipher_ids(span) && ctx->tls13_cipher_list.CopyFrom(span);
++}
++
+ int SSL_set1_group_ids(SSL *ssl, const uint16_t *group_ids,
+                        size_t num_group_ids) {
+   if (!ssl->config) {
+diff --git a/ssl/ssl_privkey.cc b/ssl/ssl_privkey.cc
+index 2346aa4..df1e550 100644
+--- a/ssl/ssl_privkey.cc
++++ b/ssl/ssl_privkey.cc
+@@ -553,8 +553,11 @@ static bool sigalgs_unique(Span<const uint16_t> in_sigalgs) {
+   return true;
+ }
+ 
+-static bool set_sigalg_prefs(Array<uint16_t> *out, Span<const uint16_t> prefs) {
+-  if (!sigalgs_unique(prefs)) {
++// |allow_duplicates| admits a list that names an algorithm more than once, which
++// only the verification preferences accept: they reach the wire verbatim.
++static bool set_sigalg_prefs(Array<uint16_t> *out, Span<const uint16_t> prefs,
++                             bool allow_duplicates = false) {
++  if (!allow_duplicates && !sigalgs_unique(prefs)) {
+     return false;
+   }
+ 
+@@ -907,6 +910,13 @@ int SSL_CTX_set_verify_algorithm_prefs(SSL_CTX *ctx, const uint16_t *prefs,
+   return set_sigalg_prefs(&ctx->verify_sigalgs, Span(prefs, num_prefs));
+ }
+ 
++int SSL_CTX_set_repeated_verify_algorithm_prefs(SSL_CTX *ctx,
++                                               const uint16_t *prefs,
++                                               size_t num_prefs) {
++  return set_sigalg_prefs(&ctx->verify_sigalgs, Span(prefs, num_prefs),
++                          /*allow_duplicates=*/true);
++}
++
+ int SSL_set_verify_algorithm_prefs(SSL *ssl, const uint16_t *prefs,
+                                    size_t num_prefs) {
+   if (!ssl->config) {
+diff --git a/ssl/tls13_client.cc b/ssl/tls13_client.cc
+index bc653e9..d0ca63c 100644
+--- a/ssl/tls13_client.cc
++++ b/ssl/tls13_client.cc
+@@ -204,13 +204,17 @@ static enum ssl_hs_wait_t do_read_hello_retry_request(SSL_HANDSHAKE *hs) {
+     return ssl_hs_error;
+   }
+ 
+-  // The cipher suite must be one we offered. We currently offer all supported
+-  // TLS 1.3 ciphers unless policy controls limited it. So we check the version
+-  // and that it's ok per policy.
++  // The cipher suite must be one we offered: the configured TLS 1.3 cipher list when
++  // there is one, otherwise all supported TLS 1.3 ciphers. Either way it must also
++  // match the version and be ok per policy.
+   const SSL_CIPHER *cipher = SSL_get_cipher_by_value(server_hello.cipher_suite);
++  const Span<const uint16_t> offered = ssl->config->tls13_cipher_list;
+   if (cipher == nullptr ||
+       SSL_CIPHER_get_min_version(cipher) > ssl_protocol_version(ssl) ||
+       SSL_CIPHER_get_max_version(cipher) < ssl_protocol_version(ssl) ||
++      (!offered.empty() && std::find(offered.begin(), offered.end(),
++                                     server_hello.cipher_suite) ==
++                               offered.end()) ||
+       !ssl_tls13_cipher_meets_policy(SSL_CIPHER_get_protocol_id(cipher),
+                                      ssl->config->compliance_policy)) {
+     OPENSSL_PUT_ERROR(SSL, SSL_R_WRONG_CIPHER_RETURNED);

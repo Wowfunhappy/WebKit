@@ -4,6 +4,7 @@
  */
 #include "config.h"
 #include "CocoaCurlTransfer.h"
+#include "CocoaCurlClientHello.h"
 #include "CocoaCurlProxyResolver.h"
 #include "BlobRegistryImpl.h"
 #include "PlatformStrategies.h"
@@ -29,6 +30,19 @@ extern "C" CFErrorRef _CFErrorCreateWithStreamError(CFAllocatorRef, CFStreamErro
 
 namespace WebCore {
 static std::optional<uint64_t> cocoaCurlUploadElementLength(const FormDataElement&, int& failureErrno);
+
+// The language tag in the shape a browser sends it: the region subtag in capitals, and the
+// language alone behind it as the next acceptable match.
+static String cocoaCurlAcceptLanguage(const String& preferred)
+{
+    auto subtags = preferred.split('-');
+    if (subtags.size() < 2)
+        return preferred;
+    if (subtags.last().length() == 2)
+        subtags.last() = subtags.last().convertToASCIIUppercase();
+    return makeString(makeStringByJoining(subtags, "-"_s), ","_s, subtags.first(), ";q=0.9"_s);
+}
+
 Ref<CocoaCurlUploadBody> CocoaCurlUploadBody::create(FormData& data, BlobRegistryImpl* registry)
 {
     ASSERT(isMainThread());
@@ -203,11 +217,18 @@ bool CocoaCurlTransfer::setup()
         m_headers = list;
         return true;
     };
+    bool carriesPriority = false;
     for (auto& field : request.httpHeaderFields()) {
         if (!isValidHTTPToken(field.key) || !isValidHTTPHeaderValue(field.value))
             return false;
         if (equalLettersIgnoringASCIICase(field.key, "cookie"_s) && !field.value.isEmpty())
             continue;
+        // Safari 7's framework, which it injects into the WebProcess, sets DNT from the Privacy
+        // checkbox that drives this port's advanced privacy protections; the browser this WebKit
+        // reports itself as has no such field.
+        if (equalLettersIgnoringASCIICase(field.key, "dnt"_s))
+            continue;
+        carriesPriority |= equalLettersIgnoringASCIICase(field.key, "priority"_s);
         if (!appendHeader(makeString(field.key, field.value.isEmpty() ? ";"_s : ": "_s, field.value).latin1()))
             return false;
     }
@@ -215,10 +236,19 @@ bool CocoaCurlTransfer::setup()
         return false;
     if (!request.hasHTTPHeaderField(HTTPHeaderName::AcceptLanguage)) {
         auto preferredLanguage = adoptCF(_CFNetworkCopyPreferredLanguageCode());
-        String language(preferredLanguage.get());
+        String language = cocoaCurlAcceptLanguage(String(preferredLanguage.get()));
         if (!language.isEmpty() && !appendHeader(makeString("Accept-Language: "_s, language).utf8()))
             return false;
     }
+    // The RFC 9218 signal Safari sends on a document navigation, which is the one urgency this
+    // port has a capture of; requests with another destination carry none.
+    if (!carriesPriority && request.httpHeaderField(HTTPHeaderName::SecFetchDest) == "document"_s
+        && !appendHeader(CString("Priority: u=0, i")))
+        return false;
+    // Carried in the request's own header list, so it reaches the wire last, in the position
+    // a browser puts it.
+    if (!request.hasHTTPHeaderField(HTTPHeaderName::AcceptEncoding) && !appendHeader(CString("Accept-Encoding: " COCOA_CURL_ACCEPT_ENCODING)))
+        return false;
 #define CURL_SET(option, value) do { if (curl_easy_setopt(m_easy, option, value) != CURLE_OK) return false; } while (false)
     CURL_SET(CURLOPT_URL, request.url().string().utf8().data());
     CURL_SET(CURLOPT_PROTOCOLS_STR, "http,https");
@@ -239,7 +269,7 @@ bool CocoaCurlTransfer::setup()
         CURL_SET(CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
     CURL_SET(CURLOPT_HTTP09_ALLOWED, 0L);
     CURL_SET(CURLOPT_SUPPRESS_CONNECT_HEADERS, 0L);
-    CURL_SET(CURLOPT_ACCEPT_ENCODING, "");
+    CURL_SET(CURLOPT_ACCEPT_ENCODING, COCOA_CURL_ACCEPT_ENCODING);
     CURL_SET(CURLOPT_HTTP_CONTENT_DECODING, m_options.decodeContent ? 1L : 0L);
     CURL_SET(CURLOPT_SSL_VERIFYPEER, 1L);
     // SecPolicyCreateSSL validates the host and applies native trust decisions.
@@ -299,7 +329,6 @@ bool CocoaCurlTransfer::setup()
     CURL_SET(CURLOPT_CUSTOMREQUEST, request.httpMethod().utf8().data());
     if (m_options.preconnect)
         CURL_SET(CURLOPT_CONNECT_ONLY, CURL_CONNECT_ONLY_REUSABLE);
-    setPriority(request.priority());
 #undef CURL_SET
     return true;
 }
@@ -341,8 +370,6 @@ void CocoaCurlTransfer::start()
 void CocoaCurlTransfer::setPriority(ResourceLoadPriority priority)
 {
     m_options.request.setPriority(priority);
-    if (m_easy)
-        curl_easy_setopt(m_easy, CURLOPT_STREAM_WEIGHT, 1L + static_cast<long>(priority) * 255 / static_cast<long>(ResourceLoadPriority::VeryHigh));
 }
 
 void CocoaCurlTransfer::setDefersLoading(bool deferred)

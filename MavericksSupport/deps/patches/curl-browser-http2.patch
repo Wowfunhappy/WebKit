@@ -1,0 +1,154 @@
+--- a/lib/http2.c
++++ b/lib/http2.c
+@@ -64,11 +64,11 @@
+ /* on send into TLS, we want to accumulate small frames */
+ #define H2_NW_SEND_CHUNKS       1
+ /* this is how much we want "in flight" for a stream, unthrottled */
+-#define H2_STREAM_WINDOW_SIZE_MAX   (10 * 1024 * 1024)
++#define H2_STREAM_WINDOW_SIZE_MAX   (2 * 1024 * 1024)
+ /* this is how much we want "in flight" for a stream, initially, IFF
+  * nghttp2 allows us to tweak the local window size. */
+ #if NGHTTP2_HAS_SET_LOCAL_WINDOW_SIZE
+-#define H2_STREAM_WINDOW_SIZE_INITIAL  (64 * 1024)
++#define H2_STREAM_WINDOW_SIZE_INITIAL  (2 * 1024 * 1024)
+ #else
+ #define H2_STREAM_WINDOW_SIZE_INITIAL H2_STREAM_WINDOW_SIZE_MAX
+ #endif
+@@ -78,13 +78,7 @@
+ /* spare chunks we keep for a full window */
+ #define H2_STREAM_POOL_SPARES   (H2_CONN_WINDOW_SIZE / H2_CHUNK_SIZE)
+ 
+-/* We need to accommodate the max number of streams with their window sizes on
+- * the overall connection. Streams might become PAUSED which will block their
+- * received QUOTA in the connection window. If we run out of space, the server
+- * is blocked from sending us any data. See #10988 for an issue with this. */
+-#define HTTP2_HUGE_WINDOW_SIZE (100 * H2_STREAM_WINDOW_SIZE_MAX)
+-
+-#define H2_SETTINGS_IV_LEN 3
++#define H2_SETTINGS_IV_LEN 4
+ #define H2_BINSETTINGS_LEN 80
+ 
+ struct cf_h2_ctx {
+@@ -216,17 +210,22 @@
+                                 struct Curl_easy *data,
+                                 struct cf_h2_ctx *ctx)
+ {
+-  iv[0].settings_id = NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS;
+-  iv[0].value = Curl_multi_max_concurrent_streams(data->multi);
++  /* The connection preface a browser sends: these settings, in this order. */
++  iv[0].settings_id = NGHTTP2_SETTINGS_ENABLE_PUSH;
++  iv[0].value = !!data->multi->push_cb;
++
++  iv[1].settings_id = NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS;
++  iv[1].value = Curl_multi_max_concurrent_streams(data->multi);
+ 
+-  iv[1].settings_id = NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE;
+-  iv[1].value = cf_h2_initial_win_size(data);
++  iv[2].settings_id = NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE;
++  iv[2].value = cf_h2_initial_win_size(data);
+   if(ctx)
+-    ctx->initial_win_size = iv[1].value;
+-  iv[2].settings_id = NGHTTP2_SETTINGS_ENABLE_PUSH;
+-  iv[2].value = !!data->multi->push_cb;
++    ctx->initial_win_size = iv[2].value;
+ 
+-  return 3;
++  iv[3].settings_id = NGHTTP2_SETTINGS_NO_RFC7540_PRIORITIES;
++  iv[3].value = 1;
++
++  return 4;
+ }
+ 
+ static ssize_t populate_binsettings(uint8_t *binsettings,
+@@ -2013,7 +2012,7 @@
+               nghttp2_session_get_stream_effective_local_window_size(
+                 ctx->h2, stream->id),
+               nghttp2_session_get_local_window_size(ctx->h2),
+-              HTTP2_HUGE_WINDOW_SIZE);
++              H2_CONN_WINDOW_SIZE);
+ 
+   CF_DATA_RESTORE(cf, save);
+   return result;
+@@ -2065,6 +2064,62 @@
+   return CURLE_OK;
+ }
+ 
++/* RFC 9113 section 8.2.3: the cookie field travels as one header per pair,
++ * which is how it compresses and how a browser sends it. */
++static int h2_is_cookie(const struct dynhds_entry *e)
++{
++  return e->namelen == 6 && !strncmp(e->name, "cookie", 6);
++}
++
++static CURLcode h2_crumble_cookies(struct dynhds *hds)
++{
++  struct dynhds crumbs;
++  CURLcode result = CURLE_OK;
++  size_t i, count = Curl_dynhds_count(hds);
++
++  for(i = 0; i < count; i++) {
++    struct dynhds_entry *e = Curl_dynhds_getn(hds, i);
++    if(h2_is_cookie(e) && memchr(e->value, ';', e->valuelen))
++      break;
++  }
++  if(i == count)
++    return CURLE_OK;
++
++  Curl_dynhds_init(&crumbs, 0, DYN_HTTP_REQUEST);
++  Curl_dynhds_set_opts(&crumbs, DYNHDS_OPT_LOWERCASE);
++  for(i = 0; i < count && !result; i++) {
++    struct dynhds_entry *e = Curl_dynhds_getn(hds, i);
++    if(!h2_is_cookie(e)) {
++      result = Curl_dynhds_add(&crumbs, e->name, e->namelen,
++                               e->value, e->valuelen);
++    }
++    else {
++      const char *p = e->value;
++      const char *end = e->value + e->valuelen;
++      while(p < end && !result) {
++        const char *sep = memchr(p, ';', (size_t)(end - p));
++        const char *stop = sep ? sep : end;
++        size_t len;
++        while(p < stop && (*p == ' ' || *p == '\t'))
++          p++;
++        len = (size_t)(stop - p);
++        while(len && (p[len - 1] == ' ' || p[len - 1] == '\t'))
++          len--;
++        if(len)
++          result = Curl_dynhds_add(&crumbs, "cookie", 6, p, len);
++        p = sep ? sep + 1 : end;
++      }
++    }
++  }
++  if(result)
++    Curl_dynhds_free(&crumbs);
++  else {
++    Curl_dynhds_free(hds);
++    *hds = crumbs;
++  }
++  return result;
++}
++
+ static CURLcode h2_submit(struct h2_stream_ctx **pstream,
+                           struct Curl_cfilter *cf, struct Curl_easy *data,
+                           const uint8_t *buf, size_t len,
+@@ -2107,6 +2162,10 @@
+   result = Curl_http_req_to_h2(&h2_headers, stream->h1.req, data);
+   if(result)
+     goto out;
++
++  result = h2_crumble_cookies(&h2_headers);
++  if(result)
++    goto out;
+   /* no longer needed */
+   Curl_h1_req_parse_free(&stream->h1);
+ 
+@@ -2478,7 +2537,7 @@
+   }
+ 
+   rc = nghttp2_session_set_local_window_size(ctx->h2, NGHTTP2_FLAG_NONE, 0,
+-                                             HTTP2_HUGE_WINDOW_SIZE);
++                                             H2_CONN_WINDOW_SIZE);
+   if(rc) {
+     failf(data, "nghttp2_session_set_local_window_size() failed: %s(%d)",
+           nghttp2_strerror(rc), rc);

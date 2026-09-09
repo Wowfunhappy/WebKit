@@ -22,6 +22,7 @@
 #                                          process never holds two libxml2 images
 #   BoringSSL (in-tree, shared)        -> curl TLS, WebCore SSL APIs and HLS AES-128 keys
 #   libpsl 0.21.5 (shared, ICU)        -> public-suffix rejection in curl's cookie store
+#   zstd 1.5.7 (shared)                 -> the zstd content encoding curl decodes
 #   nghttp2 1.70.0 + libcurl 8.22.0     -> HTTP/2 networking, on that shared BoringSSL
 #   GLib + GStreamer (GLIB_VER/GST_VER)  -> the media runtime (core, plugins-base/
 #     (+ codecs)                           good/bad, gst-libav on FFmpeg 8.1.2 with
@@ -144,6 +145,9 @@ STAGE="$SCRATCH/install"                            # full autotools install pre
 # generated assembly and build files, so an upstream roll or local edit invalidates both
 # BoringSSL and curl and the published recipe stamp.
 BORINGSSL_SRC="$REPO/Source/ThirdParty/libwebrtc/Source/third_party/boringssl/src"
+# libwebrtc compiles its own copy of these sources for WebRTC's DTLS; the browser ClientHello
+# belongs to the shared library curl and WebCore share, so the patch is applied to a copy.
+BORINGSSL_TREE="$SCRATCH/boringssl-src"
 BORINGSSL_KEY=$( ( cd "$BORINGSSL_SRC" && find . -type f -print | LC_ALL=C sort \
     | tr '\n' '\0' | xargs -0 /usr/bin/shasum -a 256 ) \
     | /usr/bin/shasum -a 256 | awk '{ print $1 }') || exit 1
@@ -875,7 +879,7 @@ GAP_RELINK="$SCRATCH/.relink-pending"
 if [ -n "$GAP_CHANGED" ] || [ -f "$GAP_RELINK" ]; then
     : > "$GAP_RELINK"
     find "$SCRATCH" \( -path "$STAGE" -o -path "$TOOLS" -o -path "$MESONENV" -o -path "$GAPDIR" \
-        -o -path "$RUN" \) -prune -o -type f -print0 > "$RUN/candidates"
+        -o -path "$RUN" -o -path "$BORINGSSL_TREE" \) -prune -o -type f -print0 > "$RUN/candidates"
     carriers < "$RUN/candidates" > "$RUN/drop" || exit 1
     { tr '\0' '\n' < "$RUN/candidates" | grep '\.la$' || true; } >> "$RUN/drop"
     echo "  relinking the media runtime: dropping $(wc -l < "$RUN/drop" | tr -d ' ') images built from the archive"
@@ -890,11 +894,19 @@ echo "==== BoringSSL (ThirdParty/libwebrtc's copy) ===="
 # are explicit, from the same toolchain whose dylibs the collect step deploys.
 d="$SCRATCH/build-boringssl"
 key=$(recipe_key "$LINENO") || exit 1
-if [ "$(cat "$d/.recipe" 2>/dev/null)" != "$key" ]; then rm -rf "$d"; fi
+if [ "$(cat "$d/.recipe" 2>/dev/null)" != "$key" ]; then rm -rf "$d" "$BORINGSSL_TREE"; fi
 mkdir -p "$d"
 printf '%s\n' "$key" > "$d/.recipe"
+if [ ! -d "$BORINGSSL_TREE" ]; then
+    rm -rf "$BORINGSSL_TREE.partial"
+    cp -Rp "$BORINGSSL_SRC" "$BORINGSSL_TREE.partial" || exit 1
+    ( cd "$BORINGSSL_TREE.partial" \
+        && patch -p1 --dry-run < "$HERE/patches/boringssl-browser-clienthello.patch" \
+        && patch -p1 < "$HERE/patches/boringssl-browser-clienthello.patch" ) || exit 1
+    mv "$BORINGSSL_TREE.partial" "$BORINGSSL_TREE" || exit 1
+fi
 if prepare "$d"; then
-    ( cd "$d" && "$CMAKE" -S "$BORINGSSL_SRC" -B out -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
+    ( cd "$d" && "$CMAKE" -S "$BORINGSSL_TREE" -B out -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
         -DBUILD_SHARED_LIBS=ON -DBUILD_TESTING=OFF \
         "-DCMAKE_C_FLAGS_RELEASE=-O2 -DNDEBUG -g0" "-DCMAKE_CXX_FLAGS_RELEASE=-O2 -DNDEBUG -g0" \
         "-DCMAKE_ASM_FLAGS_RELEASE=-O2 -DNDEBUG -g0" \
@@ -913,7 +925,7 @@ fi
 ( cd "$d" && "$NINJA" -C out -j2 ssl crypto \
   && cp -p out/libssl.dylib out/libcrypto.dylib "$STAGE/lib/" \
   && rm -rf "$STAGE/include/openssl" \
-  && cp -Rp "$BORINGSSL_SRC/include/openssl" "$STAGE/include/" ) || exit 1
+  && cp -Rp "$BORINGSSL_TREE/include/openssl" "$STAGE/include/" ) || exit 1
 # Meson's dependency('openssl') selects BoringSSL's 1.1.1-compatible API level;
 # Version is an API compatibility value, while Name identifies the implementation.
 mkdir -p "$STAGE/lib/pkgconfig"
@@ -923,7 +935,7 @@ libdir=\${prefix}/lib
 includedir=\${prefix}/include
 
 Name: BoringSSL
-Description: In-tree BoringSSL, OpenSSL 1.1.1-compatible API (BoringSSL API $(sed -n 's/^#define BORINGSSL_API_VERSION //p' "$BORINGSSL_SRC/include/openssl/base.h"))
+Description: In-tree BoringSSL, OpenSSL 1.1.1-compatible API (BoringSSL API $(sed -n 's/^#define BORINGSSL_API_VERSION //p' "$BORINGSSL_TREE/include/openssl/base.h"))
 Version: 1.1.1
 Libs: -L\${libdir} -lssl -lcrypto
 Cflags: -I\${includedir}
@@ -964,6 +976,27 @@ if prepare "$d"; then
 fi
 ( cd "$d" && make -j2 && make install ) || exit 1
 
+echo "==== zstd 1.5.7 ===="
+# Zstandard is one of the content encodings a modern browser accepts, so curl decodes it.
+# The library-only build needs neither the command-line tools nor its worker threads,
+# which serve compression this build never performs.
+d=$(get https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz zstd) || exit 1
+if prepare "$d"; then
+    ( cd "$d" && "$CMAKE" -S build/cmake -B out -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
+        -DCMAKE_BUILD_TYPE=Release -DZSTD_BUILD_SHARED=ON -DZSTD_BUILD_STATIC=OFF \
+        -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_TESTS=OFF -DZSTD_BUILD_CONTRIB=OFF \
+        -DZSTD_LEGACY_SUPPORT=OFF -DZSTD_MULTITHREAD_SUPPORT=OFF \
+        "-DCMAKE_C_FLAGS_RELEASE=-O2 -DNDEBUG -g0" \
+        -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_C_COMPILER_ARG1=--no-default-config \
+        ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE"} \
+        -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
+        -DCMAKE_OSX_SYSROOT="$SDK" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.9 -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+        -DCMAKE_INSTALL_PREFIX="$STAGE" -DCMAKE_INSTALL_NAME_DIR=@rpath \
+        -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS" -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS" ) || exit 1
+    prepared "$d"
+fi
+( cd "$d" && "$NINJA" -C out -j2 && "$NINJA" -C out install ) || exit 1
+
 echo "==== libcurl 8.22.0 ===="
 # BoringSSL supplies both the conventional headers and shared -lssl/-lcrypto in STAGE.
 # No built-in CA file/path: callers supply CAINFO or the native-trust SSL_CTX callback.
@@ -971,9 +1004,13 @@ echo "==== libcurl 8.22.0 ===="
 # so a rerun cannot select another TLS, compression or transport library from $STAGE.
 # The CLI stages outside bin/ so the dependency fetcher keeps using the host curl.
 # Apple GSS.framework supplies Negotiate; NTLM is explicit because curl defaults it off.
-# Brotli decodes br responses with the in-tree decoder. No zstd decoder is built, so
-# Accept-Encoding advertises only the supported gzip/deflate/br encodings.
+# The in-tree Brotli and Zstandard decoders decode br and zstd responses; with zlib they
+# are the four encodings Accept-Encoding advertises.
 # libpsl protects curl's cookie store against cookies scoped to public suffixes.
+# The HTTP/2 request a server sees -- the settings of the connection preface, in their
+# order, the connection window that follows, and one header per cookie pair -- carries the
+# values a browser sends. The ClientHello it travels on is WebCore's, shaped through the
+# SSL_CTX callback.
 d=$(get https://curl.se/download/curl-8.22.0.tar.gz curl) || exit 1
 if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-reusable-preconnect.patch" \
@@ -988,6 +1025,8 @@ if prepare "$d"; then
         && patch -p1 < "$HERE/patches/curl-http1-framing.patch" ) || exit 1
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-digest-request-target.patch" \
         && patch -p1 < "$HERE/patches/curl-digest-request-target.patch" ) || exit 1
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-browser-http2.patch" \
+        && patch -p1 < "$HERE/patches/curl-browser-http2.patch" ) || exit 1
     ( cd "$d" && CC="$CC_VANILLA" CXX="$CXX_VANILLA" PKG_CONFIG=/usr/bin/false \
         CPPFLAGS="-I$STAGE/include" \
         LDFLAGS="-L$STAGE/lib $LDFLAGS -L$TC/lib -Wl,-rpath,$STAGE/lib -Wl,-rpath,$TC/lib -Wl,-headerpad_max_install_names -F$SDK/System/Library/PrivateFrameworks" \
@@ -995,7 +1034,7 @@ if prepare "$d"; then
         --enable-shared --disable-static \
         --with-openssl="$STAGE" --with-nghttp2="$STAGE" --with-zlib \
         --with-libpsl="$STAGE" --without-libssh2 --without-libssh --without-librtmp \
-        --without-libidn2 --without-apple-idn --with-brotli="$STAGE" --without-zstd \
+        --without-libidn2 --without-apple-idn --with-brotli="$STAGE" --with-zstd="$STAGE" \
         --without-ngtcp2 --without-nghttp3 --without-quiche --enable-gssapi-apple --enable-ntlm \
         --without-ca-bundle --without-ca-path --disable-ldap --disable-ldaps \
         --enable-threaded-resolver --disable-manual ) || exit 1
@@ -1631,6 +1670,8 @@ require_glob "$DEST/include/cdm/content_decryption_module.h"
 require_glob "$DEST/lib/libssl.dylib"
 require_glob "$DEST/lib/libcrypto.dylib"
 require_glob "$DEST/lib/libpsl.5.dylib"
+require_glob "$DEST/lib/libzstd.1.dylib"
+require_glob "$DEST/lib/libzstd.dylib"
 require_glob "$DEST/lib/libnghttp2.14.dylib"
 require_glob "$DEST/lib/libnghttp2.dylib"
 require_glob "$DEST/lib/libcurl.4.dylib"
@@ -1790,6 +1831,7 @@ EOF
 # an unused dylib load command alone cannot satisfy the EVP checks.
 for pair in 'libcurl.4.dylib:libssl.dylib' 'libcurl.4.dylib:libcrypto.dylib' \
             'libcurl.4.dylib:libnghttp2.14.dylib' 'libcurl.4.dylib:libpsl.5.dylib' \
+            'libcurl.4.dylib:libzstd.1.dylib' \
             'libssl.dylib:libcrypto.dylib' \
             'gstreamer-1.0/libgsthls.dylib:libcrypto.dylib'; do
   f=${pair%%:*}; dep=${pair#*:}
@@ -1838,7 +1880,7 @@ for prefix in "$STAGE" "$DEST"; do
       -o -name 'libboringssl*' -o -name 'libboringcrypto*' -o -name libssl.a -o -name libcrypto.a \
       -o -name libgstaes.dylib -o -path '*/include/boringssl' \) -print)
   [ -z "$extras" ] || printf 'unexpected TLS/AES artifact: %s\n' "$extras" >> "$FAILS"
-  if ! diff -qr "$BORINGSSL_SRC/include/openssl" "$prefix/include/openssl"; then
+  if ! diff -qr "$BORINGSSL_TREE/include/openssl" "$prefix/include/openssl"; then
     echo "$prefix headers differ from in-tree BoringSSL" >> "$FAILS"
   fi
 done
@@ -1855,7 +1897,7 @@ done
 curl_version=$("$DEST/bin/curl" -q --version) || exit 1
 printf '%s\n' "$curl_version"
 features=$(printf '%s\n' "$curl_version" | sed -n 's/^Features: //p' | tr ' ' '\n')
-for feature in HTTP2 SSL brotli GSS-API SPNEGO NTLM PSL; do
+for feature in HTTP2 SSL brotli zstd GSS-API SPNEGO NTLM PSL; do
   if ! printf '%s\n' "$features" | grep -Fx "$feature" > /dev/null; then
     echo "curl is missing $feature" >> "$FAILS"
   fi
@@ -1871,6 +1913,11 @@ cat > "$GATE/capabilities.c" <<'CAPABILITIES_C'
 #include <openssl/err.h>
 #include <openssl/cipher.h>
 #include <brotli/encode.h>
+#include <zstd.h>
+#include <zlib.h>
+#include <openssl/bytestring.h>
+#include <nghttp2/nghttp2.h>
+#include "CocoaCurlClientHello.h"
 #include <libpsl.h>
 #include <GSS/GSS.h>
 #include <arpa/inet.h>
@@ -1889,6 +1936,8 @@ cat > "$GATE/capabilities.c" <<'CAPABILITIES_C'
 static const char body[] = "BoringSSL curl local decrypted response: 0123456789 abcdefghijklmnopqrstuvwxyz\n";
 static unsigned char compressed[1024];
 static size_t compressed_size = sizeof compressed;
+static unsigned char zcompressed[1024];
+static size_t zcompressed_size;
 static int ctx_calls, verify_calls;
 static char received[1024];
 static size_t received_size;
@@ -1902,6 +1951,8 @@ static CURLcode ctx_callback(CURL *curl, void *ctx, void *unused) {
     ++ctx_calls;
     SSL_CTX_set_app_data(ctx, &ctx_calls);
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, verify);
+    /* The ClientHello WebCore sends, from the header WebCore builds it with. */
+    CHECK(cocoaCurlInstallClientHello(ctx));
     return CURLE_OK;
 }
 static size_t consume(char *p, size_t size, size_t count, void *unused) {
@@ -1915,6 +1966,58 @@ static void read_exact(SSL *ssl, void *p, size_t n) {
 }
 static void write_exact(SSL *ssl, const void *p, size_t n) {
     while (n) { int r = SSL_write(ssl, p, n); CHECK(r > 0); p = (const char *)p + r; n -= r; }
+}
+/* Safari 26.0.1's own ClientHello, from curl-impersonate's captured signature. GREASE
+   values differ per connection, so they are checked by shape. */
+static int is_grease(unsigned v) {
+    return ((v >> 8) & 0xff) == (v & 0xff) && (v & 0x0f) == 0x0a;
+}
+static unsigned u16at(const unsigned char *p) { return ((unsigned)p[0] << 8) | p[1]; }
+static const unsigned char safari_suites[] = {
+    0x13,0x02, 0x13,0x03, 0x13,0x01, 0xc0,0x2c, 0xc0,0x2b, 0xcc,0xa9, 0xc0,0x30, 0xc0,0x2f,
+    0xcc,0xa8, 0xc0,0x0a, 0xc0,0x09, 0xc0,0x14, 0xc0,0x13, 0x00,0x9d, 0x00,0x9c, 0x00,0x35,
+    0x00,0x2f, 0xc0,0x08, 0xc0,0x12, 0x00,0x0a };
+static const unsigned char safari_groups[] = { 0x11,0xec, 0x00,0x1d, 0x00,0x17, 0x00,0x18, 0x00,0x19 };
+static const unsigned char safari_sigalgs[] = {
+    0x04,0x03, 0x08,0x04, 0x04,0x01, 0x05,0x03, 0x08,0x05, 0x08,0x05, 0x05,0x01, 0x08,0x06,
+    0x06,0x01, 0x02,0x01 };
+static const unsigned safari_extensions[] = {
+    0xffff, 0, 23, 0xff01, 10, 11, 16, 5, 13, 18, 51, 45, 43, 27, 0xffff };
+static enum ssl_select_cert_result_t offered(const SSL_CLIENT_HELLO *hello) {
+    const unsigned char *p, *end;
+    size_t i = 0;
+    /* One GREASE value leads the suite list; the rest is the browser's, in order. */
+    CHECK(hello->cipher_suites_len == sizeof safari_suites + 2);
+    CHECK(is_grease(u16at(hello->cipher_suites)));
+    CHECK(!memcmp(hello->cipher_suites + 2, safari_suites, sizeof safari_suites));
+    for (p = hello->extensions, end = p + hello->extensions_len; p < end; ) {
+        unsigned type = u16at(p), len = u16at(p + 2);
+        const unsigned char *body = p + 4;
+        CHECK(body + len <= end);
+        CHECK(i < sizeof safari_extensions / sizeof safari_extensions[0]);
+        if (safari_extensions[i] == 0xffff) CHECK(is_grease(type));
+        else CHECK(type == safari_extensions[i]);
+        if (type == 10) {   /* supported_groups: one GREASE, then the browser's list */
+            CHECK(len == sizeof safari_groups + 4 && u16at(body) == len - 2);
+            CHECK(is_grease(u16at(body + 2)));
+            CHECK(!memcmp(body + 4, safari_groups, sizeof safari_groups));
+        }
+        if (type == 13) {   /* signature_algorithms, repeat included */
+            CHECK(len == sizeof safari_sigalgs + 2 && u16at(body) == len - 2);
+            CHECK(!memcmp(body + 2, safari_sigalgs, sizeof safari_sigalgs));
+        }
+        p = body + len; ++i;
+    }
+    CHECK(i == sizeof safari_extensions / sizeof safari_extensions[0]);
+    return ssl_select_cert_success;
+}
+static int compressed_certificates;
+static unsigned char certificate_zlib[65536];
+static int compress_certificate(SSL *ssl, CBB *out, const unsigned char *in, size_t in_len) {
+    uLongf n = sizeof certificate_zlib;
+    CHECK(compress(certificate_zlib, &n, in, (uLong)in_len) == Z_OK);
+    ++compressed_certificates;
+    return CBB_add_bytes(out, certificate_zlib, n);
 }
 static int alpn(SSL *ssl, const unsigned char **out, unsigned char *len,
                 const unsigned char *in, unsigned int n, void *arg) {
@@ -1933,13 +2036,18 @@ static void server(int listener, const char *cert, const char *key, int mode) {
     CHECK(SSL_CTX_use_certificate_file(ctx, cert, SSL_FILETYPE_PEM));
     CHECK(SSL_CTX_use_PrivateKey_file(ctx, key, SSL_FILETYPE_PEM));
     CHECK(SSL_CTX_set_min_proto_version(ctx, TLS1_3_VERSION));
+    SSL_CTX_set_select_certificate_cb(ctx, offered);
+    CHECK(SSL_CTX_add_cert_compression_alg(ctx, TLSEXT_cert_compression_zlib, compress_certificate, NULL));
     if ((mode == 1 || mode == 6)) SSL_CTX_set_alpn_select_cb(ctx, alpn, NULL);
     int fd = accept(listener, NULL, NULL); CHECK(fd >= 0);
     SSL *ssl = SSL_new(ctx); CHECK(ssl && SSL_set_fd(ssl, fd));
     int accepted = SSL_accept(ssl);
     if (mode == 3) { CHECK(accepted <= 0); SSL_free(ssl); SSL_CTX_free(ctx); close(fd); return; }
     CHECK(accepted == 1);
+    /* The client advertised zlib certificate compression and used it. */
+    CHECK(compressed_certificates == 1);
     if ((mode == 1 || mode == 6)) {
+        int saw_settings = 0, saw_window = 0;
         char preface[24]; read_exact(ssl, preface, sizeof preface);
         CHECK(!memcmp(preface, "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n", 24));
         frame(ssl, 4, 0, 0, NULL, 0);
@@ -1948,12 +2056,55 @@ static void server(int listener, const char *cert, const char *key, int mode) {
             unsigned char h[9]; read_exact(ssl, h, 9);
             unsigned n = ((unsigned)h[0] << 16) | ((unsigned)h[1] << 8) | h[2];
             CHECK(n < 65536); unsigned char buf[65536]; read_exact(ssl, buf, n);
-            if (h[3] == 4 && !(h[4] & 1)) frame(ssl, 4, 1, 0, NULL, 0);
+            if (h[3] == 4 && !(h[4] & 1)) {
+                static const unsigned char settings[] = {
+                    0,2, 0,0,0,0, 0,3, 0,0,0,100, 0,4, 0,0x20,0,0, 0,9, 0,0,0,1 };
+                CHECK(n == sizeof settings && !memcmp(buf, settings, n));
+                saw_settings = 1;
+                frame(ssl, 4, 1, 0, NULL, 0);
+            }
+            if (h[3] == 8 && !(h[5] | h[6] | h[7] | h[8])) {
+                CHECK(n == 4);
+                CHECK((((unsigned)buf[0] << 24) | ((unsigned)buf[1] << 16) |
+                       ((unsigned)buf[2] << 8) | buf[3]) == 10420225u);
+                saw_window = 1;
+            }
             if (h[3] == 1) {
+                /* The field sequence a browser sends: the four pseudo-headers in this
+                   order, and the cookie field as one header per pair. */
+                static const char *const pseudo[] = { ":method", ":scheme", ":authority", ":path" };
+                nghttp2_hd_inflater *inflater = NULL;
+                const unsigned char *in = buf; size_t left = n, fields = 0, cookies = 0;
+                unsigned char last[64]; size_t lastlen = 0;
+                CHECK(!nghttp2_hd_inflate_new(&inflater));
+                for (;;) {
+                    nghttp2_nv nv; int flags = 0;
+                    ssize_t used = nghttp2_hd_inflate_hd2(inflater, &nv, &flags, in, left, 1);
+                    CHECK(used >= 0);
+                    in += used; left -= (size_t)used;
+                    if (flags & NGHTTP2_HD_INFLATE_EMIT) {
+                        if (fields < 4)
+                            CHECK(nv.namelen == strlen(pseudo[fields]) && !memcmp(nv.name, pseudo[fields], nv.namelen));
+                        if (nv.namelen == 6 && !memcmp(nv.name, "cookie", 6)) {
+                            CHECK(nv.valuelen == 3 && (!memcmp(nv.value, "a=1", 3) || !memcmp(nv.value, "b=2", 3)));
+                            ++cookies;
+                        }
+                        if (nv.namelen <= sizeof last) { memcpy(last, nv.name, nv.namelen); lastlen = nv.namelen; }
+                        ++fields;
+                    }
+                    if (flags & NGHTTP2_HD_INFLATE_FINAL) break;
+                    if (!left && !used) break;
+                }
+                /* Accept-Encoding travels in the request's own header list, so it is last. */
+                CHECK(fields > 4 && cookies == 2);
+                CHECK(lastlen == 15 && !memcmp(last, "accept-encoding", 15));
+                nghttp2_hd_inflate_end_headers(inflater);
+                nghttp2_hd_inflate_del(inflater);
                 CHECK(h[4] & 4);
                 stream = ((unsigned)(h[5] & 127) << 24) | ((unsigned)h[6] << 16) | ((unsigned)h[7] << 8) | h[8];
             }
         }
+        CHECK(saw_settings && saw_window);
         const unsigned char status200 = 0x88;
         frame(ssl, 1, 4, stream, &status200, 1);
         frame(ssl, 0, 1, stream, body, sizeof body - 1);
@@ -1961,12 +2112,12 @@ static void server(int listener, const char *cert, const char *key, int mode) {
         char request[8192]; size_t n = 0;
         while (n < sizeof request - 1) { read_exact(ssl, request + n, 1); request[++n] = 0; if (strstr(request, "\r\n\r\n")) break; }
         CHECK(strstr(request, "GET / HTTP/1.1\r\n"));
-        CHECK(strstr(request, "Accept-Encoding:") && strstr(request, "br"));
+        CHECK(strstr(request, "Accept-Encoding: " COCOA_CURL_ACCEPT_ENCODING "\r\n"));
         const char bad[] = "\xff\xff\xff\xff";
-        const void *data = mode == 2 ? compressed : mode == 4 ? (const void *)bad : (const void *)body;
-        size_t size = mode == 2 ? compressed_size : mode == 4 ? sizeof bad - 1 : sizeof body - 1;
+        const void *data = mode == 2 ? compressed : mode == 7 ? zcompressed : mode == 4 ? (const void *)bad : (const void *)body;
+        size_t size = mode == 2 ? compressed_size : mode == 7 ? zcompressed_size : mode == 4 ? sizeof bad - 1 : sizeof body - 1;
         char header[512];
-        int len = snprintf(header, sizeof header, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\n%sConnection: close\r\n\r\n", (unsigned long)size, mode == 2 || mode == 4 ? "Content-Encoding: br\r\n" : "");
+        int len = snprintf(header, sizeof header, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\n%sConnection: close\r\n\r\n", (unsigned long)size, mode == 7 ? "Content-Encoding: zstd\r\n" : mode == 2 || mode == 4 ? "Content-Encoding: br\r\n" : "");
         write_exact(ssl, header, len); write_exact(ssl, data, size);
     }
     SSL_shutdown(ssl); SSL_free(ssl); SSL_CTX_free(ctx); close(fd);
@@ -1982,16 +2133,21 @@ static void transfer(const char *cert, const char *key, int mode) {
     char url[128]; snprintf(url, sizeof url, "https://localhost:%u/", ntohs(addr.sin_port));
     char resolve[128]; snprintf(resolve, sizeof resolve, "localhost:%u:127.0.0.1", ntohs(addr.sin_port));
     struct curl_slist *hosts = curl_slist_append(NULL, resolve); CHECK(hosts);
+    /* The arrangement WebCore uses: the field in the request's own list, and the option
+       set so curl decodes what it names. */
+    struct curl_slist *headers = curl_slist_append(NULL, "Accept-Encoding: " COCOA_CURL_ACCEPT_ENCODING);
+    CHECK(headers);
     CURL *curl = curl_easy_init(); CHECK(curl);
 #define OPT(k, v) CHECK(curl_easy_setopt(curl, k, v) == CURLE_OK)
     char error[CURL_ERROR_SIZE] = {0};
     received_size = 0; ctx_calls = 0; verify_calls = 0;
     OPT(CURLOPT_URL, url); OPT(CURLOPT_RESOLVE, hosts); OPT(CURLOPT_PROXY, ""); OPT(CURLOPT_NOPROXY, "*");
-    OPT(CURLOPT_TIMEOUT, 15L); OPT(CURLOPT_ERRORBUFFER, error); OPT(CURLOPT_ACCEPT_ENCODING, "");
-    OPT(CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_3); OPT(CURLOPT_SSL_CTX_FUNCTION, ctx_callback);
+    OPT(CURLOPT_TIMEOUT, 15L); OPT(CURLOPT_ERRORBUFFER, error); OPT(CURLOPT_ACCEPT_ENCODING, COCOA_CURL_ACCEPT_ENCODING);
+    OPT(CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2); OPT(CURLOPT_SSL_CTX_FUNCTION, ctx_callback);
     OPT(CURLOPT_SSL_VERIFYPEER, 1L); OPT(CURLOPT_SSL_VERIFYHOST, 2L);
     OPT(CURLOPT_CAINFO, mode == 3 ? NULL : cert); OPT(CURLOPT_CAPATH, NULL);
     OPT(CURLOPT_HTTP_VERSION, (mode == 1 || mode == 6) ? CURL_HTTP_VERSION_2TLS : CURL_HTTP_VERSION_1_1);
+    OPT(CURLOPT_COOKIE, "a=1; b=2"); OPT(CURLOPT_HTTPHEADER, headers);
     OPT(CURLOPT_WRITEFUNCTION, consume);
     if (mode == 5 || mode == 6) {
         OPT(CURLOPT_CONNECT_ONLY, CURL_CONNECT_ONLY_REUSABLE);
@@ -2014,7 +2170,7 @@ static void transfer(const char *cert, const char *key, int mode) {
     CHECK(!curl_easy_getinfo(curl, CURLINFO_HTTP_VERSION, &version));
     CHECK(!curl_easy_getinfo(curl, CURLINFO_USED_PROXY, &proxy));
     fprintf(stdout, "curl capability mode=%d rc=%d http=%ld version=%ld proxy=%ld ctx=%d verify=%d bytes=%lu error=%s\n", mode, rc, status, version, proxy, ctx_calls, verify_calls, (unsigned long)received_size, error);
-    curl_easy_cleanup(curl); curl_slist_free_all(hosts); close(listener);
+    curl_easy_cleanup(curl); curl_slist_free_all(hosts); curl_slist_free_all(headers); close(listener);
     int child; CHECK(waitpid(pid, &child, 0) == pid && WIFEXITED(child) && !WEXITSTATUS(child));
     CHECK(proxy == 0 && ctx_calls == 1 && verify_calls > 0);
     if (mode == 3) { CHECK(rc == CURLE_PEER_FAILED_VERIFICATION && !received_size); return; }
@@ -2035,6 +2191,26 @@ int main(int argc, char **argv) {
     CHECK(dlsym(handle, "SSL_CTX_new") == (void *)SSL_CTX_new);
     CHECK(dlsym(handle, "EVP_DecryptUpdate") == (void *)EVP_DecryptUpdate);
     CHECK(dlsym(handle, "X509_free") == (void *)X509_free);
+    /* The suites and preferences a browser ClientHello is assembled from. */
+    SSL_CTX *shape = SSL_CTX_new(TLS_method()); CHECK(shape);
+    CHECK(SSL_CTX_set_strict_cipher_list(shape,
+        "ECDHE-ECDSA-DES-CBC3-SHA:ECDHE-RSA-DES-CBC3-SHA:DES-CBC3-SHA"));
+    const STACK_OF(SSL_CIPHER) *legacy = SSL_CTX_get_ciphers(shape);
+    static const uint16_t triple_des[] = { 0xc008, 0xc012, 0x000a };
+    CHECK(sk_SSL_CIPHER_num(legacy) == 3);
+    for (size_t i = 0; i < 3; ++i)
+        CHECK(SSL_CIPHER_get_protocol_id(sk_SSL_CIPHER_value(legacy, i)) == triple_des[i]);
+    static const uint16_t tls13_order[] = { SSL_CIPHER_AES_256_GCM_SHA384,
+        SSL_CIPHER_CHACHA20_POLY1305_SHA256, SSL_CIPHER_AES_128_GCM_SHA256 };
+    static const uint16_t repeated[] = { SSL_SIGN_ECDSA_SECP256R1_SHA256,
+        SSL_SIGN_RSA_PSS_RSAE_SHA384, SSL_SIGN_RSA_PSS_RSAE_SHA384, SSL_SIGN_RSA_PKCS1_SHA1 };
+    CHECK(SSL_CTX_set1_tls13_cipher_ids(shape, tls13_order, 3));
+    static const uint16_t not_tls13 = SSL_CIPHER_ECDHE_RSA_WITH_AES_128_GCM_SHA256;
+    CHECK(!SSL_CTX_set1_tls13_cipher_ids(shape, &not_tls13, 1));
+    CHECK(SSL_CTX_set_repeated_verify_algorithm_prefs(shape, repeated, 4));
+    CHECK(!SSL_CTX_set_verify_algorithm_prefs(shape, repeated, 4));
+    CHECK(!SSL_CTX_set_signing_algorithm_prefs(shape, repeated, 4));
+    SSL_CTX_free(shape);
     const psl_ctx_t *psl = psl_builtin(); CHECK(psl && psl_suffix_count(psl) > 1000);
     CHECK(!psl_is_cookie_domain_acceptable(psl, "example.co.uk", "co.uk"));
     CHECK(psl_is_cookie_domain_acceptable(psl, "www.example.co.uk", "example.co.uk"));
@@ -2053,20 +2229,24 @@ int main(int argc, char **argv) {
     CHECK(EVP_DecryptUpdate(aes, decoded, &n, cipher, sizeof cipher)); CHECK(EVP_DecryptFinal_ex(aes, decoded + n, &end));
     CHECK(n + end == 16 && !memcmp(decoded, plain, 16)); EVP_CIPHER_CTX_free(aes);
     CHECK(BrotliEncoderCompress(5, BROTLI_DEFAULT_WINDOW, BROTLI_MODE_TEXT, sizeof body - 1, (const unsigned char *)body, &compressed_size, compressed));
+    zcompressed_size = ZSTD_compress(zcompressed, sizeof zcompressed, body, sizeof body - 1, 3);
+    CHECK(!ZSTD_isError(zcompressed_size));
     puts("capability: shared BoringSSL identity, AES known answer, public-suffix rejection, GSS SPNEGO mechanism PASS");
-    for (int mode = 0; mode < 7; ++mode) transfer(argv[1], argv[2], mode);
+    for (int mode = 0; mode < 8; ++mode) transfer(argv[1], argv[2], mode);
     dlclose(handle); curl_global_cleanup(); puts("curl local TLS/HTTP2/SSL_CTX/Brotli capability PASS"); return 0;
 }
 CAPABILITIES_C
 RANDFILE="$GATE/random-state" /usr/bin/openssl req -new -newkey rsa:2048 -nodes -x509 -days 1 -subj /CN=localhost \
     -keyout "$GATE/server.key" -out "$GATE/server.pem" || exit 1
-( "$CC_VANILLA" -O2 -I"$DEST/include" -I"$STAGE/include" "$GATE/capabilities.c" \
+( "$CC_VANILLA" -O2 -I"$DEST/include" -I"$STAGE/include" \
+    -I"$REPO/MavericksSupport/source/WebCore/platform/network/cocoa" "$GATE/capabilities.c" \
     "$DEST/lib/libcurl.dylib" "$DEST/lib/libssl.dylib" "$DEST/lib/libcrypto.dylib" \
     "$DEST/lib/libpsl.5.dylib" "$DEST/lib/libbrotlienc.a" "$DEST/lib/libbrotlicommon.a" \
+    "$DEST/lib/libzstd.1.dylib" "$DEST/lib/libnghttp2.14.dylib" -lz \
     $LDFLAGS -framework GSS -L"$TC/lib" -lc++ -lc++abi \
     -Wl,-rpath,"$DEST/lib" -o "$GATE/capabilities" ) || exit 1
 if ! "$GATE/capabilities" "$GATE/server.pem" "$GATE/server.key" "$DEST/lib/libcurl.4.dylib"; then
-  echo 'local TLS/HTTP2/SSL_CTX/Brotli/AES/GSS/PSL capability test failed' >> "$FAILS"
+  echo 'local TLS/HTTP2/SSL_CTX/Brotli/Zstandard/AES/GSS/PSL capability test failed' >> "$FAILS"
 fi
 
 GATE_FILES=""
