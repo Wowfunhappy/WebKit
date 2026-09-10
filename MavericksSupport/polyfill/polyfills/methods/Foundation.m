@@ -9,7 +9,6 @@
 // VALUES: prefer a SEMANTIC 10.9 equivalent (a real API that still exists and adapts) over a frozen
 // literal. A polyfill's contract is the system API's modern behavior, so it is correct at every caller.
 
-#import "wk_cookie_storage.h"
 #import "wk_hosts.h"
 #import "wk_url_coding.h"
 #import "wk_polyfill.h"
@@ -1548,18 +1547,7 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
 }
 @end
 
-// The accept policy the process's own cookie jar starts with: 10.9 hands its handle over set to
-// NSHTTPCookieAcceptPolicyNever, and c/CFNetwork.c's wk_giveTheProcessCookieJarItsDefaultAcceptPolicy
-// gives it the one CFNetwork documents, once, before anybody has had it to choose a policy on. This is
-// the ObjC half of the two ways WebKit reaches that jar; the C half replaces
-// _CFHTTPCookieStorageGetDefault.
 WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
-+ (NSHTTPCookieStorage *)sharedHTTPCookieStorage
-{
-    NSHTTPCookieStorage *storage = WK_ORIGINAL_METHOD(NSHTTPCookieStorage *, ());
-    wk_giveTheProcessCookieJarItsDefaultAcceptPolicy(wk_cfCookieStorageOf(storage));
-    return storage;
-}
 // -setCookieAcceptPolicy: leaves the CF storage as it was, while the getter -- and every other reader --
 // takes the policy from the CF storage, so on 10.9 the setter has no effect anybody can observe. The
 // rest of the class covers the CF storage directly (-setCookie: and -deleteCookie: call
@@ -2140,9 +2128,6 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
     }
 
     id result = ((id (*)(id, SEL, CFHTTPCookieStorageRef))objc_msgSend)(self, initWithCFStorageSelector, storage);
-    // A handle this layer just constructed: nobody has had it to choose a policy on, so it starts where
-    // CFNetwork's default is rather than where 10.9 leaves it.
-    wk_giveTheProcessCookieJarItsDefaultAcceptPolicy(storage);
     CFRelease(storage);
     return result;
 }

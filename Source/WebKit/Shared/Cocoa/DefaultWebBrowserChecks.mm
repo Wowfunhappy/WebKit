@@ -108,6 +108,20 @@ bool hasRequestedCrossWebsiteTrackingPermission()
     return hasRequestedCrossWebsiteTrackingPermission;
 }
 
+// MAVERICKS_BACKPORT: an application that is neither a full web browser nor asks the user for
+// cross-website tracking permission reaches no TCC record of that choice on 10.9, because there is no
+// such record: the account states it as the cookie jar's accept policy -- Safari 7's Privacy > "Block
+// cookies and other website data" radio, which every process's default jar comes over carrying and
+// which Safari itself reads back to draw that radio. Accepting from anywhere is the choice not to
+// restrict cross-site traffic; either blocking level is the choice to restrict it. Answered yes for
+// everyone, ThirdPartyCookieBlockingMode::All blocks every third-party cookie at all three radio
+// positions (#180). A session the client tells directly -- WKCookieManagerSetHTTPCookieAcceptPolicy,
+// -[WKWebsiteDataStore _setResourceLoadStatisticsEnabled:] -- never asks this question.
+static bool accountRestrictsCrossSiteTraffic()
+{
+    return [NSHTTPCookieStorage sharedHTTPCookieStorage].cookieAcceptPolicy != NSHTTPCookieAcceptPolicyAlways;
+}
+
 static bool determineTrackingPreventionStateInternal(bool appWasLinkedOnOrAfter, const String& bundleIdentifier)
 {
     ASSERT(!RunLoop::isMain());
@@ -122,7 +136,8 @@ static bool determineTrackingPreventionStateInternal(bool appWasLinkedOnOrAfter,
         return false;
 
     if (!isFullWebBrowser && !hasRequestedCrossWebsiteTrackingPermission())
-        return true;
+//      return true;
+        return accountRestrictsCrossSiteTraffic(); // MAVERICKS_BACKPORT: see the helper above.
 
     TCCAccessPreflightResult result = kTCCAccessPreflightDenied;
 #if PLATFORM(IOS) || PLATFORM(MAC) || PLATFORM(VISION)

@@ -5,6 +5,7 @@
 #import <WebKit/WKWebView.h>
 #import <WebKit/WKWebViewConfiguration.h>
 #import <WebKit/WKWebsiteDataStore.h>
+#import <WebKit/WKHTTPCookieStore.h>
 #import <WebKit/WKNavigationDelegate.h>
 #import <WebKit/WKDownload.h>
 #import <WebKit/WKDownloadDelegate.h>
@@ -156,6 +157,10 @@ int main()
         probe->path = [[[NSString stringWithUTF8String:directory] stringByAppendingPathComponent:@"private.bin"] retain];
         WKWebViewConfiguration* configuration = [WKWebViewConfiguration new];
         configuration.websiteDataStore = [WKWebsiteDataStore nonPersistentDataStore];
+        // An ephemeral session takes the account's cookie accept policy as its own, and the download
+        // this test follows is one the server only serves to a request carrying its cookie, so the
+        // session is told the policy the test needs instead of reading the machine's.
+        [configuration.websiteDataStore.httpCookieStore setCookiePolicy:WKCookiePolicyAllow completionHandler:nil];
         probe->view = [[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration];
         probe->view.navigationDelegate = probe;
         [probe->view loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"http://127.0.0.1:18983/private-page"]]];

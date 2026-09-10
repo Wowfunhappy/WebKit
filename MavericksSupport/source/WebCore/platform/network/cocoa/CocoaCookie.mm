@@ -17,7 +17,11 @@ namespace WebCore {
 
 // RFC 6265 5.2: the name-value pair is everything before the first ';', and the attributes are read
 // from what follows it.
-static std::optional<Cookie> parseSetCookieField(const String& field)
+// A field carrying no SameSite attribute leaves the cookie unrestricted, which is what
+// Cookie::SameSitePolicy::None means and what an NSHTTPCookie with no SameSite property carries;
+// sameSiteExplicitlyNone tells that apart from the attribute written out as "None", which the caller
+// admits only from a secure origin.
+static std::optional<Cookie> parseSetCookieField(const String& field, bool& sameSiteExplicitlyNone)
 {
     if (field.length() >= 5000)
         return std::nullopt;
@@ -29,7 +33,6 @@ static std::optional<Cookie> parseSetCookieField(const String& field)
     cookie.name = (assignment == notFound ? emptyString() : pair.left(assignment)).trim(deprecatedIsSpaceOrNewline);
     cookie.value = (assignment == notFound ? pair : pair.substring(assignment + 1)).trim(deprecatedIsSpaceOrNewline);
     cookie.session = true;
-    cookie.sameSite = Cookie::SameSitePolicy::Lax;
     if (separator == notFound)
         return cookie;
     bool hasMaxAge = false;
@@ -81,8 +84,9 @@ static std::optional<Cookie> parseSetCookieField(const String& field)
         } else if (equalLettersIgnoringASCIICase(name, "path"_s))
             cookie.path = !value.isEmpty() && value.startsWith('/') ? value : emptyString();
         else if (equalLettersIgnoringASCIICase(name, "samesite"_s) && assignmentPosition != notFound) {
+            sameSiteExplicitlyNone = equalLettersIgnoringASCIICase(value, "none"_s);
             cookie.sameSite = equalLettersIgnoringASCIICase(value, "strict"_s) ? Cookie::SameSitePolicy::Strict
-                : equalLettersIgnoringASCIICase(value, "none"_s) ? Cookie::SameSitePolicy::None : Cookie::SameSitePolicy::Lax;
+                : sameSiteExplicitlyNone ? Cookie::SameSitePolicy::None : Cookie::SameSitePolicy::Lax;
         }
     }
     return cookie;
@@ -94,7 +98,8 @@ std::optional<Cookie> parseHTTPSetCookie(const String& field, const URL& url)
         if ((character < 0x20 && character != '\t') || character == 0x7f)
             return std::nullopt;
     }
-    auto parsed = parseSetCookieField(field);
+    bool explicitNone = false;
+    auto parsed = parseSetCookieField(field, explicitNone);
     if (!parsed)
         return std::nullopt;
     auto& cookie = *parsed;
@@ -121,7 +126,6 @@ std::optional<Cookie> parseHTTPSetCookie(const String& field, const URL& url)
     bool hasRootPath = cookie.path == "/"_s;
     if (cookie.path.isEmpty())
         cookie.path = CookieUtil::defaultPathForURL(url);
-    bool explicitNone = cookie.sameSite == Cookie::SameSitePolicy::None;
     bool secureOrigin = url.protocolIs("https"_s) || url.protocolIs("wss"_s);
     if ((cookie.secure && !secureOrigin) || (explicitNone && !cookie.secure))
         return std::nullopt;

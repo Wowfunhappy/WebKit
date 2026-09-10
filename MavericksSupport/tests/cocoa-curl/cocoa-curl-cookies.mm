@@ -37,22 +37,22 @@ static void parserTests()
     auto parse = [&](ASCIILiteral field) { return parseHTTPSetCookie(field, secure); };
     struct Case { ASCIILiteral field; ASCIILiteral name; ASCIILiteral value; ASCIILiteral path; Cookie::SameSitePolicy sameSite; };
     const Case cases[] = {
-        { "a=1"_s, "a"_s, "1"_s, "/a/b"_s, Cookie::SameSitePolicy::Lax },
+        { "a=1"_s, "a"_s, "1"_s, "/a/b"_s, Cookie::SameSitePolicy::None },
         { "a=1; Path=/; SameSite=Strict"_s, "a"_s, "1"_s, "/"_s, Cookie::SameSitePolicy::Strict },
-        { "a=1; Extension=bar, invented=2"_s, "a"_s, "1"_s, "/a/b"_s, Cookie::SameSitePolicy::Lax },
-        { "a=1, b=2"_s, "a"_s, "1, b=2"_s, "/a/b"_s, Cookie::SameSitePolicy::Lax },
-        { "a=\"x,y\"; Path=/"_s, "a"_s, "\"x,y\""_s, "/"_s, Cookie::SameSitePolicy::Lax },
-        { "a=\"x;y\"; Path=/"_s, "a"_s, "\"x"_s, "/"_s, Cookie::SameSitePolicy::Lax },
-        { "\ta\t=\t1\t; \tpath\t=\t/zzz"_s, "a"_s, "1"_s, "/zzz"_s, Cookie::SameSitePolicy::Lax },
-        { "a=1; Path=/qux; Path=/"_s, "a"_s, "1"_s, "/"_s, Cookie::SameSitePolicy::Lax },
-        { "a=1; Path=/; Path=/qux"_s, "a"_s, "1"_s, "/qux"_s, Cookie::SameSitePolicy::Lax },
-        { "a=1; Path=/dog; Path="_s, "a"_s, "1"_s, "/a/b"_s, Cookie::SameSitePolicy::Lax },
+        { "a=1; Extension=bar, invented=2"_s, "a"_s, "1"_s, "/a/b"_s, Cookie::SameSitePolicy::None },
+        { "a=1, b=2"_s, "a"_s, "1, b=2"_s, "/a/b"_s, Cookie::SameSitePolicy::None },
+        { "a=\"x,y\"; Path=/"_s, "a"_s, "\"x,y\""_s, "/"_s, Cookie::SameSitePolicy::None },
+        { "a=\"x;y\"; Path=/"_s, "a"_s, "\"x"_s, "/"_s, Cookie::SameSitePolicy::None },
+        { "\ta\t=\t1\t; \tpath\t=\t/zzz"_s, "a"_s, "1"_s, "/zzz"_s, Cookie::SameSitePolicy::None },
+        { "a=1; Path=/qux; Path=/"_s, "a"_s, "1"_s, "/"_s, Cookie::SameSitePolicy::None },
+        { "a=1; Path=/; Path=/qux"_s, "a"_s, "1"_s, "/qux"_s, Cookie::SameSitePolicy::None },
+        { "a=1; Path=/dog; Path="_s, "a"_s, "1"_s, "/a/b"_s, Cookie::SameSitePolicy::None },
         { "a=1; SameSite=Lax; SameSite=Strict"_s, "a"_s, "1"_s, "/a/b"_s, Cookie::SameSitePolicy::Strict },
         { "a=1; SameSite=Unknown"_s, "a"_s, "1"_s, "/a/b"_s, Cookie::SameSitePolicy::Lax },
         { "a=1; SameSite=None; Secure"_s, "a"_s, "1"_s, "/a/b"_s, Cookie::SameSitePolicy::None },
-        { "a="_s, "a"_s, ""_s, "/a/b"_s, Cookie::SameSitePolicy::Lax },
-        { "=value"_s, ""_s, "value"_s, "/a/b"_s, Cookie::SameSitePolicy::Lax },
-        { "value"_s, ""_s, "value"_s, "/a/b"_s, Cookie::SameSitePolicy::Lax },
+        { "a="_s, "a"_s, ""_s, "/a/b"_s, Cookie::SameSitePolicy::None },
+        { "=value"_s, ""_s, "value"_s, "/a/b"_s, Cookie::SameSitePolicy::None },
+        { "value"_s, ""_s, "value"_s, "/a/b"_s, Cookie::SameSitePolicy::None },
     };
     for (auto& entry : cases) {
         auto cookie = parse(entry.field);

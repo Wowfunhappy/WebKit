@@ -183,6 +183,10 @@ WebsiteDataStore& WebPreferences::privateBrowsingDataStore()
 {
     if (!m_privateBrowsingDataStore) {
         m_privateBrowsingDataStore = WebsiteDataStore::createNonPersistent();
+        // The session this one stands in for while Private Browsing is on carries the cross-site
+        // tracking state the client chose; a session created after that choice starts from it.
+        if (WebsiteDataStore::defaultDataStoreExists())
+            m_privateBrowsingDataStore->setTrackingPreventionEnabled(WebsiteDataStore::defaultDataStore().trackingPreventionEnabled());
         m_retiringPrivateBrowsingDataStore = nullptr;
     }
     return *m_privateBrowsingDataStore;

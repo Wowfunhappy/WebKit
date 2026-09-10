@@ -1,6 +1,5 @@
 // CFNetwork: entry points and constants modern WebKit references that 10.9's CFNetwork does not export,
 // with native protection-space and credential coding.
-#include "wk_cookie_storage.h"
 #include "wk_polyfill.h"
 #include "wk_symbols.h"
 #include "wk_trust.h"
@@ -109,50 +108,6 @@ WK_POLYFILL_ABSENT("CFNetwork", Boolean, _CFNetworkSetATSContext, (CFDataRef con
 WK_POLYFILL_ABSENT("CFNetwork", void, _CFURLStorageSessionDisableCache, (void *storageSession))
 {
     (void)storageSession;
-}
-
-// The accept policy the process's own cookie jar starts with.
-//
-// 10.9 hands the process's default cookie storage over set to kCFHTTPCookieStorageAcceptPolicyNever,
-// where CFNetwork's documented default -- the value every caller of these APIs is written against -- is
-// Always. (A storage created for a session of its own is a different case and is left alone: it starts
-// at OnlyFromMainDocumentDomain, and WebCore::createPrivateStorageSession sets the policy its creator
-// chose on it immediately.) A normal NSURLSession load never notices the default jar's value, because
-// 10.9 stamps the session configuration's own policy onto each request and reads the storage's only as
-// a fallback; WebKit does notice, because NetworkSessionCocoa marks the storage authoritative over the
-// configuration (-_overrideSessionCookieAcceptPolicy) and then only READS the policy, and because
-// WebKitLegacy's DOM cookie writes go straight to this jar. Left as 10.9 hands it over, no response and
-// no script can store a cookie.
-//
-// The policy belongs to the handle rather than to the store, so the correction is made on each handle
-// on this jar as it is handed over, once, before anybody has had it to choose a policy on: a policy set
-// afterwards -- Safari's Privacy radio through WebCookieManagerMac, WKHTTPCookieStore's
-// setCookiePolicy: -- is the answer from then on.
-static const char kCookieAcceptPolicyKey[] = "wk cookie accept policy defaulted";
-
-enum { kWKCookieAcceptPolicyAlways = 0, kWKCookieAcceptPolicyNever = 1 };
-
-WK_SYSTEM_FN("CFNetwork", CFIndex, CFHTTPCookieStorageGetCookieAcceptPolicy, (CFTypeRef));
-WK_SYSTEM_FN("CFNetwork", void, CFHTTPCookieStorageSetCookieAcceptPolicy, (CFTypeRef, CFIndex));
-
-void wk_giveTheProcessCookieJarItsDefaultAcceptPolicy(CFTypeRef storage)
-{
-    if (!storage || objc_getAssociatedObject((id)storage, kCookieAcceptPolicyKey))
-        return;
-    objc_setAssociatedObject((id)storage, kCookieAcceptPolicyKey, (id)kCFBooleanTrue, OBJC_ASSOCIATION_ASSIGN);
-    if (WK_SYSTEM(CFHTTPCookieStorageGetCookieAcceptPolicy)(storage) == kWKCookieAcceptPolicyNever)
-        WK_SYSTEM(CFHTTPCookieStorageSetCookieAcceptPolicy)(storage, kWKCookieAcceptPolicyAlways);
-}
-
-// The C half of the two ways WebKit reaches this jar: NetworkStorageSession reads the default storage
-// straight through this entry point (its ObjC twin is +[NSHTTPCookieStorage sharedHTTPCookieStorage],
-// replaced in methods/Foundation.m). The replacement covers WebKit's images only -- the archive is
-// static and hidden -- so a host application's own default storage is untouched.
-WK_POLYFILL_REPLACES("CFNetwork", CFTypeRef, _CFHTTPCookieStorageGetDefault, (CFAllocatorRef allocator))
-{
-    CFTypeRef storage = WK_ORIGINAL(_CFHTTPCookieStorageGetDefault)(allocator);
-    wk_giveTheProcessCookieJarItsDefaultAcceptPolicy(storage);
-    return storage;
 }
 
 // ---------------------------------------------------------------------------------------------------

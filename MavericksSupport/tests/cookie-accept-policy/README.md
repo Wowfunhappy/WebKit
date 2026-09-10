@@ -26,8 +26,20 @@ Expected:
 | ---------------------------------- | ----------- | ----------- |
 | From third parties and advertisers | STORED      | BLOCKED     |
 | Always                             | BLOCKED     | BLOCKED     |
-| Never                              | STORED      | BLOCKED     |
+| Never                              | STORED      | STORED      |
 
-The third-party column is constant because `NetworkStorageSession::m_thirdPartyCookieBlockingMode`
-defaults to `ThirdPartyCookieBlockingMode::All`, which blocks every third-party cookie without
-consulting a classification. The first-party column is what the accept policy decides.
+The first-party column is what the accept policy decides. The third-party column is decided twice
+over: the jar refuses a cross-site `Set-Cookie` under `OnlyFromMainDocumentDomain`, and
+`NetworkStorageSession::thirdPartyCookieBlockingDecisionForRequest` refuses one whenever tracking
+prevention is on (`ThirdPartyCookieBlockingMode::All` consults no classification). Both answer to the
+accept policy: the account carries it across launches, so `determineTrackingPreventionStateInternal`
+reads it for a session nobody has told otherwise, and `WKCookieManagerSetHTTPCookieAcceptPolicy`
+carries a change of it to every session this client has.
+
+Safari pushes the accept policy only when its own read-back disagrees with it -- at "Never" it agrees
+and Safari stays silent -- so **a run that never touches the radio** is the one that tells you whether
+the level travels on the account's own record rather than on that push. Quit Safari, set the level in
+the previous run, and load the page as the first thing the new launch does.
+
+A Private Browsing window belongs to a second, ephemeral session; run the table there too, both by
+switching the level while it is open and by opening it after the switch.

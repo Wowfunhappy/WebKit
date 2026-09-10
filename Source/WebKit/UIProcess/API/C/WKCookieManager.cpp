@@ -136,7 +136,23 @@ void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRe
 {
     if (!cookieManagerRef)
         return;
-    protect(WebKit::toImpl(cookieManagerRef))->setHTTPCookieAcceptPolicy(WebKit::toHTTPCookieAcceptPolicy(policy), [] { });
+    // MAVERICKS_BACKPORT: Safari 7 has one cookie manager for the whole browser -- the Privacy pane's
+    // "Block cookies and other website data" radio -- so the policy it sets is the policy of every
+    // session it has. A session created afterwards inherits it through createPrivateStorageSession,
+    // which reads the process's cookie jar; one that already exists is reached here.
+    //
+    // The same radio is where this client says whether cross-site tracking should be prevented, the
+    // preference Safari 11 moved to its own checkbox and pushes through
+    // -[WKWebsiteDataStore _setResourceLoadStatisticsEnabled:]: accepting from anywhere is the choice
+    // not to restrict cross-site traffic, and without it ThirdPartyCookieBlockingMode::All blocks
+    // every third-party cookie at all three radio positions. A session that has not been told
+    // otherwise answers from the same jar through defaultTrackingPreventionEnabled().
+    auto acceptPolicy = WebKit::toHTTPCookieAcceptPolicy(policy);
+    bool preventTracking = acceptPolicy != WebCore::HTTPCookieAcceptPolicy::AlwaysAccept;
+    WebKit::WebsiteDataStore::forEachWebsiteDataStore([acceptPolicy, preventTracking](WebKit::WebsiteDataStore& dataStore) {
+        dataStore.setTrackingPreventionEnabled(preventTracking);
+        dataStore.cookieStore().setHTTPCookieAcceptPolicy(acceptPolicy, [] { });
+    });
 /* MAVERICKS_BACKPORT: upstream's 4-argument body kept here so upstream merges see the original text; not built on this backport (see above).
 void WKCookieManagerSetHTTPCookieAcceptPolicy(WKCookieManagerRef cookieManagerRef, WKHTTPCookieAcceptPolicy policy, void* context, WKCookieManagerSetHTTPCookieAcceptPolicyFunction callback)
 {

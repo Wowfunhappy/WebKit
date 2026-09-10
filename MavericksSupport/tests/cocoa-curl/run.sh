@@ -46,6 +46,10 @@ rm -rf /private/tmp/curl-legacy-download-tests; mkdir -p /private/tmp/curl-legac
 if [ $BUILD_TESTS = 1 ]; then
     "$HERE/build.sh" "${TESTS[@]}" || { echo "cocoa-curl: test build failed"; exit 1; }
 fi
+# A framework build leaves the tree's own Mach-Os homed the way the 26.1 SDK linked them, which dyld
+# on 10.9 refuses; the tests load that tree, so every run prepares it, built here or not.
+bash "$ROOT/MavericksSupport/scripts/make-build-binaries-runnable.sh" >> "$LOG" 2>&1 \
+    || { echo "cocoa-curl: could not make the build tree loadable (see $LOG)"; exit 1; }
 if [ ! -f "$OUT/libbrotlienc.dylib" ]; then
     echo "### cocoa-curl brotli encoder dylib" >> "$LOG"
     "$TC/clang" -dynamiclib -mmacosx-version-min=10.9 -Wl,-force_load,"$DEPS/lib/libbrotlienc.a" -Wl,-force_load,"$DEPS/lib/libbrotlicommon.a" \
