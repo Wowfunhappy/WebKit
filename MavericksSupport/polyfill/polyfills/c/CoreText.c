@@ -22,6 +22,11 @@
 #include <string.h>
 #include <tiffio.h>
 
+// ots_font_parser.cpp: the memory-safe font parser, and the WOFF/WOFF2 container test the entry
+// points that must accept one ask first.
+extern bool wk_font_data_is_woff(CFDataRef data);
+extern CFDataRef wk_ots_sanitize_font(CFDataRef data);
+
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontCSSFamilyCursive, CFSTR("kCTFontCSSFamilyCursive"));
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontCSSFamilyFantasy, CFSTR("kCTFontCSSFamilyFantasy"));
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontCSSFamilyMonospace, CFSTR("kCTFontCSSFamilyMonospace"));
@@ -828,6 +833,16 @@ static CTFontDescriptorRef wk_descriptorWithZeroSize(CTFontDescriptorRef descrip
 
 WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontManagerCreateFontDescriptorFromData, (CFDataRef data))
 {
+    // CoreText accepts a WOFF or WOFF2 container from macOS 11 on. CoreGraphics' parser below reads
+    // neither, so the container is unwrapped first; the sfnt inside takes the path as usual.
+    if (wk_font_data_is_woff(data)) {
+        CFDataRef sfnt = wk_ots_sanitize_font(data);
+        if (!sfnt)
+            return NULL;
+        CTFontDescriptorRef descriptor = CTFontManagerCreateFontDescriptorFromData(sfnt);
+        CFRelease(sfnt);
+        return descriptor;
+    }
     if (data) {
         bool variable = wk_legacy_variable_font_is_instanceable(data);
         CFDataRef master = variable ? wk_legacy_variable_font_strip_variations(data) : (CFDataRef)CFRetain(data);
@@ -2953,6 +2968,14 @@ WK_POLYFILL_ABSENT("CoreText", CFArrayRef, FPFontCreateFontsFromData, (CFDataRef
 {
     if (!data)
         return NULL;
+    if (wk_font_data_is_woff(data)) {
+        CFDataRef sfnt = wk_ots_sanitize_font(data);
+        if (!sfnt)
+            return NULL;
+        CFArrayRef fonts = FPFontCreateFontsFromData(sfnt);
+        CFRelease(sfnt);
+        return fonts;
+    }
     // Upstream reads an empty result as "something is wrong with the font" and rejects the
     // @font-face outright, so the parse has to be attempted here rather than deferred. Accept
     // exactly what CTFontManagerCreateFontDescriptorFromData above accepts: CoreGraphics' parser
@@ -2985,6 +3008,36 @@ WK_POLYFILL_ABSENT("CoreText", CFDataRef, FPFontCopySFNTData, (FPFontRef font))
     if (font && CFGetTypeID((CFTypeRef)font) == CFDataGetTypeID())
         return (CFDataRef)CFRetain((CFTypeRef)font);
     return NULL;
+}
+
+// The memory-safe font parser pair. macOS 15 parses a downloadable font with a parser written not to
+// be exploitable by the font it is reading and hands CoreText the result; 10.9 has neither entry
+// point, and its own parser is the one that replacement exists to keep away from page bytes. OTS
+// (ots_font_parser.cpp) stands in: it re-serialises the font from its own bounds-checked table
+// structures, so what the parser below opens is a sfnt OTS wrote, not the one that came off the
+// network. A font OTS will not accept has no sanitized form, and NULL is the contract's answer.
+
+WK_POLYFILL_ABSENT("CoreText", CFArrayRef, FPFontCreateMemorySafeFontsFromData, (CFDataRef data))
+{
+    CFDataRef sanitized = wk_ots_sanitize_font(data);
+    if (!sanitized)
+        return NULL;
+    // An FPFontRef is the CFData, as it is for FPFontCreateFontsFromData above.
+    const void *values[1] = { sanitized };
+    CFArrayRef fonts = CFArrayCreate(kCFAllocatorDefault, values, 1, &kCFTypeArrayCallBacks);
+    CFRelease(sanitized);
+    return fonts;
+}
+
+WK_POLYFILL_ABSENT("CoreText", CTFontDescriptorRef, CTFontManagerCreateMemorySafeFontDescriptorFromData, (CFDataRef data))
+{
+    CFDataRef sanitized = wk_ots_sanitize_font(data);
+    if (!sanitized)
+        return NULL;
+    // The replacement above, which carries this port's legacy-variable-font handling.
+    CTFontDescriptorRef descriptor = CTFontManagerCreateFontDescriptorFromData(sanitized);
+    CFRelease(sanitized);
+    return descriptor;
 }
 
 WK_POLYFILL_REPLACES("CoreText", CFStringRef, FPFontCopyPostScriptName, (FPFontRef font))

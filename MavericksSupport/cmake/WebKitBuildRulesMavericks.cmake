@@ -141,6 +141,11 @@ macro(_WEBKIT_FORCE_LOAD_POLYFILL _target)
         # same reason it is vendored for WebCore: those bytes come from a downloadable font, and
         # nothing in this port hands page bytes to 10.9's ImageIO.
         target_link_libraries(${_target} PRIVATE
+            # The OpenType Sanitiser behind the CoreText polyfill's memory-safe font parser, and the
+            # WOFF2 decoder ots.cc calls for a WOFF2 it is handed directly. Both precede brotli,
+            # which they decompress through.
+            "${MAVERICKS_DEPS}/lib/libots.a"
+            "${MAVERICKS_DEPS}/lib/libwoff2dec.a"
             "${MAVERICKS_DEPS}/lib/libbrotlienc.a"
             "${MAVERICKS_DEPS}/lib/libbrotlidec.a"
             "${MAVERICKS_DEPS}/lib/libbrotlicommon.a"

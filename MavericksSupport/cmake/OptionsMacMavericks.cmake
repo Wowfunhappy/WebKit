@@ -100,11 +100,10 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_APPLE_PAY PRIVATE OFF)
 # and USE(LCMS) is what makes JPEGImageDecoder and PNGImageDecoder do that. lcms2 comes from
 # deps/build_deps.sh.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_LCMS PRIVATE ON)
-# ENABLE WOFF2 web fonts. Our modern UA makes servers (Google Fonts, Material
-# Icons, etc.) send WOFF2; without a decoder CGFontCreateWithDataProvider fails on the raw bytes
-# and icon/web fonts render as empty boxes. Decoder = locally-built libwoff2dec + libbrotli (see
-# PlatformMac.cmake). [[project_woff2_enabled]]
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_WOFF2 PRIVATE ON)
+# OFF. WOFFFileFormat.cpp's converter is the only consumer, and HAVE(WOFF_SUPPORT) compiles it out
+# on Cocoa. A WOFF or WOFF2 container is unwrapped further down, by the OpenType Sanitiser behind the
+# CoreText polyfill, which decompresses it as it reads it.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_WOFF2 PRIVATE OFF)
 
 # ON, the value PlatformEnableCocoa.h gives PLATFORM(MAC) and the one Apple's own
 # Mac build uses; WebKitFeatures.cmake's OFF is the cross-port default. The feature stands entirely on
@@ -165,6 +164,15 @@ endforeach ()
 # applications as TIFF -- Pasteboard::write(PasteboardImage) writes public.tiff and Pasteboard::read
 # hands image/tiff to the editor -- so this port carries one, in MavericksSupport/source on libtiff.
 SET_AND_EXPOSE_TO_BUILD(USE_TIFF TRUE)
+
+# The OpenType Sanitiser backs the CoreText polyfill's memory-safe font parser, which every
+# downloadable font goes through (polyfill/polyfills/c/ots_font_parser.cpp). Asked here, by name,
+# rather than left to an unresolved symbol inside every image that force-loads libpolyfill.a.
+if (NOT EXISTS "${MAVERICKS_DEPS}/lib/libots.a")
+    message(FATAL_ERROR
+        "${MAVERICKS_DEPS}/lib/libots.a is missing.\n"
+        "Run MavericksSupport/deps/build_deps.sh.")
+endif ()
 
 # OFF — Web Inspector extensions are not part of the 10.9 drop-in scope.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_INSPECTOR_EXTENSIONS PRIVATE OFF)

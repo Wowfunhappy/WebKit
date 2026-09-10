@@ -6,6 +6,12 @@
 #   libgpg-error, libgcrypt, libtasn1   -> WebCore USE(GCRYPT) WebCrypto
 #   brotli (common/dec/enc)             -> WOFF2 + Brotli Content-Encoding
 #   woff2 (decoder)                     -> WOFF2 web font decompression
+#   OTS 9.2.0 (static)                  -> the parser behind the CoreText polyfill's memory-safe font
+#                                          parser, which every @font-face payload goes through. CoreText
+#                                          then opens a font OTS re-serialised from its own bounds-checked
+#                                          table structures, rather than the bytes as they arrived. The
+#                                          colour and AAT tables OTS models no parser for are passed
+#                                          through unchanged, and those do reach CoreText verbatim.
 #   libwebp 1.3.2 (static)              -> WebCore's WEBPImageDecoder. This build decodes every
 #                                          image format in WebCore rather than in 10.9's ImageIO,
 #                                          so each of the image libraries below is on the path
@@ -515,6 +521,29 @@ if ! built woff2 install/lib/libwoff2dec.a; then
       && cp include/woff2/*.h "$STAGE/include/woff2/" \
       && cp libwoff2dec.a "$STAGE/lib/" ) || exit 1
     finished woff2 "$d"
+fi
+
+echo "==== OTS 9.2.0 (OpenType Sanitiser) ===="
+# The parser standing between remote font bytes and CoreText. OTS parses a sfnt into its own
+# bounds-checked table structures and writes a fresh font back out, so every table directory entry,
+# offset and length CoreText reads is one OTS computed rather than one the font supplied.
+# Graphite is off: CoreText renders no Graphite, and those tables are the only thing that wants lz4.
+# Hidden visibility: this lands in libpolyfill.a, whose members are hidden so the layer stays
+# confined to WebKit and nothing else in the process binds to it.
+# zlib is the system's; the woff2/brotli above cover the WOFF paths in ots.cc.
+u=https://github.com/khaledhosny/ots/releases/download/v9.2.0/ots-9.2.0.tar.xz
+if ! built ots install/lib/libots.a; then
+    d=$(get "$u" ots)
+    ( cd "$d" \
+      && printf '#define OTS_SYNTHESIZE_MISSING_GVAR 1\n#define OTS_COLR_CYCLE_CHECK 1\n' > src/config.h \
+      && $CXX -std=c++11 -O2 -mmacosx-version-min=10.9 -fno-exceptions -fno-rtti \
+           -fvisibility=hidden -fvisibility-inlines-hidden \
+           -DHAVE_CONFIG_H -Iinclude -Isrc -I"$STAGE/include" -c \
+           $(ls src/*.cc | grep -v -E 'src/(feat|glat|gloc|sile|silf|sill)\.cc') \
+      && "$AR" rcs libots.a *.o \
+      && cp include/opentype-sanitiser.h "$STAGE/include/" \
+      && cp libots.a "$STAGE/lib/" ) || exit 1
+    finished ots "$d"
 fi
 
 echo "==== libwebp 1.3.2 ===="
@@ -1481,6 +1510,7 @@ cp -p "$STAGE/include/libtasn1.h"    "$DEST/include/"
 cp -p "$STAGE/include/libpsl.h"      "$DEST/include/"
 cp -Rp "$STAGE/include/brotli"     "$DEST/include/"
 cp -Rp "$STAGE/include/woff2"      "$DEST/include/"
+cp -p "$STAGE/include/opentype-sanitiser.h" "$DEST/include/"
 cp -Rp "$STAGE/include/webp"       "$DEST/include/"
 cp -Rp "$STAGE/include/avif"       "$DEST/include/"
 # libjpeg-turbo, lcms2 and libtiff all install flat headers at the include root, which is where
@@ -1519,7 +1549,7 @@ for l in libicuuc.a libicui18n.a libicudata.a \
          libgpg-error.a libgcrypt.a libtasn1.a \
          libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a \
          libwebp.a libwebpdemux.a libsharpyuv.a libavif.a libyuv.a libpng16.a \
-         libjpeg.a liblcms2.a libtiff.a; do
+         libjpeg.a liblcms2.a libtiff.a libots.a; do
   cp -p "$STAGE/lib/$l" "$DEST/lib/"
 done
 
@@ -1706,7 +1736,7 @@ require_glob "$DEST/lib/libc++abi.1.dylib"
 for a in libicuuc.a libicui18n.a libicudata.a libgpg-error.a libgcrypt.a libtasn1.a \
          libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a \
          libwebp.a libwebpdemux.a libsharpyuv.a libavif.a libyuv.a libpng16.a \
-         libjpeg.a liblcms2.a libtiff.a; do
+         libjpeg.a liblcms2.a libtiff.a libots.a; do
   require_glob "$DEST/lib/$a"
 done
 require_glob "$DEST/include/webp/decode.h"
@@ -1714,6 +1744,7 @@ require_glob "$DEST/include/png.h"
 require_glob "$DEST/include/jpeglib.h"
 require_glob "$DEST/include/lcms2.h"
 require_glob "$DEST/include/tiffio.h"
+require_glob "$DEST/include/opentype-sanitiser.h"
 require_glob "$DEST/include/avif/avif.h"
 require_glob "$DEST/include/libxml2/libxml/parser.h"
 require_glob "$DEST/include/libxslt/xslt.h"

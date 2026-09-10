@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Font table measurement</title>
+<style>
+body { font: 13px -apple-system, sans-serif; margin: 20px; }
+td, th { padding: 4px 10px; border-bottom: 1px solid #ddd; text-align: left; }
+.same { color: #b26b00; font-weight: bold; }
+.diff { color: #0a0; font-weight: bold; }
+.s { font-size: 40px; }
+@font-face { font-family: trakPass;  src: url(fonts/trak-pass.ttf); }
+@font-face { font-family: trakDrop;  src: url(fonts/trak-drop.ttf); }
+@font-face { font-family: propPass;  src: url(fonts/prop-pass.ttf); }
+@font-face { font-family: propDrop;  src: url(fonts/prop-drop.ttf); }
+@font-face { font-family: morxPass;  src: url(fonts/morx-pass.otf); }
+@font-face { font-family: morxDrop;  src: url(fonts/morx-drop.otf); }
+@font-face { font-family: svgPass;   src: url(fonts/svg-pass.ttf); }
+@font-face { font-family: colr;      src: url(fonts/colr.ttf); }
+@font-face { font-family: sbixAPass; src: url(fonts/sbixA-pass.ttf); }
+@font-face { font-family: sbixADrop; src: url(fonts/sbixA-drop.ttf); }
+@font-face { font-family: cbdtAPass; src: url(fonts/cbdtA-pass.ttf); }
+@font-face { font-family: cbdtADrop; src: url(fonts/cbdtA-drop.ttf); }
+</style>
+<h2>Does dropping the table change what this OS draws?</h2>
+<p class="s"><span style="font-family:sbixAPass">A</span><span style="font-family:cbdtAPass">A</span><span style="font-family:svgPass">SVG</span><span style="font-family:colr">C</span></p>
+<table id="r"><tr><th>question</th><th>with</th><th>without</th><th>verdict</th></tr></table>
+<pre id="json"></pre>
+<script>
+// The colour tests run on "A", not on an emoji: the system fallback for an emoji is Apple Color
+// Emoji, which paints colour whether or not the font under test drew anything, and that fallback
+// cannot be turned off for canvas. Latin text falls back to a monochrome face.
+function pixels(family, text) {
+    const cv = document.createElement("canvas");
+    cv.width = 220; cv.height = 90;
+    const c = cv.getContext("2d");
+    c.fillStyle = "#fff"; c.fillRect(0, 0, cv.width, cv.height);
+    c.fillStyle = "#000";
+    c.font = '56px "' + family + '"';
+    c.fillText(text, 6, 66);
+    return c.getImageData(0, 0, cv.width, cv.height).data;
+}
+// A count, not a yes/no: this OS paints system text with subpixel antialiasing, which leaves a few
+// hundred coloured pixels on ordinary black glyphs. Only a count well above that baseline is a
+// colour glyph, and the baseline itself is one of the rows below.
+function colourPixels(family, text) {
+    const d = pixels(family, text);
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4)
+        if (Math.abs(d[i] - d[i+1]) > 12 || Math.abs(d[i+1] - d[i+2]) > 12) n++;
+    return n;
+}
+function widthWith(family, text) {
+    const c = document.createElement("canvas").getContext("2d");
+    c.font = '40px "' + family + '", monospace';
+    return Math.round(c.measureText(text).width * 1000) / 1000;
+}
+async function loaded(family) {
+    try { return (await document.fonts.load('40px "' + family + '"')).length > 0; }
+    catch (e) { return false; }
+}
+async function run() {
+    const fams = ["trakPass","trakDrop","propPass","propDrop","morxPass","morxDrop",
+                  "svgPass","colr","sbixAPass","sbixADrop","cbdtAPass","cbdtADrop"];
+    const load = {};
+    for (const f of fams) load[f] = await loaded(f);
+
+    const rows = [
+        // Local Apple Color Emoji, no web font involved: proves the detector can see colour at all.
+        ["CONTROL: local Apple Color Emoji, coloured px", colourPixels("Apple Color Emoji", "\u{1F600}"), 0],
+        // The subpixel-antialiasing floor every other colour count has to beat.
+        ["BASELINE: unloadable family falls back, coloured px", colourPixels("no-such-family-zz", "A"), 0],
+        ["sbix pass vs drop, coloured px", colourPixels("sbixAPass", "A"), colourPixels("sbixADrop", "A")],
+        ["CBDT-only font loads even with its bitmaps kept", load.cbdtAPass, false],
+        ["CBDT-only font survives dropping its bitmaps", load.cbdtADrop, false],
+        ["trak changes advance width", widthWith("trakPass", "AAAAAAAAAA"), widthWith("trakDrop", "AAAAAAAAAA")],
+        ["prop changes advance width", widthWith("propPass", "一二三AAA"), widthWith("propDrop", "一二三AAA")],
+        ["morx changes advance width", widthWith("morxPass", "fi ffl Th 123"), widthWith("morxDrop", "fi ffl Th 123")],
+        ["OpenType-SVG, coloured px", colourPixels("svgPass", "AB"), 0],
+        ["COLRv0, coloured px", colourPixels("colr", "AB"), 0],
+    ];
+    const t = document.getElementById("r");
+    const out = { loaded: load };
+    for (const [name, a, b] of rows) {
+        const differs = a !== b;
+        const tr = t.insertRow();
+        tr.insertCell().textContent = name;
+        tr.insertCell().textContent = String(a);
+        tr.insertCell().textContent = String(b);
+        const v = tr.insertCell();
+        v.textContent = differs ? "DIFFERS" : "SAME";
+        v.className = differs ? "diff" : "same";
+        out[name] = { a, b, differs };
+    }
+    window.RESULT = out;
+    document.getElementById("json").textContent = JSON.stringify(out, null, 1);
+    document.title = "TABLES MEASURED";
+}
+run().catch(function (e) {
+    window.RESULT = { error: String(e && e.message || e) };
+    document.getElementById("json").textContent = JSON.stringify(window.RESULT);
+    document.title = "TABLES ERROR";
+});
+</script>

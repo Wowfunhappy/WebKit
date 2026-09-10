@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Font sanitizer</title>
+<style>
+body { font: 13px -apple-system, sans-serif; margin: 20px; }
+td, th { padding: 4px 10px; border-bottom: 1px solid #ddd; text-align: left; }
+.pass { color: #0a0; font-weight: bold; }
+.fail { color: #c00; font-weight: bold; }
+.sample { font-size: 26px; }
+#boxis { font-family: boxis; }
+#junk { font-family: junk; }
+#roboto { font-family: roboto; }
+#sbix { font-family: sbix; font-size: 44px; }
+@font-face { font-family: boxis;  src: url(/LayoutTests/animations/font-variations/resources/Boxis-VF.ttf); }
+@font-face { font-family: junk;   src: url(/MavericksSupport/tests/font-sanitizer/fonts/junk-table.ttf); }
+@font-face { font-family: roboto; src: url(/LayoutTests/fast/text/variations/resources/Roboto-VF.woff2) format("woff2"); }
+@font-face { font-family: bad;    src: url(/LayoutTests/css3/resources/FontWithFeatures.ttf); }
+@font-face { font-family: woff1;  src: url(/LayoutTests/fast/text/resources/LiebeTest-liga.woff) format("woff"); }
+@font-face { font-family: sbix;   src: url(/MavericksSupport/tests/font-sanitizer/fonts/generated-sbix.ttf); }
+</style>
+
+<h2>Downloadable font parsing</h2>
+<div class="sample" id="boxis">Boxis VF &mdash; ABCabc 123</div>
+<div class="sample" id="junk">Junk table &mdash; ABCabc 123</div>
+<div class="sample" id="roboto">Roboto VF &mdash; ABCabc 123</div>
+<div id="sbix">😀😁😂😃❤</div>
+<table id="results"><tr><th>check</th><th>expected</th><th>actual</th><th></th></tr></table>
+<pre id="json"></pre>
+
+<script>
+function widthWith(family) {
+    const c = document.createElement("canvas").getContext("2d");
+    c.font = '40px "' + family + '", monospace';
+    return Math.round(c.measureText("ABCabcdefg 0123456789").width * 100) / 100;
+}
+
+async function tryLoad(family) {
+    try {
+        const faces = await document.fonts.load('40px "' + family + '"');
+        return faces.length > 0;
+    } catch (e) {
+        return false;
+    }
+}
+
+async function run() {
+    const loaded = {};
+    for (const f of ["boxis", "junk", "roboto", "bad", "sbix", "woff1"])
+        loaded[f] = await tryLoad(f);
+
+    const wBoxis = widthWith("boxis");
+    const wJunk = widthWith("junk");
+    const wFallback = widthWith("no-such-family-xyzzy");
+    const wBad = widthWith("bad");
+
+    const checks = [
+        ["well-formed TTF loads", true, loaded.boxis],
+        ["WOFF2 loads", true, loaded.roboto],
+        ["WOFF1 loads", true, loaded.woff1],
+        ["font with unknown table loads", true, loaded.junk],
+        ["unknown table dropped, not fatal (metrics match)", wBoxis, wJunk],
+        ["malformed cmap REJECTED", false, loaded.bad],
+        ["rejected font falls back", wFallback, wBad],
+        ["sbix colour font loads (tables this OS renders are kept)", true, loaded.sbix],
+    ];
+
+    const table = document.getElementById("results");
+    let allPass = true;
+    for (const [name, expected, actual] of checks) {
+        const ok = expected === actual;
+        allPass = allPass && ok;
+        const tr = table.insertRow();
+        tr.insertCell().textContent = name;
+        tr.insertCell().textContent = String(expected);
+        tr.insertCell().textContent = String(actual);
+        const v = tr.insertCell();
+        v.textContent = ok ? "PASS" : "FAIL";
+        v.className = ok ? "pass" : "fail";
+    }
+
+    window.RESULT = { allPass, loaded, widths: { boxis: wBoxis, junk: wJunk, bad: wBad, fallback: wFallback } };
+    document.getElementById("json").textContent = JSON.stringify(window.RESULT, null, 1);
+    document.title = allPass ? "SANITIZER PASS" : "SANITIZER FAIL";
+}
+run();
+</script>

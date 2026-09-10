@@ -165,20 +165,6 @@ set(WebCore_USER_AGENT_SCRIPTS
     ${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsApple.js
 )
 
-# WOFF2 web-font decoder (USE_WOFF2=ON). Our modern UA makes Google Fonts/Material
-# Icons serve WOFF2; WOFFFileFormat.cpp::convertWOFFToSfntIfNecessary then calls woff2::ConvertWOFF2ToTTF
-# (Brotli-decompress + table reconstruction). Built locally from google/woff2 + google/brotli (static).
-# WebCore/CMakeLists.txt does `list(APPEND WebCore_LIBRARIES WOFF2::dec)` when USE_WOFF2 is ON, so we
-# define that imported target here (instead of via find_package) and carry brotli as interface deps.
-if (NOT TARGET WOFF2::dec)
-    add_library(WOFF2::dec UNKNOWN IMPORTED GLOBAL)
-    set_target_properties(WOFF2::dec PROPERTIES
-        IMPORTED_LOCATION "${MAVERICKS_DEPS}/lib/libwoff2dec.a"
-        INTERFACE_INCLUDE_DIRECTORIES "${MAVERICKS_DEPS}/include"
-        INTERFACE_LINK_LIBRARIES "${MAVERICKS_DEPS}/lib/libbrotlidec.a;${MAVERICKS_DEPS}/lib/libbrotlicommon.a"
-    )
-endif ()
-
 # Little-CMS (USE_LCMS=ON): the ICC engine JPEGImageDecoder and PNGImageDecoder transform profiled
 # images with. WebCore/CMakeLists.txt does `list(APPEND WebCore_LIBRARIES LCMS2::LCMS2)` when
 # USE_LCMS is ON -- and adds the lcms include directory and LCMSUniquePtr.h itself -- so all this

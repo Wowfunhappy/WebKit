@@ -67,7 +67,8 @@ HIDDEN='-fvisibility=hidden'
 
 # --- compile -----------------------------------------------------------------------------------
 echo "### compiling polyfills/c (every WebKit image)"
-# -I deps/build/include: libcompression.c decodes Brotli through the vendored codec headers.
+# -I deps/build/include: libcompression.c decodes Brotli through the vendored codec headers, and
+# ots_font_parser.cpp the OpenType Sanitiser's.
 CINC="$INC -I$REPO/MavericksSupport/deps/build/include"
 for f in "$PF"/c/*.c "$PF"/c/*.m; do
     [ -e "$f" ] || continue
@@ -75,7 +76,7 @@ for f in "$PF"/c/*.c "$PF"/c/*.m; do
 done
 for f in "$PF"/c/*.cpp; do
     [ -e "$f" ] || continue
-    cc_queue "$CLANGXX" -c $MODERN $HIDDEN $INC -std=c++17 -o "$OBJ/c/$(basename "${f%.*}").o" "$f"
+    cc_queue "$CLANGXX" -c $MODERN $HIDDEN $CINC -std=c++17 -o "$OBJ/c/$(basename "${f%.*}").o" "$f"
 done
 
 echo "### compiling polyfills/shared (also compiled by the vendored non-WebKit builds)"
@@ -341,7 +342,9 @@ WK_POLYFILL_SIBLING="$T/wk_polyfill_sibling.dylib" "$T/wk_polyfill_test"
 "$T/color_popover_top_bar"
 # Probes that link the SHIPPED archive (without -force_load, so only the members they reach are pulled)
 # and call the polyfilled symbols exactly as WebKit will.
-PROBE_LIBS="$OUT/libpolyfill.a $REPO/MavericksSupport/deps/build/lib/libpng16.a $REPO/MavericksSupport/deps/build/lib/libtiff.a $REPO/MavericksSupport/deps/build/lib/libjpeg.a $REPO/MavericksSupport/deps/build/lib/libpsl.5.dylib -Wl,-rpath,$REPO/MavericksSupport/deps/build/lib -framework Foundation -framework CoreFoundation -framework Security -framework CoreMedia -lsqlite3 -lbsm -lsandbox -lobjc -lz"
+# libots/libwoff2dec/brotli: the CoreText polyfill's memory-safe font parser, which a probe pulls in
+# with the rest of CoreText.c.
+PROBE_LIBS="$OUT/libpolyfill.a $REPO/MavericksSupport/deps/build/lib/libots.a $REPO/MavericksSupport/deps/build/lib/libwoff2dec.a $REPO/MavericksSupport/deps/build/lib/libbrotlidec.a $REPO/MavericksSupport/deps/build/lib/libbrotlicommon.a $REPO/MavericksSupport/deps/build/lib/libpng16.a $REPO/MavericksSupport/deps/build/lib/libtiff.a $REPO/MavericksSupport/deps/build/lib/libjpeg.a $REPO/MavericksSupport/deps/build/lib/libpsl.5.dylib -Wl,-rpath,$REPO/MavericksSupport/deps/build/lib -framework Foundation -framework CoreFoundation -framework Security -framework CoreMedia -lsqlite3 -lbsm -lsandbox -lobjc -lz"
 "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/dispatch_activate" "$TBEHAV/libSystem-dispatch.m" $PROBE_LIBS
 "$T/dispatch_activate"
 "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/sectask_identity" "$TBEHAV/Security-sectask.m" $PROBE_LIBS

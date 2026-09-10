@@ -91,6 +91,10 @@ DownloadableBinaryFontTrustedTypes:
   defaultValue:
     WebCore:
       PLATFORM(WATCHOS): DownloadableBinaryFontTrustedTypes::None
+      # MAVERICKS_BACKPORT: SafeFontParser sends a downloadable font to
+      # FontCustomPlatformData::createMemorySafe(), which this port answers through the polyfilled
+      # CoreText memory-safe parser.
+      HAVE(CTFONTMANAGER_CREATEMEMORYSAFEFONTDESCRIPTORFROMDATA): DownloadableBinaryFontTrustedTypes::SafeFontParser
       default: DownloadableBinaryFontTrustedTypes::Any
 
 EditingBehaviorType:

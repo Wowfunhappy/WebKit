@@ -1394,6 +1394,13 @@
 #define HAVE_CTFONTMANAGER_CREATEMEMORYSAFEFONTDESCRIPTORFROMDATA 1
 #endif
 
+// MAVERICKS_BACKPORT: the polyfill layer implements CTFontManagerCreateMemorySafeFontDescriptorFromData
+// and FPFontCreateMemorySafeFontsFromData on the OpenType Sanitiser (polyfill/polyfills/c/CoreText.c),
+// so a downloadable font is parsed by a memory-safe parser on this deployment target as well.
+#if PLATFORM(MAC) && !defined(HAVE_CTFONTMANAGER_CREATEMEMORYSAFEFONTDESCRIPTORFROMDATA)
+#define HAVE_CTFONTMANAGER_CREATEMEMORYSAFEFONTDESCRIPTORFROMDATA 1
+#endif // MAVERICKS_BACKPORT: closes the guard above.
+
 #if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000)
 #define HAVE_NSWINDOW_SNAPSHOT_READINESS_HANDLER 1
 #endif

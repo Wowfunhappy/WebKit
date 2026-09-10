@@ -179,12 +179,12 @@ bool FontCustomPlatformData::supportsFormat(const String& format)
 bool FontCustomPlatformData::supportsTechnology(const FontTechnology& tech)
 {
     switch (tech) {
-    case FontTechnology::ColorColrv0:
+    // case FontTechnology::ColorColrv0: // MAVERICKS_BACKPORT: 10.9 paints no COLRv0 glyph.
     case FontTechnology::ColorSbix:
-    case FontTechnology::ColorSvg:
+    // case FontTechnology::ColorSvg: // MAVERICKS_BACKPORT: 10.9 paints no OpenType-SVG glyph.
     case FontTechnology::FeaturesAat:
     case FontTechnology::FeaturesOpentype:
-    case FontTechnology::Palettes:
+    // case FontTechnology::Palettes: // MAVERICKS_BACKPORT: CPAL only selects COLR colours.
     case FontTechnology::Variations:
         return true;
     default:
