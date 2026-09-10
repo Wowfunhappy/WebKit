@@ -845,10 +845,34 @@ void CocoaCurlTransfer::updateMetrics()
     collectCocoaCurlMetrics(m_easy, m_options.request, m_started, !m_response.proxyHost.isEmpty(), m_metrics);
 }
 
+// RFC 9112 6.3 item 7: a response carrying neither Content-Length nor a chunked transfer coding is
+// delimited by the connection close, so the close is where the message ends and the bytes already
+// delivered are the whole of it, whatever the status says. curl reports the read that meets that close
+// as a failure -- the peer closing without a TLS close_notify, or the socket erroring -- and without
+// this the whole response would be a failed load. CurlRequest::didCompleteTransfer answers the same
+// question the same way for upstream's curl-backed loader (isConnectionCloseEndOfBody). The two
+// further conditions here are the framings this transport can report CURLE_RECV_ERROR from and that
+// one cannot: HTTP/2, whose framing carries its own end of stream, and a chunked coding, whose last
+// chunk is the end of the body and whose absence is a truncation.
+bool CocoaCurlTransfer::responseEndsAtConnectionClose() const
+{
+    if (!m_finalHeaders)
+        return false;
+    long version = 0;
+    if (curl_easy_getinfo(m_easy, CURLINFO_HTTP_VERSION, &version) != CURLE_OK
+        || (version != CURL_HTTP_VERSION_1_0 && version != CURL_HTTP_VERSION_1_1))
+        return false;
+    auto& response = m_response.response;
+    return response.httpHeaderField(HTTPHeaderName::ContentLength).isEmpty()
+        && response.httpHeaderField(HTTPHeaderName::TransferEncoding).isEmpty();
+}
+
 void CocoaCurlTransfer::curlDidComplete(CURLcode result)
 {
     if (!m_running)
         return;
+    if (result == CURLE_RECV_ERROR && responseEndsAtConnectionClose())
+        result = CURLE_OK;
     m_result = result;
     updateTLS();
     updateMetrics();

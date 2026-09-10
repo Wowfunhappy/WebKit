@@ -68,6 +68,7 @@ private:
         auto mode = adoptCF(CFRunLoopCopyCurrentMode(CFRunLoopGetCurrent()));
         check(mode && CFEqual(mode.get(), expectedMode), "ResourceHandle response arrives in the scheduled run-loop mode");
         status = response.httpStatusCode();
+        ++responseCount;
         completion();
     }
     void didReceiveData(ResourceHandle*, const SharedBuffer& data, int) final { bytes += data.size(); }
@@ -99,6 +100,10 @@ private:
     int status { 0 };
     uint64_t bytes { 0 };
     unsigned redirectCount { 0 };
+public:
+    unsigned responseCount { 0 };
+    uint64_t deliveredBytes() const { return bytes; }
+    int deliveredError() const { return error; }
 };
 int main()
 {
@@ -116,6 +121,21 @@ int main()
         Probe { }.run(context, "http://127.0.0.1:18981/probe/redirect_limit_21"_s, NSURLErrorHTTPTooManyRedirects, 20);
         Probe { }.run(context, "http://127.0.0.1:18982/basic"_s, 0);
         Probe { }.run(context, "https://127.0.0.1:19446/"_s, NSURLErrorServerCertificateUntrusted);
+        // A body the connection close delimits reaches this client whole; one a declared length says is
+        // longer than what arrived does not.
+        Probe { }.run(context, "https://127.0.0.1:19449/close-delimited"_s, 0);
+        Probe { }.run(context, "https://127.0.0.1:19449/short-length"_s, NSURLErrorNetworkConnectionLost);
+        {
+            // multipart/x-mixed-replace carries no length and no chunked coding of its own: the parts
+            // end where the connection does, and each one reaches this client as a response of its own.
+            Probe multipart;
+            multipart.run(context, "https://127.0.0.1:19449/multipart"_s, 0);
+            // The stream's own response, then one per part.
+            check(multipart.responseCount == 3, "each multipart part arrives as its own response");
+            check(multipart.deliveredBytes() == 11, "every multipart part body is delivered");
+            printf("ResourceHandle multipart responses=%u bytes=%llu error=%d\n", multipart.responseCount,
+                static_cast<unsigned long long>(multipart.deliveredBytes()), multipart.deliveredError());
+        }
         Ref customContext = Context::create(storage, true);
         Probe { }.run(customContext, "http://127.0.0.1:18981/probe/baseline"_s, 0);
         for (auto url : { "http://127.0.0.1:18981/probe/baseline"_s, "http://127.0.0.1:18981/probe/chunk_short_data"_s }) {

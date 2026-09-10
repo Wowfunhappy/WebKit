@@ -7,6 +7,7 @@
 #include <wtf/threads/BinarySemaphore.h>
 #include <wtf/MainThread.h>
 #include <wtf/RefCounted.h>
+#include <wtf/text/MakeString.h>
 #include <Foundation/Foundation.h>
 #include <cstdio>
 
@@ -164,6 +165,34 @@ int main()
         bool passed = result.nativeTrust && result.evaluatedTrust && result.completedMetrics
             && (invalid ? result.error == -1202 && !result.status : !result.error && result.status == 200 && result.bytes && !result.tlsProtocol.isEmpty() && !result.tlsCipher.isEmpty());
         printf("dedicated curl TLS: %s status=%d bytes=%llu error=%d trust=%d evaluated=%d protocol=%s tls=%s cipher=%s %s\n", url.characters(), result.status, static_cast<unsigned long long>(result.bytes), result.error, result.nativeTrust, result.evaluatedTrust, result.protocol.utf8().data(), result.tlsProtocol.utf8().data(), result.tlsCipher.utf8().data(), passed ? "PASS" : "FAIL");
+        failures += !passed;
+    }
+    // What the connection close means for each message framing, against a server that closes with no
+    // TLS close_notify. Only a response whose framing has no other end takes the close as one.
+    struct Framing { ASCIILiteral path; int status; uint64_t bytes; int error; };
+    for (auto& framing : { Framing { "close-delimited"_s, 200, 5, 0 },
+                           Framing { "close-delimited-error"_s, 404, 4, 0 },
+                           Framing { "short-length"_s, 200, 5, -1005 },
+                           Framing { "chunked-truncated"_s, 200, 3, -1005 } }) {
+        Result result;
+        String url = makeString("https://127.0.0.1:19449/"_s, framing.path);
+        worker->dispatch([&result, url = url.isolatedCopy()] { Probe::start(result, url); });
+        result.done.wait();
+        bool passed = result.status == framing.status && result.bytes == framing.bytes && result.error == framing.error;
+        printf("framing %s: status=%d bytes=%llu error=%d %s\n", framing.path.characters(), result.status,
+            static_cast<unsigned long long>(result.bytes), result.error, passed ? "PASS" : "FAIL");
+        failures += !passed;
+    }
+    {
+        // HTTP/2 ends a body with END_STREAM, so the same close is a truncation however complete the
+        // response looks: the fixture's PING barrier means the head and the body have both reached the
+        // client before the connection dies, and the load still fails.
+        Result result;
+        worker->dispatch([&result] { Probe::start(result, "https://127.0.0.1:19450/close-delimited"_s); });
+        result.done.wait();
+        bool passed = result.status == 200 && result.bytes == 5 && result.error == -1005 && result.protocol == "h2"_s;
+        printf("framing h2 close: status=%d bytes=%llu error=%d protocol=%s %s\n", result.status,
+            static_cast<unsigned long long>(result.bytes), result.error, result.protocol.utf8().data(), passed ? "PASS" : "FAIL");
         failures += !passed;
     }
     for (auto encoding : { @"identity", @"gzip", @"deflate", @"br" }) {

@@ -10,6 +10,7 @@
 #include <wtf/URL.h>
 #include <wtf/WallTime.h>
 #include <memory>
+#include <wtf/CompletionHandler.h>
 
 namespace WebCore {
 class SQLiteDatabase;
@@ -25,6 +26,13 @@ public:
     WEBCORE_EXPORT HashSet<String> hosts() const;
     WEBCORE_EXPORT void removeHost(const String&);
     WEBCORE_EXPORT void removeModifiedSince(WallTime);
+    // Answers once every write this store has queued has run, so a policy it accepted is on disk. A
+    // queued write waits on the directory's cross-process lock, so the caller waits for that too: the
+    // form taking a completion handler keeps that wait on the storage queue and answers on the main
+    // thread, and is the one a process-lifecycle path takes. The blocking form asserts it is not called
+    // from the storage queue, where it would wait on itself.
+    WEBCORE_EXPORT void flush();
+    WEBCORE_EXPORT void flush(CompletionHandler<void()>&&);
 private:
     struct Entry {
         WallTime expires;

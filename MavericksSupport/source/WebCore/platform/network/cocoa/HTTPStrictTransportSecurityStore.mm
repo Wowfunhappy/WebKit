@@ -24,6 +24,9 @@
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/WorkQueue.h>
+#include <wtf/threads/BinarySemaphore.h>
+#include <wtf/CompletionHandler.h>
+#include <wtf/RunLoop.h>
 
 namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(HTTPStrictTransportSecurityStore);
@@ -187,6 +190,27 @@ struct HTTPStrictTransportSecurityStore::State : std::enable_shared_from_this<St
             return;
         refresh();
     }
+    // The storage queue is serial, so a barrier dispatched onto it runs after every pass queued before
+    // it: once that barrier has run, each of those has written what it carried. A pass waits on the
+    // directory's cross-process advisory lock, so the caller that waits for the barrier waits for that
+    // lock too -- which the asynchronous form below exists to keep off a caller's thread.
+    void flush()
+    {
+        if (path.isEmpty())
+            return;
+        RELEASE_ASSERT(!queue->isCurrent());
+        BinarySemaphore drained;
+        queue->dispatch([&drained] { drained.signal(); });
+        drained.wait();
+    }
+    void flush(CompletionHandler<void()>&& completion)
+    {
+        if (path.isEmpty())
+            return completion();
+        queue->dispatch([completion = WTF::move(completion)]() mutable {
+            RunLoop::mainSingleton().dispatch(WTF::move(completion));
+        });
+    }
     void mutate(Mutation&& mutation)
     {
         ASSERT(isMainThread());
@@ -204,6 +228,14 @@ struct HTTPStrictTransportSecurityStore::State : std::enable_shared_from_this<St
     void write()
     {
         Locker locker { persistenceLock };
+        // Each mutation queues a pass and the first pass to run persists every mutation queued behind
+        // it, so the passes after it have nothing to carry. A pass with nothing to persist does no
+        // I/O: it creates neither the directory nor the lock file and replaces no policy file.
+        {
+            Locker memoryLocker { memoryLock };
+            if (pending.isEmpty())
+                return;
+        }
         if (!FileSystem::makeAllDirectories(directory)) {
             RELEASE_LOG_ERROR(Network, "Could not create the HTTP Strict Transport Security directory");
             return;
@@ -214,6 +246,10 @@ struct HTTPStrictTransportSecurityStore::State : std::enable_shared_from_this<St
             return;
         }
         refreshLocked();
+        // Held until the file holds them: a mutation this pass took off |pending| and could not write
+        // is put back at the front, in order, for the next pass to carry. Dropping it here would lose
+        // it, since |storedEntries| is discarded and re-read from the file by the next refresh.
+        Deque<Mutation> carried;
         while (true) {
             std::optional<Mutation> mutation;
             {
@@ -223,7 +259,13 @@ struct HTTPStrictTransportSecurityStore::State : std::enable_shared_from_this<St
                 mutation = pending.takeFirst();
             }
             mutation->apply(storedEntries);
+            carried.append(WTF::move(*mutation));
         }
+        auto returnCarriedMutations = [&] {
+            Locker memoryLocker { memoryLock };
+            while (!carried.isEmpty())
+                pending.prepend(carried.takeLast());
+        };
         RetainPtr policies = adoptNS([[NSMutableDictionary alloc] initWithCapacity:storedEntries.size()]);
         for (auto& policy : storedEntries) {
             [policies setObject:@{
@@ -235,6 +277,7 @@ struct HTTPStrictTransportSecurityStore::State : std::enable_shared_from_this<St
         // The replacement is atomic, so a reader sees the previous file or this one and never a partial.
         if (![policies writeToFile:path.createNSString().get() atomically:YES]) {
             RELEASE_LOG_ERROR(Network, "Could not write the HTTP Strict Transport Security policies");
+            returnCarriedMutations();
             return;
         }
         // The atomic replacement gives the file a new identity, so its monitor is re-established.
@@ -406,6 +449,16 @@ void HTTPStrictTransportSecurityStore::setEntry(const String& host, const Entry&
     if (m_access == Access::ReadOnly)
         return;
     m_state->mutate({ State::Mutation::Kind::Set, host.isolatedCopy(), entry, { } });
+}
+
+void HTTPStrictTransportSecurityStore::flush()
+{
+    m_state->flush();
+}
+
+void HTTPStrictTransportSecurityStore::flush(CompletionHandler<void()>&& completion)
+{
+    m_state->flush(WTF::move(completion));
 }
 
 HashSet<String> HTTPStrictTransportSecurityStore::hosts() const

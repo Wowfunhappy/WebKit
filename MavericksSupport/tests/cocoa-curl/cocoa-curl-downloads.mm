@@ -119,6 +119,31 @@ int main()
             [download release];
             [first release];
         }
+        // A download whose body the connection close delimits lands the whole representation; one cut
+        // short of a declared length fails instead of leaving a truncated file behind as a success.
+        for (NSString *name in @[@"close-delimited", @"short-length"]) {
+            printf("CASE framing/%s\n", name.UTF8String);
+            BOOL delimited = [name isEqualToString:@"close-delimited"];
+            DownloadTest *test = [DownloadTest new];
+            test->path = [[@"/private/tmp/curl-legacy-download-tests/framing-" stringByAppendingString:name] retain];
+            [[NSFileManager defaultManager] removeItemAtPath:test->path error:nil];
+            NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:[@"https://127.0.0.1:19449/" stringByAppendingString:name]] cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:15];
+            WebDownload *download = [[WebDownload alloc] initWithRequest:request delegate:test];
+            [download setDeletesFileUponFailure:NO];
+            CFRunLoopRun();
+            if (delimited) {
+                check(test->finished && !test->errorCode, "a close-delimited download completes");
+                check([[NSData dataWithContentsOfFile:test->path] length] == 5, "a close-delimited download lands every delivered byte");
+            } else {
+                check(test->errorCode == NSURLErrorNetworkConnectionLost && !test->finished, "a download cut short of its declared length fails");
+                // deletesFileUponFailure is off, so what the failure left behind is on disk to be read:
+                // the bytes that did arrive, and never the whole representation the length promised.
+                NSData *partial = [NSData dataWithContentsOfFile:test->path];
+                check(partial && [partial length] == 5, "a failed download keeps only the bytes that arrived");
+            }
+            [download release];
+            [test release];
+        }
         printf("WebDownload curl: FAILED=%u\n", failures);
     }
     return failures ? 1 : 0;

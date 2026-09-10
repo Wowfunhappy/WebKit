@@ -10,8 +10,21 @@
       HTTPS server on 127.0.0.1:N presenting server.pem, or the root-signed leaf with --chain trusted;
       every path answers "mTLS" (4 bytes). --client-auth requires a certificate signed by one of the two
       identities above; --tls pins the version.
+  cocoa-curl-tls-fixtures.py framing <dir> --port N
+      HTTPS server on the root-signed leaf that answers each path below with raw bytes and then closes
+      the TCP socket without a TLS close_notify, the way a server ending a body by closing the
+      connection does. The paths cover each arm of the message-framing decision that close makes:
+
+        /close-delimited          200, no Content-Length, no chunked coding: the close ends the body
+        /close-delimited-error    the same framing under a 404
+        /short-length             Content-Length longer than the bytes sent
+        /chunked-truncated        chunked coding cut mid-chunk
+        /multipart                multipart/x-mixed-replace, two parts, no terminating boundary
+
+      --h2 answers over HTTP/2 instead, whose framing ends a body with END_STREAM, so the same close
+      truncates the response however the head was framed.
 """
-import argparse, datetime, http.server, os, pathlib, ssl, sys
+import argparse, datetime, http.server, os, pathlib, socket, ssl, sys
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, ec
@@ -79,9 +92,128 @@ def serve(directory, port, client_auth, tls, chain):
     print('TLS fixture on 127.0.0.1:%d chain=%s client-auth=%d tls=%s' % (port, leaf, client_auth, tls or 'any'), flush=True)
     server.serve_forever()
 
+# Each response is written whole and the socket is then closed with no close_notify and no TLS
+# shutdown, which is what a server that ends a body by closing the connection does.
+FRAMING = {
+    '/close-delimited': b'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHELLO',
+    '/close-delimited-error': b'HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\nNOPE',
+    '/short-length': b'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 100\r\n\r\nHELLO',
+    '/chunked-truncated': b'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHEL',
+    # Two parts and no terminating boundary: multipart/x-mixed-replace ends where the connection does.
+    '/multipart': b'HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=wkframing\r\n\r\n'
+                  b'--wkframing\r\nContent-Type: text/plain\r\n\r\nFIRST\r\n'
+                  b'--wkframing\r\nContent-Type: text/plain\r\n\r\nSECOND',
+}
+
+def h2_frame(kind, flags, stream, payload=b''):
+    return len(payload).to_bytes(3, 'big') + bytes([kind, flags]) + stream.to_bytes(4, 'big') + payload
+
+def h2_answer(connection):
+    """A complete HTTP/2 response head and body, then the same abrupt close. HTTP/2 delimits a body with
+    END_STREAM rather than with the connection, so this one is truncated however it ends."""
+    preface = b''
+    while len(preface) < 24:
+        chunk = connection.recv(24 - len(preface))
+        if not chunk:
+            return
+        preface += chunk
+    connection.sendall(h2_frame(0x4, 0, 0))          # our SETTINGS
+    connection.sendall(h2_frame(0x4, 0x1, 0))        # ACK theirs, unread: nothing here depends on them
+    pending = b''
+    while True:                                      # read frames until the request arrives
+        while len(pending) < 9:
+            chunk = connection.recv(4096)
+            if not chunk:
+                return
+            pending += chunk
+        length = int.from_bytes(pending[0:3], 'big')
+        kind = pending[3]
+        while len(pending) < 9 + length:
+            chunk = connection.recv(4096)
+            if not chunk:
+                return
+            pending += chunk
+        frame, pending = pending[:9 + length], pending[9 + length:]
+        if kind == 0x1:                              # HEADERS: the request
+            stream = int.from_bytes(frame[5:9], 'big') & 0x7fffffff
+            connection.sendall(h2_frame(0x1, 0x4, stream, b'\x88'))   # END_HEADERS, HPACK static :status 200
+            connection.sendall(h2_frame(0x0, 0, stream, b'HELLO'))    # no END_STREAM
+            # A PING is answered only once the frames ahead of it have been processed, so its ACK is
+            # the client saying it holds the head and the body. Closing after it makes what the client
+            # has seen when the connection dies the same on every run.
+            connection.sendall(h2_frame(0x6, 0, 0, b'framing!'))
+            while True:
+                while len(pending) < 9:
+                    chunk = connection.recv(4096)
+                    if not chunk:
+                        return
+                    pending += chunk
+                length = int.from_bytes(pending[0:3], 'big')
+                kind = pending[3]
+                flags = pending[4]
+                while len(pending) < 9 + length:
+                    chunk = connection.recv(4096)
+                    if not chunk:
+                        return
+                    pending += chunk
+                pending = pending[9 + length:]
+                if kind == 0x6 and flags & 0x1:
+                    return
+
+def framing(directory, port, h2=False):
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(str(directory / 'trusted.pem'), str(directory / 'trusted.key'))
+    if h2:
+        context.set_alpn_protocols(['h2'])
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(('127.0.0.1', port))
+    listener.listen(16)
+    print('TLS framing fixture on 127.0.0.1:%d' % port, flush=True)
+    while True:
+        raw, _ = listener.accept()
+        try:
+            connection = context.wrap_socket(raw, server_side=True)
+        except ssl.SSLError:
+            raw.close()
+            continue
+        try:
+            if h2:
+                h2_answer(connection)
+                print('h2 -> response head and body, closing without close_notify', flush=True)
+            else:
+                request = b''
+                while b'\r\n\r\n' not in request:
+                    chunk = connection.recv(4096)
+                    if not chunk:
+                        break
+                    request += chunk
+                target = request.split(b' ')[1].decode() if b' ' in request else ''
+                body = FRAMING.get(target)
+                if body is None:
+                    body = b'HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n'
+                connection.sendall(body)
+                print('%s -> %d bytes, closing without close_notify' % (target, len(body)), flush=True)
+        except (OSError, ssl.SSLError):
+            pass
+        finally:
+            # detach() leaves the file descriptor open and hands back the plain socket, so closing it
+            # sends no close_notify.
+            try:
+                fd = connection.detach()
+                socket.socket(fileno=fd).close()
+            except OSError:
+                pass
+
 if __name__ == '__main__':
-    p = argparse.ArgumentParser(); p.add_argument('command', choices=['make', 'serve']); p.add_argument('directory', type=pathlib.Path)
+    p = argparse.ArgumentParser(); p.add_argument('command', choices=['make', 'serve', 'framing']); p.add_argument('directory', type=pathlib.Path)
     p.add_argument('--port', type=int); p.add_argument('--client-auth', action='store_true'); p.add_argument('--tls', choices=['1.2', '1.3'])
     p.add_argument('--chain', choices=['self-signed', 'trusted'], default='self-signed')
+    p.add_argument('--h2', action='store_true')
     a = p.parse_args()
-    make(a.directory) if a.command == 'make' else serve(a.directory, a.port, a.client_auth, a.tls, a.chain)
+    if a.command == 'make':
+        make(a.directory)
+    elif a.command == 'framing':
+        framing(a.directory, a.port, a.h2)
+    else:
+        serve(a.directory, a.port, a.client_auth, a.tls, a.chain)

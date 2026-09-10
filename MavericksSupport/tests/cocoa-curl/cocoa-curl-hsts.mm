@@ -60,6 +60,9 @@ int main()
             check(reader.hosts().isEmpty(), "modified-since deletion visible to independent reader");
             writer.receiveHeader(host, makeString("max-age="_s, String::fromUTF8(std::string(400, '9').c_str())));
             check(writer.shouldUpgrade(host), "unbounded wire max-age remains valid");
+            // What the next store reads is what this one has written, so the durability check below is
+            // ordered against the write this policy queued rather than racing it.
+            writer.flush();
         }
         {
             HTTPStrictTransportSecurityStore reopened(directory);
@@ -68,6 +71,12 @@ int main()
             check(!privateStore.shouldUpgrade(host), "private HSTS isolated from persistent state");
             privateStore.receiveHeader(URL { "https://private.test/"_s }, "max-age=3600"_s);
             check(!reopened.shouldUpgrade(URL { "https://private.test/"_s }), "private policy not written to persistent state");
+        }
+        {
+            // Nothing may write into the directory after it is removed, so every pass the stores above
+            // queued runs first.
+            HTTPStrictTransportSecurityStore settling(directory);
+            settling.flush();
         }
         check(FileSystem::deleteNonEmptyDirectory(directory), "remove isolated test database");
         printf("Cocoa curl HSTS: checks=%u FAILED=%u\n", checks, failures);

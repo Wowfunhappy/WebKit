@@ -388,7 +388,9 @@ void CocoaCurlResourceHandle::deliver(std::span<const uint8_t> bytes)
 void CocoaCurlResourceHandle::didReceiveHeaderFromMultipart(Vector<String>&& fields)
 {
     ResourceResponse response = m_response.response;
-    for (auto& field : fields) {
+    for (auto& rawField : fields) {
+        // Each field arrives as the header line the multipart parser read, its terminator included.
+        auto field = rawField.trim([](auto c) { return c == '\r' || c == '\n'; });
         auto colon = field.find(':');
         if (colon == notFound) {
             fail(NSURLErrorCannotParseResponse, "Invalid multipart header"_s);

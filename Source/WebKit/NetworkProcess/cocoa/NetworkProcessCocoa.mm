@@ -286,12 +286,21 @@ void saveCookies(NSHTTPCookieStorage *cookieStorage, CompletionHandler<void()>&&
 void NetworkProcess::platformFlushCookies(PAL::SessionID sessionID, CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
+    // MAVERICKS_BACKPORT: this port's HSTS policies are its own store rather than CFNetwork's
+    // _NSHSTSStorage, and a serial queue writes them, so the flush that carries the session's cookies to
+    // disk before the process suspends carries its policies too. The store answers on the main thread
+    // once its queue has drained, which keeps the queue's wait for the directory's cross-process lock
+    // off this thread.
+    auto aggregator = CallbackAggregator::create(WTF::move(completionHandler));
+    if (CheckedPtr session = downcast<NetworkSessionCocoa>(networkSession(sessionID)))
+        session->httpStrictTransportSecurityStore().flush([aggregator] { });
+
     CheckedPtr networkStorageSession = storageSession(sessionID);
     if (!networkStorageSession)
-        return completionHandler();
+        return; // MAVERICKS_BACKPORT: the aggregator above answers the caller once the parts that did run have.
 
     RetainPtr cookieStorage = networkStorageSession->nsCookieStorage();
-    saveCookies(cookieStorage.get(), WTF::move(completionHandler));
+    saveCookies(cookieStorage.get(), [aggregator] { }); // MAVERICKS_BACKPORT: one part of the flush above.
 }
 
 const String& NetworkProcess::uiProcessBundleIdentifier() const

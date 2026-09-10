@@ -120,6 +120,7 @@ private:
     void resumeTransfer();
     void updateTLS();
     void updateMetrics();
+    bool responseEndsAtConnectionClose() const;
     void finish(int, const String&);
     size_t header(std::span<const char>);
     size_t data(std::span<const char>);
