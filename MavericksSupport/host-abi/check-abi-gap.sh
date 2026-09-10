@@ -10,7 +10,7 @@ rc=0
 
 check() {  # label, staged binary, contract file
     local label="$1" binary="$2" contract="$3" exports need gap
-    exports="$(mktemp -t abigap)"
+    exports="$(mktemp "${TMPDIR:-/tmp}/abigap.XXXXXX")"
     "$NM" -gU -arch x86_64 "$binary" 2>/dev/null | awk '$2 ~ /^[TSDBR]$/ {print $3}' | sort -u > "$exports"
     need="$(sort -u "$contract")"
     gap="$(comm -23 <(echo "$need") "$exports")"

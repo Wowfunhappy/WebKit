@@ -66,7 +66,7 @@ for f in "$MANIFEST" "$SYMBOLS" "$LITERALS" "$BUILDINFO"; do
 done
 [ -r "$UNLINKED" ] || fail "no gap archive record at $UNLINKED" "$REBUILD"
 
-scratch=$(mktemp -d -t gapgate)
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/gapgate.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 
 # --- the source set -------------------------------------------------------------------------------

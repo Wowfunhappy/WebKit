@@ -71,12 +71,13 @@ done
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SELF="$HERE/$(basename "${BASH_SOURCE[0]}")"
-LOG=/tmp/wk_build.log
+REPO="$(cd "$HERE/../.." && pwd)"                   # repo root
 # The one build log. One fd carries this script's package headers and every package's compile
 # output, in order. --check-recipes answers on stdout, which under build.sh is this same log.
-[ -n "$CHECK" ] || exec >> "$LOG" 2>&1
-REPO="$(cd "$HERE/../.." && pwd)"                   # repo root
+. "$REPO/MavericksSupport/scripts/build-log.sh"
+[ -n "$CHECK" ] || build_log_open
 . "$REPO/MavericksSupport/scripts/cctools.sh"
+. "$REPO/MavericksSupport/scripts/host-headers.sh"
 TC="${MAVERICKS_CLANG:-$REPO/MavericksSupport/toolchain/build/clang}"
 CMAKE="${MAVERICKS_CMAKE:-$REPO/MavericksSupport/toolchain/build/cmake/bin/cmake}"
 NINJA="${MAVERICKS_NINJA:-$REPO/MavericksSupport/toolchain/build/ninja/bin/ninja}"
@@ -186,7 +187,7 @@ if ! mkdir "$LOCK" 2>/dev/null; then
     rm -rf "$LOCK"; mkdir "$LOCK"
 fi
 echo $$ > "$LOCK/pid"
-trap 'rm -rf "$LOCK"' EXIT
+trap 'rc=$?; rm -rf "$LOCK"; build_log_report $rc' EXIT
 
 # The collect step at the end replaces deps/build/{include,lib,bin}, which every WebKit link reads.
 # Candidates come from ps -axo pid=,command=, which lists every process with its full command line:
@@ -1651,7 +1652,7 @@ for h in content_decryption_module.h content_decryption_module_export.h content_
   if [ ! -f "$f" ]; then
     echo "download $h" >&2
     fetch "https://chromium.googlesource.com/chromium/cdm/+/$CDM_API_REV/$h?format=TEXT" "$f.b64" || exit 1
-    base64 -D -i "$f.b64" -o "$f" || exit 1
+    /usr/bin/base64 -D -i "$f.b64" -o "$f" || exit 1
     rm -f "$f.b64"
   fi
   cp "$f" "$DEST/include/cdm/$h" || exit 1

@@ -2,10 +2,10 @@
 # Build ninja from source into the toolchain build tree (toolchain/build/ninja,
 # gitignored). Built with the in-tree clang. All paths relative to this script.
 set -euo pipefail
-LOG=/tmp/wk_build.log
-# The one build log: this script routes its own output there, so a bare invocation fills it.
-exec >> "$LOG" 2>&1
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The one build log: this script routes its own output there, so a bare invocation fills it.
+. "$HERE/../../scripts/build-log.sh"
+build_log_open
 TOOLCHAIN="$(cd "$HERE/.." && pwd)"
 CLANG="$TOOLCHAIN/build/clang"
 PREFIX="${NINJA_PREFIX:-$TOOLCHAIN/build/ninja}"
@@ -29,8 +29,8 @@ if [ -z "${PY:-}" ] || ! "$PY" -c 'import sys; sys.exit(0 if sys.version_info[0]
     echo "in-tree python3 before ninja), or put a python3 on PATH." >&2
     exit 1
 fi
-WORK="$(mktemp -d -t ninja-build)"
-trap 'rm -rf "$WORK"' EXIT
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/ninja-build.XXXXXX")"
+trap 'rc=$?; rm -rf "$WORK"; build_log_report $rc' EXIT
 
 echo "### Downloading ninja $VERSION"
 curl -fsSL -o "$WORK/ninja.tar.gz" "https://github.com/ninja-build/ninja/archive/refs/tags/v${VERSION}.tar.gz"

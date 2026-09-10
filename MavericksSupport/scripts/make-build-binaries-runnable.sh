@@ -208,7 +208,7 @@ build_tree_machos() {
 MACHOS=$(build_tree_machos)
 
 # Carries each Mach-O's link-time mtime across its rewrite (touch -r copies the timestamp exactly).
-MTIME_REF=$(mktemp -t make-build-binaries-runnable) || exit 1
+MTIME_REF=$(mktemp "${TMPDIR:-/tmp}/make-build-binaries-runnable.XXXXXX") || exit 1
 trap 'rm -f "$MTIME_REF"' EXIT
 
 for bin in $MACHOS; do

@@ -126,7 +126,7 @@ for BINARY in $BINARIES; do
             SKIPPED=$((SKIPPED + 1))
             continue
         fi
-        OUT_FILE=$(mktemp -t wk_api_test)
+        OUT_FILE=$(mktemp "${TMPDIR:-/tmp}/wk_api_test.XXXXXX")
         "$BINDIR/$BINARY" --gtest_filter="$TEST" ${GTEST_ARGS[@]+"${GTEST_ARGS[@]}"} > "$OUT_FILE" 2>&1 &
         TEST_PID=$!
         WAITED=0

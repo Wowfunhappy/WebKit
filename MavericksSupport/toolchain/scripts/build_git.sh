@@ -13,17 +13,18 @@
 # Installs into the toolchain build tree (toolchain/build/git, gitignored). All paths are
 # relative to this script -- no absolute/user-specific paths.
 set -euo pipefail
-LOG=/tmp/wk_build.log
-# The one build log: this script routes its own output there, so a bare invocation fills it.
-exec >> "$LOG" 2>&1
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The one build log: this script routes its own output there, so a bare invocation fills it.
+. "$HERE/../../scripts/build-log.sh"
+build_log_open
+. "$HERE/../../scripts/host-headers.sh"
 TOOLCHAIN="$(cd "$HERE/.." && pwd)"
 CLANG="$TOOLCHAIN/build/clang"
 PREFIX="${GIT_PREFIX_DIR:-$TOOLCHAIN/build/git}"
 VERSION=2.45.4
 export MACOSX_DEPLOYMENT_TARGET=10.9
-WORK="$(mktemp -d -t git-build)"
-trap 'rm -rf "$WORK"' EXIT
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/git-build.XXXXXX")"
+trap 'rc=$?; rm -rf "$WORK"; build_log_report $rc' EXIT
 
 echo "### Downloading git ${VERSION}"
 # kernel.org negotiates a TLS version 10.9's SecureTransport does not offer, so the source

@@ -3,10 +3,10 @@
 # gitignored). Built with the in-tree clang. All paths relative to this script.
 # The first build is slow (~15 min); CMake bootstraps itself with a plain make.
 set -euo pipefail
-LOG=/tmp/wk_build.log
-# The one build log: this script routes its own output there, so a bare invocation fills it.
-exec >> "$LOG" 2>&1
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The one build log: this script routes its own output there, so a bare invocation fills it.
+. "$HERE/../../scripts/build-log.sh"
+build_log_open
 TOOLCHAIN="$(cd "$HERE/.." && pwd)"
 CLANG="$TOOLCHAIN/build/clang"
 PREFIX="${CMAKE_INSTALL_PREFIX:-$TOOLCHAIN/build/cmake}"
@@ -19,8 +19,8 @@ VERSION=3.28.6
 REPO="$(cd "$TOOLCHAIN/../.." && pwd)"
 SDK="${MAVERICKS_SDK:-$(dirname "$REPO")/MacOSX26.1.sdk}"
 export MACOSX_DEPLOYMENT_TARGET=10.9
-WORK="$(mktemp -d -t cmake-build)"
-trap 'rm -rf "$WORK"' EXIT
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/cmake-build.XXXXXX")"
+trap 'rc=$?; rm -rf "$WORK"; build_log_report $rc' EXIT
 
 echo "### Downloading CMake $VERSION"
 curl -fsSL -o "$WORK/cmake.tar.gz" "https://github.com/Kitware/CMake/releases/download/v${VERSION}/cmake-${VERSION}.tar.gz"
@@ -30,7 +30,7 @@ cd "$WORK/cmake-${VERSION}"
 # when TARGET_OS_MAC is set -- but TargetConditionals.h sets that on modern macOS
 # too, which breaks the SDK's real fdopen declaration (_stdio.h: "expected identifier").
 # Drop the offending line so fdopen resolves to the SDK's prototype.
-sed -i '' '/define fdopen(fd,mode) NULL/d' Utilities/cmzlib/zutil.h
+/usr/bin/sed -i '' '/define fdopen(fd,mode) NULL/d' Utilities/cmzlib/zutil.h
 echo "### Bootstrapping CMake with the in-tree clang (slow)"
 CC="$CLANG/bin/clang" CXX="$CLANG/bin/clang++" \
 CFLAGS="-isysroot $SDK" CXXFLAGS="-isysroot $SDK" LDFLAGS="-isysroot $SDK" \

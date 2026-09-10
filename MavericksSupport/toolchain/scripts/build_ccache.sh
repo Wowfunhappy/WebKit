@@ -7,10 +7,10 @@
 # so once this binary is on the build's PATH a reconfigure turns it on. It runs on this 10.9
 # host, so it's built -mmacosx-version-min=10.9 (standalone -- no WebKit polyfill).
 set -euo pipefail
-LOG=/tmp/wk_build.log
-# The one build log: this script routes its own output there, so a bare invocation fills it.
-exec >> "$LOG" 2>&1
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The one build log: this script routes its own output there, so a bare invocation fills it.
+. "$HERE/../../scripts/build-log.sh"
+build_log_open
 TOOLCHAIN="$(cd "$HERE/.." && pwd)"
 CLANG="$TOOLCHAIN/build/clang"
 PREFIX="${CCACHE_PREFIX_DIR:-$TOOLCHAIN/build/ccache}"
@@ -30,8 +30,8 @@ export CC="$CLANG/bin/clang $PLAIN -std=gnu17"
 export CXX="$CLANG/bin/clang++ $PLAIN"
 export CFLAGS="-O2 -mmacosx-version-min=10.9"
 export CXXFLAGS="-O2 -mmacosx-version-min=10.9"
-WORK="$(mktemp -d -t ccache-build)"
-trap 'rm -rf "$WORK"' EXIT
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/ccache-build.XXXXXX")"
+trap 'rc=$?; rm -rf "$WORK"; build_log_report $rc' EXIT
 
 echo "### Downloading ccache $VERSION"
 curl -fsSL -o "$WORK/ccache.tar.gz" "https://github.com/ccache/ccache/releases/download/v${VERSION}/ccache-${VERSION}.tar.gz"
@@ -46,7 +46,7 @@ cd "$WORK/ccache-${VERSION}"
 # Building it needs the same patch build_cmake.sh applies to cmake's vendored zlib: zlib <= 1.2.11
 # #defines fdopen to NULL under TARGET_OS_MAC, which modern TargetConditionals.h also sets, and
 # that breaks the SDK's real fdopen declaration.
-sed -i '' '/define fdopen(fd,mode) NULL/d' src/zlib/zutil.h
+/usr/bin/sed -i '' '/define fdopen(fd,mode) NULL/d' src/zlib/zutil.h
 
 echo "### Configuring (bundled zlib)"
 ./configure --with-bundled-zlib

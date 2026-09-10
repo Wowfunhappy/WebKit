@@ -62,7 +62,7 @@ fail() { echo "  ImageIO-decode check: FAILED -- $*"; exit 1; }
 [ -d "$REPO/Source" ] || fail "no Source tree at $REPO/Source"
 [ -x "$NM" ] || fail "nm not executable at $NM"
 
-WORK="$(mktemp -d -t imageiodecode)"; trap 'rm -rf "$WORK"' EXIT
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/imageiodecode.XXXXXX")"; trap 'rm -rf "$WORK"' EXIT
 
 # --- (a) CGImageSource construction, over the linked product ---------------------------------
 find "$STAGED" -type f \( -perm -u+x -o -name '*.dylib' -o -name '*.so' \) -print0 > "$WORK/inventory"

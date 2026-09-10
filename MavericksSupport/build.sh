@@ -10,10 +10,10 @@ NINJA="$TC/ninja/bin/ninja"
 CMAKE="$TC/cmake/bin/cmake"
 CCACHE="${MAVERICKS_CCACHE:-$TC/ccache/bin/ccache}"   # the same resolution as cmake/mac10.9-toolchain.cmake
 BUILD="$ROOT/WebKitBuild/Release"
-LOG=/tmp/wk_build.log
 # The one build log. One fd holds it, so every line lands once and in order, which is what lets the
 # FAILED/dups/undefined counts below read it back. Run this bare and tail the log.
-exec >> "$LOG" 2>&1
+. "$ROOT/MavericksSupport/scripts/build-log.sh"
+build_log_open
 
 # install.sh installs the staged tree, which survives a failed build. This stamp is the freshness
 # signal: cleared here, written back only after a successful link, staging and audit run below.

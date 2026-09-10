@@ -19,7 +19,7 @@ BUILD="$REPO/WebKitBuild/Release"
 GAP="$REPO/MavericksSupport/polyfill/build/libwidevinegap.dylib"
 SDK="${MAVERICKS_SDK:-$(dirname "$REPO")/MacOSX26.1.sdk}"
 TC="${MAVERICKS_CLANG:-$REPO/MavericksSupport/toolchain/build/clang}"
-WORK="$(mktemp -d -t wvimage)"; trap 'rm -rf "$WORK"' EXIT
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/wvimage.XXXXXX")"; trap 'rm -rf "$WORK"' EXIT
 
 [ -f "$REPO/compile_commands.json" ] || { echo "no compile_commands.json — build first (MavericksSupport/build.sh)"; exit 1; }
 [ -f "$GAP" ] || { echo "no $GAP — build it with polyfill/build-polyfill.sh"; exit 1; }

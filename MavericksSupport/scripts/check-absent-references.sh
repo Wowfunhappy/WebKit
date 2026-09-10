@@ -86,7 +86,7 @@ fail() { echo "  absent-reference check: FAILED -- $*"; exit 1; }
 [ -x "$DYLDINFO" ] || fail "dyldinfo not executable at $DYLDINFO"
 [ -x "$OTOOL" ] || fail "otool not executable at $OTOOL"
 
-WORK="$(mktemp -d -t absentrefs)"; trap 'rm -rf "$WORK"' EXIT
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/absentrefs.XXXXXX")"; trap 'rm -rf "$WORK"' EXIT
 
 # Given ONE file these tools print no header line at all, which would leave that invocation's output
 # with nothing to attribute it to. The anchor rides at the head of every batch as xargs's fixed

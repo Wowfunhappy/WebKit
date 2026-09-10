@@ -78,7 +78,7 @@ echo "### iOS-only soft-linked AVFoundation classes -> declarable on macOS"
 patch_class AVAudioSession AVAudioSession.h
 
 echo "### self-test"
-T="$(mktemp -d -t sdkpatch)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/sdkpatch.XXXXXX")"; trap 'rm -rf "$T"' EXIT
 FL="-x objective-c++ -fno-modules -fno-cxx-modules -isysroot $SDK -mmacosx-version-min=10.9 -fsyntax-only"
 # The soft-link shape compiles through the umbrella include WebKit uses (which resolves to the embedded
 # AVFAudio copy).

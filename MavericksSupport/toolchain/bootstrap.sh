@@ -40,6 +40,8 @@ else
     echo "    already present, skipping"
 fi
 
+. "$HERE/../scripts/host-headers.sh"
+
 echo "### [2/10] cctools"; [ -x "$BUILD/cctools/bin/otool" ]   || "$SCRIPTS/build_cctools.sh"
 echo "### [3/10] openssl"; [ -x "$BUILD/openssl/bin/openssl" ] || "$SCRIPTS/build_openssl.sh"
 echo "### [4/10] python3"; [ -x "$BUILD/python3/bin/python3" ] || "$SCRIPTS/build_python3.sh"

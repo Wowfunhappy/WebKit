@@ -70,7 +70,7 @@ ensure_stock_backup() {
             name="$(basename "$fw" .framework)"
             bin="$fw/Versions/A/$name"
             [ -f "$bin" ] || continue
-            echo "$name: $bin: size=$(stat -f%z "$bin")" >> "$out"
+            echo "$name: $bin: size=$(/usr/bin/stat -f%z "$bin")" >> "$out"
         done
         echo "  refreshed $out"
     }
@@ -683,7 +683,7 @@ graft_i386() {
         *) echo "  graft: stock $stock has no i386 slice" >&2; return 1;;
     esac
     local ti tf
-    ti="$(mktemp -t graft_i386)"; tf="$(mktemp -t graft_fat)"
+    ti="$(mktemp "${TMPDIR:-/tmp}/graft_i386.XXXXXX")"; tf="$(mktemp "${TMPDIR:-/tmp}/graft_fat.XXXXXX")"
     "$LIPO" -thin i386 "$stock" -output "$ti"
     "$LIPO" -create "$dest" "$ti" -output "$tf"
     replace_inplace "$tf" "$dest"

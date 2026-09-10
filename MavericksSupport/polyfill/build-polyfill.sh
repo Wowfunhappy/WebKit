@@ -18,9 +18,10 @@ TC="${MAVERICKS_CLANG:-$REPO/MavericksSupport/toolchain/build/clang}"
 SDK="${MAVERICKS_SDK:-$(dirname "$REPO")/MacOSX26.1.sdk}"
 CLANG="$TC/bin/clang"; CLANGXX="$TC/bin/clang++"; AR="$TC/bin/llvm-ar"
 . "$REPO/MavericksSupport/scripts/cctools.sh"; NM="$CCTOOLS/nm"
+. "$REPO/MavericksSupport/scripts/host-headers.sh"
 PF="$POLY/polyfills"; MECH="$POLY/mechanism"; OUT="$POLY/build"
 TMECH="$POLY/tests/mechanism"; TBEHAV="$POLY/tests/behaviour"; TGATES="$POLY/tests/gates"
-OBJ="$(mktemp -d -t polybuild)"; trap 'rm -rf "$OBJ"' EXIT
+OBJ="$(mktemp -d "${TMPDIR:-/tmp}/polybuild.XXXXXX")"; trap 'rm -rf "$OBJ"' EXIT
 mkdir -p "$OUT" "$OBJ"/{c,shared,methods,classes,webkit,jsc,cdm,mech,tests}
 
 # --- bounded-parallel compile queue ------------------------------------------------------------

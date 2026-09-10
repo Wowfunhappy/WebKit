@@ -7,18 +7,19 @@
 # (toolchain/build/ruby, gitignored; rebuilt by bootstrap.sh). All paths are derived
 # relative to this script -- no absolute/user-specific paths.
 set -euo pipefail
-LOG=/tmp/wk_build.log
-# The one build log: this script routes its own output there, so a bare invocation fills it.
-exec >> "$LOG" 2>&1
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The one build log: this script routes its own output there, so a bare invocation fills it.
+. "$HERE/../../scripts/build-log.sh"
+build_log_open
+. "$HERE/../../scripts/host-headers.sh"
 TOOLCHAIN="$(cd "$HERE/.." && pwd)"
 CLANG="$TOOLCHAIN/build/clang"
 PREFIX="${RUBY_PREFIX:-$TOOLCHAIN/build/ruby}"
 CCDIR="$TOOLCHAIN/build/ruby-cc"
 YAML_VER=0.2.5
 VER=3.4.9
-SCRATCH="$(mktemp -d -t rubybuild)"
-trap 'rm -rf "$SCRATCH"' EXIT
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/rubybuild.XXXXXX")"
+trap 'rc=$?; rm -rf "$SCRATCH"; build_log_report $rc' EXIT
 
 # Vanilla cc wrapper: the in-tree clang without its forced config, tolerant of the
 # legacy C in Ruby's configure probes. It lives in the toolchain build tree because

@@ -7,17 +7,18 @@
 # Static and -fPIC: the two extension modules link it into themselves, which keeps the interpreter
 # free of any dylib path or install-name arrangement.
 set -euo pipefail
-LOG=/tmp/wk_build.log
-# The one build log: this script routes its own output there, so a bare invocation fills it.
-exec >> "$LOG" 2>&1
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The one build log: this script routes its own output there, so a bare invocation fills it.
+. "$HERE/../../scripts/build-log.sh"
+build_log_open
+. "$HERE/../../scripts/host-headers.sh"
 TOOLCHAIN="$(cd "$HERE/.." && pwd)"
 CLANG="$TOOLCHAIN/build/clang"
 PREFIX="${OPENSSL_PREFIX:-$TOOLCHAIN/build/openssl}"
 CCDIR="$TOOLCHAIN/build/python3-cc"
 VER=3.0.16
-SCRATCH="$(mktemp -d -t opensslbuild)"
-trap 'rm -rf "$SCRATCH"' EXIT
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/opensslbuild.XXXXXX")"
+trap 'rc=$?; rm -rf "$SCRATCH"; build_log_report $rc' EXIT
 
 # The same vanilla cc wrapper build_python3.sh uses: the in-tree clang without its forced config,
 # tolerant of the legacy C in OpenSSL's own probes.

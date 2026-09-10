@@ -5,17 +5,18 @@
 # (toolchain/python3, gitignored; rebuilt by bootstrap.sh). All paths are derived
 # relative to this script -- no absolute/user-specific paths.
 set -euo pipefail
-LOG=/tmp/wk_build.log
-# The one build log: this script routes its own output there, so a bare invocation fills it.
-exec >> "$LOG" 2>&1
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The one build log: this script routes its own output there, so a bare invocation fills it.
+. "$HERE/../../scripts/build-log.sh"
+build_log_open
+. "$HERE/../../scripts/host-headers.sh"
 TOOLCHAIN="$(cd "$HERE/.." && pwd)"
 CLANG="$TOOLCHAIN/build/clang"
 PREFIX="${PYTHON3_PREFIX:-$TOOLCHAIN/build/python3}"
 CCDIR="$TOOLCHAIN/build/python3-cc"
 VER=3.9.21
-SCRATCH="$(mktemp -d -t py3build)"
-trap 'rm -rf "$SCRATCH"' EXIT
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/py3build.XXXXXX")"
+trap 'rc=$?; rm -rf "$SCRATCH"; build_log_report $rc' EXIT
 
 # Vanilla cc wrapper: the in-tree clang without its forced config, tolerant of the
 # legacy C in CPython's configure probes. It lives in the toolchain build tree

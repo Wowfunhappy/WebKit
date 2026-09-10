@@ -10,10 +10,11 @@
 # Installs into the toolchain build tree (toolchain/build/cctools, gitignored). All paths are
 # relative to this script -- no absolute/user-specific paths.
 set -euo pipefail
-LOG=/tmp/wk_build.log
-# The one build log: this script routes its own output there, so a bare invocation fills it.
-exec >> "$LOG" 2>&1
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The one build log: this script routes its own output there, so a bare invocation fills it.
+. "$HERE/../../scripts/build-log.sh"
+build_log_open
+. "$HERE/../../scripts/host-headers.sh"
 TOOLCHAIN="$(cd "$HERE/.." && pwd)"
 REPO="$(cd "$TOOLCHAIN/../.." && pwd)"
 PREFIX="${CCTOOLS_PREFIX:-$TOOLCHAIN/build/cctools}"
@@ -23,8 +24,8 @@ SDK="${MAVERICKS_SDK:-$(dirname "$REPO")/MacOSX26.1.sdk}"
 COMMIT=e79d784d667816e4b15a0abd78828f9abb0a0b99
 URL="https://github.com/tpoechtrager/cctools-port/archive/${COMMIT}.tar.gz"
 
-WORK="$(mktemp -d -t cctools-build)"
-trap 'rm -rf "$WORK"' EXIT
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/cctools-build.XXXXXX")"
+trap 'rc=$?; rm -rf "$WORK"; build_log_report $rc' EXIT
 
 echo "### Downloading cctools-port ${COMMIT}"
 curl -fsSL -o "$WORK/cctools.tar.gz" "$URL"
@@ -80,8 +81,8 @@ install -m 755 otool/otool misc/lipo misc/install_name_tool misc/nm misc/nmedit 
 for t in otool lipo install_name_tool nm nmedit strip size strings libtool ranlib ar dyldinfo; do
     [ -x "$PREFIX/bin/$t" ] || { echo "FATAL: $t did not build"; exit 1; }
 done
-_probe="$(mktemp -d -t cctools_probe)"
-trap 'rm -rf "$WORK" "$_probe"' EXIT
+_probe="$(mktemp -d "${TMPDIR:-/tmp}/cctools_probe.XXXXXX")"
+trap 'rc=$?; rm -rf "$WORK" "$_probe"; build_log_report $rc' EXIT
 cp /usr/lib/libz.1.dylib "$_probe/lib.dylib"
 echo 'int wk_cctools_probe(void) { return 7; }' > "$_probe/p.c"
 "$CLANG/bin/clang" -c -mmacosx-version-min=10.9 -o "$_probe/p.o" "$_probe/p.c"

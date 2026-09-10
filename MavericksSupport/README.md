@@ -36,6 +36,7 @@ MavericksSupport/
 │                               check-absent-references.sh and check-gap-archive-current.sh (build gates),
 │                               check-backport-markers.sh (divergence gate),
 │                               check-imageio-decode.sh (run by hand: no page bytes reach ImageIO),
+│                               build-log.sh and host-headers.sh (sourced: the one build log, and the 10.9 header probe),
 │                               run-layout-tests.sh (--wk1 | --wk2), build-localized-strings.py
 ├── polyfill/                   the polyfill layer -- see polyfill/README.md
 ├── sandbox/                    the sandbox profiles 10.9's sandbox can compile, and scripts/ (check-sandbox-profiles.sh,
@@ -60,17 +61,21 @@ and install prefix, and that build's own ccache.
 1. **Supply the SDK.** The macOS SDK is Apple-proprietary and not redistributed here. Place a
    `MacOSX26.1.sdk` as a **sibling of this checkout** (or set `MAVERICKS_SDK`).
 
-2. **Bootstrap** (once): `bash MavericksSupport/bootstrap.sh` — unpacks the in-tree clang and builds
+2. **Install Apple's Command Line Tools** (`xcode-select --install`). The toolchain's C tools, the
+   third-party deps build and the polyfill layer all target 10.9's own libc, so they compile against
+   the host headers in `/usr/include`, which the Command Line Tools install and Xcode.app does not.
+
+3. **Bootstrap** (once): `bash MavericksSupport/bootstrap.sh` — unpacks the in-tree clang and builds
    python3/ruby/nasm/ninja/cmake/ccache/git into `toolchain/build/`, applies the SDK patches, builds the
    third-party libraries into `deps/build/` and the polyfill archives into `polyfill/build/`. Budget
    a couple of hours for a cold run.
 
-3. **Build**: `bash MavericksSupport/build.sh` — configures `WebKitBuild/Release` on the first run,
+4. **Build**: `bash MavericksSupport/build.sh` — configures `WebKitBuild/Release` on the first run,
    builds, stages the complete product in `WebKitBuild/Release/staged/` laid out exactly as it lands
    on disk, and runs the post-build audits. Everything logs to `/tmp/wk_build.log`; wait for
    `REBUILD DONE (rc=0)`.
 
-4. **Install** onto the 10.9 target: `sudo bash MavericksSupport/install.sh`. Installing copies the
+5. **Install** onto the 10.9 target: `sudo bash MavericksSupport/install.sh`. Installing copies the
    staged tree into `/System`, and reaches two things outside our own frameworks. It clears the
    `com.apple.webkit.webpushd.relocatable` job from the invoking user's launchd session, so the
    daemon serving the previous framework is gone. And because the Dock picks the DashboardClient

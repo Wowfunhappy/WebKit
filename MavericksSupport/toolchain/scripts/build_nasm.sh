@@ -12,15 +12,16 @@
 # Installs into the toolchain build tree (toolchain/build/nasm, gitignored). All
 # paths are relative to this script -- no absolute/user-specific paths.
 set -euo pipefail
-LOG=/tmp/wk_build.log
-# The one build log: this script routes its own output there, so a bare invocation fills it.
-exec >> "$LOG" 2>&1
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The one build log: this script routes its own output there, so a bare invocation fills it.
+. "$HERE/../../scripts/build-log.sh"
+build_log_open
+. "$HERE/../../scripts/host-headers.sh"
 TOOLCHAIN="$(cd "$HERE/.." && pwd)"
 PREFIX="${NASM_PREFIX:-$TOOLCHAIN/build/nasm}"
 VERSION=2.16.03
-WORK="$(mktemp -d -t nasm-build)"
-trap 'rm -rf "$WORK"' EXIT
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/nasm-build.XXXXXX")"
+trap 'rc=$?; rm -rf "$WORK"; build_log_report $rc' EXIT
 URL="https://www.nasm.us/pub/nasm/releasebuilds/${VERSION}/nasm-${VERSION}.tar.gz"
 
 echo "### Downloading nasm ${VERSION}"
