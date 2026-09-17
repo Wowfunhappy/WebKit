@@ -89,12 +89,19 @@ for lib in libc++.1.dylib libc++abi.1.dylib; do
 done
 
 # WebKitTestRunner's WebKit2 injected bundle: the cmake build emits it as a plain dylib (lib/libTestRunnerInjected
-# Bundle.dylib), but -[NSBundle initWithPath:] in the WebContent process needs a real .bundle wrapper next to the
-# executable (TestController::initializeInjectedBundlePath builds the path from the main bundle). Assemble/refresh
-# it here; the rewrite pass below covers its binary like every other Mach-O under bin/.
+# Bundle.dylib), but -[NSBundle initWithPath:] in the WebContent process needs a real .bundle wrapper, at the path
+# TestController::initializeInjectedBundlePath builds next to the executable. The bundle itself lives in lib/,
+# beside WebKit.framework, and bin/ holds a link to it. Its Contents/Resources carries the layout-test fonts, and
+# every WebKit process's sandbox reads only under WEBKIT2_FRAMEWORK_DIR (the directory holding WebKit.framework,
+# AuxiliaryProcessMac.mm): the GPU process opens the font file a serialized font names
+# (FontPlatformDataCoreText.cpp findFontDescriptor), which resolves through the link into lib/. Upstream's build
+# puts the test runner, its bundle and the frameworks in one directory, which is the same containment. The rewrite
+# pass below covers the bundle's binary like every other Mach-O under lib/.
 IB_SRC="$LIBDIR/libTestRunnerInjectedBundle.dylib"
 if [ -f "$IB_SRC" ]; then
-    IB_BUNDLE="$BINDIR/WebKitTestRunnerInjectedBundle.bundle"
+    IB_BUNDLE="$LIBDIR/WebKitTestRunnerInjectedBundle.bundle"
+    IB_LINK="$BINDIR/WebKitTestRunnerInjectedBundle.bundle"
+    IB_LINK_TARGET="../lib/WebKitTestRunnerInjectedBundle.bundle"
     IB_EXE="$IB_BUNDLE/Contents/MacOS/WebKitTestRunnerInjectedBundle"
     if [ ! -f "$IB_EXE" ] || [ "$IB_SRC" -nt "$IB_EXE" ]; then
         mkdir -p "$IB_BUNDLE/Contents/MacOS"
@@ -129,6 +136,16 @@ if [ -f "$IB_SRC" ]; then
 PLIST
         fi
         echo "  assembled WebKitTestRunnerInjectedBundle.bundle"
+    fi
+    if [ ! -L "$IB_LINK" ] || [ "$(readlink "$IB_LINK")" != "$IB_LINK_TARGET" ]; then
+        if [ -e "$IB_LINK" ] && [ ! -L "$IB_LINK" ]; then
+            echo "ERROR: $IB_LINK is not a link to $IB_BUNDLE" >&2
+            exit 1
+        fi
+        if ! ln -sfn "$IB_LINK_TARGET" "$IB_LINK"; then
+            echo "ERROR: could not link $IB_LINK to $IB_BUNDLE" >&2
+            exit 1
+        fi
     fi
 fi
 

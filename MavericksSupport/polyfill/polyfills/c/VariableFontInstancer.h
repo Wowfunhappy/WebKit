@@ -64,6 +64,26 @@ CFDataRef wk_legacy_variable_font_strip_variations(CFDataRef sfnt);
 // can mint a new pinned-value set per frame.
 CFDataRef wk_legacy_variable_font_instance(CFDataRef sfnt, CFDictionaryRef ctVariationAttribute);
 
+// One fvar axis of an instanceable sfnt: its tag, its range as the table's 16.16 values, and its
+// name from the name table (retained, NULL when the table has none the reader decodes).
+typedef struct {
+    uint32_t tag;
+    int32_t minimumValue;
+    int32_t defaultValue;
+    int32_t maximumValue;
+    CFStringRef name;
+} wk_legacy_variable_font_axis;
+
+// The number of fvar axes of an instanceable sfnt (0 for any other buffer); the first `capacity` of
+// them are written to `axes`, and the caller releases each name written.
+CFIndex wk_legacy_variable_font_copy_axes(CFDataRef sfnt, wk_legacy_variable_font_axis *axes, CFIndex capacity);
+
+// The number of tables in the sfnt's directory; the first `capacity` tags are written to `tags`.
+CFIndex wk_legacy_variable_font_table_tags(CFDataRef sfnt, uint32_t *tags, CFIndex capacity);
+
+// A copy of the sfnt's table `tag`, or NULL when it has none.
+CFDataRef wk_legacy_variable_font_copy_table(CFDataRef sfnt, uint32_t tag);
+
 #ifdef __cplusplus
 }
 #endif

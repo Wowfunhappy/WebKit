@@ -594,37 +594,23 @@ echo "$DEMANGLER_GUARD_BINS" | grep -v '^$' | sort -u | \
 # resolves independently from the user's prefs — but on 10.9 only the latter exists, and it is what
 # every Safari 7 WebContent process on this OS ran with.
 #
-# Stamped here, ahead of the cloning below, so the seven cp -RP clones inherit it. Unsuppressed: a
-# failure silently reintroduces #105.
+# Stamped before staged-product cloning, so each staged WebContent variant inherits it.
 echo "### Allowing mixed localizations in WebContent.xpc (#105)"
 /usr/libexec/PlistBuddy -c "Add :CFBundleAllowMixedLocalizations bool true" \
     "$(s "$XPCSERVICES")/com.apple.WebKit.WebContent.xpc/Contents/Info.plist"
 
 # ---------------------------------------------------------------------------
-# Step 6: QuickLook web previews (.webloc from a Dock stack) need the FULL stock WK2 XPC service set.
+# Step 6: materialize every requested XPC service identity in both WebKit framework trees.
 #
-# macOS 10.9's QuickLook (QuickLookUIHelper, sandboxed) renders a web preview by loading our WebKit2
-# and launching the SAME fixed set of helper services the 2014 stock WebKit shipped: production AND
-# ".Development" variants of every service, plus OfflineStorage and Plugin.{32,64}. xpcd resolves the
-# sandboxed host's connection to each service through the on-disk .xpc bundles; when a requested bundle
-# is MISSING the domain-extension fails the sandbox check and the preview hangs (spins forever). Modern
-# WebKit builds Networking.xpc + WebContent.xpc (it folded OfflineStorage into NetworkProcess and dropped
-# the NPAPI Plugin process), so the other seven bundles ship as identity-renamed clones of those two.
-# (Safari is unaffected either way: ProcessLauncherCocoa requests only the two production services, and
-# Safari's own host is not sandboxed the way QuickLook's is.)
-#
-# The .Development network/web variants clone their production counterpart; the storage/plugin bundles
-# clone WebContent — they only need to EXIST and be launchable so xpcd's domain check passes (the actual
-# rendering is done by WebContent + Networking, and QuickLook launches this set for every web preview
-# regardless of page content). WebContent.EnhancedSecurity clones WebContent for Safari's own sake:
-# ProcessLauncherCocoa requests it by name for a navigation carrying enhanced security, and it renders
-# that navigation itself. Cloning happens after step 4, so each clone inherits the absolute load
-# commands intact, and after step 5, so each inherits a guarded string table. A clone differs from its
-# base ONLY in the three identity keys + the renamed executable file.
+# CMake produces the Networking, WebContent, and GPU base bundles. WK_XPC_VARIANTS names the
+# identity-renamed services requested by Safari, layout tests, and QuickLook. Staged variants inherit
+# the absolute install names and guarded string tables above; build variants retain the base bundles'
+# @rpath dependencies for clients loading WebKit through DYLD_FRAMEWORK_PATH. A variant differs from
+# its base only in the three identity keys and the executable filename.
 make_xpc_variant() {
-    local base="$1" newname="$2"
-    local src="$(s "$XPCSERVICES")/com.apple.WebKit.$base.xpc"
-    local dst="$(s "$XPCSERVICES")/com.apple.WebKit.$newname.xpc"
+    local services="$1" base="$2" newname="$3"
+    local src="$services/com.apple.WebKit.$base.xpc"
+    local dst="$services/com.apple.WebKit.$newname.xpc"
     [ -d "$src" ] || { echo "  xpc-variant: missing base $src" >&2; return 1; }
     rm -rf "$dst"
     cp -RP "$src" "$dst"
@@ -635,13 +621,18 @@ make_xpc_variant() {
     /usr/libexec/PlistBuddy -c "Set :CFBundleName       com.apple.WebKit.$newname" "$pl"
     echo "  created $newname.xpc (clone of $base)"
 }
-echo "### Creating the full stock WK2 XPC service set (QuickLook web previews)"
-while IFS=: read -r base newname; do
-    [ -n "$base" ] || continue
-    make_xpc_variant "$base" "$newname"
-done <<EOF
+materialize_xpc_variants() {
+    local services="$1" base newname
+    echo "### Creating XPC service variants in $services"
+    while IFS=: read -r base newname; do
+        [ -n "$base" ] || continue
+        make_xpc_variant "$services" "$base" "$newname"
+    done <<EOF
 $WK_XPC_VARIANTS
 EOF
+}
+materialize_xpc_variants "$(s "$XPCSERVICES")"
+materialize_xpc_variants "$LIBDIR/WebKit.framework/Versions/A/XPCServices"
 
 # ---------------------------------------------------------------------------
 # Step 7: runtime-binding gate over everything staged so far, while every binary is still thin and

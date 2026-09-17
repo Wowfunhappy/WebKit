@@ -221,34 +221,111 @@ public:
             if (!setExtradata(*parameters, configuration->span()))
                 return { };
         }
-        return trackIndexFor(*stream);
+        m_videoTrackIndex = trackIndexFor(*stream);
+        return m_videoTrackIndex;
     }
 
-    bool writeHeader()
+    bool initialize()
     {
-        if (!m_context || !m_context->pb || !m_packet)
+        if (!m_context || !m_context->pb || !m_packet) {
+            m_failed = true;
             return false;
+        }
         AVDictionary* options = nullptr;
         // A movie header with no sample tables followed by self-contained fragments, each one cut
         // where flushFragment() asks for it rather than on a duration the muxer picks.
         av_dict_set(&options, "movflags", "frag_custom+empty_moov+default_base_moof", 0);
-        int result = avformat_write_header(m_context, &options);
+        int result = avformat_init_output(m_context, &options);
         av_dict_free(&options);
         if (result < 0) {
-            RELEASE_LOG_ERROR(MediaStream, "MediaRecorderPrivateWriterMP4: avformat_write_header failed with %d", result);
+            RELEASE_LOG_ERROR(MediaStream, "MediaRecorderPrivateWriterMP4: avformat_init_output failed with %d", result);
             m_failed = true;
             return false;
         }
-        avio_flush(m_context->pb);
-        m_headerWritten = true;
         return true;
     }
 
     bool writeSample(uint8_t trackIndex, std::span<const uint8_t> data, const MediaTime& presentationTime, const MediaTime& decodeTime, const MediaTime& duration, bool isSync)
     {
-        if (m_failed || !m_headerWritten || trackIndex > m_streams.size() || !trackIndex)
+        if (m_failed || trackIndex > m_streams.size() || !trackIndex)
             return false;
 
+        // Emit the initialization segment with the first media fragment, when the encoder writes frames.
+        if (!m_headerWritten) {
+            int result = avformat_write_header(m_context, nullptr);
+            if (result < 0) {
+                RELEASE_LOG_ERROR(MediaStream, "MediaRecorderPrivateWriterMP4: avformat_write_header failed with %d", result);
+                m_failed = true;
+                return false;
+            }
+            m_headerWritten = true;
+        }
+
+        if (m_videoTrackIndex && trackIndex == *m_videoTrackIndex) {
+            if (!writePendingVideoSample(presentationTime))
+                return false;
+            m_pendingVideoSample = PendingVideoSample {
+                trackIndex,
+                Vector<uint8_t>(data),
+                presentationTime,
+                decodeTime,
+                duration,
+                isSync
+            };
+            return true;
+        }
+
+        return writeSampleImmediately(trackIndex, data, presentationTime, decodeTime, duration, isSync);
+    }
+
+    void flushFragment(const MediaTime& endTime)
+    {
+        if (m_failed || !m_headerWritten)
+            return;
+        if (!writePendingVideoSample(endTime)) {
+            m_failed = true;
+            return;
+        }
+        av_write_frame(m_context, nullptr);
+        avio_flush(m_context->pb);
+    }
+
+    void finalize(const MediaTime& endTime)
+    {
+        if (m_failed || !m_headerWritten)
+            return;
+        if (!writePendingVideoSample(endTime)) {
+            m_failed = true;
+            return;
+        }
+        av_write_trailer(m_context);
+        avio_flush(m_context->pb);
+        m_headerWritten = false;
+    }
+
+private:
+    struct PendingVideoSample {
+        uint8_t trackIndex;
+        Vector<uint8_t> data;
+        MediaTime presentationTime;
+        MediaTime decodeTime;
+        MediaTime duration;
+        bool isSync;
+    };
+
+    bool writePendingVideoSample(const MediaTime& endTime)
+    {
+        if (!m_pendingVideoSample)
+            return true;
+
+        // The next video timestamp or fragment boundary supplies the pending sample's duration.
+        auto sample = std::exchange(m_pendingVideoSample, std::nullopt);
+        sample->duration = endTime - sample->presentationTime;
+        return writeSampleImmediately(sample->trackIndex, sample->data.span(), sample->presentationTime, sample->decodeTime, sample->duration, sample->isSync);
+    }
+
+    bool writeSampleImmediately(uint8_t trackIndex, std::span<const uint8_t> data, const MediaTime& presentationTime, const MediaTime& decodeTime, const MediaTime& duration, bool isSync)
+    {
         if (av_new_packet(m_packet, static_cast<int>(data.size())) < 0)
             return false;
         memcpySpan(unsafeMakeSpan(m_packet->data, data.size()), data);
@@ -270,25 +347,6 @@ public:
         }
         return true;
     }
-
-    void flushFragment()
-    {
-        if (m_failed || !m_headerWritten)
-            return;
-        av_write_frame(m_context, nullptr);
-        avio_flush(m_context->pb);
-    }
-
-    void finalize()
-    {
-        if (m_failed || !m_headerWritten)
-            return;
-        av_write_trailer(m_context);
-        avio_flush(m_context->pb);
-        m_headerWritten = false;
-    }
-
-private:
     static int writeData(void* opaque, const uint8_t* data, int size)
     {
         auto& delegate = *static_cast<MediaRecorderPrivateWriterMP4Delegate*>(opaque);
@@ -331,6 +389,8 @@ private:
     AVFormatContext* m_context { nullptr };
     AVPacket* m_packet { nullptr };
     Vector<AVStream*> m_streams;
+    std::optional<uint8_t> m_videoTrackIndex;
+    std::optional<PendingVideoSample> m_pendingVideoSample;
     bool m_headerWritten { false };
     bool m_failed { false };
 };
@@ -359,7 +419,7 @@ std::optional<uint8_t> MediaRecorderPrivateWriterMP4::addVideoTrack(const VideoI
 
 bool MediaRecorderPrivateWriterMP4::allTracksAdded()
 {
-    return m_delegate->writeHeader();
+    return m_delegate->initialize();
 }
 
 MediaRecorderPrivateWriterMP4::Result MediaRecorderPrivateWriterMP4::writeFrame(const MediaSamplesBlock& block)
@@ -373,18 +433,18 @@ MediaRecorderPrivateWriterMP4::Result MediaRecorderPrivateWriterMP4::writeFrame(
     return Result::Success;
 }
 
-void MediaRecorderPrivateWriterMP4::forceNewSegment(const MediaTime&)
+void MediaRecorderPrivateWriterMP4::forceNewSegment(const MediaTime& endTime)
 {
-    m_delegate->flushFragment();
+    m_delegate->flushFragment(endTime);
 }
 
-Ref<GenericPromise> MediaRecorderPrivateWriterMP4::close(Deque<UniqueRef<MediaSamplesBlock>>&& samples, const MediaTime&)
+Ref<GenericPromise> MediaRecorderPrivateWriterMP4::close(Deque<UniqueRef<MediaSamplesBlock>>&& samples, const MediaTime& endTime)
 {
     auto result = Result::Success;
     while (!samples.isEmpty() && result == Result::Success)
         result = writeFrame(samples.takeFirst().get());
 
-    m_delegate->finalize();
+    m_delegate->finalize(endTime);
     return result == Result::Success ? GenericPromise::createAndResolve() : GenericPromise::createAndReject();
 }
 

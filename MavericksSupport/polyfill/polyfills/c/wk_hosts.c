@@ -12,8 +12,7 @@
 static bool wk_nameIsTopLevelDomain(CFStringRef domain);
 
 // WebCore, native-cookie policy and WebSocket same-site checks share the same current
-// PSL implementation as curl. The 10.9 table cannot represent newer multi-label or
-// private suffixes; adding only the default one-label rule does not repair that gap.
+// PSL implementation as curl, including explicit multi-label and private suffixes.
 WK_POLYFILL_REPLACES("CFNetwork", Boolean, _CFHostIsDomainTopLevel, (CFStringRef domain))
 {
     return wk_nameIsTopLevelDomain(domain);
@@ -21,7 +20,9 @@ WK_POLYFILL_REPLACES("CFNetwork", Boolean, _CFHostIsDomainTopLevel, (CFStringRef
 
 static bool wk_nameIsTopLevelDomain(CFStringRef domain)
 {
-    if (!domain || !CFStringGetLength(domain) || wk_hostIsIPAddress(domain))
+    // CFNetwork permits a leading cookie-domain dot, but rejects a trailing root label.
+    if (!domain || !CFStringGetLength(domain) || wk_hostIsIPAddress(domain)
+        || CFStringHasSuffix(domain, CFSTR(".")))
         return false;
     CFIndex capacity = CFStringGetMaximumSizeForEncoding(CFStringGetLength(domain), kCFStringEncodingUTF8);
     if (capacity < 0)
@@ -40,7 +41,15 @@ static bool wk_nameIsTopLevelDomain(CFStringRef domain)
         abort();
     if (error != PSL_SUCCESS)
         return false;
-    bool result = psl_is_public_suffix(psl_builtin(), normalized);
+    // The PSL's implicit "*" rule makes an unlisted top-level label a public suffix. CFNetwork applies it
+    // to an ASCII label and not to a Unicode one, and an A-label answers as its Unicode form does.
+    const char *topLabel = strrchr(normalized, '.');
+    topLabel = topLabel ? topLabel + 1 : normalized;
+    bool starRuleApplies = strncmp(topLabel, "xn--", 4);
+    for (const char *c = topLabel; *c && starRuleApplies; ++c)
+        starRuleApplies = !(*c & 0x80);
+    bool result = psl_is_public_suffix2(psl_builtin(), normalized,
+        starRuleApplies ? PSL_TYPE_ANY : PSL_TYPE_ANY | PSL_TYPE_NO_STAR_RULE);
     psl_free_string(normalized);
     return result;
 }

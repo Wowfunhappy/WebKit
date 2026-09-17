@@ -129,6 +129,10 @@ static void providerPath(const char *provider, char *out, size_t outSize)
         snprintf(out, outSize, "/System/Library/Frameworks/%s.framework/%s", provider, provider);
 }
 
+// The class registry lives in another image and is scanned through the clsmap sections; see
+// classProviderPathIsRegistered below lookupPolyfillClass.
+static int classProviderPathIsRegistered(const char *frameworkPath);
+
 static int providerPathIsRegistered(const char *frameworkPath)
 {
     char candidate[PATH_MAX];
@@ -139,7 +143,7 @@ static int providerPathIsRegistered(const char *frameworkPath)
         if (!strcmp(candidate, frameworkPath))
             return 1;
     }
-    return 0;
+    return classProviderPathIsRegistered(frameworkPath);
 }
 
 void *wk_polyfill_absent_provider_token(const char *frameworkPath)
@@ -402,6 +406,26 @@ static void *lookupPolyfillClass(const char *name)
         }
     }
     return NULL;
+}
+
+// A provider whose only registered symbols are class stubs vends symbols like any other, so it has a
+// token to offer: SOFT_LINK_CLASS_FOR_SOURCE opens the framework before it asks objc_getClass.
+static int classProviderPathIsRegistered(const char *frameworkPath)
+{
+    char candidate[PATH_MAX];
+    int n = __atomic_load_n(&clsmapSectionCount, __ATOMIC_ACQUIRE);
+    for (int i = 0; i < n; i++) {
+        const struct wk_polyfill_class_entry *classEntries = clsmapSections[i].entries;
+        size_t count = clsmapSections[i].count;
+        for (size_t j = 0; j < count; j++) {
+            if (!classEntries[j].provider)
+                continue;
+            providerPath(classEntries[j].provider, candidate, sizeof candidate);
+            if (!strcmp(candidate, frameworkPath))
+                return 1;
+        }
+    }
+    return 0;
 }
 
 // objc_getClass for WebKit's own binaries, the class-shaped counterpart of the dlsym override above.

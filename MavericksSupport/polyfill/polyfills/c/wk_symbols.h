@@ -1,4 +1,4 @@
-// Loaded-image symbol lookup for the native protection-space archive writer.
+// Loaded-image symbol lookup for native framework compatibility.
 #ifndef WK_SYMBOLS_H
 #define WK_SYMBOLS_H
 

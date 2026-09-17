@@ -33,6 +33,7 @@
 #include "DisplayCaptureSourceCocoa.h"
 #include <CoreGraphics/CGDisplayConfiguration.h>
 #include <CoreGraphics/CGDisplayStream.h>
+#include <IOSurface/IOSurface.h>
 #include <wtf/OSObjectPtr.h>
 
 typedef struct __CVBuffer *CVPixelBufferRef;

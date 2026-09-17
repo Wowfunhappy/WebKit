@@ -60,18 +60,13 @@ XPCSERVICES=$WEBKIT2_BUNDLE/Versions/A/XPCServices
 # scripts/stage-frameworks.sh and read by the i386 graft.
 STOCK_BACKUP="${STOCK_BACKUP:-$(dirname "$WK_REPO")/stock-webkit-backup}"
 
-# macOS 10.9's QuickLook launches the FIXED helper-service set the 2014 stock WebKit shipped, so the
-# product ships those nine bundles -- Networking and WebContent plus seven identity-renamed clones --
-# alongside the GPU service. WebContent.EnhancedSecurity is the eighth clone, for a different caller:
-# ProcessLauncherCocoa::webContentServiceName asks for it by name whenever a navigation carries
-# enhanced security, which the Cocoa heuristics turn on for plain-http main-frame loads, and a service
-# name launchd cannot resolve is a process that never starts. Upstream builds it as a same-binary
-# variant carrying entitlements and launch attributes; neither exists on 10.9, so the clone is the
-# whole of it. Each entry is "<base service>:<clone name>". See the cloning step in
-# stage-frameworks.sh.
+# XPC identities requested by Safari, layout tests, and QuickLook in addition to the three CMake-built
+# base services. Each entry is "<base service>:<variant name>"; stage-frameworks.sh materializes the
+# same set in the build framework and the staged product.
 WK_XPC_VARIANTS="Networking:Networking.Development
 WebContent:WebContent.Development
 WebContent:WebContent.EnhancedSecurity
+WebContent:WebContent.CaptivePortal
 WebContent:OfflineStorage
 WebContent:OfflineStorage.Development
 WebContent:Plugin.32
@@ -190,8 +185,7 @@ wk_verify_tree() {
     [ -f "$pre$GST_DEPLOY/libgstreamer-1.0.0.dylib" ] || {
         echo "  MISSING GStreamer runtime: $pre$GST_DEPLOY/libgstreamer-1.0.0.dylib" >&2; bad=1; }
 
-    # Networking, WebContent and GPU, plus the seven identity-renamed clones QuickLook resolves
-    # before it will render a web preview.
+    # The three base services and every identity-renamed variant clients resolve through launchd.
     for svc in $WK_XPC_SERVICES; do
         f="$XPCSERVICES/$svc.xpc/Contents/MacOS/$svc"
         [ -f "$pre$f" ] || { echo "  MISSING XPC service executable: $pre$f" >&2; bad=1; }

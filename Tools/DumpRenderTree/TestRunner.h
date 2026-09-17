@@ -475,8 +475,8 @@ private:
     bool m_rejectsProtectionSpaceAndContinueForAuthenticationChallenges { false };
     bool m_handlesAuthenticationChallenges { false };
     bool m_isPrinting { false };
-    // MAVERICKS_BACKPORT: see isUserMediaPermissionAllowed() above.
-    bool m_userMediaPermissionAllowed { false };
+    // MAVERICKS_BACKPORT: WebKitTestRunner allows media requests unless a test denies them.
+    bool m_userMediaPermissionAllowed { true };
     bool m_useDeferredFrameLoading { false };
     bool m_shouldPaintBrokenImage { true };
     bool m_shouldStayOnPageAfterHandlingBeforeUnload { false };

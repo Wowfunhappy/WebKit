@@ -53,6 +53,10 @@ struct LegacyVariableFontAxis {
     float minimumValue { 0 };
     float defaultValue { 0 };
     float maximumValue { 0 };
+    int32_t fixedMinimumValue { 0 };
+    int32_t fixedDefaultValue { 0 };
+    int32_t fixedMaximumValue { 0 };
+    uint16_t nameID { 0 };
 };
 
 constexpr uint32_t tagFor(char a, char b, char c, char d)
@@ -361,9 +365,14 @@ static std::vector<LegacyVariableFontAxis> parseFvarAxes(const ParsedSfnt& sfnt)
         fvar.seek(size_t(axesArrayOffset) + size_t(i) * axisSize);
         LegacyVariableFontAxis axis;
         axis.tag = fvar.u32();
-        axis.minimumValue = fvar.fixed();
-        axis.defaultValue = fvar.fixed();
-        axis.maximumValue = fvar.fixed();
+        axis.fixedMinimumValue = fvar.s32();
+        axis.fixedDefaultValue = fvar.s32();
+        axis.fixedMaximumValue = fvar.s32();
+        fvar.u16(); // flags
+        axis.nameID = fvar.u16();
+        axis.minimumValue = axis.fixedMinimumValue / 65536.0f;
+        axis.defaultValue = axis.fixedDefaultValue / 65536.0f;
+        axis.maximumValue = axis.fixedMaximumValue / 65536.0f;
         if (fvar.failed() || axis.minimumValue > axis.defaultValue || axis.defaultValue > axis.maximumValue)
             return { };
         axes.push_back(axis);
@@ -1445,29 +1454,18 @@ std::vector<std::pair<uint32_t, float>> pinnedAxisValues(CFDataRef sfnt, CFDicti
     if (axes.empty())
         return { };
 
-    // CoreText writes the axis tag as a CFNumber holding the four-character code; accept any
-    // number type, and a four-character CFString as well, since kCTFontVariationAttribute is
-    // public API and a caller outside WebKit may build it either way.
+    // kCTFontVariationAttribute keys an axis by a CFNumber holding its four-character code.
     std::vector<std::pair<uint32_t, float>> requested;
     CFIndex count = CFDictionaryGetCount(variations);
     std::vector<const void*> keys(count ? count : 1);
     std::vector<const void*> values(count ? count : 1);
     CFDictionaryGetKeysAndValues(variations, keys.data(), values.data());
     for (CFIndex i = 0; i < count; ++i) {
-        uint32_t tag = 0;
-        if (CFGetTypeID(keys[i]) == CFNumberGetTypeID()) {
-            long long raw = 0;
-            if (!CFNumberGetValue(static_cast<CFNumberRef>(keys[i]), kCFNumberLongLongType, &raw))
-                continue;
-            tag = static_cast<uint32_t>(raw);
-        } else if (CFGetTypeID(keys[i]) == CFStringGetTypeID()) {
-            char buffer[8] = { 0 };
-            if (!CFStringGetCString(static_cast<CFStringRef>(keys[i]), buffer, sizeof(buffer), kCFStringEncodingASCII)
-                || strlen(buffer) != 4)
-                continue;
-            tag = tagFor(buffer[0], buffer[1], buffer[2], buffer[3]);
-        } else
+        long long raw = 0;
+        if (CFGetTypeID(keys[i]) != CFNumberGetTypeID()
+            || !CFNumberGetValue(static_cast<CFNumberRef>(keys[i]), kCFNumberLongLongType, &raw))
             continue;
+        uint32_t tag = static_cast<uint32_t>(raw);
         if (CFGetTypeID(values[i]) != CFNumberGetTypeID())
             continue;
         double value = 0;
@@ -1522,11 +1520,6 @@ std::string instanceCacheKey(CFDataRef sfnt, CFDictionaryRef variations)
         double value = 0;
         if (CFGetTypeID(keys[i]) == CFNumberGetTypeID())
             CFNumberGetValue(static_cast<CFNumberRef>(keys[i]), kCFNumberDoubleType, &tag);
-        else if (CFGetTypeID(keys[i]) == CFStringGetTypeID()) {
-            char tagBuffer[8] = { 0 };
-            if (CFStringGetCString(static_cast<CFStringRef>(keys[i]), tagBuffer, sizeof(tagBuffer), kCFStringEncodingASCII) && strlen(tagBuffer) == 4)
-                tag = tagFor(tagBuffer[0], tagBuffer[1], tagBuffer[2], tagBuffer[3]);
-        }
         if (CFGetTypeID(values[i]) == CFNumberGetTypeID())
             CFNumberGetValue(static_cast<CFNumberRef>(values[i]), kCFNumberDoubleType, &value);
         snprintf(buffer, sizeof(buffer), "%.0f=%.4f;", tag, value);
@@ -1585,4 +1578,87 @@ CFDataRef wk_legacy_variable_font_instance(CFDataRef sfnt, CFDictionaryRef ctVar
     }
     pthread_mutex_unlock(&instanceCacheMutex);
     return instance;
+}
+
+// The name-table record 10.9's CoreText names an axis with: Macintosh Roman, English first, then
+// Unicode, then Windows Unicode, US English first.
+static CFStringRef copyAxisName(const ParsedSfnt& sfnt, uint16_t nameID)
+{
+    constexpr uint32_t nameTag = tagFor('n', 'a', 'm', 'e');
+    if (!sfnt.find(nameTag))
+        return nullptr;
+    Reader name = sfnt.tableReader(nameTag);
+    name.u16(); // version
+    uint16_t count = name.u16();
+    uint16_t storageOffset = name.u16();
+    int bestRank = 5;
+    uint16_t bestPlatform = 0;
+    size_t bestOffset = 0;
+    size_t bestLength = 0;
+    for (uint16_t i = 0; i < count && !name.failed(); ++i) {
+        uint16_t platformID = name.u16();
+        uint16_t encodingID = name.u16();
+        uint16_t languageID = name.u16();
+        uint16_t recordNameID = name.u16();
+        uint16_t length = name.u16();
+        uint16_t offset = name.u16();
+        if (name.failed() || recordNameID != nameID)
+            continue;
+        int rank;
+        if (platformID == 1 && !encodingID)
+            rank = languageID ? 1 : 0;
+        else if (!platformID)
+            rank = 2;
+        else if (platformID == 3 && (encodingID == 1 || encodingID == 10))
+            rank = languageID == 0x409 ? 3 : 4;
+        else
+            continue;
+        if (rank < bestRank) {
+            bestRank = rank;
+            bestPlatform = platformID;
+            bestOffset = offset;
+            bestLength = length;
+        }
+    }
+    if (bestRank == 5)
+        return nullptr;
+    const uint8_t* bytes = name.bytesAt(size_t(storageOffset) + bestOffset, bestLength);
+    if (!bytes)
+        return nullptr;
+    return CFStringCreateWithBytes(kCFAllocatorDefault, bytes, CFIndex(bestLength),
+        bestPlatform == 1 ? kCFStringEncodingMacRoman : kCFStringEncodingUTF16BE, false);
+}
+
+CFIndex wk_legacy_variable_font_copy_axes(CFDataRef sfnt, wk_legacy_variable_font_axis* axes, CFIndex capacity)
+{
+    auto parsed = parseSfnt(sfnt);
+    if (!parsed || !parsed->find(fvarTag) || !parsed->find(gvarTag) || !parsed->find(glyfTag))
+        return 0;
+    auto list = parseFvarAxes(*parsed);
+    for (size_t i = 0; i < list.size() && CFIndex(i) < capacity; ++i) {
+        axes[i].tag = list[i].tag;
+        axes[i].minimumValue = list[i].fixedMinimumValue;
+        axes[i].defaultValue = list[i].fixedDefaultValue;
+        axes[i].maximumValue = list[i].fixedMaximumValue;
+        axes[i].name = copyAxisName(*parsed, list[i].nameID);
+    }
+    return CFIndex(list.size());
+}
+
+CFIndex wk_legacy_variable_font_table_tags(CFDataRef sfnt, uint32_t* tags, CFIndex capacity)
+{
+    auto parsed = parseSfnt(sfnt);
+    if (!parsed)
+        return 0;
+    for (size_t i = 0; i < parsed->tables.size() && CFIndex(i) < capacity; ++i)
+        tags[i] = parsed->tables[i].tag;
+    return CFIndex(parsed->tables.size());
+}
+
+CFDataRef wk_legacy_variable_font_copy_table(CFDataRef sfnt, uint32_t tag)
+{
+    auto parsed = parseSfnt(sfnt);
+    const SfntTable* table = parsed ? parsed->find(tag) : nullptr;
+    const uint8_t* bytes = table ? parsed->whole.bytesAt(table->offset, table->length) : nullptr;
+    return bytes ? CFDataCreate(kCFAllocatorDefault, bytes, table->length) : nullptr;
 }

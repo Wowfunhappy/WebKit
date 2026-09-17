@@ -18,14 +18,16 @@ build_log_open() {
 
 # build_log_report <exit status>
 build_log_report() {
-    local rc="${1:-0}" size
+    local rc="${1:-0}" size out
     [ "$rc" -eq 0 ] && return 0
     [ -n "${_BUILD_LOG_START:-}" ] || return 0
     size="$(/usr/bin/stat -f%z "$LOG" 2>/dev/null || echo 0)"
     # build.sh truncates the log once per run; a start offset past the end reads as the whole file.
     [ "$size" -lt "$_BUILD_LOG_START" ] && _BUILD_LOG_START=0
+    # Read before the header is written: fd 3 can be the log itself.
+    out="$(tail -c "+$((_BUILD_LOG_START + 1))" "$LOG" | tail -30)"
     {   echo "FATAL: $(basename "$0") exited $rc; its output in $LOG:"
-        tail -c "+$((_BUILD_LOG_START + 1))" "$LOG" | tail -30
+        [ -z "$out" ] || printf '%s\n' "$out"
     } >&3
     return 0
 }

@@ -64,6 +64,16 @@ static constexpr bool fullGPUProcessEnabledValue = false;
 #endif
 #endif
 
+// MAVERICKS_BACKPORT: this port renders the DOM in the web process but serves WebGL from the GPU process, so
+// the WebGL value is the one UseGPUProcessForWebGLEnabled defaults to rather than the DOM rendering value.
+#if ENABLE(GPU_PROCESS) && ENABLE(WEBGL) && !PLATFORM(WIN)
+#if ENABLE(GPU_PROCESS_BY_DEFAULT) && ENABLE(GPU_PROCESS_WEBGL_BY_DEFAULT)
+static constexpr bool gpuProcessWebGLEnabledValue = true;
+#else
+static constexpr bool gpuProcessWebGLEnabledValue = false;
+#endif
+#endif
+
 #if ENABLE(UNIFIED_PDF)
 #if ENABLE(UNIFIED_PDF_BY_DEFAULT)
 static constexpr bool unifiedPDFEnabledValue = true;
@@ -173,7 +183,8 @@ const TestFeatures& TestOptions::defaults()
             { "UseGPUProcessForDOMRenderingEnabled", fullGPUProcessEnabledValue },
 #endif
 #if ENABLE(GPU_PROCESS) && ENABLE(WEBGL) && !PLATFORM(WIN)
-            { "UseGPUProcessForWebGLEnabled", fullGPUProcessEnabledValue },
+            // { "UseGPUProcessForWebGLEnabled", fullGPUProcessEnabledValue },
+            { "UseGPUProcessForWebGLEnabled", gpuProcessWebGLEnabledValue }, // MAVERICKS_BACKPORT: see gpuProcessWebGLEnabledValue.
 #endif
         };
         features.stringWebPreferenceFeatures = {

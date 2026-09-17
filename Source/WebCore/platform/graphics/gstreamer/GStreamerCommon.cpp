@@ -848,7 +848,10 @@ MediaTime fromGstClockTime(GstClockTime time)
     if (!GST_CLOCK_TIME_IS_VALID(time))
         return WTF::MediaTime::invalidTime();
 
-    return WTF::MediaTime(GST_TIME_AS_USECONDS(time), G_USEC_PER_SEC);
+    // MAVERICKS_BACKPORT: rounds to the nearest microsecond, the rounding SourceBuffer applies to a timestampOffset
+    // (TrackBuffer's roundTowardsTimeScaleWithRoundingMargin), so a frame aligned to a microsecond time lands on it.
+    // return WTF::MediaTime(GST_TIME_AS_USECONDS(time), G_USEC_PER_SEC);
+    return WTF::MediaTime(static_cast<int64_t>(time), GST_SECOND).toTimeScale(G_USEC_PER_SEC);
 }
 
 RefPtr<GstMappedOwnedBuffer> GstMappedOwnedBuffer::create(GRefPtr<GstBuffer>&& buffer)
@@ -1202,16 +1205,17 @@ static void dispatchSimpleBusMessage(MessageBusData* data, GstMessage* message)
 }
 
 #if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: the bus poll fd became readable — on the main thread, drain every queued message
-// and emit the bus "message" signal for each (via the public gst_bus_async_signal_func, exactly as the
-// GLib bus GSource would), so our handler AND any other "message::detail" listeners on the bus fire.
-// Then re-arm the (one-shot) CFFileDescriptor read callback.
+// MAVERICKS_BACKPORT: emits one message per dispatch, as gst_bus_source_dispatch() does. The bus poll fd
+// stays readable while messages are pending, so the descriptor calls back again on a later run loop pass.
+// The bus and descriptor references cover a handler that tears the pipeline's bus data down.
 static void busMessagePollFDCallback(CFFileDescriptorRef fileDescriptor, CFOptionFlags, void* info)
 {
     auto* data = static_cast<MessageBusData*>(info);
-    while (GRefPtr<GstMessage> message = adoptGRef(gst_bus_pop(data->bus.get())))
-        gst_bus_async_signal_func(data->bus.get(), message.get(), nullptr);
-    CFFileDescriptorEnableCallBacks(fileDescriptor, kCFFileDescriptorReadCallBack);
+    RetainPtr protectedFileDescriptor = fileDescriptor;
+    GRefPtr<GstBus> bus = data->bus;
+    if (GRefPtr<GstMessage> message = adoptGRef(gst_bus_pop(bus.get())))
+        gst_bus_async_signal_func(bus.get(), message.get(), nullptr);
+    CFFileDescriptorEnableCallBacks(protectedFileDescriptor.get(), kCFFileDescriptorReadCallBack);
 }
 #endif
 
@@ -1294,7 +1298,9 @@ MAVERICKS_BACKPORT */
     if (pollFD.fd >= 0) {
         CFFileDescriptorContext context = { 0, data, nullptr, nullptr, nullptr };
         data->busFileDescriptor = adoptCF(CFFileDescriptorCreate(kCFAllocatorDefault, pollFD.fd, false, busMessagePollFDCallback, &context));
-        data->busRunLoopSource = adoptCF(CFFileDescriptorCreateRunLoopSource(kCFAllocatorDefault, data->busFileDescriptor.get(), 0));
+        // MAVERICKS_BACKPORT: GLib dispatches WebKit's earlier-attached work source before the bus.
+        // Order this source after RunLoopCF's order-0 work source to preserve that ordering.
+        data->busRunLoopSource = adoptCF(CFFileDescriptorCreateRunLoopSource(kCFAllocatorDefault, data->busFileDescriptor.get(), 1));
         CFRunLoopAddSource(CFRunLoopGetMain(), data->busRunLoopSource.get(), kCFRunLoopCommonModes);
         CFFileDescriptorEnableCallBacks(data->busFileDescriptor.get(), kCFFileDescriptorReadCallBack);
     }

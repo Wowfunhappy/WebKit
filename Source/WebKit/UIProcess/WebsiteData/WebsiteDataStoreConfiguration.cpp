@@ -30,6 +30,10 @@
 #include "WebPushDaemonConnectionConfiguration.h"
 #include "WebsiteDataStore.h"
 
+#if USE(MOZILLA_PUSH_SERVICE)
+#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h> // MAVERICKS_BACKPORT: Safari takes the push daemon default below.
+#endif
+
 namespace WebKit {
 
 WebsiteDataStoreConfiguration::WebsiteDataStoreConfiguration(IsPersistent isPersistent, ShouldInitializePaths shouldInitializePaths)
@@ -55,14 +59,11 @@ WebsiteDataStoreConfiguration::WebsiteDataStoreConfiguration(IsPersistent isPers
 #endif
 
 #if USE(MOZILLA_PUSH_SERVICE)
-        // MAVERICKS_BACKPORT: upstream only ever sets this through the
-        // _WKWebsiteDataStoreConfiguration SPI, which Safari 7 predates; without it the
-        // network session has no daemon connection and PushManager rejects everything
-        // with "No connection to push daemon". Persistent stores therefore default to
-        // the relocatable-webpushd service name — this port's daemon deployment flavor
-        // (see ENABLE_RELOCATABLE_WEBPUSHD in OptionsMac.cmake); the PCM default above
-        // is the same pattern.
-        setWebPushMachServiceName("com.apple.webkit.webpushd.relocatable.service"_s);
+        // MAVERICKS_BACKPORT: a client names its push daemon through the _WKWebsiteDataStoreConfiguration
+        // SPI, which Safari 7 predates, so Safari's persistent stores take the relocatable-webpushd service
+        // name, this port's daemon deployment flavor (see ENABLE_RELOCATABLE_WEBPUSHD in OptionsMac.cmake).
+        if (WTF::MacApplication::isSafari())
+            setWebPushMachServiceName("com.apple.webkit.webpushd.relocatable.service"_s);
 #endif
     }
 }
@@ -84,7 +85,7 @@ WebsiteDataStoreConfiguration::WebsiteDataStoreConfiguration(const WTF::UUID& id
 #endif
 #if USE(MOZILLA_PUSH_SERVICE)
     // MAVERICKS_BACKPORT: same default as the primary constructor above.
-    , m_webPushMachServiceName("com.apple.webkit.webpushd.relocatable.service"_s)
+    , m_webPushMachServiceName(WTF::MacApplication::isSafari() ? String { "com.apple.webkit.webpushd.relocatable.service"_s } : String { })
 #endif
 {
     ASSERT(m_identifier);

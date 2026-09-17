@@ -11,10 +11,8 @@
 #         bash MavericksSupport/scripts/run-api-tests.sh TestWTF --gtest_list_tests
 #
 # Expectations live in MavericksSupport/tests/port-surface/api-tests.txt: `run <binary>` names the
-# binaries --port-surface runs in full, `<binary> <Suite.Test> [ Skip ]` leaves a test out of every run
-# and `<binary> <Suite.Test> [ Failure ]` records a failure as the expected result. A test that fails
-# against a Pass expectation, or passes against a Failure one, is reported as unexpected and the run
-# exits 1.
+# binaries --port-surface runs in full, and `<binary> <Suite.Test> [ Skip ]` leaves a test out of every
+# run. Every executed test must pass; unexpected failures make the run exit 1.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BINDIR="$ROOT/WebKitBuild/Release/bin"
@@ -75,10 +73,14 @@ fi
 export DYLD_FRAMEWORK_PATH="$ROOT/WebKitBuild/Release/lib${DYLD_FRAMEWORK_PATH:+:$DYLD_FRAMEWORK_PATH}"
 export __XPC_DYLD_FRAMEWORK_PATH="$DYLD_FRAMEWORK_PATH"
 
-# An enumeration answers in one process; so does an explicit request for gtest's own reporting.
+# Match webkitpy.port.base.Port.setup_environ_for_server: DateMath and other
+# API tests use Pacific time, independently of the machine's time zone.
+export TZ=US/Pacific
+
+# Enumeration answers in one process; execution applies expectations below.
 for arg in "$@"; do
     case "$arg" in
-        --gtest_list_tests|--gtest_output=*|--gtest_repeat=*)
+        --gtest_list_tests)
             for BINARY in $BINARIES; do "$BINDIR/$BINARY" "$@" || exit $?; done
             exit 0
             ;;
@@ -101,9 +103,11 @@ done
 # seconds, the way Tools/Scripts/run-api-tests takes --timeout.
 TEST_TIMEOUT=${WK_API_TEST_TIMEOUT:-180}
 
-expectation_for() { # binary test -> Skip | Failure | Pass
+expectation_for() { # binary test -> Skip | Pass
     local found
-    found=$(sed -n "s|^$1[[:space:]]\{1,\}$2[[:space:]]\{1,\}\[[[:space:]]*\([A-Za-z]*\)[[:space:]]*\].*|\1|p" "$EXPECTATIONS" | tail -1)
+    found=$(awk -v binary="$1" -v test="$2" '
+        $1 == binary && $2 == test && $3 == "[" { result = $4 }
+        END { print result }' "$EXPECTATIONS")
     echo "${found:-Pass}"
 }
 
@@ -113,9 +117,11 @@ SKIPPED=0
 UNEXPECTED_NAMES=""
 for BINARY in $BINARIES; do
     eval "FILTER=\${FILTER_$BINARY-}"
-    TESTS=$("$BINDIR/$BINARY" --gtest_list_tests ${FILTER:+"$FILTER"} "$@" 2>/dev/null | awk '
-        /^[A-Za-z_][A-Za-z0-9_]*\.$/ { suite = $1; next }
-        /^  / { if (suite != "" && $1 !~ /^DISABLED_/) print suite $1 }')
+    if ! TESTS=$("$BINDIR/$BINARY" --gtest_list_tests ${FILTER:+"$FILTER"} "$@" |
+        awk -f "$ROOT/MavericksSupport/scripts/parse-api-test-list.awk"); then
+        echo "$BINARY: failed to enumerate tests" >&2
+        exit 1
+    fi
     if [ -z "$TESTS" ]; then
         echo "$BINARY: no tests matched" >&2
         exit 1
@@ -127,22 +133,13 @@ for BINARY in $BINARIES; do
             continue
         fi
         OUT_FILE=$(mktemp "${TMPDIR:-/tmp}/wk_api_test.XXXXXX")
-        "$BINDIR/$BINARY" --gtest_filter="$TEST" ${GTEST_ARGS[@]+"${GTEST_ARGS[@]}"} > "$OUT_FILE" 2>&1 &
-        TEST_PID=$!
-        WAITED=0
-        while kill -0 "$TEST_PID" 2>/dev/null && [ "$WAITED" -lt "$TEST_TIMEOUT" ]; do
-            sleep 1
-            WAITED=$((WAITED + 1))
-        done
-        if kill -0 "$TEST_PID" 2>/dev/null; then
-            kill -9 "$TEST_PID" 2>/dev/null
-            echo "timed out after ${TEST_TIMEOUT}s" >> "$OUT_FILE"
-        fi
-        wait "$TEST_PID" 2>/dev/null
+        "$ROOT/MavericksSupport/toolchain/build/python3/bin/python3" \
+            "$ROOT/MavericksSupport/scripts/run-api-test-with-timeout.py" --timeout "$TEST_TIMEOUT" \
+            "$BINDIR/$BINARY" --gtest_filter="$TEST" ${GTEST_ARGS[@]+"${GTEST_ARGS[@]}"} > "$OUT_FILE" 2>&1
         STATUS=$?
         OUTPUT=$(cat "$OUT_FILE")
         rm -f "$OUT_FILE"
-        if [ $STATUS -eq 0 ] && printf '%s' "$OUTPUT" | grep -qF "**PASS** $TEST"; then
+        if [ $STATUS -eq 0 ] && printf '%s' "$OUTPUT" | grep -qxF "**PASS** $TEST"; then
             RESULT=Pass
         else
             RESULT=Failure

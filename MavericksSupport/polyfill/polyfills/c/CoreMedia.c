@@ -267,6 +267,70 @@ static CFDataRef wkSampleDescriptionAtom(CMFormatDescriptionRef description, CFS
     return (CFDataRef)atom;
 }
 
+// AVCDecoderConfigurationRecord contains SPS and PPS arrays followed by optional profile-extension fields.
+// Parameter pointers borrow the format description's atom storage.
+static OSStatus wkAVCParameterSet(CFDataRef atom, size_t index, const uint8_t** pointerOut,
+    size_t* sizeOut, size_t* countOut, int* headerLengthOut)
+{
+    if (!atom || CFGetTypeID(atom) != CFDataGetTypeID())
+        return kCMFormatDescriptionError_ValueNotAvailable;
+    size_t length = CFDataGetLength(atom);
+    const uint8_t* record = CFDataGetBytePtr(atom);
+    if (length < 7 || record[0] != 1)
+        return kCMFormatDescriptionError_ValueNotAvailable;
+
+    size_t offset = 6, count = 0, selectedSize = 0;
+    const uint8_t* selected = NULL;
+    unsigned arrayCount = record[5] & 0x1f;
+    for (unsigned array = 0; array < 3; ++array) {
+        if (array == 1) {
+            if (offset == length)
+                return kCMFormatDescriptionError_ValueNotAvailable;
+            arrayCount = record[offset++];
+        } else if (array == 2) {
+            if (offset == length || record[1] == 66 || record[1] == 77 || record[1] == 88)
+                break;
+            if (length - offset < 4)
+                return kCMFormatDescriptionError_ValueNotAvailable;
+            offset += 3;
+            arrayCount = record[offset++];
+        }
+        for (unsigned item = 0; item < arrayCount; ++item) {
+            if (length - offset < 2)
+                return kCMFormatDescriptionError_ValueNotAvailable;
+            size_t size = ((size_t)record[offset] << 8) | record[offset + 1];
+            offset += 2;
+            if (size > length - offset)
+                return kCMFormatDescriptionError_ValueNotAvailable;
+            if (count == index) {
+                selected = record + offset;
+                selectedSize = size;
+            }
+            offset += size;
+            ++count;
+        }
+    }
+    if (pointerOut && selected)
+        *pointerOut = selected;
+    if (sizeOut && selected)
+        *sizeOut = selectedSize;
+    if (countOut)
+        *countOut = count;
+    if (headerLengthOut)
+        *headerLengthOut = (record[4] & 3) + 1;
+    return noErr;
+}
+
+WK_POLYFILL_REPLACES("CoreMedia", OSStatus, CMVideoFormatDescriptionGetH264ParameterSetAtIndex,
+    (CMFormatDescriptionRef videoDesc, size_t parameterSetIndex, const uint8_t **parameterSetPointerOut,
+     size_t *parameterSetSizeOut, size_t *parameterSetCountOut, int *NALUnitHeaderLengthOut))
+{
+    if (!videoDesc)
+        return kCMFormatDescriptionError_InvalidParameter;
+    return wkAVCParameterSet(wkSampleDescriptionAtom(videoDesc, CFSTR("avcC")), parameterSetIndex,
+        parameterSetPointerOut, parameterSetSizeOut, parameterSetCountOut, NALUnitHeaderLengthOut);
+}
+
 // ISO/IEC 14496-15 HEVCDecoderConfigurationRecord: a 22-byte header whose last byte carries
 // lengthSizeMinusOne, then numOfArrays arrays, each a NAL-unit-type byte, a 16-bit NALU count and
 // that many 16-bit-length-prefixed payloads. Bytes 1..12 are the general profile_tier_level, which

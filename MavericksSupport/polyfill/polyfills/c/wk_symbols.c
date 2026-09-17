@@ -1,4 +1,4 @@
-// Resolve native archive writers from the loaded system image.
+// Resolve symbols from a loaded system image.
 #include "wk_symbols.h"
 
 #include <mach-o/dyld.h>

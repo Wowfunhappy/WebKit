@@ -52,6 +52,9 @@ list(APPEND WTF_SOURCES
     cocoa/SpanCocoa.mm
     # WTF::UUID::createNSUUID/fromNSUUID, used by WebKit (WebPushMessage, model element).
     cocoa/UUIDCocoa.mm
+    # TextStream::operator<<(id) and the CGRect/CGSize/CGPoint overloads, which
+    # WebKitTestRunner's text-extraction description builder streams into.
+    text/cocoa/TextStreamCocoa.mm
 )
 
 # The WTF GLib HELPER layer the upstream GStreamer media player needs. Only the smart-pointer / type

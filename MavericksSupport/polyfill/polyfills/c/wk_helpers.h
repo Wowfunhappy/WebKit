@@ -11,9 +11,11 @@
 extern "C" {
 #endif
 
-// CGContextGetType's PDF result, measured on 10.9; bitmap contexts report 4. Matches
-// kCGContextTypePDF in PAL's CoreGraphicsSPI.h.
+// CGContextGetType's results measured on 10.9 (bitmap contexts report 4). They match kCGContextTypePDF
+// and kCGContextTypeIOSurface in PAL's CoreGraphicsSPI.h.
 #define WK_CG_CONTEXT_TYPE_PDF 1
+#define WK_CG_CONTEXT_TYPE_BITMAP 4
+#define WK_CG_CONTEXT_TYPE_IOSURFACE 8
 
 // Transparency-layer bookkeeping: CoreGraphics.c's CGContext{Begin,End}TransparencyLayer replacements
 // count the layers open on each PDF context, and CoreText.c's CTFontDrawGlyphs replacement asks.

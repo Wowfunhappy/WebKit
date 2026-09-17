@@ -1,7 +1,7 @@
 # The port-surface layout-test suite: every suite whose behaviour crosses from WebCore into the
 # parts of this port that differ from Apple's -- the 10.9 system frameworks, the polyfill layer,
 # the vendored dependencies and the process model. Rendering and layout suites are upstream code
-# running unchanged and stay out.
+# running unchanged and stay out. Accessibility is outside this suite's scope.
 #
 # Format: run-webkit-tests --test-list (one test or directory per line). Expectations for the
 # tests listed here live in LayoutTests/platform/mac-mavericks-wk1 and mac-mavericks-wk2.
@@ -12,8 +12,12 @@ imported/w3c/web-platform-tests/cookies
 imported/w3c/web-platform-tests/cookiestore
 fast/cookies
 
-# Networking: CFNetwork on 10.9, the network process, the loader. The inspector suites under
-# http/tests are skipped in the platform expectations: this port runs Safari 7's own frontend.
+# Networking: the vendored libcurl transport, the network process, the loader, and the NSURL round trip
+# every request makes on this port. The inspector suites under
+# http/tests/inspector, http/tests/site-isolation/inspector, and
+# http/tests/websocket/tests/hybi/inspector are excluded by the wrapper: this port runs Safari 7's
+# own frontend, while those tests require inspector-test.js or protocol-test.js and the modern
+# frontend test harness.
 http/tests
 http/wpt
 imported/w3c/web-platform-tests/fetch
@@ -22,8 +26,8 @@ imported/w3c/web-platform-tests/beacon
 imported/w3c/web-platform-tests/eventsource
 imported/w3c/web-platform-tests/resource-timing
 imported/w3c/web-platform-tests/websockets
-imported/w3c/web-platform-tests/url
 imported/w3c/web-platform-tests/compression
+imported/w3c/web-platform-tests/url
 fast/xmlhttprequest
 fast/eventsource
 fast/loader
@@ -77,9 +81,15 @@ imported/w3c/web-platform-tests/service-workers
 imported/w3c/web-platform-tests/notifications
 imported/w3c/web-platform-tests/push-api
 
-# Graphics through the polyfilled CoreGraphics and ImageIO
+# Graphics: the polyfilled CoreGraphics, the WebCore image decoders, IOSurface and the compositor
 fast/canvas
 fast/images
+compositing
+imported/w3c/web-platform-tests/html/canvas/element
 
 # Text encoding
 fast/encoding
+
+# Text and fonts: CoreText on 10.9, the OTS font parser and the font descriptor polyfills
+fast/text
+imported/w3c/web-platform-tests/css/css-fonts

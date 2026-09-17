@@ -18,8 +18,8 @@
 //   dynamic — a dynamic UTI is by construction one LaunchServices synthesised under the "dyn." prefix
 //     (UTTypeCreatePreferredIdentifierForTag mints them), so the prefix IS the test.
 //
-// -[UTType isDeclared]/-[UTType isDynamic] in classes/UniformTypeIdentifiers.m answer the same two questions and must stay
-// the same two answers; they are implemented the same way there.
+// -[UTType isDeclared]/-[UTType isDynamic] in classes/UniformTypeIdentifiers.m ask LaunchServices the same
+// way, and also answer declared for the modern types that class declares itself (the HEIF family).
 WK_SYSTEM_FN("CoreServices", CFDictionaryRef, UTTypeCopyDeclaration, (CFStringRef));
 
 WK_POLYFILL_ABSENT("CoreServices", Boolean, UTTypeIsDynamic, (CFStringRef inUTI))

@@ -814,7 +814,10 @@ RetainPtr<WebView> createWebViewAndOffscreenWindow()
     }
 #endif
 
+    // GStreamer reports page-volume adjustments through volume-change events.
+#if !USE(GSTREAMER)
     [webView setMediaVolume:0];
+#endif
     return webView;
 }
 

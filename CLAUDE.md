@@ -35,6 +35,17 @@ A red gate, a broken build, or work you are calling uncommittable is never somet
 
 **Spend as many cycles as it takes.** A multi-layer bug fully root-caused is the goal, not a cost overrun. Never apologize for depth. Do not add band-aids.
 
+### Exception: Upstream defects
+
+We are responsible for our port; upstream is responsible for upstream. A failure is an upstream defect when both hold:
+
+(a) It is documented: a Bugzilla entry, a FIXME, or an upstream -expected.txt/TestExpectations line that names this specific test or symptom.
+(b) That record shows the *same* failure exists on the upstream port whose code we run (e.g. Apple's port for Cocoa code, GTK's for gcrypt/GStreamer code, WinCairo for curl code).
+
+Do not fix upstream defects. Record each as a `webkit.org/b/NNNNN path [ Skip ]` line in our platform TestExpectations and move on; upstream will fix it or won't, and either way we take it on the next merge. This classification must be approved by the adversarial reviewer like any other change.
+
+This exception does NOT apply when something specific to our port makes the defect materially worse for us than for upstream. Remember that if the issue significantly affects real-world browsing, upstream would have already fixed it, so an issue this severe almost always means the real problem is somewhere else.
+
 ## No hacks
 
 **The upstream-diff test, applied before writing any code:** does this exact mechanism exist in upstream WebKit? If the change *adds* something upstream doesn't have — a timer, a retry, a poll, a fallback, a guard, an `@try/@catch` swallow, a forced state, a magic threshold, a special-case branch, a disabled feature flag, a stub returning a fake value — it is masking a bug. Stop.

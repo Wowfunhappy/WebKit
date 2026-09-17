@@ -1063,22 +1063,17 @@ static const char *const wk_umbrellaFrameworks[] = {
     "Quartz", "ApplicationServices", "CoreServices", "Carbon", "Accelerate", "WebKit", NULL
 };
 
-WK_POLYFILL_REPLACES(NULL, void *, dlopen, (const char *path, int mode))
+// The umbrella retry: NULL unless `path` has the canonical top-level framework shape and one of the
+// umbrellas holds that framework. `systemOpen` is 10.9's dlopen, which the replacement below resolves.
+static void *wk_dlopenUmbrellaCandidate(void *(*systemOpen)(const char *, int), const char *path, int mode)
 {
-    if (!WK_ORIGINAL(dlopen))
-        return NULL;
-
-    void *handle = WK_ORIGINAL(dlopen)(path, mode);
-    if (handle || !path)
-        return handle;
-
     static const char frameworksPrefix[] = "/System/Library/Frameworks/";
     static const char privateFrameworksPrefix[] = "/System/Library/PrivateFrameworks/";
     static const char frameworkInfix[] = ".framework/";
     const size_t infixLength = sizeof(frameworkInfix) - 1;
 
     // SOFT_LINK_FRAMEWORK_FOR_SOURCE builds the first shape, SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE
-    // the second; both end in the RELEASE_ASSERT the token below exists to satisfy.
+    // the second.
     size_t prefixLength;
     int isPublicFramework;
     if (!strncmp(path, frameworksPrefix, sizeof(frameworksPrefix) - 1)) {
@@ -1088,38 +1083,56 @@ WK_POLYFILL_REPLACES(NULL, void *, dlopen, (const char *path, int mode))
         prefixLength = sizeof(privateFrameworksPrefix) - 1;
         isPublicFramework = 0;
     } else
-        return handle;
+        return NULL;
 
     const char *name = path + prefixLength;
     const char *infix = strstr(name, frameworkInfix);
     if (!infix)
-        return handle;
+        return NULL;
 
     // The canonical shape names the framework twice: <X>.framework/<X>, nothing after it.
     size_t nameLength = (size_t)(infix - name);
     const char *leaf = infix + infixLength;
     if (strncmp(leaf, name, nameLength) || leaf[nameLength])
+        return NULL;
+
+    if (!isPublicFramework)
+        return NULL;
+
+    for (size_t i = 0; wk_umbrellaFrameworks[i]; ++i) {
+        char candidate[PATH_MAX];
+        int written = snprintf(candidate, sizeof(candidate), "%s%s.framework/Frameworks/%.*s.framework/%.*s",
+            frameworksPrefix, wk_umbrellaFrameworks[i], (int)nameLength, name, (int)nameLength, name);
+        if (written <= 0 || (size_t)written >= sizeof(candidate))
+            continue;
+        void *handle = systemOpen(candidate, mode);
+        if (handle)
+            return handle;
+    }
+    return NULL;
+}
+
+WK_POLYFILL_REPLACES(NULL, void *, dlopen, (const char *path, int mode))
+{
+    if (!WK_ORIGINAL(dlopen))
+        return NULL;
+
+    void *handle = WK_ORIGINAL(dlopen)(path, mode);
+    if (handle || !path)
         return handle;
 
-    if (isPublicFramework) {
-        for (size_t i = 0; wk_umbrellaFrameworks[i]; ++i) {
-            char candidate[PATH_MAX];
-            int written = snprintf(candidate, sizeof(candidate), "%s%s.framework/Frameworks/%.*s.framework/%.*s",
-                frameworksPrefix, wk_umbrellaFrameworks[i], (int)nameLength, name, (int)nameLength, name);
-            if (written <= 0 || (size_t)written >= sizeof(candidate))
-                continue;
-            handle = WK_ORIGINAL(dlopen)(candidate, mode);
-            if (handle)
-                return handle;
-        }
-    }
+    handle = wk_dlopenUmbrellaCandidate(WK_ORIGINAL(dlopen), path, mode);
+    if (handle)
+        return handle;
 
     // Not anywhere on this system, but the polyfill registry may vend its symbols. Hand back the
     // provider's token, keyed by the path the caller asked for -- the same key providerHandle derives
     // -- so the handle here and the one handleCanSeeProvider compares against are the same object.
-    // <Framework>Library() then has a handle instead of a RELEASE_ASSERT, and its canLoad_ probes go
-    // on to answer from the registry: true for a name the layer supplies, false for every other,
-    // which is how upstream degrades on a system missing that particular SPI.
+    // <Framework>Library() / <lib>Library() then has a handle instead of a RELEASE_ASSERT, and its
+    // canLoad_ probes go on to answer from the registry: true for a name the layer supplies, false for
+    // every other, which is how upstream degrades on a system missing that particular SPI. Any path a
+    // registered provider names qualifies, framework-shaped or not: SOFT_LINK_LIBRARY_FOR_SOURCE asks
+    // for "/usr/lib/<lib>.dylib", and libAccessibility is one this system does not ship.
     void *token = wk_polyfill_absent_provider_token(path);
     if (token) {
         dlerror();   // the failed attempts above left an error pending; this call succeeded

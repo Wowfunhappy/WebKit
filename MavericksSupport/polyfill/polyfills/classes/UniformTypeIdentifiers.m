@@ -1,6 +1,7 @@
 // UniformTypeIdentifiers: the UTType class and its object constants, from a framework 10.9 does not
 // ship at all, built over the classic CoreServices UTType C API.
 #import "wk_priv_class.h"
+#import "../c/wk_declared_types.h"
 #import <Foundation/Foundation.h>
 #import <CoreServices/CoreServices.h>
 
@@ -8,6 +9,43 @@
 // spelling _UTTypeCopyAllTagsWithClass (Mach-O __UTTypeCopyAllTagsWithClass; the public name shipped
 // in 10.10). Used by -[UTType tags] below.
 extern CFArrayRef _UTTypeCopyAllTagsWithClass(CFStringRef inUTI, CFStringRef inTagClass);
+// Every type identifier LaunchServices has a declaration for, also exported only under its private
+// spelling on this OS. Used by +_enumerateAllDeclaredTypesUsingBlock: below.
+extern CFArrayRef _UTCopyDeclaredTypeIdentifiers(void);
+
+// The types this OS's LaunchServices does not declare: see wk_declared_types.h. The class answers every
+// question about those types from that table and every other type from LaunchServices.
+static const WKDeclaredType *wkDeclaredTypeWithIdentifier(NSString *identifier)
+{
+    return identifier ? wkDeclaredTypeForIdentifier((__bridge CFStringRef)identifier) : NULL;
+}
+
+// Type identifiers are case-insensitive; a declared type conforms to itself, to its parent and to
+// whatever LaunchServices says that parent conforms to.
+static BOOL wkIdentifierConformsTo(NSString *identifier, NSString *other)
+{
+    if (!identifier || !other) return NO;
+    if ([identifier caseInsensitiveCompare:other] == NSOrderedSame) return YES;
+    const WKDeclaredType *declared = wkDeclaredTypeWithIdentifier(identifier);
+    if (declared)
+        return wkIdentifierConformsTo((__bridge NSString *)declared->conformsTo, other);
+    if (wkDeclaredTypeWithIdentifier(other)) return NO;
+    return UTTypeConformsTo((__bridge CFStringRef)identifier, (__bridge CFStringRef)other);
+}
+
+// The declared type carrying |tag| in |tagClass| and conforming to |supertype| when one is given.
+static const WKDeclaredType *wkDeclaredTypeWithTag(CFStringRef tagClass, NSString *tag, NSString *supertype)
+{
+    if (!tag || !tagClass) return NULL;
+    const WKDeclaredType *declared = NULL;
+    if (CFStringCompare(tagClass, kUTTagClassFilenameExtension, 0) == kCFCompareEqualTo)
+        declared = wkDeclaredTypeForFilenameExtension((__bridge CFStringRef)tag);
+    else if (CFStringCompare(tagClass, kUTTagClassMIMEType, 0) == kCFCompareEqualTo)
+        declared = wkDeclaredTypeForMIMEType((__bridge CFStringRef)tag);
+    if (declared && supertype && !wkIdentifierConformsTo((__bridge NSString *)declared->identifier, supertype))
+        return NULL;
+    return declared;
+}
 WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
     NSString *_identifier;
 }
@@ -66,8 +104,10 @@ WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
 + (instancetype)icns      { return [self _polyfillTypeWith:kUTTypeAppleICNS]; }
 + (instancetype)ico       { return [self _polyfillTypeWith:kUTTypeICO]; }
 + (instancetype)utf16PlainText { return [self _polyfillTypeWith:kUTTypeUTF16PlainText]; }
-+ (instancetype)webP      { return [[[self alloc] initWithIdentifier:@"public.webp"] autorelease]; }
++ (instancetype)webP      { return [[[self alloc] initWithIdentifier:@"org.webmproject.webp"] autorelease]; }
 + (instancetype)heic      { return [[[self alloc] initWithIdentifier:@"public.heic"] autorelease]; }
++ (instancetype)heif      { return [[[self alloc] initWithIdentifier:@"public.heif"] autorelease]; }
++ (instancetype)heics     { return [[[self alloc] initWithIdentifier:@"public.heics"] autorelease]; }
 + (instancetype)svg       { return [[[self alloc] initWithIdentifier:@"public.svg-image"] autorelease]; }
 // Aliases to handle both lowercase (real UTType API) and uppercase (some WebKit code) selectors.
 + (instancetype)PNG       { return [self png]; }
@@ -90,6 +130,9 @@ WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
 + (nullable instancetype)typeWithFilenameExtension:(NSString *)ext
 {
     if (!ext) return nil;
+    const WKDeclaredType *declared = wkDeclaredTypeWithTag(kUTTagClassFilenameExtension, ext, nil);
+    if (declared)
+        return [self _polyfillTypeWith:declared->identifier];
     CFStringRef uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, (__bridge CFStringRef)ext, NULL);
     if (!uti) return nil;
     UTType *t = [[[self alloc] initWithIdentifier:(__bridge NSString *)uti] autorelease];
@@ -106,6 +149,9 @@ WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
 + (nullable instancetype)typeWithMIMEType:(NSString *)mimeType conformingToType:(UTType *)supertype
 {
     if (!mimeType) return nil;
+    const WKDeclaredType *declared = wkDeclaredTypeWithTag(kUTTagClassMIMEType, mimeType, supertype ? supertype->_identifier : nil);
+    if (declared)
+        return [self _polyfillTypeWith:declared->identifier];
     CFStringRef uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassMIMEType, (__bridge CFStringRef)mimeType,
         supertype ? (__bridge CFStringRef)supertype->_identifier : NULL);
     if (!uti) return nil;
@@ -121,6 +167,9 @@ WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
 + (nullable instancetype)typeWithTag:(NSString *)tag tagClass:(NSString *)tagClass conformingToType:(UTType *)supertype
 {
     if (!tag || !tagClass) return nil;
+    const WKDeclaredType *declared = wkDeclaredTypeWithTag((__bridge CFStringRef)tagClass, tag, supertype ? supertype->_identifier : nil);
+    if (declared)
+        return [self _polyfillTypeWith:declared->identifier];
     CFStringRef uti = UTTypeCreatePreferredIdentifierForTag((__bridge CFStringRef)tagClass, (__bridge CFStringRef)tag,
         supertype ? (__bridge CFStringRef)supertype->_identifier : NULL);
     if (!uti) return nil;
@@ -136,6 +185,14 @@ WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
 {
     if (!_identifier) return [NSDictionary dictionary];
     NSMutableDictionary *tags = [NSMutableDictionary dictionary];
+    const WKDeclaredType *declared = wkDeclaredTypeWithIdentifier(_identifier);
+    if (declared) {
+        if (declared->filenameExtension)
+            [tags setObject:[NSArray arrayWithObject:(__bridge NSString *)declared->filenameExtension] forKey:@"public.filename-extension"];
+        if (declared->mimeType)
+            [tags setObject:[NSArray arrayWithObject:(__bridge NSString *)declared->mimeType] forKey:@"public.mime-type"];
+        return tags;
+    }
     CFArrayRef extensions = _UTTypeCopyAllTagsWithClass((__bridge CFStringRef)_identifier, kUTTagClassFilenameExtension);
     if (extensions) {
         if (CFArrayGetCount(extensions))
@@ -153,11 +210,14 @@ WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
 - (BOOL)conformsToType:(UTType *)other
 {
     if (!other || !_identifier || !other->_identifier) return NO;
-    return UTTypeConformsTo((__bridge CFStringRef)_identifier, (__bridge CFStringRef)other->_identifier);
+    return wkIdentifierConformsTo(_identifier, other->_identifier);
 }
 - (NSString *)preferredMIMEType
 {
     if (!_identifier) return nil;
+    const WKDeclaredType *declared = wkDeclaredTypeWithIdentifier(_identifier);
+    if (declared)
+        return (__bridge NSString *)declared->mimeType;
     CFStringRef mime = UTTypeCopyPreferredTagWithClass((__bridge CFStringRef)_identifier, kUTTagClassMIMEType);
     if (!mime) return nil;
     return [(__bridge NSString *)mime autorelease];
@@ -165,6 +225,9 @@ WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
 - (NSString *)preferredFilenameExtension
 {
     if (!_identifier) return nil;
+    const WKDeclaredType *declared = wkDeclaredTypeWithIdentifier(_identifier);
+    if (declared)
+        return (__bridge NSString *)declared->filenameExtension;
     CFStringRef ext = UTTypeCopyPreferredTagWithClass((__bridge CFStringRef)_identifier, kUTTagClassFilenameExtension);
     if (!ext) return nil;
     return [(__bridge NSString *)ext autorelease];
@@ -188,6 +251,7 @@ WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
 - (BOOL)isDeclared
 {
     if (!_identifier) return NO;
+    if (wkDeclaredTypeWithIdentifier(_identifier)) return YES;
     CFDictionaryRef declaration = UTTypeCopyDeclaration((__bridge CFStringRef)_identifier);
     if (!declaration) return NO;
     CFRelease(declaration);
@@ -208,6 +272,9 @@ WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
 - (NSOrderedSet *)_parentTypes
 {
     if (!_identifier) return nil;
+    const WKDeclaredType *declared = wkDeclaredTypeWithIdentifier(_identifier);
+    if (declared)
+        return [NSOrderedSet orderedSetWithObject:[UTType typeWithIdentifier:(__bridge NSString *)declared->conformsTo]];
     CFDictionaryRef declaration = UTTypeCopyDeclaration((__bridge CFStringRef)_identifier);
     if (!declaration) return nil;
     CFTypeRef conformsTo = CFDictionaryGetValue(declaration, kUTTypeConformsToKey);
@@ -226,6 +293,26 @@ WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
     }
     CFRelease(declaration);
     return parents;
+}
+// _enumerateAllDeclaredTypesUsingBlock: (11.0+ SPI, pal/spi/cocoa/UniformTypeIdentifiersSPI.h): every
+// declared type. MIMETypeRegistry builds its wildcard MIME type -> extensions map from it.
++ (void)_enumerateAllDeclaredTypesUsingBlock:(void (^)(UTType *type, BOOL *stop))block
+{
+    if (!block) return;
+    BOOL stop = NO;
+    for (size_t i = 0; i < WK_DECLARED_TYPE_COUNT && !stop; ++i)
+        block([self _polyfillTypeWith:wkDeclaredTypes[i].identifier], &stop);
+    CFArrayRef identifiers = _UTCopyDeclaredTypeIdentifiers();
+    if (!identifiers) return;
+    for (CFIndex i = 0; i < CFArrayGetCount(identifiers) && !stop; ++i) {
+        CFStringRef identifier = (CFStringRef)CFArrayGetValueAtIndex(identifiers, i);
+        if (CFGetTypeID(identifier) != CFStringGetTypeID() || wkDeclaredTypeWithIdentifier((__bridge NSString *)identifier))
+            continue;
+        @autoreleasepool {
+            block([self _polyfillTypeWith:identifier], &stop);
+        }
+    }
+    CFRelease(identifiers);
 }
 @end
 WK_PRIV_ALIAS(UTType);

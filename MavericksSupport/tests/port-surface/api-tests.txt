@@ -2,8 +2,10 @@
 #
 #   run <binary>                          the binary runs in full
 #   <binary> <Suite.Test> [ Skip ]        the test is left out of every run
-#   <binary> <Suite.Test> [ Failure ]     a failure is the expected result; a pass is reported
 
 run TestWTF
 run TestWebCore
 run TestWebKitCocoa WKHTTPCookieStore.*:WebSocket.*:Challenge.*:WebKit.Cookie*:WebKit.ServerTrust:WebKit.FastServerTrust:WebKit.ErrorSecureCoding
+
+# The port builds with ENABLE_PDF_PLUGIN=0; its layout scope also excludes PDF plugins.
+TestWebKitCocoa WebKit.CookieAccessFromPDFInAboutBlank [ Skip ]
