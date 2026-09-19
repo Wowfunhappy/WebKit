@@ -17,7 +17,7 @@
 # dropped on reset.
 #
 # Applied by build_deps with patch -p1, after
-# gst-plugins-good-qtdemux-push-mode-segment-seek.patch.
+# gst-plugins-good-qtdemux-upstream-stream-tags.patch.
 
 --- a/gst/isomp4/qtdemux.h
 +++ b/gst/isomp4/qtdemux.h
@@ -64,7 +64,7 @@
    gst_segment_init (&qtdemux->segment, GST_FORMAT_TIME);
    qtdemux->need_segment = TRUE;
  
-@@ -2359,6 +2363,7 @@
+@@ -2350,6 +2354,7 @@
          /* push all data on the adapter before starting this
           * new segment */
          gst_qtdemux_process_adapter (demux, TRUE);
@@ -72,15 +72,15 @@
        } else {
          GST_DEBUG_OBJECT (demux, "unsupported segment format, ignoring");
          goto exit;
-@@ -2460,6 +2465,7 @@
+@@ -2446,6 +2451,7 @@
            if (gst_qtdemux_process_adapter (demux, TRUE) != GST_FLOW_OK) {
              res = FALSE;
            }
 +          gst_qtdemux_release_held_samples (demux, TRUE);
- 
-           /* a push-mode segment seek ends here, in stream time, as it does
-            * in the pull loop */
-@@ -2550,6 +2556,7 @@
+         }
+       }
+       break;
+@@ -2510,6 +2516,7 @@
  
        /* Drain all the buffers */
        gst_qtdemux_process_adapter (demux, TRUE);
@@ -88,7 +88,7 @@
        gst_qtdemux_reset (demux, FALSE);
        /* We expect new moov box after new stream-start event */
        if (demux->exposed) {
-@@ -6166,7 +6173,7 @@
+@@ -6126,7 +6133,7 @@
          continue;
      }
  
@@ -97,7 +97,7 @@
        continue;
  
      /* only act if some gap */
-@@ -7245,6 +7252,181 @@
+@@ -7205,6 +7212,181 @@
    return ret;
  }
  
@@ -279,7 +279,7 @@
  static const QtDemuxRandomAccessEntry *
  gst_qtdemux_stream_seek_fragment (GstQTDemux * qtdemux, QtDemuxStream * stream,
      GstClockTime pos, gboolean after)
-@@ -8318,6 +8500,7 @@
+@@ -8278,6 +8460,7 @@
        }
        if (!is_gap_input) {
          GST_DEBUG_OBJECT (demux, "Resetting, actual DISCONT");
@@ -287,7 +287,7 @@
          /* Reset state if it's a real discont */
          demux->neededbytes = 16;
          demux->state = QTDEMUX_STATE_INITIAL;
-@@ -8507,6 +8690,7 @@
+@@ -8467,6 +8650,7 @@
              if (demux->got_moov && demux->fragmented) {
                GST_DEBUG_OBJECT (demux,
                    "Got a second moov, clean up data from old one");
@@ -295,7 +295,7 @@
                if (demux->moov_node_compressed) {
                  g_node_destroy (demux->moov_node_compressed);
                  if (demux->moov_node)
-@@ -8582,6 +8766,8 @@
+@@ -8542,6 +8726,8 @@
                  || prev_offset > demux->fragment_start_offset) {
                demux->fragment_start_offset = prev_offset;
                demux->fragment_start = prev_pts;
@@ -304,7 +304,7 @@
                GST_DEBUG_OBJECT (demux,
                    "New fragment start found at: %" G_GUINT64_FORMAT " : %"
                    GST_TIME_FORMAT, demux->fragment_start_offset,
-@@ -8629,6 +8815,10 @@
+@@ -8589,6 +8775,10 @@
                goto done;
              }
  
@@ -315,7 +315,7 @@
              /* in MSS we need to expose the pads after the first moof as we won't get a moov */
              if (demux->variant == VARIANT_MSS_FRAGMENTED && !demux->exposed) {
                QTDEMUX_EXPOSE_LOCK (demux);
-@@ -8772,6 +8962,7 @@
+@@ -8732,6 +8922,7 @@
          guint64 dts, pts, duration;
          gboolean round_up_duration = FALSE;
          gboolean keyframe;
@@ -323,7 +323,7 @@
          gint i;
  
          GST_DEBUG_OBJECT (demux,
-@@ -8933,15 +9124,26 @@
+@@ -8893,15 +9084,26 @@
              /* FIXME: should either be an assert or a plain check */
              g_return_val_if_fail (outbuf != NULL, GST_FLOW_ERROR);
  

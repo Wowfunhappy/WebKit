@@ -15,11 +15,6 @@ High AutoLevel profiles.
 The `display_p3_profile` behavior probe verifies that primary colors and translucent pixels
 retain their values when drawn from an embedded Display P3 profile into the named native space.
 
-`media-segment-loop.sh` checks repeated MP4 and FLV segment playback through a file-backed
-HTTP push source, including TIME completion, seek sequence numbers, released seek events,
-and complete audio/video tails at each loop boundary.
-It uses the published GStreamer libraries and performs no network I/O.
-
 `cocoa-curl/` is not a manual page either: it holds the programs that exercise the Cocoa curl
 transport directly -- transfers, uploads, cookies, HSTS, proxies and PAC, HTTP and proxy
 authentication, client certificates, downloads and resume, the WebKitLegacy ResourceHandle, the

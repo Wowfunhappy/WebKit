@@ -1382,18 +1382,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-qtdemux-upstream-stream-tags.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-qtdemux-upstream-stream-tags.patch" ) \
       || { echo "gst-plugins-good qtdemux upstream-stream-tags patch failed to apply"; exit 1; }
-    # qtdemux: translate push-mode segment completion into TIME. See patches/README.md.
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-qtdemux-push-mode-segment-seek.patch" \
-        && patch -p1 < "$HERE/patches/gst-plugins-good-qtdemux-push-mode-segment-seek.patch" ) \
-      || { echo "gst-plugins-good qtdemux push-mode segment-seek patch failed to apply"; exit 1; }
     # qtdemux: in push mode, send a fragment's samples in decode-time order across streams. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-qtdemux-push-mode-decode-time-interleave.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-qtdemux-push-mode-decode-time-interleave.patch" ) \
       || { echo "gst-plugins-good qtdemux decode-time interleave patch failed to apply"; exit 1; }
-    # flvdemux: the same for a push-mode segment seek. See patches/README.md.
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-flvdemux-push-mode-segment-seek.patch" \
-        && patch -p1 < "$HERE/patches/gst-plugins-good-flvdemux-push-mode-segment-seek.patch" ) \
-      || { echo "gst-plugins-good flvdemux push-mode segment-seek patch failed to apply"; exit 1; }
     # osxaudio: a sink takes the buffer frame size it finds. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-osxaudio-host-owns-device-buffer-size.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-osxaudio-host-owns-device-buffer-size.patch" ) \

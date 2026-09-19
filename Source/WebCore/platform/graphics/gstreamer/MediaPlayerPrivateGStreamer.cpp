@@ -3372,13 +3372,9 @@ void MediaPlayerPrivateGStreamer::recalculateDurationIfNeeded() const
         if (RefPtr player = m_player.get())
             player->durationChanged();
     };
-    // MAVERICKS_BACKPORT: finalizing an infinite or unknown duration to the current position is an
-    // end-of-playback operation — the spec passage above describes a stream that ends — so this
-    // branch gates on m_isEndReached like the branch below. While the pipeline has yet to preroll,
-    // duration() reports positive infinity for a VOD stream too, and maxTimeSeekable() reaches this
-    // point whenever a page polls seekable during startup.
+    // MAVERICKS_BACKPORT: an infinite duration is finalized to the position only once the stream has ended.
     // if (!currentDuration.isFinite() || (currentDuration.isValid() && currentDuration < now)) {
-    if (m_isEndReached && (!currentDuration.isFinite() || (currentDuration.isValid() && currentDuration < now))) {
+    if ((m_isEndReached && !currentDuration.isFinite()) || (currentDuration.isValid() && currentDuration < now)) {
         cacheNewDuration(now);
         return;
     }
