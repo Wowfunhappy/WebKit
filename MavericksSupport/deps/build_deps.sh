@@ -802,6 +802,12 @@ echo "==== 10.9 gap archive ===="
 #                       listeners on the unit: the unit moving to another device, and AUHAL
 #                       restating the property; AudioUnitUninitialize and
 #                       AudioComponentInstanceDispose come with it as the units it tracks
+#   vtcompression_cadence  a deliberate OVERRIDE of VTCompressionSessionCreate and
+#                       VTCompressionSessionEncodeFrame: 10.9's software H.264 encoder derives a
+#                       duration-less frame's rate from its absolute presentation time; frames after
+#                       a session's first carry the session's average duration, and the output
+#                       samples are handed back without it (vtenc submits duration-less frames)
+#   wk_symbols          loaded-image symbol lookup the overrides above resolve 10.9's entry points with
 #
 SHARED="$REPO/MavericksSupport/polyfill/polyfills/shared"
 GAPDIR="$SCRATCH/gap"
@@ -809,7 +815,7 @@ GAPDIR="$SCRATCH/gap"
 # reads. The objects do not, so a source dropped from GAP_SHARED leaves nothing for `ar` to pick up.
 GAPOBJ="$GAPDIR/obj"
 mkdir -p "$GAPDIR"; rm -rf "$GAPOBJ"; mkdir -p "$GAPOBJ"
-GAP_SHARED="time atcalls utimensat fdopendir statxx getentropy pthread_chdir os_unfair_lock mkostemp os_version aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit mach_timebase_info audiounit_max_frames wk_symbols"
+GAP_SHARED="time atcalls utimensat fdopendir statxx getentropy pthread_chdir os_unfair_lock mkostemp os_version aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit mach_timebase_info audiounit_max_frames vtcompression_cadence wk_symbols"
 GAPCFLAGS="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -fvisibility=hidden -O2 -I$SHARED/include"
 ( for s in $GAP_SHARED; do
     "$TC/bin/clang" $GAPCFLAGS -MD -MF "$GAPOBJ/$s.d" -c "$SHARED/$s.c" -o "$GAPOBJ/$s.o" || exit 1
@@ -858,7 +864,7 @@ GAP_UNLINKED="$GAPDIR/gap-unlinked.txt"
 # has, and every answer must appear in GAP_REPLACES. There is no allow file: an entry here is a
 # stated intent, not an exemption, and the polyfill build holds the same sources to the same rule
 # through its own registry (polyfill/build-polyfill.sh).
-GAP_REPLACES="mach_timebase_info AudioUnitInitialize AudioUnitUninitialize AudioComponentInstanceDispose"
+GAP_REPLACES="mach_timebase_info AudioUnitInitialize AudioUnitUninitialize AudioComponentInstanceDispose VTCompressionSessionCreate VTCompressionSessionEncodeFrame"
 GAPGATE="$RUN/gapgate"; mkdir -p "$GAPGATE"
 "$TC/bin/clang" --no-default-config -mmacosx-version-min=10.9 -o "$GAPGATE/present" \
     "$REPO/MavericksSupport/polyfill/tests/gates/shadow-present.c" || exit 1

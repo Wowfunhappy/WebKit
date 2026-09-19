@@ -7,15 +7,12 @@
 #include <VideoToolbox/VideoToolbox.h>
 #include <string.h>
 
-// kVTVideoEncoderSpecification_RequiredLowLatency is a 10.13+
-// VideoToolbox encoder-spec key. libwebrtc's VTB H.264/VP9 encoder (built with
-// ENABLE_WEB_RTC) references it; WebCore resolves it via flat-namespace dynamic
-// lookup, so without a definition dyld aborts Safari at launch ("Symbol not
-// found: _kVTVideoEncoderSpecification_RequiredLowLatency"). Provide the real
-// CFString value; on 10.9 the encoder simply ignores this unknown spec key.
+// kVTVideoEncoderSpecification_RequiredLowLatency is a 10.13+ VideoToolbox encoder-spec key that
+// libwebrtc's H.264/VP9 encoder references. Its real CFString value; 10.9's encoder ignores the key.
 WK_POLYFILL_CONST("VideoToolbox", CFStringRef, kVTVideoEncoderSpecification_RequiredLowLatency, CFSTR("RequiredLowLatency"));
 
-// outcome by asking whether the codec is supported afterwards, which is answered above.
+// VTRegisterSupplementalVideoDecoderIfAvailable (11.0+) registers the system's supplemental decoders
+// for a codec type; 10.9 ships none, so there is nothing to register.
 WK_POLYFILL_ABSENT("VideoToolbox", void, VTRegisterSupplementalVideoDecoderIfAvailable, (CMVideoCodecType codecType))
 {
     (void)codecType;
