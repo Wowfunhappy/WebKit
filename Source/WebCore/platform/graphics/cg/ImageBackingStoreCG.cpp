@@ -35,6 +35,16 @@ static void NODELETE dataProviderReleaseCallback(void* info, const void*, size_t
 }
 
 PlatformImagePtr ImageBackingStore::image() const
+// MAVERICKS_BACKPORT: share native provider ownership for RGB and CMYK samples.
+{
+    auto colorSpace = adoptCF(CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
+IGNORE_WARNINGS_BEGIN("deprecated-enum-enum-conversion")
+    CGBitmapInfo bitmapInfo = (m_premultiplyAlpha ? kCGImageAlphaPremultipliedFirst : kCGImageAlphaFirst) | kCGImageByteOrder32Little;
+IGNORE_WARNINGS_END
+    return image(colorSpace.get(), bitmapInfo, nullptr);
+}
+
+PlatformImagePtr ImageBackingStore::image(CGColorSpaceRef colorSpace, CGBitmapInfo bitmapInfo, const CGFloat* decode) const
 {
     static const size_t bytesPerPixel = 4;
     static const size_t bitsPerComponent = 8;
@@ -42,17 +52,21 @@ PlatformImagePtr ImageBackingStore::image() const
     size_t height = size().height();
     size_t bytesPerRow = bytesPerPixel * width;
 
-    auto colorSpace = adoptCF(CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
+    // MAVERICKS_BACKPORT: the caller supplies the samples' native color model.
+    // auto colorSpace = adoptCF(CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
     auto dataProvider = adoptCF(CGDataProviderCreateWithData(m_pixels.get(), m_pixelsSpan.data(), height * bytesPerRow, dataProviderReleaseCallback));
 
     if (!dataProvider)
         return nullptr;
 
     m_pixels->ref(); // Balanced above in dataProviderReleaseCallback().
+    /* MAVERICKS_BACKPORT: the RGB entry point supplies its alpha layout; CMYK supplies its decode range.
 IGNORE_WARNINGS_BEGIN("deprecated-enum-enum-conversion")
     CGBitmapInfo bitmapInfo = (m_premultiplyAlpha ? kCGImageAlphaPremultipliedFirst : kCGImageAlphaFirst) | kCGImageByteOrder32Little;
 IGNORE_WARNINGS_END
     return adoptCF(CGImageCreate(width, height, bitsPerComponent, bytesPerPixel * 8, bytesPerRow, colorSpace.get(), bitmapInfo, dataProvider.get(), nullptr, true, kCGRenderingIntentDefault));
+    */ // MAVERICKS_BACKPORT: closes the fixed-RGB image construction above.
+    return adoptCF(CGImageCreate(width, height, bitsPerComponent, bytesPerPixel * 8, bytesPerRow, colorSpace, bitmapInfo, dataProvider.get(), decode, true, kCGRenderingIntentDefault));
 }
 
 } // namespace WebCore

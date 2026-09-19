@@ -1,7 +1,7 @@
 #!/bin/bash
-# The gap archive (deps/build_deps.sh, GAP_SHARED) is force-loaded into every dylib and executable
-# build_deps.sh links; build.sh relinks none of them, and reaches the same sources through
-# libpolyfill.a instead.
+# The gap archive (deps/build_deps.sh, GAP_SHARED) is force-loaded into every deployed image
+# build_deps.sh links except those gap-unlinked.txt names; build.sh relinks none of them, and reaches
+# the same sources through libpolyfill.a instead.
 #
 # Currency comes from the manifest: a completed deps run republishes it together with the binaries
 # it links, so re-hashing the sources answers "were these binaries built from this content".
@@ -116,13 +116,13 @@ find "$DEPS/bin" -type f -perm +111 >> "$scratch/artifacts"
 sort -o "$scratch/artifacts" "$scratch/artifacts"
 artifacts=$(wc -l < "$scratch/artifacts" | tr -d ' ')
 [ "$artifacts" -gt 0 ] || fail "no dylibs or executables under $DEPS" "$REBUILD"
-sed "s|^|$DEPS/lib/|" "$UNLINKED" | sort > "$scratch/unlinked"
+sed "s|^|$DEPS/|" "$UNLINKED" | sort > "$scratch/unlinked"
 comm -23 "$scratch/artifacts" "$scratch/unlinked" > "$scratch/linked"
 linked=$(wc -l < "$scratch/linked" | tr -d ' ')
-[ "$linked" -gt 0 ] || fail "every deployed artifact is named copied-not-linked in $UNLINKED"
+[ "$linked" -gt 0 ] || fail "every deployed artifact is named outside the archive's reach in $UNLINKED"
 
 # Literals, one batched grep: an artifact carrying none of them never force-loaded the archive, and
-# the set that carries none must be the set build_deps.sh copies rather than links.
+# the set that carries none must be the set gap-unlinked.txt names.
 tr '\n' '\0' < "$scratch/artifacts" \
   | { xargs -0 grep -a -l -F -f "$LITERALS" || true; } > "$scratch/carriers" 2>"$scratch/greperr"
 [ -s "$scratch/greperr" ] && fail "grep could not read the deployed binaries:" "$(cat "$scratch/greperr")" || :
@@ -130,7 +130,7 @@ sort -o "$scratch/carriers" "$scratch/carriers"
 comm -23 "$scratch/artifacts" "$scratch/carriers" > "$scratch/literal_absent"
 comm -3 "$scratch/literal_absent" "$scratch/unlinked" | tr -d '\t' > "$scratch/coverage_diff"
 [ -s "$scratch/coverage_diff" ] && fail_list \
-    "the artifacts without the archive's literals are not the ones build_deps.sh copies:" "$scratch/coverage_diff" || :
+    "the artifacts without the archive's literals are not the ones gap-unlinked.txt names:" "$scratch/coverage_diff" || :
 
 # Symbols. nm answers for every artifact whose build kept its local symbols; a partial answer is a
 # link that predates part of the archive, and an undefined gap symbol is a reference that binds
@@ -176,10 +176,10 @@ tr '\n' '\0' < "$scratch/staged_files" | xargs -0 file > "$scratch/file" 2>"$scr
 { grep 'Mach-O' "$scratch/file" || true; } | sed 's/ (for architecture [^)]*)//' \
     | cut -d: -f1 | sort -u > "$scratch/staged_macho"
 [ -s "$scratch/staged_macho" ] || fail "no Mach-O image under $STAGED"
-sed 's|^|/|' "$UNLINKED" > "$scratch/unlinked_names"
+sed 's|^.*/|/|' "$UNLINKED" > "$scratch/unlinked_names"
 { grep -v -F -f "$scratch/unlinked_names" "$scratch/staged_macho" || true; } > "$scratch/staged_linked"
 staged=$(wc -l < "$scratch/staged_linked" | tr -d ' ')
-[ "$staged" -gt 0 ] || fail "every staged Mach-O image is one build_deps.sh copies"
+[ "$staged" -gt 0 ] || fail "every staged Mach-O image is one gap-unlinked.txt names"
 rc=0
 tr '\n' '\0' < "$scratch/staged_linked" \
   | xargs -0 "$NM" -A -arch x86_64 > "$scratch/staged_nm" 2>"$scratch/staged_nmerr" || rc=$?

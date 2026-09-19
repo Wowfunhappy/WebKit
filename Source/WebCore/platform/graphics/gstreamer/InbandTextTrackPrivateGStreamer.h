@@ -57,7 +57,8 @@ public:
         return adoptRef(*new InbandTextTrackPrivateGStreamer(index, stream));
     }
 
-    Kind kind() const final { return m_kind; }
+    // Kind kind() const final { return m_kind; }
+    Kind kind() const final; // MAVERICKS_BACKPORT: see InbandTextTrackPrivateGStreamer.cpp.
     // MAVERICKS_BACKPORT: a track the container marks as the one to play by default, read from the
     // stream-start event's flags. The playbin3 path reads the same flags off the GstStream (see
     // AudioTrackPrivateGStreamer::kind); on the legacy path they arrive on the pad's sticky event.

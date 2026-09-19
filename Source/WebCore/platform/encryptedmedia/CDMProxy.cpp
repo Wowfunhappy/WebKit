@@ -172,7 +172,17 @@ void CDMProxy::unrefAllKeysFrom(const KeyStore& keyStore)
 void CDMProxy::setInstance(CDMInstanceProxy* instance)
 {
     Locker locker { m_instanceLock };
+    // MAVERICKS_BACKPORT: the main-thread instance owns every pending key-wait notification.
+    ASSERT(isMainThread());
+    m_instanceIsDetaching = true;
+    {
+        DropLockForScope unlock { locker };
+        Locker keysLocker { m_keysLock };
+        m_keysCondition.notifyAll();
+    }
+    m_instanceCondition.wait(m_instanceLock, [this] { return !m_pendingKeyWaits; });
     m_instance = instance;
+    m_instanceIsDetaching = false; // MAVERICKS_BACKPORT: admit key waits for the attached instance.
 }
 
 RefPtr<KeyHandle> CDMProxy::keyHandle(const KeyIDType& keyID) const
@@ -184,7 +194,8 @@ RefPtr<KeyHandle> CDMProxy::keyHandle(const KeyIDType& keyID) const
 
 void CDMProxy::startedWaitingForKey() const
 {
-    Locker locker { m_instanceLock };
+    // Locker locker { m_instanceLock };
+    assertIsHeld(m_instanceLock); // MAVERICKS_BACKPORT: tryWaitForKeyHandle owns the instance until its wait finishes.
     LOG(EME, "EME - CDMProxy - started waiting for a key");
     ASSERT(m_instance);
     CheckedPtr { m_instance.get() }->startedWaitingForKey();
@@ -192,7 +203,8 @@ void CDMProxy::startedWaitingForKey() const
 
 void CDMProxy::stoppedWaitingForKey() const
 {
-    Locker locker { m_instanceLock };
+    // Locker locker { m_instanceLock };
+    assertIsHeld(m_instanceLock); // MAVERICKS_BACKPORT: tryWaitForKeyHandle owns the instance until its wait finishes.
     LOG(EME, "EME - CDMProxy - stopped waiting for a key");
     ASSERT(m_instance);
     CheckedPtr { m_instance.get() }->stoppedWaitingForKey();
@@ -206,12 +218,23 @@ void CDMProxy::abortWaitingForKey() const
 
 std::optional<Ref<KeyHandle>> CDMProxy::tryWaitForKeyHandle(const KeyIDType& keyID, WeakPtr<CDMProxyDecryptionClient>&& client) const
 {
-    startedWaitingForKey();
+    // startedWaitingForKey();
+    // MAVERICKS_BACKPORT: an instance cannot be detached between admission and the start notification.
+    {
+        Locker locker { m_instanceLock };
+        if (!m_instance || m_instanceIsDetaching)
+            return std::nullopt;
+        ++m_pendingKeyWaits;
+        startedWaitingForKey();
+    }
     // Unconditionally saying we have stopped waiting for a key means that decryptors only get
     // one shot at fetching a key. If MaxKeyWaitTimeSeconds expires, that's it, no more clear bytes
     // for you.
     auto stopWaitingForKeyOnReturn = makeScopeExit([this, protectedThis = Ref { *this }] {
+        Locker locker { m_instanceLock }; // MAVERICKS_BACKPORT: release teardown after the final notification.
         stoppedWaitingForKey();
+        --m_pendingKeyWaits;
+        m_instanceCondition.notifyAll();
     });
     LOG(EME, "EME - CDMProxy - trying to wait for key ID %s", vectorToHexString(keyID).ascii().data());
     bool wasKeyAvailable = false;
@@ -221,7 +244,8 @@ std::optional<Ref<KeyHandle>> CDMProxy::tryWaitForKeyHandle(const KeyIDType& key
         m_keysCondition.waitFor(m_keysLock, CDMProxy::MaxKeyWaitTimeSeconds, [this, protectedThis = Ref { *this }, keyID, weakClient = WTF::move(client), &wasKeyAvailable]() {
             assertIsHeld(m_keysLock);
             CheckedPtr client = weakClient.get();
-            if (!client || client->isAborting())
+            // if (!client || client->isAborting())
+            if (m_instanceIsDetaching || !client || client->isAborting()) // MAVERICKS_BACKPORT: instance teardown cancels outstanding waits.
                 return true;
             wasKeyAvailable = isKeyAvailableUnlocked(keyID);
             return wasKeyAvailable;

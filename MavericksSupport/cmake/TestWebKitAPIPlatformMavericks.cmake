@@ -6,6 +6,22 @@
 # Cocoa test harness, the cookie test files, and the 10.9 implementation of the Network.framework
 # entry points HTTPServer is written against.
 
+# JavaScriptCore exports the shared WTF runtime; these clients need only its headers.
+foreach (_mavAPITarget TestWebCore TestWebKit TestWebKitLegacy)
+    list(REMOVE_ITEM ${_mavAPITarget}_LIBRARIES WTF)
+endforeach ()
+
+list(APPEND TestWTF_SOURCES
+    ${CMAKE_SOURCE_DIR}/MavericksSupport/source/Tools/TestWebKitAPI/Tests/WTF/TextBreakIteratorClusters.cpp
+)
+
+list(APPEND TestWebCore_SOURCES
+    ${CMAKE_SOURCE_DIR}/MavericksSupport/source/Tools/TestWebKitAPI/Tests/WebCore/GStreamerCocoaPixelBuffer.mm
+    ${CMAKE_SOURCE_DIR}/MavericksSupport/source/Tools/TestWebKitAPI/Tests/WebCore/AudioCaptureRestart.mm
+    ${TESTWEBKITAPI_DIR}/Tests/WebCore/AbortableTaskQueue.cpp
+    ${CMAKE_SOURCE_DIR}/MavericksSupport/source/Tools/TestWebKitAPI/Tests/WebCore/ImageBufferEncoding.cpp
+)
+
 set(TestWebKitCocoa_SOURCES
     ${TESTWEBKITAPI_DIR}/DeprecatedGlobalValues.cpp
     ${TESTWEBKITAPI_DIR}/DeprecatedGlobalValues.mm
@@ -180,7 +196,7 @@ set(TestWebKitAPIWKBundle_PRIVATE_INCLUDE_DIRECTORIES
     ${WTF_FRAMEWORK_HEADERS_DIR}
     ${JavaScriptCore_FRAMEWORK_HEADERS_DIR})
 set(TestWebKitAPIWKBundle_LIBRARIES ${TestWebKitCocoa_LIBRARIES})
-set(TestWebKitAPIWKBundle_FRAMEWORKS bmalloc WTF WebKit)
+set(TestWebKitAPIWKBundle_FRAMEWORKS bmalloc JavaScriptCore WTF WebKit)
 
 WEBKIT_LIBRARY_DECLARE(TestWebKitAPIWKBundle)
 WEBKIT_LIBRARY(TestWebKitAPIWKBundle)
@@ -238,3 +254,9 @@ if (TARGET TestWebKitAPIInjectedBundle)
         VERBATIM)
     add_dependencies(TestWebKitCocoa TestWebKitAPIInjectedBundle)
 endif ()
+
+list(APPEND TestWebCore_PRIVATE_INCLUDE_DIRECTORIES
+    ${WEBCORE_DIR}/platform/graphics
+    ${WEBCORE_DIR}/platform/graphics/gstreamer
+)
+list(APPEND TestWebCore_LIBRARIES ${GSTREAMER_LIBRARIES} ${GSTREAMER_VIDEO_LIBRARIES} "-framework CoreVideo")

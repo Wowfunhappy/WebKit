@@ -1,0 +1,4 @@
+
+PASS createImageBitmap from a bitmap HTMLImageElement, and drawImage on the created ImageBitmap with colorSpaceConversion: none
+PASS createImageBitmap from a Blob, and drawImage on the created ImageBitmap with colorSpaceConversion: none
+

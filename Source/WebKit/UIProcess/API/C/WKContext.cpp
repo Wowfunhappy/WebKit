@@ -78,6 +78,11 @@ WKTypeID WKContextGetTypeID()
 WKContextRef WKContextCreate()
 {
     auto configuration = API::ProcessPoolConfiguration::create();
+    // MAVERICKS_BACKPORT: legacy C API clients key per-page state to one WKBundlePageRef for the life of a
+    // WKPage, so navigation in these contexts keeps the page's WebPage rather than swapping processes. Their
+    // process model is the shared secondary process until WKContextSetProcessModel asks for multiple.
+    configuration->setProcessSwapsOnNavigation(false);
+    configuration->setUsesSingleWebProcess(true);
     return WebKit::toAPILeakingRef(WebKit::WebProcessPool::create(configuration));
 }
 
@@ -85,6 +90,9 @@ WKContextRef WKContextCreateWithInjectedBundlePath(WKStringRef pathRef)
 {
     auto configuration = API::ProcessPoolConfiguration::create();
     configuration->setInjectedBundlePath(WebKit::toWTFString(pathRef));
+    // MAVERICKS_BACKPORT: navigation keeps the page's WebPage, in the shared secondary process; see WKContextCreate.
+    configuration->setProcessSwapsOnNavigation(false);
+    configuration->setUsesSingleWebProcess(true);
 
     return WebKit::toAPILeakingRef(WebKit::WebProcessPool::create(configuration));
 }

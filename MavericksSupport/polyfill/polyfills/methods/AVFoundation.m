@@ -1,11 +1,12 @@
 // AVFoundation: Objective-C methods on AVFoundation classes that macOS 10.9 does not have, implemented
-// with the APIs 10.9 does have, and the two AVCaptureDeviceType constants those methods produce (constants
-// in a methods file, next to their only producer).
+// with the APIs 10.9 does have, and the AVCaptureDeviceType and AVVideoRange constants those methods produce
+// (constants in a methods file, next to their producer).
 
 #import "wk_polyfill.h"
 #import "wk_selref_scope.h"
 #import <AVFoundation/AVFoundation.h>
 #import "avf-resource-loader-drain.h"
+#import "avf-display-color.h"
 #import <objc/runtime.h>
 
 #pragma clang diagnostic push
@@ -54,6 +55,13 @@ WK_POLYFILL_ADD_METHODS(AVCaptureDevice)
     return NO;
 }
 
+// -minimumFocusDistance (12+) is in millimetres, with -1 as its "unknown" value. 10.9's capture stack
+// reports no focus distance for any device.
+- (NSInteger)minimumFocusDistance
+{
+    return -1;
+}
+
 // systemPreferredCamera is "the camera the system would choose", which on 10.9 is precisely what
 // +defaultDeviceWithMediaType: answers. The modern property additionally reflects a user override
 // set through +setUserPreferredCamera:, which 10.9 has no store for; a machine where the user has
@@ -99,20 +107,107 @@ WK_POLYFILL_ADD_METHODS(AVCaptureDevice)
 
 @end
 
-// ---------------------------------------------------------------------------------------------------
-// -[AVSampleBufferDisplayLayer status] / -videoPerformanceMetrics (10.10+). 10.9's layer (the class
-// shipped in 10.8) cannot report a rendering status or frame metrics at all, so the truthful answers
-// are StatusUnknown (0) and no-metrics (nil) — LocalSampleBufferDisplayLayer then never sees a
-// spurious Failed and skips its metrics logging, which is what the absent-metrics case calls for. Named
-// by class: this layer does not link AVFoundation.
-WK_POLYFILL_ADD_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
+// +[AVPlayer preferredVideoRangeForDisplays:] and -setVideoRangeOverride: (11+) and the AVVideoRange
+// constants (12+). 10.9's AVPlayer renders every item in standard dynamic range and has no range
+// override, so SDR is the preferred range of every display and an override has nothing to act on.
+// WebKit reads the constants through PAL's soft links and compares a range to them by value.
+WK_POLYFILL_CONST("AVFoundation", AVVideoRange, AVVideoRangeSDR, @"AVVideoRangeSDR");
+WK_POLYFILL_CONST("AVFoundation", AVVideoRange, AVVideoRangeHLG, @"AVVideoRangeHLG");
+WK_POLYFILL_CONST("AVFoundation", AVVideoRange, AVVideoRangeHDR10, @"AVVideoRangeHDR10");
+WK_POLYFILL_CONST("AVFoundation", AVVideoRange, AVVideoRangeDolbyVisionPQ, @"AVVideoRangeDolbyVisionPQ");
+
+WK_POLYFILL_ADD_METHODS(AVPlayer)
+
++ (AVVideoRange)preferredVideoRangeForDisplays:(NSArray<NSNumber *> *)displays
+{
+    (void)displays;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
+    return AVVideoRangeSDR;
+#pragma clang diagnostic pop
+}
+
+- (void)setVideoRangeOverride:(AVVideoRange)videoRangeOverride
+{
+    (void)videoRangeOverride;
+}
+
+// -setResourceConservationLevelWhilePaused: (12+ SPI). 10.9's AVPlayer has no policy for the resources
+// a paused item holds.
+- (void)setResourceConservationLevelWhilePaused:(NSInteger)level
+{
+    (void)level;
+}
+
+@end
+
+// CALayer's native KVC machinery reads the scoped rendering-state getters for KVO.
+WK_POLYFILL_ADD_LAYER_PROPERTIES_ON(NSObject, "AVSampleBufferDisplayLayer")
 - (NSInteger)status
 {
-    return 0; // AVQueuedSampleBufferRenderingStatusUnknown
+    @synchronized (self) {
+        return [(WKAVFDisplayColor *)objc_getAssociatedObject(self, wkAVFDisplayColorKey) status];
+    }
 }
+- (NSError *)error
+{
+    @synchronized (self) {
+        return [[[(WKAVFDisplayColor *)objc_getAssociatedObject(self, wkAVFDisplayColorKey) error] retain] autorelease];
+    }
+}
+@end
+
+WK_POLYFILL_ADD_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
 - (id)videoPerformanceMetrics
 {
     return nil;
+}
+@end
+
+// Mavericks presents packed RGB samples in the layer's destination space. vImage supplies the
+// attachment-derived color match at the display API boundary, preserving the caller's image buffer.
+WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
+- (void)enqueueSampleBuffer:(CMSampleBufferRef)sample
+{
+    @autoreleasepool {
+        @synchronized (self) {
+            WKAVFDisplayColor *color = objc_getAssociatedObject(self, wkAVFDisplayColorKey);
+            if (!color) {
+                color = [[WKAVFDisplayColor alloc] init];
+                objc_setAssociatedObject(self, wkAVFDisplayColorKey, color, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                [color release];
+            }
+            if (!sample || !CMSampleBufferGetFormatDescription(sample)) {
+                WK_ORIGINAL_METHOD(void, (CMSampleBufferRef), sample);
+                return;
+            }
+            if ([color error])
+                return;
+            CMSampleBufferRef matched = [color copySample:sample forLayer:(CALayer *)self];
+            if (matched) {
+                WK_ORIGINAL_METHOD(void, (CMSampleBufferRef), matched);
+                CFRelease(matched);
+                [color setStatus:1 error:nil forLayer:(CALayer *)self];
+            }
+        }
+    }
+}
+@end
+
+WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "AVSampleBufferDisplayLayer")
+- (void)flush
+{
+    @synchronized (self) {
+        WK_ORIGINAL_METHOD(void, ());
+        [(WKAVFDisplayColor *)objc_getAssociatedObject(self, wkAVFDisplayColorKey) flushForLayer:(CALayer *)self];
+    }
+}
+- (void)flushAndRemoveImage
+{
+    @synchronized (self) {
+        WK_ORIGINAL_METHOD(void, ());
+        [(WKAVFDisplayColor *)objc_getAssociatedObject(self, wkAVFDisplayColorKey) flushForLayer:(CALayer *)self];
+    }
 }
 @end
 

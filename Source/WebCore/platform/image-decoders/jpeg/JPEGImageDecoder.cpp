@@ -384,7 +384,12 @@ public:
 
             m_decoder->setOrientation(readImageOrientation(info()));
 #if USE(LCMS)
+            // MAVERICKS_BACKPORT: CG represents embedded CMYK profiles without an intermediate RGB conversion.
+#if USE(CG)
+            if (!m_decoder->ignoresGammaAndColorProfile())
+#else
             if (!m_decoder->ignoresGammaAndColorProfile() && m_info.out_color_space == rgbOutputColorSpace())
+#endif // MAVERICKS_BACKPORT: closes the native color-model profile selection.
                 m_decoder->setICCProfile(readICCProfile(&m_info));
 #endif
 
@@ -665,9 +670,25 @@ bool JPEGImageDecoder::outputScanlines()
         // The buffer is transparent outside the decoded area while the image is
         // loading. The completed image will be marked fully opaque in jpegComplete().
         buffer.setHasAlpha(true);
+#if USE(CG) // MAVERICKS_BACKPORT: row coverage starts with an empty CMYK backing store.
+        m_cmykDecodedRows = 0;
+#endif
     }
 
     jpeg_decompress_struct* info = m_reader->info();
+
+#if USE(CG) // MAVERICKS_BACKPORT: the native CMYK image consumes libjpeg's component bytes directly.
+    if (m_embeddedCMYKColorSpace) {
+        ASSERT(info->out_color_space == JCS_CMYK);
+        while (info->output_scanline < info->output_height) {
+            auto* row = reinterpret_cast<unsigned char*>(buffer.backingStore()->pixelsStartingAt(0, info->output_scanline).data());
+            if (jpeg_read_scanlines(info, &row, 1) != 1)
+                return false;
+            m_cmykDecodedRows = std::max(m_cmykDecodedRows, info->output_scanline);
+        }
+        return true;
+    }
+#endif
 
 #if defined(TURBO_JPEG_RGB_SWIZZLE)
     if (turboSwizzled(info->out_color_space)) {
@@ -739,6 +760,20 @@ void JPEGImageDecoder::setICCProfile(RefPtr<SharedBuffer>&& buffer)
     if (!buffer)
         return;
 
+#if USE(CG) // MAVERICKS_BACKPORT: native images carry their source RGB or CMYK color space.
+    if (m_reader->info()->out_color_space == JCS_CMYK) {
+        auto data = adoptCF(CFDataCreate(kCFAllocatorDefault, buffer->span().data(), buffer->size()));
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+        auto colorSpace = adoptCF(CGColorSpaceCreateWithICCProfile(data.get()));
+ALLOW_DEPRECATED_DECLARATIONS_END
+        if (colorSpace && CGColorSpaceGetModel(colorSpace.get()) == kCGColorSpaceModelCMYK) {
+            m_embeddedCMYKColorSpace = std::move(colorSpace);
+            m_cmykInverted = m_reader->info()->saw_Adobe_marker;
+        }
+        return;
+    }
+    setEmbeddedRGBColorProfile(buffer->span());
+#else
     auto span = buffer->span();
     auto iccProfile = LCMSProfilePtr(cmsOpenProfileFromMem(span.data(), span.size()));
     if (!iccProfile || cmsGetColorSpace(iccProfile.get()) != cmsSigRgbData)
@@ -746,7 +781,32 @@ void JPEGImageDecoder::setICCProfile(RefPtr<SharedBuffer>&& buffer)
 
     auto srgbProfile = LCMSProfilePtr(cmsCreate_sRGBProfile());
     m_iccTransform = LCMSTransformPtr(cmsCreateTransform(iccProfile.get(), TYPE_BGRA_8, srgbProfile.get(), TYPE_BGRA_8, INTENT_RELATIVE_COLORIMETRIC, 0));
+#endif // MAVERICKS_BACKPORT: closes native color-profile retention.
 }
 #endif
+
+#if USE(CG) // MAVERICKS_BACKPORT: native CMYK images retain their profile and decoded-row coverage.
+PlatformImagePtr JPEGImageDecoder::createNativeImage(const ScalableImageDecoderFrame& frame) const
+{
+    if (!m_embeddedCMYKColorSpace)
+        return ScalableImageDecoder::createNativeImage(frame);
+
+    constexpr CGFloat inverted[] = { 1, 0, 1, 0, 1, 0, 1, 0 };
+    auto image = frame.backingStore()->image(m_embeddedCMYKColorSpace.get(), kCGImageAlphaNone, m_cmykInverted ? inverted : nullptr);
+    if (!image || m_cmykDecodedRows == static_cast<unsigned>(frame.size().height()))
+        return image;
+
+    Vector<uint8_t> coverage(frame.size().height(), 255);
+    std::fill_n(coverage.begin(), m_cmykDecodedRows, 0);
+    auto data = adoptCF(CFDataCreate(kCFAllocatorDefault, coverage.span().data(), coverage.size()));
+    auto provider = adoptCF(CGDataProviderCreateWithCFData(data.get()));
+    if (!provider)
+        return nullptr;
+    auto mask = adoptCF(CGImageMaskCreate(1, coverage.size(), 8, 8, 1, provider.get(), nullptr, false));
+    if (!mask)
+        return nullptr;
+    return adoptCF(CGImageCreateWithMask(image.get(), mask.get()));
+}
+#endif // MAVERICKS_BACKPORT: closes native CMYK image construction.
 
 }

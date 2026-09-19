@@ -24,6 +24,9 @@ struct CocoaCurlTLSState {
     WEBCORE_EXPORT static CURLcode installSynchronously(SSL_CTX*, const std::shared_ptr<CocoaCurlTLSState>&);
     WEBCORE_EXPORT static std::shared_ptr<CocoaCurlTLSState> fromSSL(SSL*);
     WEBCORE_EXPORT static RetainPtr<CFArrayRef> certificateAuthorities(SSL*);
+    WEBCORE_EXPORT bool negotiatedLegacyTLS() const;
+    uint16_t negotiatedProtocol { 0 };
+    uint16_t negotiatedCipher { 0 };
     URL url;
     Function<bool(SSL*)> requestIdentity;
     Function<bool(std::unique_ptr<CocoaCurlTLSVerification>&&)> requestVerification;
@@ -41,7 +44,7 @@ struct CocoaCurlTLSState {
     void (*previousInfoCallback)(const SSL*, int, int) { nullptr };
     int receivedAlert { -1 };
     RetainPtr<NSArray> clientCertificates;
-    // -[WebPreferences setAllowsAnySSLCertificate:] and the socket stream's own flag.
+    // The WebKitLegacy socket stream's DeprecatedGlobalSettings::allowsAnySSLCertificate() or acceptInsecureCertificates.
     bool acceptAnyCertificate { false };
     bool evaluated { false };
     bool verificationRequested { false };

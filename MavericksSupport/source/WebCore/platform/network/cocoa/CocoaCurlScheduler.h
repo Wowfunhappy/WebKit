@@ -8,6 +8,7 @@
 #include <CoreFoundation/CFSocket.h>
 #include <curl/curl.h>
 #include <wtf/AbstractRefCounted.h>
+#include <wtf/Function.h>
 #include <wtf/HashMap.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/RetainPtr.h>
@@ -27,8 +28,10 @@ public:
 class WEBCORE_EXPORT CocoaCurlScheduler final : public RefCountedAndCanMakeWeakPtr<CocoaCurlScheduler> {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(CocoaCurlScheduler, WEBCORE_EXPORT);
 public:
-    static Ref<CocoaCurlScheduler> create();
+    using EmptyHandler = Function<void(CocoaCurlScheduler&)>;
+    static Ref<CocoaCurlScheduler> create(EmptyHandler&& = { });
     ~CocoaCurlScheduler();
+    void deref() const;
     RunLoop& runLoop() const { return m_runLoop; }
     bool add(CocoaCurlSchedulerClient&);
     void remove(CURL*);
@@ -36,7 +39,7 @@ public:
     void invalidate();
 
 private:
-    CocoaCurlScheduler();
+    CocoaCurlScheduler(EmptyHandler&&);
     struct Socket;
     static int socketCallback(CURL*, curl_socket_t, int, void*, void*);
     static int timerCallback(CURLM*, long, void*);
@@ -45,6 +48,7 @@ private:
     void perform(curl_socket_t, int);
     void drain();
     void fail();
+    void notifyIfEmpty();
     bool updateSocket(curl_socket_t, int);
 
     Ref<RunLoop> m_runLoop;
@@ -52,6 +56,7 @@ private:
     HashMap<CURL*, Ref<CocoaCurlSchedulerClient>> m_tasks;
     HashMap<curl_socket_t, std::unique_ptr<Socket>, DefaultHash<curl_socket_t>, WTF::SignedWithZeroKeyHashTraits<curl_socket_t>> m_sockets;
     RunLoop::Timer m_timer;
+    EmptyHandler m_emptyHandler;
     bool m_invalidated { false };
 };
 

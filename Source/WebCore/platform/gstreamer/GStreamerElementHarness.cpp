@@ -404,8 +404,15 @@ const GRefPtr<GstCaps>& GStreamerElementHarness::Stream::outputCaps()
 
 GstFlowReturn GStreamerElementHarness::Stream::chainSample(GRefPtr<GstSample>&& sample)
 {
-    Locker locker { m_sampleQueueLock };
-    m_sampleQueue.prepend(WTF::move(sample));
+    // MAVERICKS_BACKPORT: Codec work queues receive asynchronous output notifications after the sample lock is released.
+    // Locker locker { m_sampleQueueLock };
+    // m_sampleQueue.prepend(WTF::move(sample));
+    {
+        Locker locker { m_sampleQueueLock };
+        m_sampleQueue.prepend(WTF::move(sample));
+    }
+    if (m_outputAvailableCallback)
+        m_outputAvailableCallback();
     return GST_FLOW_OK;
 }
 
@@ -468,6 +475,10 @@ void GStreamerElementHarness::processOutputSamples()
 void GStreamerElementHarness::flush()
 {
     GST_DEBUG_OBJECT(element(), "Flushing");
+
+    // MAVERICKS_BACKPORT: EOS makes the element emit the output it still holds before the flush events start a new segment.
+    if (m_playing.load())
+        pushEvent(adoptGRef(gst_event_new_eos()));
 
     if (!flushBuffers())
         return;

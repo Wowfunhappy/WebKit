@@ -1,0 +1,222 @@
+# qtdemux drops the stream tags an upstream element sends before its source pads exist: the
+# sink event handler hands a TAG event to gst_pad_event_default, which forwards it to the pads
+# the element has so far, and a demuxer fed by an adaptive demuxer receives its stream's tags
+# together with the first fragment, before the moov has been parsed and any pad exposed. The
+# title and language an HLS rendition declares in its manifest arrive that way, so an fMP4
+# rendition's audio track loses them.
+#
+# Stream-scoped upstream tags describe every stream of the container. They are kept and merged
+# under each stream's own tags when those are pushed, the way GstBaseParse and GstAudioDecoder
+# merge upstream stream tags under the tags they produce, and cleared on a new stream-start,
+# as those elements clear theirs. Tags already pushed are re-sent merged when new upstream tags
+# arrive.
+#
+# An adaptive demuxer carrying a rendition inside the container's own stream sends that
+# rendition's tags in a sticky "hls-rendition-tags" event: one tag list per stream type (audio,
+# video, text). Each list is merged into the tags of this container's streams of that type,
+# replacing the container's values, and cleared with the upstream tags. hlsdemux sends that
+# event for a rendition with its own fragments too, so the manifest's title and language win over
+# the container's for every rendition.
+#
+# When the upstream stream-start carries a GstStream, qtdemux puts one on its own stream-start as
+# well: this stream's type, caps and flags, with its tags under the upstream stream's and the
+# rendition tags of its type over both.
+#
+# A "<type>-default" field in that event marks a DEFAULT rendition carried inside the container:
+# this container's stream of that type is announced with GST_STREAM_FLAG_SELECT.
+#
+# Applied by build_deps with patch -p1.
+--- a/gst/isomp4/qtdemux.h
++++ b/gst/isomp4/qtdemux.h
+@@ -172,6 +172,14 @@
+ 
+   GstTagList *tag_list;
+ 
++  /* Stream-scoped tags received from upstream, which describe every stream of this container.
++   * They are merged under each stream's own tags when those are pushed. */
++  GstTagList *upstream_tags;
++
++  /* The "hls-rendition-tags" an adaptive demuxer sends for renditions carried inside this
++   * container: one tag list per stream type, merged into the streams of that type. */
++  GstStructure *rendition_tags;
++
+   /* configured playback region. Note that this is a seek segment, not to be
+    * confused with an edit list segment. Seeks are done for global time (i.e.
+    * with edit lists applied). */
+--- a/gst/isomp4/qtdemux.c
++++ b/gst/isomp4/qtdemux.c
+@@ -500,6 +500,8 @@
+ 
+   g_clear_object (&qtdemux->adapter);
+   gst_clear_tag_list (&qtdemux->tag_list);
++  gst_clear_tag_list (&qtdemux->upstream_tags);
++  gst_clear_structure (&qtdemux->rendition_tags);
+   g_clear_pointer (&qtdemux->flowcombiner, gst_flow_combiner_unref);
+ 
+   g_queue_clear_full (&qtdemux->protection_event_queue,
+@@ -805,6 +807,27 @@
+   return res;
+ }
+ 
++/* The field of an "hls-rendition-tags" event for a stream's type, and the GstStreamType of it */
++static const gchar *
++qtdemux_stream_type_field (QtDemuxStream * stream, GstStreamType * type)
++{
++  if (stream->subtype == FOURCC_soun) {
++    *type = GST_STREAM_TYPE_AUDIO;
++    return "audio";
++  }
++  if (stream->subtype == FOURCC_vide) {
++    *type = GST_STREAM_TYPE_VIDEO;
++    return "video";
++  }
++  if (stream->subtype == FOURCC_text || stream->subtype == FOURCC_sbtl ||
++      stream->subtype == FOURCC_subp || stream->subtype == FOURCC_wvtt) {
++    *type = GST_STREAM_TYPE_TEXT;
++    return "text";
++  }
++  *type = GST_STREAM_TYPE_UNKNOWN;
++  return NULL;
++}
++
+ static void
+ gst_qtdemux_push_tags (GstQTDemux * qtdemux, QtDemuxStream * stream)
+ {
+@@ -812,7 +835,30 @@
+     GST_DEBUG_OBJECT (qtdemux, "Checking pad %s:%s for tags",
+         GST_DEBUG_PAD_NAME (stream->pad));
+ 
+-    if (!gst_tag_list_is_empty (stream->stream_tags)) {
++    GstStreamType type;
++    const gchar *type_field = qtdemux_stream_type_field (stream, &type);
++    GstTagList *rendition_tags = NULL;
++
++    if (qtdemux->rendition_tags && type_field)
++      gst_structure_get (qtdemux->rendition_tags, type_field,
++          GST_TYPE_TAG_LIST, &rendition_tags, NULL);
++
++    if (qtdemux->upstream_tags || rendition_tags) {
++      GstTagList *tags = gst_tag_list_merge (qtdemux->upstream_tags,
++          stream->stream_tags, GST_TAG_MERGE_REPLACE);
++
++      if (rendition_tags) {
++        GstTagList *merged = gst_tag_list_merge (tags, rendition_tags,
++            GST_TAG_MERGE_REPLACE);
++        gst_tag_list_unref (tags);
++        gst_tag_list_unref (rendition_tags);
++        tags = merged;
++      }
++
++      gst_tag_list_set_scope (tags, GST_TAG_SCOPE_STREAM);
++      GST_DEBUG_OBJECT (qtdemux, "Sending tags %" GST_PTR_FORMAT, tags);
++      gst_pad_push_event (stream->pad, gst_event_new_tag (tags));
++    } else if (!gst_tag_list_is_empty (stream->stream_tags)) {
+       GST_DEBUG_OBJECT (qtdemux, "Sending tags %" GST_PTR_FORMAT,
+           stream->stream_tags);
+       gst_pad_push_event (stream->pad,
+@@ -2427,10 +2473,40 @@
+       res = TRUE;
+       goto drop;
+     }
++    case GST_EVENT_TAG:
++    {
++      GstTagList *taglist;
++
++      gst_event_parse_tag (event, &taglist);
++      if (gst_tag_list_get_scope (taglist) != GST_TAG_SCOPE_STREAM)
++        break;
++
++      /* Upstream stream tags describe this container's streams, which may not
++       * have pads yet; they go out merged with each stream's own tags */
++      gst_tag_list_replace (&demux->upstream_tags, taglist);
++      gst_event_unref (event);
++      for (gint i = 0; i < QTDEMUX_N_STREAMS (demux); i++)
++        gst_qtdemux_push_tags (demux, QTDEMUX_NTH_STREAM (demux, i));
++      goto drop;
++    }
++    case GST_EVENT_CUSTOM_DOWNSTREAM_STICKY:
++    {
++      if (!gst_event_has_name (event, "hls-rendition-tags"))
++        break;
++
++      gst_clear_structure (&demux->rendition_tags);
++      demux->rendition_tags = gst_structure_copy (gst_event_get_structure (event));
++      gst_event_unref (event);
++      for (gint i = 0; i < QTDEMUX_N_STREAMS (demux); i++)
++        gst_qtdemux_push_tags (demux, QTDEMUX_NTH_STREAM (demux, i));
++      goto drop;
++    }
+     case GST_EVENT_STREAM_START:
+     {
+       res = TRUE;
+       gst_event_unref (event);
++      gst_clear_tag_list (&demux->upstream_tags);
++      gst_clear_structure (&demux->rendition_tags);
+ 
+       /* Drain all the buffers */
+       gst_qtdemux_process_adapter (demux, TRUE);
+@@ -10206,7 +10282,64 @@
+       } else {
+         stream_flags &= ~GST_STREAM_FLAG_SPARSE;
+       }
++      if (qtdemux->rendition_tags) {
++        /* A DEFAULT rendition carried inside this container */
++        GstStreamType type;
++        const gchar *type_field = qtdemux_stream_type_field (stream, &type);
++        gboolean is_default = FALSE;
++
++        if (type_field) {
++          gchar *default_field = g_strconcat (type_field, "-default", NULL);
++          if (gst_structure_get_boolean (qtdemux->rendition_tags,
++                  default_field, &is_default) && is_default)
++            stream_flags |= GST_STREAM_FLAG_SELECT;
++          g_free (default_field);
++        }
++      }
+       gst_event_set_stream_flags (event, stream_flags);
++      {
++        /* An upstream GstStream describes the stream this container carries: announce this
++         * stream with its tags under the container's, and the rendition tags of its type over them */
++        GstEvent *upstream_start =
++            gst_pad_get_sticky_event (qtdemux->sinkpad, GST_EVENT_STREAM_START,
++            0);
++        GstStream *upstream_stream = NULL;
++
++        if (upstream_start) {
++          gst_event_parse_stream (upstream_start, &upstream_stream);
++          gst_event_unref (upstream_start);
++        }
++        if (upstream_stream) {
++          GstStreamType type;
++          const gchar *type_field = qtdemux_stream_type_field (stream, &type);
++          GstTagList *upstream_tags = gst_stream_get_tags (upstream_stream);
++          GstTagList *tags = gst_tag_list_merge (upstream_tags,
++              stream->stream_tags, GST_TAG_MERGE_REPLACE);
++          GstTagList *rendition_tags = NULL;
++          GstStream *stream_object = gst_stream_new (stream->stream_id,
++              CUR_STREAM (stream)->caps, type, stream_flags);
++
++          if (qtdemux->rendition_tags && type_field
++              && gst_structure_get (qtdemux->rendition_tags, type_field,
++                  GST_TYPE_TAG_LIST, &rendition_tags, NULL)) {
++            GstTagList *merged = gst_tag_list_merge (tags, rendition_tags,
++                GST_TAG_MERGE_REPLACE);
++            if (tags)
++              gst_tag_list_unref (tags);
++            gst_tag_list_unref (rendition_tags);
++            tags = merged;
++          }
++          if (tags) {
++            gst_stream_set_tags (stream_object, tags);
++            gst_tag_list_unref (tags);
++          }
++          gst_event_set_stream (event, stream_object);
++          gst_object_unref (stream_object);
++          if (upstream_tags)
++            gst_tag_list_unref (upstream_tags);
++          gst_object_unref (upstream_stream);
++        }
++      }
+       gst_pad_push_event (stream->pad, event);
+ 
+       forward_collection = TRUE;

@@ -7,7 +7,9 @@ curl, directory = sys.argv[1:]
 root = pathlib.Path(directory)
 root.mkdir(parents=True, exist_ok=True)
 cases = []
-for status, valid in ((b'200 OK', True), (b'200', True), (b'200 ', True), (b'2000 Odd', False), (b'20 Odd', False)):
+for status, valid in ((b'200 OK', True), (b'200', True), (b'200 ', True), (b'2000 Odd', False),
+                      (b'20 Odd', True), (b'0 OK', True), (b'99 NOT OK', True), (b'077 77', True),
+                      (b'0200 BOO', False), (b'1000 BOO', False)):
     cases.append(('status-' + status.decode().replace(' ', '_'), valid, b'HTTP/1.1 ' + status + b'\r\nContent-Length: 5\r\nConnection: close\r\n\r\nHELLO'))
 for name, size, valid in (
     ('plain', b'5', True), ('token', b'5;foo=bar', True),

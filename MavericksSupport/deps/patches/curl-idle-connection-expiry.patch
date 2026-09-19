@@ -1,0 +1,132 @@
+--- a/include/curl/multi.h
++++ b/include/curl/multi.h
+@@ -478,6 +478,8 @@
+   CURLMINFO_XFERS_DONE = 4,
+   /* The total number of easy handles added to the multi handle, ever. */
+   CURLMINFO_XFERS_ADDED = 5,
++  /* The number of live connections owned by the multi handle. */
++  CURLMINFO_CONNECTIONS = 6,
+ 
+   CURLMINFO_LASTENTRY /* the last unused */
+ } CURLMinfo_offt;
+--- a/lib/conncache.c
++++ b/lib/conncache.c
+@@ -638,6 +638,9 @@
+  *
+  * Return TRUE if idle connection kept in pool, FALSE if closed.
+  */
++static void cpool_schedule_idle_expiry_locked(struct cpool *,
++                                              struct Curl_easy *);
++
+ bool Curl_cpool_conn_now_idle(struct Curl_easy *data,
+                               struct connectdata *conn)
+ {
+@@ -686,6 +689,17 @@
+       CPOOL_UNLOCK(cpool, admin);
+   }
+ 
++  if(kept && cpool && data->set.conn_max_idle_ms) {
++    bool do_lock = !CPOOL_IS_LOCKED(cpool);
++
++    admin = Curl_get_admin(data);
++    if(do_lock)
++      CPOOL_LOCK(cpool, admin);
++    cpool_schedule_idle_expiry_locked(cpool, admin);
++    if(do_lock)
++      CPOOL_UNLOCK(cpool, admin);
++  }
++
+   return kept;
+ }
+ 
+@@ -734,6 +748,52 @@
+   struct curltime now;
+ };
+ 
++struct cpool_idle_expiry_ctx {
++  struct curltime now;
++  timediff_t max_idle_ms;
++  timediff_t next_ms;
++};
++
++static int cpool_find_next_idle_expiry(struct cpool *cpool,
++                                       struct Curl_easy *admin,
++                                       struct connectdata *conn, void *param)
++{
++  struct cpool_idle_expiry_ctx *expiry = param;
++  timediff_t age_ms;
++  timediff_t remaining_ms;
++
++  (void)cpool;
++  (void)admin;
++  if(CONN_INUSE(conn))
++    return 0;
++  age_ms = curlx_ptimediff_ms(&expiry->now, &conn->lastused);
++  remaining_ms = expiry->max_idle_ms - age_ms + 1;
++  if(remaining_ms < 0)
++    remaining_ms = 0;
++  if(expiry->next_ms < 0 || remaining_ms < expiry->next_ms)
++    expiry->next_ms = remaining_ms;
++  return 0;
++}
++
++static void cpool_schedule_idle_expiry_locked(struct cpool *cpool,
++                                              struct Curl_easy *admin)
++{
++  struct cpool_idle_expiry_ctx expiry;
++
++  if(!admin->set.conn_max_idle_ms) {
++    Curl_expire_clear(admin, EXPIRE_CPOOL);
++    return;
++  }
++  expiry.now = *Curl_pgrs_now(admin);
++  expiry.max_idle_ms = admin->set.conn_max_idle_ms;
++  expiry.next_ms = -1;
++  cpool_foreach(admin, cpool, &expiry, cpool_find_next_idle_expiry);
++  if(expiry.next_ms >= 0)
++    Curl_expire(admin, expiry.next_ms, EXPIRE_CPOOL);
++  else
++    Curl_expire_clear(admin, EXPIRE_CPOOL);
++}
++
+ static int cpool_reap_dead_cb(struct cpool *cpool,
+                               struct Curl_easy *admin,
+                               struct connectdata *conn, void *param)
+@@ -781,6 +841,7 @@
+       ;
+     cpool->last_cleanup = *Curl_pgrs_now(admin);
+   }
++  cpool_schedule_idle_expiry_locked(cpool, admin);
+   CPOOL_UNLOCK(cpool, admin);
+ }
+ 
+--- a/lib/multi.c
++++ b/lib/multi.c
+@@ -2759,6 +2759,7 @@
+     Curl_async_thrdd_multi_process(multi);
+ #endif
+     Curl_cshutdn_perform(&multi->cshutdn, sigpipe_ctx);
++    Curl_cpool_prune_dead(&multi->cpool, data);
+     goto out;
+   }
+ 
+@@ -3982,6 +3983,9 @@
+     case CURLMINFO_XFERS_ADDED:
+       *pvalue = multi->xfers_total_ever;
+       break;
++    case CURLMINFO_CONNECTIONS:
++      *pvalue = (curl_off_t)multi->cpool.num_conn;
++      break;
+     default:
+       *pvalue = -1;
+       mresult = CURLM_UNKNOWN_OPTION;
+--- a/lib/urldata.h
++++ b/lib/urldata.h
+@@ -507,6 +507,7 @@
+   EXPIRE_FTP_ACCEPT,
+   EXPIRE_ALPN_EYEBALLS,
+   EXPIRE_SHUTDOWN,
++  EXPIRE_CPOOL,
+   EXPIRE_LAST /* not an actual timer, used as a marker only */
+ } expire_id;
+ 

@@ -3303,8 +3303,13 @@ GStreamerEnabled:
   getter: isGStreamerEnabled
   webcoreBinding: DeprecatedGlobalSettings
   condition: USE(GSTREAMER)
-  exposed: [ WebKit ]
+  # MAVERICKS_BACKPORT: WebKitLegacy restores its GStreamer engine through the generated preference update, including after mock-media tests.
+  # exposed: [ WebKit ]
+  exposed: [ WebKit, WebKitLegacy ]
   defaultValue:
+    # MAVERICKS_BACKPORT: the normal WebKitLegacy playback backend is enabled by default.
+    WebKitLegacy:
+      default: true
     WebKit:
       default: true
 
@@ -6695,6 +6700,8 @@ RequestVideoFrameCallbackEnabled:
   defaultValue:
     WebKitLegacy:
       "PLATFORM(COCOA) && HAVE(AVSAMPLEBUFFERVIDEOOUTPUT)" : true
+      # MAVERICKS_BACKPORT: WebKitLegacy uses the GStreamer video-frame callback implementation.
+      "USE(GSTREAMER)": true
       default: false
     WebKit:
       "PLATFORM(COCOA) && HAVE(AVSAMPLEBUFFERVIDEOOUTPUT)" : true

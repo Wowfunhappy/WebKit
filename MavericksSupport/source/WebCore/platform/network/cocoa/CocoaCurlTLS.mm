@@ -20,6 +20,33 @@ extern "C" CFTypeRef wk_createProtectionSpace(CFStringRef, int, int, CFStringRef
 
 namespace WebCore {
 
+bool CocoaCurlTLSState::negotiatedLegacyTLS() const
+{
+    if (negotiatedProtocol == TLS1_VERSION || negotiatedProtocol == TLS1_1_VERSION)
+        return true;
+
+    switch (negotiatedCipher) {
+    case TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA:
+    case TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA:
+    case TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA:
+    case TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA:
+    case TLS_ECDH_anon_WITH_3DES_EDE_CBC_SHA:
+    case TLS_RSA_WITH_3DES_EDE_CBC_SHA:
+    case TLS_DH_DSS_WITH_3DES_EDE_CBC_SHA:
+    case TLS_DH_RSA_WITH_3DES_EDE_CBC_SHA:
+    case TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA:
+    case TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA:
+    case TLS_DH_anon_WITH_3DES_EDE_CBC_SHA:
+    case TLS_PSK_WITH_3DES_EDE_CBC_SHA:
+    case TLS_DHE_PSK_WITH_3DES_EDE_CBC_SHA:
+    case TLS_RSA_PSK_WITH_3DES_EDE_CBC_SHA:
+    case SSL_RSA_WITH_3DES_EDE_CBC_MD5:
+        return true;
+    default:
+        return false;
+    }
+}
+
 static int tlsStateIndex()
 {
     static int index = SSL_CTX_get_ex_new_index(0, nullptr, nullptr, nullptr,
@@ -147,6 +174,8 @@ std::unique_ptr<CocoaCurlTLSVerification> CocoaCurlTLSVerification::create(SSL* 
         }
     }
     impl.result.url = state.url.isolatedCopy();
+    impl.result.negotiatedProtocol = SSL_version(ssl);
+    impl.result.negotiatedCipher = SSL_CIPHER_get_protocol_id(SSL_get_current_cipher(ssl));
     impl.result.acceptedChain = state.acceptedChain;
     impl.result.allowedTrust = state.allowedTrust;
     impl.result.acceptAnyCertificate = state.acceptAnyCertificate;
@@ -162,14 +191,14 @@ void CocoaCurlTLSVerification::evaluate()
 {
     if (X509_verify_cert(m_impl->context) != 1)
         m_impl->result.accepted = false;
-    m_impl->result.evaluated = true;
 }
 void CocoaCurlTLSVerification::apply(CocoaCurlTLSState& state)
 {
+    state.negotiatedProtocol = m_impl->result.negotiatedProtocol;
+    state.negotiatedCipher = m_impl->result.negotiatedCipher;
     state.trust = WTF::move(m_impl->result.trust);
     state.peerChain = WTF::move(m_impl->result.peerChain);
     state.accepted = m_impl->result.accepted;
-    state.evaluated = m_impl->result.evaluated;
 }
 static ssl_verify_result_t verifyAsynchronously(SSL* ssl, uint8_t* alert)
 {

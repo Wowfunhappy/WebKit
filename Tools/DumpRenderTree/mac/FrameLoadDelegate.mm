@@ -140,6 +140,8 @@ IGNORE_WARNINGS_END
 
 - (void)dumpAfterWaitAttributeIsRemoved:(id)dummy
 {
+    // Multiple subframe load completions share one pending reftest poll.
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(dumpAfterWaitAttributeIsRemoved:) object:nil];
 #if PLATFORM(IOS_FAMILY)
     WebThreadLock();
 #endif
@@ -175,6 +177,7 @@ IGNORE_WARNINGS_END
 
 - (void)resetToConsistentState
 {
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(dumpAfterWaitAttributeIsRemoved:) object:nil];
     accessibilityController->resetToConsistentState();
 }
 

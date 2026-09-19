@@ -1,0 +1,129 @@
+# Publish completed submissions to the PTS queue in submission order.
+
+--- a/sys/applemedia/vtdec.c
++++ b/sys/applemedia/vtdec.c
+@@ -161,9 +161,11 @@
+   VTDEC_FRAME_FLAG_SKIP = (1 << 10),
+   VTDEC_FRAME_FLAG_DROP = (1 << 11),
+   VTDEC_FRAME_FLAG_ERROR = (1 << 12),
++  VTDEC_FRAME_FLAG_COMPLETE = (1 << 13),
+ };
+ 
+ static void gst_vtdec_finalize (GObject * object);
++static void gst_vtdec_promote_completed_frames (GstVtdec * vtdec);
+ 
+ static gboolean gst_vtdec_start (GstVideoDecoder * decoder);
+ static gboolean gst_vtdec_stop (GstVideoDecoder * decoder);
+@@ -329,6 +331,7 @@
+   vtdec->downstream_ret = GST_FLOW_OK;
+   g_atomic_int_set (&vtdec->require_reset, FALSE);
+   vtdec->reorder_queue = gst_vec_deque_new (0);
++  g_queue_init (&vtdec->submitted_frames);
+ 
+   /* Create the output task, but pause it immediately */
+   vtdec->pause_task = TRUE;
+@@ -365,6 +368,7 @@
+   while ((frame = gst_vec_deque_pop_head (vtdec->reorder_queue))) {
+     gst_video_decoder_release_frame (decoder, frame);
+   }
++  g_assert (g_queue_is_empty (&vtdec->submitted_frames));
+   gst_vec_deque_free (vtdec->reorder_queue);
+   vtdec->reorder_queue = NULL;
+ 
+@@ -1050,6 +1054,7 @@
+   GstFlowReturn ret = GST_FLOW_OK;
+   int decode_frame_number = frame->decode_frame_number;
+   GstTaskState task_state;
++  gboolean callback_completed;
+ 
+   GST_LOG_OBJECT (vtdec, "got input frame %d", decode_frame_number);
+ 
+@@ -1191,11 +1196,35 @@
+   cm_sample_buffer =
+       cm_sample_buffer_from_gst_buffer (vtdec, frame->input_buffer);
+ 
++  g_mutex_lock (&vtdec->queue_mutex);
++  frame->flags &= ~VTDEC_FRAME_FLAG_COMPLETE;
++  g_queue_push_tail (&vtdec->submitted_frames, frame);
++  gst_video_codec_frame_ref (frame);
++  g_mutex_unlock (&vtdec->queue_mutex);
++
+   status = VTDecompressionSessionDecodeFrame (vtdec->session, cm_sample_buffer,
+       input_flags, frame, NULL);
+ 
+   GST_LOG_OBJECT (vtdec, "VTDecompressionSessionDecodeFrame returned: %d",
+       status);
++
++  g_mutex_lock (&vtdec->queue_mutex);
++  callback_completed = (frame->flags & VTDEC_FRAME_FLAG_COMPLETE) != 0;
++  if (status != noErr && !callback_completed) {
++    g_queue_remove (&vtdec->submitted_frames, frame);
++    gst_vtdec_promote_completed_frames (vtdec);
++  }
++  g_mutex_unlock (&vtdec->queue_mutex);
++  gst_video_codec_frame_unref (frame);
++
++  /* A synchronous failure may also complete through the output callback. The
++   * callback owns that frame and its output-loop error reporting. */
++  if (status != noErr && callback_completed) {
++    GST_VIDEO_DECODER_ERROR (vtdec, 1, STREAM, DECODE,
++        ("Failed to decode frame"),
++        ("VTDecompressionSessionDecodeFrame returned %d", (int) status), ret);
++    goto out;
++  }
+ 
+   /* kVTInvalidSessionErr is usually returned on iOS if the application goes
+    * into background mode, if so, we can reset the session and request an
+@@ -1228,7 +1257,7 @@
+     GST_VIDEO_DECODER_ERROR (vtdec, 1, STREAM, DECODE,
+         ("Failed to decode frame"),
+         ("VTDecompressionSessionDecodeFrame returned %d", (int) status), ret);
+-    goto out;
++    goto drop;
+   }
+ 
+   GST_LOG_OBJECT (vtdec, "submitted input frame %d", decode_frame_number);
+@@ -1688,6 +1717,22 @@
+     return 0;
+   else
+     return 1;
++}
++
++/* queue_mutex protects submission order and completion publication. Only a
++ * completed prefix enters the PTS queue, including skipped and errored frames. */
++static void
++gst_vtdec_promote_completed_frames (GstVtdec * vtdec)
++{
++  GstVideoCodecFrame *frame;
++
++  while ((frame = g_queue_peek_head (&vtdec->submitted_frames)) &&
++      (frame->flags & VTDEC_FRAME_FLAG_COMPLETE)) {
++    g_queue_pop_head (&vtdec->submitted_frames);
++    gst_vec_deque_push_sorted (vtdec->reorder_queue,
++        frame, sort_frames_by_pts, NULL);
++  }
++  g_cond_signal (&vtdec->queue_cond);
+ }
+ 
+ static void
+@@ -1772,8 +1817,8 @@
+   }
+ 
+   g_mutex_lock (&vtdec->queue_mutex);
+-  gst_vec_deque_push_sorted (vtdec->reorder_queue,
+-      frame, sort_frames_by_pts, NULL);
++  frame->flags |= VTDEC_FRAME_FLAG_COMPLETE;
++  gst_vtdec_promote_completed_frames (vtdec);
+   GST_LOG ("pushed frame %d, queue length %" G_GSIZE_FORMAT,
+       frame->decode_frame_number,
+       gst_vec_deque_get_length (vtdec->reorder_queue));
+--- a/sys/applemedia/vtdec.h
++++ b/sys/applemedia/vtdec.h
+@@ -59,6 +59,7 @@
+   GstGLContextHelper *ctxh;
+ 
+   GstVecDeque *reorder_queue;
++  GQueue submitted_frames; /* GstVideoCodecFrame identities in submission order */
+   gint dbp_size;
+   GMutex queue_mutex;
+   GCond queue_cond;

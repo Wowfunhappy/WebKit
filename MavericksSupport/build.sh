@@ -4,7 +4,9 @@
 # /tmp/wk_build.log. "REBUILD DONE (rc=0)" is printed once, at the very end, and is the signal that the
 # staged product is complete and installable (sudo bash MavericksSupport/install.sh).
 set -uo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# /bin/pwd -P spells a directory as the filesystem does (lsof reports cwds that way too), so the
+# path comparisons below and in deps/build_deps.sh agree whatever spelling this was launched by.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && /bin/pwd -P)"
 TC="$ROOT/MavericksSupport/toolchain/build"
 NINJA="$TC/ninja/bin/ninja"
 CMAKE="$TC/cmake/bin/cmake"
@@ -39,7 +41,7 @@ _is_ours()  { local _a; for _a in $(_ancestry "$1"); do [ "$_a" = "$$" ] && retu
 # Only THIS script counts as a build to take over: the candidate's build.sh argument, resolved against its
 # cwd, must be this file (the tree has other build.sh scripts, and so may the machine). This script never
 # changes directory, so a running instance's cwd is the one it was launched from.
-SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/build.sh"
+SELF="$ROOT/MavericksSupport/build.sh"
 _script_of() {
     local _tok _cwd
     _tok=$(ps -o command= -p "$1" 2>/dev/null | tr ' ' '\n' | grep -E '(^|/)build\.sh$' | head -1)
@@ -48,7 +50,7 @@ _script_of() {
         /*) ;;
         *)  _cwd=$(lsof -a -d cwd -Fn -p "$1" 2>/dev/null | sed -n 's/^n//p' | head -1); _tok="$_cwd/$_tok";;
     esac
-    (cd "$(dirname "$_tok")" 2>/dev/null && echo "$(pwd -P)/$(basename "$_tok")")
+    (cd "$(dirname "$_tok")" 2>/dev/null && echo "$(/bin/pwd -P)/$(basename "$_tok")")
 }
 # Candidates come from ps -axo pid=,command=, which lists every process with its full command line.
 # _pids_running takes those whose program is <name>; _pids_running_script those whose command ends in
@@ -68,7 +70,7 @@ _stale_builds() {
         [ -n "$BUILD_P" ] && [ "$(lsof -a -d cwd -Fn -p "$_p" 2>/dev/null | sed -n 's/^n//p' | head -1)" = "$BUILD_P" ] && echo "$_p"
     done
 }
-BUILD_P="$(cd "$BUILD" 2>/dev/null && pwd -P)"
+BUILD_P="$(cd "$BUILD" 2>/dev/null && /bin/pwd -P)"
 # A configure of THIS tree: cmake itself, naming $BUILD. The `cmake -E <tool>` helpers and `-P` install
 # steps ninja runs inside build steps are not configures, and other trees' configures (deps/build_deps.sh)
 # are not this build's.
@@ -94,6 +96,12 @@ _relinking_deps() {
     done
     return 1
 }
+# Dependency publication can proceed while this build waits for its owner to exit.
+# The process start time ties the marker to this invocation even after PID reuse.
+TAKEOVER_MARKER="$BUILD/.takeover-waiters/$$"
+mkdir -p "$(dirname "$TAKEOVER_MARKER")" || exit 1
+ps -o lstart= -p $$ > "$TAKEOVER_MARKER" || exit 1
+trap 'rc=$?; rm -f "$TAKEOVER_MARKER"; build_log_report $rc' EXIT
 _waited=0; _tries=0; _stopped=""; _waitedfor=""; TAKEOVER=""
 while :; do
     _stale="$(_stale_builds | sort -un)"
@@ -125,6 +133,7 @@ if [ -n "$_stopped" ]; then
     TAKEOVER="### took over from the build already running (pids: $_stopped)"
     [ "$_waited" -gt 0 ] && TAKEOVER="$TAKEOVER, after waiting ${_waited}s for its $_waitedfor"
 fi
+rm -f "$TAKEOVER_MARKER"
 : > "$LOG"   # the one truncation of the run; everything below appends
 echo "### BUILD RUN $(date -u +%Y-%m-%dT%H:%M:%SZ) pid=$$"
 [ -n "$TAKEOVER" ] && echo "$TAKEOVER"
@@ -197,7 +206,7 @@ if [ ! -f "$CACHE_FILE" ]; then
             -DPORT=Mac -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_NINJA_FORCE_RESPONSE_FILE=1 $DEV_FLAGS; then
         echo "==================== CONFIGURE FAILED — ABORTING ===================="
-        tail -20 "$LOG"; exit 1
+        printf '%s\n' "$(tail -20 "$LOG")"; exit 1
     fi
 fi
 
@@ -217,7 +226,7 @@ if [ -f "$OPT_HASH_FILE" ] && [ "$_opt_hash" != "$(cat "$OPT_HASH_FILE")" ]; the
     _uargs=""; for _n in $_names; do _uargs="$_uargs -U $_n"; done
     if ! "$CMAKE" $_uargs $DEV_FLAGS "$BUILD"; then
         echo "==================== RECONFIGURE FAILED — ABORTING ===================="
-        tail -20 "$LOG"; exit 1
+        printf '%s\n' "$(tail -20 "$LOG")"; exit 1
     fi
 fi
 [ "$_opt_hash" = "$(cat "$OPT_HASH_FILE" 2>/dev/null)" ] || echo "$_opt_hash" > "$OPT_HASH_FILE"
@@ -257,8 +266,9 @@ if bash "$ROOT/MavericksSupport/polyfill/build-polyfill.sh"; then
 else
     # A stale archive would link a call site against an old selector map and crash at runtime.
     echo "==================== POLYFILL BUILD FAILED — ABORTING (would link a STALE polyfill) ===================="
-    tail -n +$_polyfrom "$LOG" | grep -nE "error:|warning:.*wk_|undefined" | head -20
-    tail -20 "$LOG"
+    _polyerrors="$(tail -n +$_polyfrom "$LOG" | grep -nE "error:|warning:.*wk_|undefined" | head -20)"
+    printf '%s\n' "$_polyerrors"
+    printf '%s\n' "$(tail -20 "$LOG")"
     exit 1
 fi
 
@@ -270,7 +280,7 @@ if [ ! -f "$BUILD/build.ninja" ] || ! "$NINJA" -C "$BUILD" -t targets >/dev/null
     echo "### build.ninja is missing or does not parse -> reconfiguring to recover"
     if ! "$CMAKE" $DEV_FLAGS "$BUILD"; then
         echo "==================== RECOVERY RECONFIGURE FAILED — ABORTING ===================="
-        tail -20 "$LOG"; exit 1
+        printf '%s\n' "$(tail -20 "$LOG")"; exit 1
     fi
 fi
 

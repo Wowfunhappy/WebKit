@@ -29,6 +29,7 @@
 #import "WebPreferencesKeys.h"
 #import <WebCore/RealtimeMediaSourceCenter.h>
 #import <wtf/text/MakeString.h>
+#import <wtf/RuntimeApplicationChecks.h> // MAVERICKS_BACKPORT: identify Safari when registering browser defaults.
 
 #if ENABLE(MEDIA_STREAM)
 #include "UserMediaPermissionRequestManagerProxy.h"
@@ -139,6 +140,10 @@ static void setDebugUInt32ValueIfInUserDefaults(const String& identifier, const 
 void WebPreferences::platformInitializeStore()
 {
     @autoreleasepool {
+        // MAVERICKS_BACKPORT: Safari 7 receives HTTPS-first as an overridable default.
+        if (WTF::MacApplication::isSafari())
+            registerDefaultBoolValueForKey(WebPreferencesKey::httpSByDefaultEnabledKey(), true);
+
         // MAVERICKS_BACKPORT: Safari 9's legacy WKPreferences surface predates requestIdleCallback and never
         // sets its key, so the store falls to the WebKit yaml default (false) and window.requestIdleCallback
         // stays undefined. This port's contract is to present a modern browser, and a modern embedder would
@@ -159,14 +164,6 @@ void WebPreferences::platformInitializeStore()
         // (MavericksSupport/scripts/framework-layout.sh), so the paths that request it by name — an
         // embedder's website policy, ForceEnhancedSecurity — launch a real process.
         m_store.setBoolValueForKey(WebPreferencesKey::enhancedSecurityHeuristicsEnabledKey(), false);
-
-        // MAVERICKS_BACKPORT: HTTPS-first upgrades a plain-http main-frame navigation to https and falls
-        // back to http on its own when that fails (CachedResourceLoader::shouldPerformHTTPSUpgrade and
-        // WebPageProxy::didFailProvisionalLoadForFrameShared both read this key). Safari 7's legacy
-        // WKPreferences surface predates it, so the store falls to the WebKit yaml default (false).
-        // Seeded here at the UIProcess legacy-preference boundary, as the store's initial value; a
-        // client that sets the key itself still wins.
-        m_store.setBoolValueForKey(WebPreferencesKey::httpSByDefaultEnabledKey(), true);
 
 #if ENABLE(MEDIA_STREAM)
         // NOTE: This is set here, and does not setting the default using the 'defaultValue' mechanism, because the

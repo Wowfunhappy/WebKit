@@ -56,6 +56,26 @@ class MacTest(darwin_testcase.DarwinTest):
         port = self.make_port()
         self.assertIsNotNone(port.version_name())
 
+    def test_mavericks_apache(self):
+        for driver in ('DumpRenderTree', 'WebKitTestRunner'):
+            port = self.make_port(port_name='mac-mavericks', options=MockOptions(driver_names=[driver]))
+            self.assertEqual(port._path_to_apache(), '/mock-checkout/MavericksSupport/deps/build/bin/httpd')
+
+    def test_mavericks_wk1_expectations_drop_opening_skip_block(self):
+        opening = '# Skip all tests on Mac wk1\nfast [ Skip ]\nhttp [ Skip ]\n'
+        rest = '\n# Later lines\nfast/dom/test.html [ Failure ]\nmedia [ Skip ]\n'
+        port = self.make_port(port_name='mac-mavericks', options=MockOptions(driver_names=['DumpRenderTree'], configuration='Release'))
+        path = port._filesystem.join(port._webkit_baseline_path('mac-wk1'), 'TestExpectations')
+        port.host.filesystem.write_text_file(path, opening + rest)
+        self.assertIn(path, port.expectations_files())
+        self.assertEqual(port.expectations_dict()[path], '\n\n\n' + rest)
+
+        port = self.make_port(port_name='mac-mavericks', options=MockOptions(driver_names=['WebKitTestRunner'], configuration='Release'))
+        port.host.filesystem.write_text_file(path, opening + rest)
+        self.assertNotIn(opening, ''.join(value for key, value in port.expectations_dict().items() if key != path))
+        if path in port.expectations_dict():
+            self.assertEqual(port.expectations_dict()[path], opening + rest)
+
     def test_versions(self):
         # Note: these tests don't need to be exhaustive as long as we get path coverage.
         self.assert_name('mac', 'snowleopard', 'mac-snowleopard-wk2')

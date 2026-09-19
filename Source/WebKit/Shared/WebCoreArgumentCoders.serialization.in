@@ -8615,11 +8615,19 @@ header: <WebCore/ShareableBitmap.h>
     std::optional<WebCore::DestinationColorSpace> m_colorSpace;
     WebCore::Headroom m_headroom;
     bool m_isOpaque;
+    # MAVERICKS_BACKPORT: native Quartz extended RGB bitmaps use four 32-bit float components.
+#if USE(CG)
+    [Validator='(*bitsPerComponent >= 1 && *bitsPerComponent <= 16) || *bitsPerComponent == 32'] unsigned bitsPerComponent();
+    [Validator='(*bitsPerComponent <= 16 && *bytesPerPixel >= 1 && *bytesPerPixel <= 8) || (*bitsPerComponent == 32 && *bytesPerPixel == 16)'] unsigned bytesPerPixel();
+#else
     [Validator='*bitsPerComponent >= 1 && *bitsPerComponent <= 16'] unsigned bitsPerComponent();
     [Validator='*bytesPerPixel >= 1 && *bytesPerPixel <= 8'] unsigned bytesPerPixel();
+#endif # MAVERICKS_BACKPORT: closes the Quartz native-float format branch.
     [Validator='[&]() { std::remove_cvref_t<decltype(*bytesPerRow)> bytesForWidth; return WTF::safeMultiply(m_size->width(), *bytesPerPixel, bytesForWidth) && *bytesPerRow >= bytesForWidth; }()'] unsigned bytesPerRow();
 #if USE(CG)
-    CGBitmapInfo m_bitmapInfo;
+    # MAVERICKS_BACKPORT: the additional 32-bit format requires native host-order floating-point samples.
+    # CGBitmapInfo m_bitmapInfo;
+    [Validator='*bitsPerComponent != 32 || ((*m_bitmapInfo & kCGBitmapFloatComponents) && (*m_bitmapInfo & kCGBitmapByteOrderMask) == kCGBitmapByteOrder32Host)'] CGBitmapInfo m_bitmapInfo;
 #endif
 }
 

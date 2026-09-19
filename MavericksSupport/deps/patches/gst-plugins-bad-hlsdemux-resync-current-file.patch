@@ -1,0 +1,14 @@
+# Keep the cached fragment aligned with the sequence selected by VOD resync,
+# as gst_hls_demux_stream_seek does. gst_m3u8_get_next_fragment uses current_file
+# directly when non-null, including the first fragment cached by playlist load.
+# Applied after the manifest-lock patch, which defines resync_playlist.
+--- a/ext/hls/gsthlsdemux.c
++++ b/ext/hls/gsthlsdemux.c
+@@ -2463,6 +2463,7 @@
+     if (!walk)
+       sequence++;
+     m3u8->sequence = sequence;
++    m3u8->current_file = walk;
+     m3u8->sequence_position = current_pos;
+     GST_M3U8_CLIENT_UNLOCK (demux->client);
+   }

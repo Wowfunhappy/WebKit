@@ -1,31 +1,42 @@
 // CoreText: entry points and constants modern WebKit references that 10.9's CoreText does not
 // export, or exports with behaviour that has to be replaced.
 #include "wk_polyfill.h"
+#include "wk_clusters.h"
+#include <unicode/ubidi.h>
+#include <unicode/uchar.h>
+#include <unicode/uscript.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <errno.h>
+#include "wk_font_receipts.h"
 #include "wk_helpers.h"
 #include "VariableFontInstancer.h"
+#include "wk_colr.h"
+#include "wk_font_image.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
 #include <CoreText/SFNTLayoutTypes.h>
-#include <jpeglib.h>
 #include <math.h>
-#include <png.h>
-#include <setjmp.h>
+#include <objc/objc-sync.h>
 #include <objc/runtime.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <stdarg.h>
 #include <string.h>
-#include <tiffio.h>
 
-// ots_font_parser.cpp: the memory-safe font parser, and the WOFF/WOFF2 container test the entry
-// points that must accept one ask first.
-extern bool wk_font_data_is_woff(CFDataRef data);
+// ots_font_parser.cpp: the memory-safe font parser, and the test for a CFData that parser already
+// produced, which the entry points realize without sanitizing it again.
 extern CFDataRef wk_ots_sanitize_font(CFDataRef data);
+extern CFDataRef wk_copy_gpos_with_reachable_last_pair_sets(CFDataRef data);
+static CTFontRef wk_shapingFont(CTFontRef, bool rightToLeft);
+static CGFontRef wk_createGraphicsFontFromSfnt(CFDataRef);
+extern CFArrayRef wk_ots_copy_font_faces(CFDataRef sanitized);
+extern bool wk_font_is_ots_sanitized(CFDataRef data);
 
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontCSSFamilyCursive, CFSTR("kCTFontCSSFamilyCursive"));
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontCSSFamilyFantasy, CFSTR("kCTFontCSSFamilyFantasy"));
@@ -124,374 +135,22 @@ static uint32_t wk_be32(const uint8_t *p) { return ((uint32_t)p[0] << 24) | ((ui
 // the image's lower-left corner at the pen on the baseline, moved by the record's origin offset, with
 // the strike scaled by the point size over its ppem. This OS's CTFontDrawGlyphs paints an sbix strike
 // 0.075 em below that point, and CTFontGetBoundingRectsForGlyphs reports every glyph of a font that
-// carries an sbix table the same distance low, so the two replacements at the end of this file draw
-// and measure colour-bitmap glyphs from the record and the outline instead.
-// A strike's payload is font bytes, and a font is downloadable, so these are page-controlled bytes.
-// They decode through the same libpng, libjpeg and libtiff WebCore decodes every other image with,
-// never through CGImageSourceCreateWithData: nothing in this port hands page bytes to 10.9's ImageIO.
-typedef struct {
-    const uint8_t *bytes;
-    size_t length;
-    size_t offset;
-} WKSbixSource;
+// carries an sbix table the same distance low. The glyph drawing and bounds replacements use
+// the record and outline coordinates.
 
-static void wk_sbixPixelsRelease(void *info, const void *data, size_t size) { (void)data; (void)size; free(info); }
-
-// Present on this OS, declared 10.12 in the SDK this builds against.
-WK_SYSTEM_FN("CoreGraphics", CGColorSpaceRef, CGColorSpaceCreateWithICCData, (CFTypeRef));
-
-// The strike's own colour space when it carries an ICC profile, sRGB otherwise. 10.10+ CoreText
-// paints an sbix strike through the profile ImageIO attaches to the image, so a profiled strike
-// tagged sRGB here would draw in the wrong colours. Only a three-component profile describes the
-// RGBA the decoders below produce; a strike that carries any other kind is drawn as sRGB.
-static CGColorSpaceRef wk_sbixColorSpace(const uint8_t *profile, size_t profileLength)
-{
-    if (profile && profileLength) {
-        CFDataRef data = CFDataCreate(kCFAllocatorDefault, (const UInt8 *)profile, (CFIndex)profileLength);
-        if (data) {
-            CGColorSpaceRef space = WK_SYSTEM(CGColorSpaceCreateWithICCData)
-                ? WK_SYSTEM(CGColorSpaceCreateWithICCData)(data) : NULL;
-            CFRelease(data);
-            if (space) {
-                if (CGColorSpaceGetNumberOfComponents(space) == 3)
-                    return space;
-                CGColorSpaceRelease(space);
-            }
-        }
-    }
-    return CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
-}
-
-// Takes ownership of pixels and space either way. Premultiplies unless the decoder already did,
-// because CGImageCreate below is told the alpha is premultiplied, which is what a drawn glyph needs.
-static CGImageRef wk_sbixImageFromRGBA(uint8_t *pixels, size_t width, size_t height,
-                                       CGColorSpaceRef space, bool premultiplied)
-{
-    size_t stride = width * 4;
-    CGDataProviderRef provider = pixels && space ? CGDataProviderCreateWithData(pixels, pixels, height * stride, wk_sbixPixelsRelease) : NULL;
-    if (!provider) {
-        free(pixels);
-        if (space)
-            CGColorSpaceRelease(space);
-        return NULL;
-    }
-    if (!premultiplied) {
-        for (size_t i = 0; i < height * stride; i += 4) {
-            uint8_t alpha = pixels[i + 3];
-            if (alpha == 255)
-                continue;
-            pixels[i] = (uint8_t)((pixels[i] * alpha + 127) / 255);
-            pixels[i + 1] = (uint8_t)((pixels[i + 1] * alpha + 127) / 255);
-            pixels[i + 2] = (uint8_t)((pixels[i + 2] * alpha + 127) / 255);
-        }
-    }
-    CGImageRef image = CGImageCreate(width, height, 8, 32, stride, space,
-                                     kCGImageAlphaPremultipliedLast | kCGBitmapByteOrderDefault,
-                                     provider, NULL, true, kCGRenderingIntentDefault);
-    CGDataProviderRelease(provider);
-    CGColorSpaceRelease(space);
-    return image;
-}
-
-// Four bytes a pixel and a row pointer each, both of which have to be expressible. Bounded by what
-// the buffer can address rather than by a chosen maximum.
-static bool wk_sbixUsableDimensions(size_t width, size_t height)
-{
-    return width && height && height <= SIZE_MAX / sizeof(void *) && width <= (SIZE_MAX / 4) / height;
-}
-
-static void wk_sbixPNGRead(png_structp png, png_bytep out, png_size_t count)
-{
-    WKSbixSource *source = (WKSbixSource *)png_get_io_ptr(png);
-    if (!source || count > source->length - source->offset) {
-        png_error(png, "truncated");
-        return;
-    }
-    memcpy(out, source->bytes + source->offset, count);
-    source->offset += count;
-}
-
-static void wk_sbixPNGError(png_structp png, png_const_charp message)
-{
-    (void)message;
-    longjmp(png_jmpbuf(png), 1);
-}
-
-static void wk_sbixPNGWarning(png_structp png, png_const_charp message) { (void)png; (void)message; }
-
-static CGImageRef wk_sbixDecodePNG(const uint8_t *bytes, size_t length)
-{
-    if (!bytes || length < 8 || png_sig_cmp((png_const_bytep)bytes, 0, 8))
-        return NULL;
-
-    png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, wk_sbixPNGError, wk_sbixPNGWarning);
-    if (!png)
-        return NULL;
-    png_infop info = png_create_info_struct(png);
-    if (!info) {
-        png_destroy_read_struct(&png, NULL, NULL);
-        return NULL;
-    }
-
-    // The two locals the longjmp branch reads are volatile: C leaves an ordinary automatic that is
-    // modified between setjmp and longjmp indeterminate there. The image is assembled after the last
-    // call that can longjmp, so ownership of the pixels never moves inside this region.
-    uint8_t * volatile pixels = NULL;
-    png_bytep * volatile rows = NULL;
-    if (setjmp(png_jmpbuf(png))) {
-        free(pixels);
-        free(rows);
-        png_destroy_read_struct(&png, &info, NULL);
-        return NULL;
-    }
-
-    WKSbixSource source = { bytes, length, 0 };
-    png_set_read_fn(png, &source, wk_sbixPNGRead);
-    png_read_info(png, info);
-
-    png_uint_32 width = 0, height = 0;
-    int depth = 0, colorType = 0;
-    png_get_IHDR(png, info, &width, &height, &depth, &colorType, NULL, NULL, NULL);
-    if (!wk_sbixUsableDimensions(width, height))
-        png_error(png, "unusable dimensions");
-
-    png_charp profileName = NULL;
-    png_bytep profile = NULL;
-    png_uint_32 profileLength = 0;
-    int profileCompression = 0;
-    if (!png_get_iCCP(png, info, &profileName, &profileCompression, &profile, &profileLength)) {
-        profile = NULL;
-        profileLength = 0;
-    }
-
-    // Whatever the file holds, in 8-bit RGBA.
-    if (colorType == PNG_COLOR_TYPE_PALETTE)
-        png_set_palette_to_rgb(png);
-    if (colorType == PNG_COLOR_TYPE_GRAY && depth < 8)
-        png_set_expand_gray_1_2_4_to_8(png);
-    if (png_get_valid(png, info, PNG_INFO_tRNS))
-        png_set_tRNS_to_alpha(png);
-    if (depth == 16)
-        png_set_strip_16(png);
-    if (colorType == PNG_COLOR_TYPE_GRAY || colorType == PNG_COLOR_TYPE_GRAY_ALPHA)
-        png_set_gray_to_rgb(png);
-    png_set_filler(png, 0xFF, PNG_FILLER_AFTER);
-    png_set_interlace_handling(png);
-    png_read_update_info(png, info);
-    if (png_get_rowbytes(png, info) != (png_size_t)width * 4)
-        png_error(png, "not four channels");
-
-    size_t stride = (size_t)width * 4;
-    pixels = (uint8_t *)calloc(height, stride);
-    rows = (png_bytep *)calloc(height, sizeof(png_bytep));
-    if (!pixels || !rows)
-        png_error(png, "no space");
-    for (png_uint_32 y = 0; y < height; ++y)
-        rows[y] = pixels + (size_t)y * stride;
-    png_read_image(png, rows);
-    png_read_end(png, NULL);
-
-    // Built while the read struct that owns the profile bytes is still alive.
-    CGColorSpaceRef space = wk_sbixColorSpace(profile, profileLength);
-    uint8_t *owned = pixels;
-    pixels = NULL;
-    free(rows);
-    rows = NULL;
-    png_destroy_read_struct(&png, &info, NULL);
-    return wk_sbixImageFromRGBA(owned, width, height, space, false);
-}
-
-typedef struct {
-    struct jpeg_error_mgr base;
-    jmp_buf escape;
-} WKSbixJPEGError;
-
-static void wk_sbixJPEGFail(j_common_ptr cinfo) { longjmp(((WKSbixJPEGError *)cinfo->err)->escape, 1); }
-static void wk_sbixJPEGSilent(j_common_ptr cinfo) { (void)cinfo; }
-
-static CGImageRef wk_sbixDecodeJPEG(const uint8_t *bytes, size_t length)
-{
-    if (!bytes || length < 4)
-        return NULL;
-
-    struct jpeg_decompress_struct cinfo;
-    WKSbixJPEGError error;
-    memset(&cinfo, 0, sizeof(cinfo));
-    cinfo.err = jpeg_std_error(&error.base);
-    error.base.error_exit = wk_sbixJPEGFail;
-    error.base.output_message = wk_sbixJPEGSilent;
-
-    uint8_t * volatile pixels = NULL;
-    JSAMPROW * volatile rows = NULL;
-    JOCTET * volatile profile = NULL;
-    if (setjmp(error.escape)) {
-        free(pixels);
-        free(rows);
-        free(profile);
-        jpeg_destroy_decompress(&cinfo);
-        return NULL;
-    }
-
-    jpeg_create_decompress(&cinfo);
-    jpeg_save_markers(&cinfo, JPEG_APP0 + 2, 0xFFFF);
-    jpeg_mem_src(&cinfo, bytes, (unsigned long)length);
-    if (jpeg_read_header(&cinfo, TRUE) != JPEG_HEADER_OK)
-        longjmp(error.escape, 1);
-
-    // libjpeg converts grayscale and YCbCr to RGB itself, but neither CMYK nor YCCK, so those come
-    // out as four-component CMYK and are converted below. Either way four bytes a pixel.
-    bool cmyk = cinfo.jpeg_color_space == JCS_CMYK || cinfo.jpeg_color_space == JCS_YCCK;
-    cinfo.out_color_space = cmyk ? JCS_CMYK : JCS_EXT_RGBX;
-    jpeg_start_decompress(&cinfo);
-    if (cinfo.output_components != 4 || !wk_sbixUsableDimensions(cinfo.output_width, cinfo.output_height))
-        longjmp(error.escape, 1);
-
-    size_t width = cinfo.output_width, height = cinfo.output_height, stride = width * 4;
-    pixels = (uint8_t *)calloc(height, stride);
-    rows = (JSAMPROW *)calloc(height, sizeof(JSAMPROW));
-    if (!pixels || !rows)
-        longjmp(error.escape, 1);
-    for (size_t y = 0; y < height; ++y)
-        rows[y] = (JSAMPROW)(pixels + y * stride);
-    while (cinfo.output_scanline < cinfo.output_height)
-        jpeg_read_scanlines(&cinfo, &rows[cinfo.output_scanline], cinfo.output_height - cinfo.output_scanline);
-    // Inverted CMYK to RGB: R = iC*iK/255, and G and B likewise (Source/WebCore/platform/
-    // image-decoders/jpeg/JPEGImageDecoder.cpp). Otherwise only the fourth byte needs filling, which
-    // libjpeg-turbo leaves undefined for the RGBX spellings.
-    for (size_t i = 0; i < height * stride; i += 4) {
-        if (cmyk) {
-            unsigned k = pixels[i + 3];
-            pixels[i] = (uint8_t)(pixels[i] * k / 255);
-            pixels[i + 1] = (uint8_t)(pixels[i + 1] * k / 255);
-            pixels[i + 2] = (uint8_t)(pixels[i + 2] * k / 255);
-        }
-        pixels[i + 3] = 0xFF;
-    }
-
-    unsigned int profileLength = 0;
-    JOCTET *readProfile = NULL;
-    if (jpeg_read_icc_profile(&cinfo, &readProfile, &profileLength))
-        profile = readProfile;
-    jpeg_finish_decompress(&cinfo);
-
-    CGColorSpaceRef space = wk_sbixColorSpace(profile, profileLength);
-    uint8_t *owned = pixels;
-    pixels = NULL;
-    free(rows);
-    rows = NULL;
-    free(profile);
-    profile = NULL;
-    jpeg_destroy_decompress(&cinfo);
-    return wk_sbixImageFromRGBA(owned, width, height, space, true);
-}
-
-static tmsize_t wk_sbixTIFFRead(thandle_t handle, void *buffer, tmsize_t count)
-{
-    WKSbixSource *source = (WKSbixSource *)handle;
-    if (count < 0 || (size_t)count > source->length - source->offset)
-        count = (tmsize_t)(source->length - source->offset);
-    memcpy(buffer, source->bytes + source->offset, (size_t)count);
-    source->offset += (size_t)count;
-    return count;
-}
-
-static tmsize_t wk_sbixTIFFWrite(thandle_t handle, void *buffer, tmsize_t count)
-{
-    (void)handle; (void)buffer; (void)count;
-    return 0;
-}
-
-static toff_t wk_sbixTIFFSeek(thandle_t handle, toff_t offset, int whence)
-{
-    WKSbixSource *source = (WKSbixSource *)handle;
-    uint64_t base = whence == SEEK_CUR ? source->offset : (whence == SEEK_END ? source->length : 0);
-    uint64_t wanted = base + offset;
-    if (wanted > source->length)
-        wanted = source->length;
-    source->offset = (size_t)wanted;
-    return (toff_t)source->offset;
-}
-
-static int wk_sbixTIFFClose(thandle_t handle) { (void)handle; return 0; }
-static toff_t wk_sbixTIFFSize(thandle_t handle) { return (toff_t)((WKSbixSource *)handle)->length; }
-
-// The strike is already a contiguous span of the font, so libtiff reads an uncompressed tile
-// straight out of it rather than through a staging buffer of its own.
-static int wk_sbixTIFFMap(thandle_t handle, void **base, toff_t *size)
-{
-    WKSbixSource *source = (WKSbixSource *)handle;
-    *base = (void *)source->bytes;
-    *size = (toff_t)source->length;
-    return 1;
-}
-
-static void wk_sbixTIFFUnmap(thandle_t handle, void *base, toff_t size) { (void)handle; (void)base; (void)size; }
-
-// Per handle rather than libtiff's process-global setters: WebCore's own TIFF decoder shares this
-// vendored copy, and a strike that will not decode is this function's answer, not a line on the
-// process's stderr. Returning 1 tells libtiff the diagnostic is handled.
-static int wk_sbixTIFFSilent(TIFF *tiff, void *context, const char *module, const char *format, va_list arguments)
-{
-    (void)tiff; (void)context; (void)module; (void)format; (void)arguments;
-    return 1;
-}
-
-static CGImageRef wk_sbixDecodeTIFF(const uint8_t *bytes, size_t length)
-{
-    if (!bytes || length < 8)
-        return NULL;
-
-    TIFFOpenOptions *options = TIFFOpenOptionsAlloc();
-    if (!options)
-        return NULL;
-    TIFFOpenOptionsSetErrorHandlerExtR(options, wk_sbixTIFFSilent, NULL);
-    TIFFOpenOptionsSetWarningHandlerExtR(options, wk_sbixTIFFSilent, NULL);
-
-    WKSbixSource source = { bytes, length, 0 };
-    TIFF *tiff = TIFFClientOpenExt("sbix", "r", (thandle_t)&source, wk_sbixTIFFRead, wk_sbixTIFFWrite,
-                                   wk_sbixTIFFSeek, wk_sbixTIFFClose, wk_sbixTIFFSize,
-                                   wk_sbixTIFFMap, wk_sbixTIFFUnmap, options);
-    TIFFOpenOptionsFree(options);
-    if (!tiff)
-        return NULL;
-
-    uint32_t width = 0, height = 0;
-    TIFFGetField(tiff, TIFFTAG_IMAGEWIDTH, &width);
-    TIFFGetField(tiff, TIFFTAG_IMAGELENGTH, &height);
-    if (!wk_sbixUsableDimensions(width, height)) {
-        TIFFClose(tiff);
-        return NULL;
-    }
-
-    size_t stride = (size_t)width * 4;
-    uint8_t *pixels = (uint8_t *)calloc(height, stride);
-    // The raster is uint32 per pixel, which on this architecture lays the channels down as RGBA, and
-    // TIFFReadRGBAImageOriented always returns alpha already associated with the colour.
-    if (!pixels || !TIFFReadRGBAImageOriented(tiff, width, height, (uint32_t *)pixels, ORIENTATION_TOPLEFT, 0)) {
-        free(pixels);
-        TIFFClose(tiff);
-        return NULL;
-    }
-
-    uint32_t profileLength = 0;
-    void *profile = NULL;
-    if (!TIFFGetField(tiff, TIFFTAG_ICCPROFILE, &profileLength, &profile))
-        profile = NULL;
-    CGColorSpaceRef space = wk_sbixColorSpace((const uint8_t *)profile, profile ? profileLength : 0);
-    TIFFClose(tiff);
-    return wk_sbixImageFromRGBA(pixels, width, height, space, true);
-}
-
-// The strike image for a record, in each of the graphic types the sbix format defines for one.
+// The strike image for a record, in each of the graphic types the sbix format defines for one. Page-
+// supplied strikes are held to WebCore's own decode ceiling, ImageBackingStore::isOverSize
+// ((1<<29)-1 pixels), so a small compressed strike cannot declare a multi-gigabyte pixel buffer.
 static CGImageRef wk_sbixDecodeStrike(uint32_t graphicType, const uint8_t *bytes, size_t length)
 {
+    static const size_t maximumPixels = (1u << 29) - 1;
     switch (graphicType) {
     case 'png ':
-        return wk_sbixDecodePNG(bytes, length);
+        return wk_fontImageDecodePNG(bytes, length, maximumPixels);
     case 'jpg ':
-        return wk_sbixDecodeJPEG(bytes, length);
+        return wk_fontImageDecodeJPEG(bytes, length, maximumPixels);
     case 'tiff':
-        return wk_sbixDecodeTIFF(bytes, length);
+        return wk_fontImageDecodeTIFF(bytes, length, maximumPixels);
     }
     return NULL;
 }
@@ -524,6 +183,212 @@ static bool wk_sbixFont(CTFontRef font)
     bool carriesTable = wk_sbixTable(font) != NULL;
     pthread_mutex_unlock(&wkSbixLock);
     return carriesTable;
+}
+
+// A font's COLR and CPAL tables, kept on the CTFont as its sbix table is; kCFNull records a table the font
+// does not carry. The association is set once and never replaced, so a present value is read without a
+// lock, and the first copy is made under objc_sync on the font, which every image in the process shares.
+static const void *wk_colrTableKey(void)
+{
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_colrTable");
+    return key;
+}
+
+static const void *wk_cpalTableKey(void)
+{
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_cpalTable");
+    return key;
+}
+
+static CFDataRef wk_fontTable(CTFontRef font, const void *key, CTFontTableTag tag)
+{
+    CFTypeRef cached = (CFTypeRef)objc_getAssociatedObject((id)(void *)font, key);
+    if (!cached) {
+        objc_sync_enter((id)(void *)font);
+        cached = (CFTypeRef)objc_getAssociatedObject((id)(void *)font, key);
+        if (!cached) {
+            CFDataRef table = CTFontCopyTable(font, tag, kCTFontTableOptionNoOptions);
+            cached = table ? (CFTypeRef)table : (CFTypeRef)kCFNull;
+            objc_setAssociatedObject((id)(void *)font, key, (id)cached, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            if (table)
+                CFRelease(table);
+        }
+        objc_sync_exit((id)(void *)font);
+    }
+    return cached == (CFTypeRef)kCFNull ? NULL : (CFDataRef)cached;
+}
+
+WK_POLYFILL_REPLACES("CoreText", CTFontSymbolicTraits, CTFontGetSymbolicTraits, (CTFontRef font))
+{
+    CTFontSymbolicTraits traits = WK_ORIGINAL(CTFontGetSymbolicTraits) ? WK_ORIGINAL(CTFontGetSymbolicTraits)(font) : 0;
+    if (font) {
+        CFDataRef os2 = wk_fontTable(font, sel_registerName("wk_os2Style"), kCTFontTableOS2);
+        CFDataRef head = wk_fontTable(font, sel_registerName("wk_headStyle"), kCTFontTableHead);
+        bool haveSelection = os2 && CFDataGetLength(os2) >= 64;
+        bool haveStyle = head && CFDataGetLength(head) >= 46;
+        if (haveSelection || haveStyle) {
+            bool italic = (haveSelection && (wk_be16(CFDataGetBytePtr(os2) + 62) & 0x201))
+                || (haveStyle && (wk_be16(CFDataGetBytePtr(head) + 44) & 2));
+            traits |= italic ? kCTFontTraitItalic : 0;
+        }
+    }
+    if (font && wk_fontTable(font, wk_colrTableKey(), kCTFontTableCOLR))
+        traits |= kCTFontTraitColorGlyphs;
+    return traits;
+}
+
+static CFDictionaryRef wk_copyTraitsWithSymbolic(CFDictionaryRef traits, CTFontSymbolicTraits symbolic)
+{
+    CFMutableDictionaryRef result = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, traits);
+    CFNumberRef value = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &symbolic);
+    CFDictionarySetValue(result, kCTFontSymbolicTrait, value);
+    CFRelease(value);
+    return result;
+}
+
+WK_POLYFILL_REPLACES("CoreText", CFDictionaryRef, CTFontCopyTraits, (CTFontRef font))
+{
+    CFDictionaryRef traits = WK_ORIGINAL(CTFontCopyTraits)(font);
+    CFDictionaryRef result = wk_copyTraitsWithSymbolic(traits, CTFontGetSymbolicTraits(font));
+    CFRelease(traits);
+    return result;
+}
+
+// The palette a font was realized with. This OS keeps kCTFontPaletteAttribute and
+// kCTFontPaletteColorsAttribute on a descriptor and does not carry them onto the CTFont it realizes, so
+// the font keeps them itself and answers them from CTFontCopyAttribute and CTFontCopyFontDescriptor.
+static const void *wk_paletteKey(void)
+{
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_fontPalette");
+    return key;
+}
+
+static const void *wk_paletteColorsKey(void)
+{
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_fontPaletteColors");
+    return key;
+}
+
+static const void *wk_fallbackOptionKey(void)
+{
+    return sel_registerName("wk_fontFallbackOption");
+}
+
+static long wk_fontFallbackOption(CTFontRef font)
+{
+    CFTypeRef attribute = (CFTypeRef)objc_getAssociatedObject((id)(void *)font, wk_fallbackOptionKey());
+    long option = 3;
+    if (attribute)
+        CFNumberGetValue((CFNumberRef)attribute, kCFNumberLongType, &option);
+    return option;
+}
+
+// Native CTFont equality covers native attributes; the carried fallback policy is part of font identity.
+WK_POLYFILL_REPLACES("CoreFoundation", Boolean, CFEqual, (CFTypeRef first, CFTypeRef second))
+{
+    if (!WK_ORIGINAL(CFEqual)(first, second))
+        return false;
+    if (first == second || CFGetTypeID(first) != CTFontGetTypeID())
+        return true;
+    return wk_fontFallbackOption((CTFontRef)first) == wk_fontFallbackOption((CTFontRef)second);
+}
+
+static void wk_recordPalette(CTFontRef font, CFTypeRef palette, CFTypeRef colors)
+{
+    if (!font)
+        return;
+    if (palette && CFGetTypeID(palette) == CFNumberGetTypeID())
+        objc_setAssociatedObject((id)(void *)font, wk_paletteKey(), (id)palette, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (colors && CFGetTypeID(colors) == CFDictionaryGetTypeID())
+        objc_setAssociatedObject((id)(void *)font, wk_paletteColorsKey(), (id)colors, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static CTFontRef wk_recordDescriptorOptions(CTFontRef font, CTFontDescriptorRef descriptor)
+{
+    if (font && descriptor) {
+        CFDictionaryRef carried = CTFontDescriptorCopyAttributes(descriptor);
+        CFTypeRef owner = carried ? CFDictionaryGetValue(carried, CFSTR("WKFontGraphicsFont")) : NULL;
+        if (owner)
+            objc_setAssociatedObject((id)(void *)font, sel_registerName("wk_fontGraphicsFont"), (id)owner, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        CFTypeRef fallback = carried ? CFDictionaryGetValue(carried, kCTFontFallbackOptionAttribute) : NULL;
+        if (fallback && CFGetTypeID(fallback) == CFNumberGetTypeID())
+            objc_setAssociatedObject((id)(void *)font, wk_fallbackOptionKey(), (id)fallback, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (carried)
+            CFRelease(carried);
+    }
+
+    if (!font || !descriptor)
+        return font;
+    CFTypeRef palette = CTFontDescriptorCopyAttribute(descriptor, kCTFontPaletteAttribute);
+    CFTypeRef colors = CTFontDescriptorCopyAttribute(descriptor, kCTFontPaletteColorsAttribute);
+    wk_recordPalette(font, palette, colors);
+    if (palette)
+        CFRelease(palette);
+    if (colors)
+        CFRelease(colors);
+    return font;
+}
+
+// A copy keeps its graphics-font binding, palette and fallback policy.
+static void wk_inheritDescriptorOptions(CTFontRef copy, CTFontRef source, CTFontDescriptorRef attributes)
+{
+    if (!copy || copy == source)
+        return;
+    if (source) {
+        CFTypeRef owner = (CFTypeRef)objc_getAssociatedObject((id)(void *)source, sel_registerName("wk_fontGraphicsFont"));
+        if (owner)
+            objc_setAssociatedObject((id)(void *)copy, sel_registerName("wk_fontGraphicsFont"), (id)owner, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        CFTypeRef fallback = (CFTypeRef)objc_getAssociatedObject((id)(void *)source, wk_fallbackOptionKey());
+        if (fallback)
+            objc_setAssociatedObject((id)(void *)copy, wk_fallbackOptionKey(), (id)fallback, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        wk_recordPalette(copy, (CFTypeRef)objc_getAssociatedObject((id)(void *)source, wk_paletteKey()),
+            (CFTypeRef)objc_getAssociatedObject((id)(void *)source, wk_paletteColorsKey()));
+    }
+    wk_recordDescriptorOptions(copy, attributes);
+}
+
+// The font's carried options laid over its descriptor. Consumes `descriptor`.
+static CTFontDescriptorRef wk_descriptorWithCarriedOptions(CTFontRef font, CTFontDescriptorRef descriptor)
+{
+    if (!font || !descriptor)
+        return descriptor;
+    CFTypeRef palette = (CFTypeRef)objc_getAssociatedObject((id)(void *)font, wk_paletteKey());
+    CFTypeRef colors = (CFTypeRef)objc_getAssociatedObject((id)(void *)font, wk_paletteColorsKey());
+    CFTypeRef fallback = (CFTypeRef)objc_getAssociatedObject((id)(void *)font, wk_fallbackOptionKey());
+    if (!palette && !colors && !fallback)
+        return descriptor;
+    const void *keys[3];
+    const void *values[3];
+    CFIndex count = 0;
+    if (palette) {
+        keys[count] = kCTFontPaletteAttribute;
+        values[count++] = palette;
+    }
+    if (colors) {
+        keys[count] = kCTFontPaletteColorsAttribute;
+        values[count++] = colors;
+    }
+    if (fallback) {
+        keys[count] = kCTFontFallbackOptionAttribute;
+        values[count++] = fallback;
+    }
+    CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, count,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CTFontDescriptorRef withPalette = attributes ? CTFontDescriptorCreateCopyWithAttributes(descriptor, attributes) : NULL;
+    if (attributes)
+        CFRelease(attributes);
+    if (!withPalette)
+        return descriptor;
+    CFRelease(descriptor);
+    return withPalette;
 }
 
 // sbix layout (Apple TrueType reference): u16 version, u16 flags, u32 numStrikes,
@@ -683,19 +548,6 @@ static bool wk_sbixBitmap(CTFontRef font, CGGlyph glyph, CGFloat devicePixelsPer
 // actually painted. Answering from the run itself rather than from a marks array means the split
 // cannot fail: there is no allocation here to run out, and so no state in which the caller knows a
 // glyph carries a record but has nowhere to write it down.
-static size_t wk_sbixRunGroup(CTFontRef font, const CGGlyph *glyphs, size_t count, size_t from, bool *outBitmap)
-{
-    pthread_mutex_lock(&wkSbixLock);
-    CGFloat pointSize = CTFontGetSize(font);
-    bool bitmap = wk_sbixBitmap(font, glyphs[from], pointSize, NULL, NULL);
-    size_t next = from + 1;
-    while (next < count && wk_sbixBitmap(font, glyphs[next], pointSize, NULL, NULL) == bitmap)
-        ++next;
-    pthread_mutex_unlock(&wkSbixLock);
-    *outBitmap = bitmap;
-    return next;
-}
-
 // CTFontGetSbixImageSizeForGlyphAndContentsScale (10.13+) reports the pixel size of the strike a
 // glyph would be drawn from, and zero when the glyph has none -- which is what WebCore reads it for
 // (Font::glyphHasComplexColorFormat).
@@ -722,12 +574,11 @@ WK_POLYFILL_ABSENT("CoreText", CGFloat, CTFontGetSbixImageSizeForGlyphAndContent
     return strikeSize;
 }
 
-// One colour-bitmap glyph, in the coordinate system CoreText draws glyphs in: the text matrix on top
-// of the context's own transform, with the position as the pen. The image carries its own colour, so
-// the fill and stroke the context holds do not reach it, and neither does the text drawing mode.
+// Font and text matrices place both the glyph and its pen before the context transform.
+// Bitmap glyphs carry their own colors independently of the context's fill and stroke.
 static void wk_drawSbixGlyph(CTFontRef font, CGGlyph glyph, CGPoint position, CGContextRef context)
 {
-    CGAffineTransform textMatrix = CGContextGetTextMatrix(context);
+    CGAffineTransform textMatrix = CGAffineTransformConcat(CTFontGetMatrix(font), CGContextGetTextMatrix(context));
     CGAffineTransform glyphToDevice = CGAffineTransformConcat(textMatrix, CGContextGetCTM(context));
     CGSize unit = CGSizeApplyAffineTransform(CGSizeMake(1, 0), glyphToDevice);
     CGFloat scale = hypot(unit.width, unit.height);
@@ -755,11 +606,9 @@ extern CTFontRef CTFontCreateForCharactersWithLanguage(CTFontRef currentFont, co
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
-// CTFontCreateForCharactersWithLanguageAndOption (10.13+): the option only restricts fallback to
-// system (non-user-installed) fonts. The classic CTFontCreateForCharactersWithLanguage returns the
-// same fallback font on 10.9 and is present there. The face it returns is cut at the current font's
-// scale, so it carries what that font's caller named for size and matrix — see the size-0 machinery
-// below, whose record this is the one derivation point that can hand on.
+// The fallback option restricts the fonts eligible for character matching.
+static bool wk_fontIsUserInstalled(CTFontRef);
+static CTFontRef wk_copySystemFallback(CTFontRef, const UniChar *, CFIndex, CFStringRef, CFIndex *);
 static CTFontRef wk_inheritFontRequest(CTFontRef font, CTFontRef source);
 WK_SYSTEM_FN("CoreText", bool, CTFontManagerRegisterFontsForURLs, (CFArrayRef, CTFontManagerScope, CFArrayRef *));
 WK_SYSTEM_FN("CoreText", CFArrayRef, CTFontManagerCreateFontDescriptorsFromURL, (CFURLRef));
@@ -768,9 +617,12 @@ WK_SYSTEM_FN("CoreText", void, CTFontManagerEnableFontDescriptors, (CFArrayRef, 
 WK_POLYFILL_ABSENT("CoreText", CTFontRef, CTFontCreateForCharactersWithLanguageAndOption,
     (CTFontRef currentFont, const UTF16Char *characters, CFIndex length, CFStringRef language, unsigned long option, CFIndex *coveredLength))
 {
-    (void)option;
-    return wk_inheritFontRequest(CTFontCreateForCharactersWithLanguage(currentFont, characters, length,
-                                                                      language, coveredLength), currentFont);
+    CTFontRef result = CTFontCreateForCharactersWithLanguage(currentFont, characters, length, language, coveredLength);
+    if (result && !(option & (1u << 1)) && wk_fontIsUserInstalled(result)) {
+        CFRelease(result);
+        result = wk_copySystemFallback(currentFont, characters, length, language, coveredLength);
+    }
+    return wk_inheritFontRequest(result, currentFont);
 }
 
 // Variable fonts. 10.9's CoreText cannot instance one. Two behaviours were measured on 10.9.5
@@ -795,16 +647,8 @@ WK_POLYFILL_ABSENT("CoreText", CTFontRef, CTFontCreateForCharactersWithLanguageA
 // instance at the requested axis values and builds the font from that.
 #define WK_LEGACY_VARIABLE_FONT_SOURCE_KEY CFSTR("WKMavericksLegacyVariableFontSourceSFNT")
 
-// CTFontManagerCreateFontDescriptorFromData — a DELIBERATE REPLACEMENT of a present-but-broken 10.9
-// function. The 10.9 implementation returns
-// descriptors that crash when realized: TFontFeatures loading (TBaseFont::CopyFeatures →
-// CreateFontWithFontURL) message-sends a freed object for many downloaded fonts (DDG and
-// others). Descriptors built from a CGFont avoid TFontFeatures setup entirely, so the
-// replacement round-trips the data through CGFontCreateWithDataProvider →
-// CTFontCreateWithGraphicsFont → CTFontCopyFontDescriptor. Costs on this path (accepted):
-// CTFontCopyVariationAxes returns null and font-feature-settings are skipped.
-// Data a CGFont cannot parse falls through to the real CoreText implementation so exotic
-// inputs keep exact system behavior.
+// Descriptors retain a CGFont binding: 10.9's descriptor-from-data route frees an object that
+// TFontFeatures reads on realization. CFF uses the URL reader for exact vertical font units.
 //
 // For a variable font the descriptor describes the default master — the variation tables are
 // stripped, so that CoreGraphics reads a plain static font — and the original bytes ride along
@@ -831,55 +675,65 @@ static CTFontDescriptorRef wk_descriptorWithZeroSize(CTFontDescriptorRef descrip
     return result;
 }
 
+// Realize a descriptor from an already sanitized sfnt, including legacy variable-font handling.
+// The native data-parser fallback is for non-CFF fonts; its CFF path crashes on valid subsets on 10.9.
+// This never sanitizes; the sanitizing entry points call it once.
+static CTFontDescriptorRef wk_realizeDescriptorFromSfnt(CFDataRef sfnt);
+
 WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontManagerCreateFontDescriptorFromData, (CFDataRef data))
 {
-    // CoreText accepts a WOFF or WOFF2 container from macOS 11 on. CoreGraphics' parser below reads
-    // neither, so the container is unwrapped first; the sfnt inside takes the path as usual.
-    if (wk_font_data_is_woff(data)) {
-        CFDataRef sfnt = wk_ots_sanitize_font(data);
-        if (!sfnt)
-            return NULL;
-        CTFontDescriptorRef descriptor = CTFontManagerCreateFontDescriptorFromData(sfnt);
-        CFRelease(sfnt);
-        return descriptor;
-    }
-    if (data) {
-        bool variable = wk_legacy_variable_font_is_instanceable(data);
-        CFDataRef master = variable ? wk_legacy_variable_font_strip_variations(data) : (CFDataRef)CFRetain(data);
-        CGDataProviderRef provider = master ? CGDataProviderCreateWithCFData(master) : NULL;
+    // Every downloadable font on this port reaches CoreText through here, so the system parser never
+    // sees the bytes off the network. OTS re-serialises the font from its own bounds-checked tables
+    // (unwrapping a WOFF or WOFF2 container as it reads); a font it will not accept has no sanitized
+    // form, and NULL is the answer. Bytes that parser already wrote -- FontCustomPlatformData::create
+    // passes FPFontCreateFontsFromData's output straight here -- are realized as they are.
+    if (wk_font_is_ots_sanitized(data))
+        return wk_realizeDescriptorFromSfnt(data);
+    CFDataRef sanitized = wk_ots_sanitize_font(data);
+    if (!sanitized)
+        return NULL;
+    CTFontDescriptorRef descriptor = wk_realizeDescriptorFromSfnt(sanitized);
+    CFRelease(sanitized);
+    return descriptor;
+}
+
+static CTFontDescriptorRef wk_realizeDescriptorFromSfnt(CFDataRef sfnt)
+{
+    if (sfnt) {
+        bool variable = wk_legacy_variable_font_is_instanceable(sfnt);
+        CFDataRef master = variable ? wk_legacy_variable_font_strip_variations(sfnt) : (CFDataRef)CFRetain(sfnt);
+        CGFontRef cgFont = master ? wk_createGraphicsFontFromSfnt(master) : NULL;
         if (master)
             CFRelease(master);
-        if (provider) {
-            CGFontRef cgFont = CGFontCreateWithDataProvider(provider);
-            CGDataProviderRelease(provider);
-            if (cgFont) {
-                CTFontRef ctFont = CTFontCreateWithGraphicsFont(cgFont, 12.0, NULL, NULL);
-                CGFontRelease(cgFont);
-                if (ctFont) {
-                    CTFontDescriptorRef realized = CTFontCopyFontDescriptor(ctFont);
-                    CFRelease(ctFont);
-                    CTFontDescriptorRef descriptor = realized ? wk_descriptorWithZeroSize(realized) : NULL;
-                    if (realized)
-                        CFRelease(realized);
-                    if (descriptor && variable) {
-                        CFMutableDictionaryRef source = CFDictionaryCreateMutable(kCFAllocatorDefault, 1,
-                            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-                        CFDictionarySetValue(source, WK_LEGACY_VARIABLE_FONT_SOURCE_KEY, data);
-                        CTFontDescriptorRef withSource = CTFontDescriptorCreateCopyWithAttributes(descriptor, source);
-                        CFRelease(source);
-                        if (withSource) {
-                            CFRelease(descriptor);
-                            descriptor = withSource;
-                        }
+        if (cgFont) {
+            CTFontRef ctFont = CTFontCreateWithGraphicsFont(cgFont, 12.0, NULL, NULL);
+            CGFontRelease(cgFont);
+            if (ctFont) {
+                CTFontDescriptorRef realized = CTFontCopyFontDescriptor(ctFont);
+                CFRelease(ctFont);
+                CTFontDescriptorRef descriptor = realized ? wk_descriptorWithZeroSize(realized) : NULL;
+                if (realized)
+                    CFRelease(realized);
+                if (descriptor && variable) {
+                    CFMutableDictionaryRef source = CFDictionaryCreateMutable(kCFAllocatorDefault, 1,
+                        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+                    CFDictionarySetValue(source, WK_LEGACY_VARIABLE_FONT_SOURCE_KEY, sfnt);
+                    CTFontDescriptorRef withSource = CTFontDescriptorCreateCopyWithAttributes(descriptor, source);
+                    CFRelease(source);
+                    if (withSource) {
+                        CFRelease(descriptor);
+                        descriptor = withSource;
                     }
-                    if (descriptor)
-                        return descriptor;
                 }
+                if (descriptor)
+                    return descriptor;
             }
         }
     }
+    if (sfnt && CFDataGetLength(sfnt) >= 4 && wk_be32(CFDataGetBytePtr(sfnt)) == 'OTTO')
+        return NULL;
     return WK_ORIGINAL(CTFontManagerCreateFontDescriptorFromData)
-        ? WK_ORIGINAL(CTFontManagerCreateFontDescriptorFromData)(data) : NULL;
+        ? WK_ORIGINAL(CTFontManagerCreateFontDescriptorFromData)(sfnt) : NULL;
 }
 
 // The size CoreText would use for a descriptor realized at `size`: an explicit size wins, then the
@@ -923,10 +777,13 @@ static CTFontDescriptorRef wk_descriptorAttributesToCarryOver(CTFontDescriptorRe
 // Realizes a variable font at the axis values its descriptor asks for, or returns NULL to let
 // 10.9's own realization run. NULL is the answer for every font that is not a variable web font
 // this layer created the descriptor for, and for every request that lands on the fvar defaults.
+// `carriesSource` says whether the descriptor is one of those.
 static CFTypeRef wk_carriedAttribute(CTFontDescriptorRef descriptor, CFStringRef key);
 
-static CTFontRef wk_realizeVariableFontInstance(CTFontDescriptorRef descriptor, CGFloat size, const CGAffineTransform *matrix)
+static CTFontRef wk_realizeVariableFontInstance(CTFontDescriptorRef descriptor, CGFloat size, const CGAffineTransform *matrix,
+                                               bool *carriesSource)
 {
+    *carriesSource = false;
     if (!descriptor)
         return NULL;
     // The key is one only descriptors this layer minted carry, so it is read off the descriptor's own
@@ -935,22 +792,19 @@ static CTFontRef wk_realizeVariableFontInstance(CTFontDescriptorRef descriptor, 
     CFDataRef sourceData = (CFDataRef)wk_carriedAttribute(descriptor, WK_LEGACY_VARIABLE_FONT_SOURCE_KEY);
     if (!sourceData)
         return NULL;
+    *carriesSource = true;
 
     CTFontRef font = NULL;
     CFDictionaryRef variations = (CFDictionaryRef)CTFontDescriptorCopyAttribute(descriptor, kCTFontVariationAttribute);
     CFDataRef instance = wk_legacy_variable_font_instance(sourceData, variations);
     if (instance) {
-        CGDataProviderRef provider = CGDataProviderCreateWithCFData(instance);
-        if (provider) {
-            CGFontRef cgFont = CGFontCreateWithDataProvider(provider);
-            CGDataProviderRelease(provider);
-            if (cgFont) {
-                CTFontDescriptorRef carriedOver = wk_descriptorAttributesToCarryOver(descriptor);
-                font = CTFontCreateWithGraphicsFont(cgFont, wk_sizeForRealizedFont(descriptor, size), matrix, carriedOver);
-                if (carriedOver)
-                    CFRelease(carriedOver);
-                CGFontRelease(cgFont);
-            }
+        CGFontRef cgFont = wk_createGraphicsFontFromSfnt(instance);
+        if (cgFont) {
+            CTFontDescriptorRef carriedOver = wk_descriptorAttributesToCarryOver(descriptor);
+            font = CTFontCreateWithGraphicsFont(cgFont, wk_sizeForRealizedFont(descriptor, size), matrix, carriedOver);
+            if (carriedOver)
+                CFRelease(carriedOver);
+            CGFontRelease(cgFont);
         }
         CFRelease(instance);
     }
@@ -1139,6 +993,78 @@ WK_POLYFILL_REPLACES("CoreText", CGFloat, CTFontGetSize, (CTFontRef font))
     return WK_ORIGINAL(CTFontGetSize) ? WK_ORIGINAL(CTFontGetSize)(font) : 0;
 }
 
+// Vertical metrics. 10.9's CoreText reports hhea's ascender, descender and lineGap for every font --
+// measured exact across all 501 faces this machine has installed, at size * hhea value / unitsPerEm --
+// and ignores OS/2 fsSelection bit 7, USE_TYPO_METRICS, which asks that sTypoAscender, sTypoDescender
+// and sTypoLineGap be used in their place. Newer CoreText honours the bit, and WebCore reads all three
+// straight into the font's metrics (Font::platformInit), so on a font that sets it every line box,
+// baseline and canvas text measurement is laid out against the wrong numbers.
+//
+// The three read the same pair of tables, so they share one lookup. The scale is the one CoreText
+// applies to the hhea values: point size times the font matrix's vertical scale, over the units per em
+// -- measured on a rotated, a skewed and an anisotropically scaled matrix, all of which move the
+// reported ascent by exactly matrix.d. Size and matrix come from 10.9 rather than from the replacements
+// above, which is what keeps a font whose realized map scales to nothing answering 0 for all three.
+typedef struct {
+    int16_t ascent;
+    int16_t descent;
+    int16_t lineGap;
+    double scale;
+} wk_typo_metrics;
+
+static bool wk_typoMetrics(CTFontRef font, wk_typo_metrics *metrics)
+{
+    if (!font)
+        return false;
+    CFDataRef os2 = CTFontCopyTable(font, kCTFontTableOS2, kCTFontTableOptionNoOptions);
+    if (!os2)
+        return false;
+    // fsSelection at 62, sTypoAscender/Descender/LineGap at 68/70/72, in every OS/2 version.
+    bool useTypoMetrics = CFDataGetLength(os2) >= 74 && (wk_be16(CFDataGetBytePtr(os2) + 62) & 0x80);
+    if (useTypoMetrics) {
+        const uint8_t *table = CFDataGetBytePtr(os2);
+        metrics->ascent = (int16_t)wk_be16(table + 68);
+        metrics->descent = (int16_t)wk_be16(table + 70);
+        metrics->lineGap = (int16_t)wk_be16(table + 72);
+    }
+    CFRelease(os2);
+    if (!useTypoMetrics)
+        return false;
+    unsigned unitsPerEm = CTFontGetUnitsPerEm(font);
+    if (!unitsPerEm)
+        return false;
+    CGFloat size = WK_ORIGINAL(CTFontGetSize) ? WK_ORIGINAL(CTFontGetSize)(font) : 0;
+    CGAffineTransform matrix = WK_ORIGINAL(CTFontGetMatrix)
+        ? WK_ORIGINAL(CTFontGetMatrix)(font) : wk_identityFontMatrix;
+    metrics->scale = (double)size * matrix.d / unitsPerEm;
+    return true;
+}
+
+WK_POLYFILL_REPLACES("CoreText", CGFloat, CTFontGetAscent, (CTFontRef font))
+{
+    wk_typo_metrics metrics;
+    if (wk_typoMetrics(font, &metrics))
+        return (CGFloat)(metrics.ascent * metrics.scale);
+    return WK_ORIGINAL(CTFontGetAscent) ? WK_ORIGINAL(CTFontGetAscent)(font) : 0;
+}
+
+// CoreText's descent grows downward from zero, the opposite of sTypoDescender's sign.
+WK_POLYFILL_REPLACES("CoreText", CGFloat, CTFontGetDescent, (CTFontRef font))
+{
+    wk_typo_metrics metrics;
+    if (wk_typoMetrics(font, &metrics))
+        return (CGFloat)(-metrics.descent * metrics.scale);
+    return WK_ORIGINAL(CTFontGetDescent) ? WK_ORIGINAL(CTFontGetDescent)(font) : 0;
+}
+
+WK_POLYFILL_REPLACES("CoreText", CGFloat, CTFontGetLeading, (CTFontRef font))
+{
+    wk_typo_metrics metrics;
+    if (wk_typoMetrics(font, &metrics))
+        return (CGFloat)(metrics.lineGap * metrics.scale);
+    return WK_ORIGINAL(CTFontGetLeading) ? WK_ORIGINAL(CTFontGetLeading)(font) : 0;
+}
+
 // The "none" request rides the descriptor the way wk_font_request rides a font. CTFontDescriptorRef
 // is toll-free bridged to NSFontDescriptor, so the record lives and dies with the descriptor.
 static const void *wk_opticalSizeIsDefaultKey(void)
@@ -1324,21 +1250,37 @@ static CTFontDescriptorRef wk_descriptorWithOpticalSize(CTFontDescriptorRef desc
 // UnrealizedCoreTextFont::getSize() takes it from CTFontCopyAttribute (UnrealizedCoreTextFont.cpp:62)
 // and realizes the fallback at it, so a `font-size: 0` cluster outside the primary font — CJK, kana,
 // emoji, symbols — stays at size 0 through the fallback.
-//
-// kCTFontUserInstalledAttribute answers whether a font was installed onto this system rather than
-// shipped with it. 10.9's CoreText has no such attribute -- the key above is this layer's -- and the
-// font's own URL is where its provenance is recorded. This OS ships its faces in two directories:
-// /System/Library/Fonts holds the system and UI faces, /Library/Fonts the other 231 it installs
-// (Andale Mono, PT Mono, Osaka-Mono, Courier New, Arial and the rest). A font installed afterwards
-// lives elsewhere -- ~/Library/Fonts, /Network/Library/Fonts, a file registered at runtime -- and a
-// font built from data carries no URL at all, having never been installed from a file. Defined after
-// the replacement below, which is where the URL lookup reaches CoreText's own implementation.
+
 static bool wk_fontIsUserInstalled(CTFontRef font);
+
+// A variable font built from bytes, and the variation its source realizes at; defined with the
+// replacements that answer for such a font.
+static CTFontDescriptorRef wk_variableFontSource(CTFontRef font);
+static CFDictionaryRef wk_copyRealizedVariation(CTFontDescriptorRef descriptor);
 
 WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontCopyAttribute, (CTFontRef font, CFStringRef attribute))
 {
+    if (font && attribute && CFEqual(attribute, kCTFontTraitsAttribute))
+        return CTFontCopyTraits(font);
+    if (font && attribute && (CFEqual(attribute, kCTFontPaletteAttribute) || CFEqual(attribute, kCTFontPaletteColorsAttribute))) {
+        CFTypeRef carried = (CFTypeRef)objc_getAssociatedObject((id)(void *)font,
+            CFEqual(attribute, kCTFontPaletteAttribute) ? wk_paletteKey() : wk_paletteColorsKey());
+        if (carried)
+            return CFRetain(carried);
+    }
     if (font && attribute && CFEqual(attribute, kCTFontUserInstalledAttribute))
         return CFRetain(wk_fontIsUserInstalled(font) ? (CFTypeRef)kCFBooleanTrue : (CFTypeRef)kCFBooleanFalse);
+    if (font && attribute && CFEqual(attribute, kCTFontFallbackOptionAttribute)) {
+        CFTypeRef fallback = (CFTypeRef)objc_getAssociatedObject((id)(void *)font, wk_fallbackOptionKey());
+        if (fallback)
+            return CFRetain(fallback);
+    }
+
+    if (attribute && CFEqual(attribute, kCTFontVariationAttribute)) {
+        CTFontDescriptorRef source = wk_variableFontSource(font);
+        if (source)
+            return wk_copyRealizedVariation(source);
+    }
 
     // The attribute compares gate the matrix probe, and the matrix probe gates the associations
     // lookup: only a font whose realized map scales to nothing can carry a record.
@@ -1360,24 +1302,113 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontCopyAttribute, (CTFontRef font
     return WK_ORIGINAL(CTFontCopyAttribute) ? WK_ORIGINAL(CTFontCopyAttribute)(font, attribute) : NULL;
 }
 
+static const void *wk_userInstalledKey(void) { static char key; return &key; }
+
 static bool wk_fontIsUserInstalled(CTFontRef font)
 {
-    if (!WK_ORIGINAL(CTFontCopyAttribute))
-        return false;
+    CFBooleanRef cached = (CFBooleanRef)objc_getAssociatedObject((id)(void *)font, wk_userInstalledKey());
+    if (cached)
+        return cached == kCFBooleanTrue;
     CFTypeRef url = WK_ORIGINAL(CTFontCopyAttribute)(font, kCTFontURLAttribute);
-    if (!url)
-        return true;
-    bool shippedWithTheSystem = false;
-    if (CFGetTypeID(url) == CFURLGetTypeID()) {
-        CFStringRef path = CFURLCopyFileSystemPath((CFURLRef)url, kCFURLPOSIXPathStyle);
-        if (path) {
-            shippedWithTheSystem = CFStringHasPrefix(path, CFSTR("/System/Library/Fonts/"))
-                || CFStringHasPrefix(path, CFSTR("/Library/Fonts/"));
-            CFRelease(path);
+    bool shipped = false;
+    char path[PATH_MAX];
+    struct stat info;
+    if (url && CFGetTypeID(url) == CFURLGetTypeID()
+        && CFURLGetFileSystemRepresentation((CFURLRef)url, true, (UInt8 *)path, sizeof(path))
+        && !stat(path, &info))
+        shipped = wk_font_receipt_contains(path, info.st_size);
+    if (url)
+        CFRelease(url);
+    objc_setAssociatedObject((id)(void *)font, wk_userInstalledKey(), (id)(shipped ? kCFBooleanFalse : kCFBooleanTrue), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return !shipped;
+}
+
+static CTFontRef wk_copySystemFallback(CTFontRef current, const UniChar *characters, CFIndex length, CFStringRef language, CFIndex *coveredLength)
+{
+    CFArrayRef languages = language ? CFArrayCreate(kCFAllocatorDefault, (const void **)&language, 1, &kCFTypeArrayCallBacks) : NULL;
+    CFArrayRef cascade = CTFontCopyDefaultCascadeListForLanguages(current, languages);
+    if (languages)
+        CFRelease(languages);
+    CGGlyph *glyphs = malloc(sizeof(CGGlyph) * (size_t)length);
+    if (!glyphs)
+        abort();
+    CTFontRef result = NULL;
+    for (CFIndex i = 0; cascade && i < CFArrayGetCount(cascade); ++i) {
+        CTFontRef candidate = CTFontCreateWithFontDescriptor((CTFontDescriptorRef)CFArrayGetValueAtIndex(cascade, i), CTFontGetSize(current), NULL);
+        if (candidate && !wk_fontIsUserInstalled(candidate)
+            && CTFontGetGlyphsForCharacters(candidate, characters, glyphs, length)
+            && length > 0 && glyphs[0] && glyphs[0] != kCGFontIndexInvalid) {
+            result = candidate;
+            break;
         }
+        if (candidate)
+            CFRelease(candidate);
     }
-    CFRelease(url);
-    return !shippedWithTheSystem;
+    free(glyphs);
+    if (cascade)
+        CFRelease(cascade);
+    if (coveredLength)
+        *coveredLength = result ? length : 0;
+    return result;
+}
+
+// A descriptor whose kCTFontUserInstalledAttribute is false, matched with that attribute mandatory, matches
+// only the faces this OS shipped; 10.9's matcher does not know the key and matches every face.
+static bool wk_descriptorRequiresSystemFont(CTFontDescriptorRef descriptor, CFSetRef mandatory)
+{
+    if (!descriptor || !mandatory || !CFSetContainsValue(mandatory, kCTFontUserInstalledAttribute))
+        return false;
+    CFTypeRef requested = wk_carriedAttribute(descriptor, kCTFontUserInstalledAttribute);
+    bool result = requested == kCFBooleanFalse;
+    if (requested)
+        CFRelease(requested);
+    return result;
+}
+
+static bool wk_descriptorIsUserInstalled(CTFontDescriptorRef descriptor)
+{
+    CTFontRef font = CTFontCreateWithFontDescriptor(descriptor, 0, NULL);
+    bool result = font && wk_fontIsUserInstalled(font);
+    if (font)
+        CFRelease(font);
+    return result;
+}
+
+WK_POLYFILL_REPLACES("CoreText", CFArrayRef, CTFontDescriptorCreateMatchingFontDescriptors,
+    (CTFontDescriptorRef descriptor, CFSetRef mandatoryAttributes))
+{
+    CFArrayRef matches = WK_ORIGINAL(CTFontDescriptorCreateMatchingFontDescriptors)
+        ? WK_ORIGINAL(CTFontDescriptorCreateMatchingFontDescriptors)(descriptor, mandatoryAttributes) : NULL;
+    if (!matches || !wk_descriptorRequiresSystemFont(descriptor, mandatoryAttributes))
+        return matches;
+    CFMutableArrayRef shipped = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+    for (CFIndex i = 0, count = CFArrayGetCount(matches); i < count; ++i) {
+        CTFontDescriptorRef match = (CTFontDescriptorRef)CFArrayGetValueAtIndex(matches, i);
+        if (!wk_descriptorIsUserInstalled(match))
+            CFArrayAppendValue(shipped, match);
+    }
+    CFRelease(matches);
+    if (CFArrayGetCount(shipped))
+        return shipped;
+    CFRelease(shipped);
+    return NULL;
+}
+
+static CTFontDescriptorRef wk_bestShippedMatch(CTFontDescriptorRef, CFArrayRef);
+
+WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateMatchingFontDescriptor,
+    (CTFontDescriptorRef descriptor, CFSetRef mandatoryAttributes))
+{
+    CTFontDescriptorRef match = WK_ORIGINAL(CTFontDescriptorCreateMatchingFontDescriptor)(descriptor, mandatoryAttributes);
+    if (!match || !wk_descriptorRequiresSystemFont(descriptor, mandatoryAttributes) || !wk_descriptorIsUserInstalled(match))
+        return match;
+    CFRelease(match);
+    CFArrayRef matches = CTFontDescriptorCreateMatchingFontDescriptors(descriptor, mandatoryAttributes);
+    if (!matches)
+        return NULL;
+    match = wk_bestShippedMatch(descriptor, matches);
+    CFRelease(matches);
+    return match;
 }
 
 static bool wk_descriptorScalesToNothing(CTFontDescriptorRef descriptor)
@@ -1515,6 +1546,372 @@ static CTFontDescriptorRef wk_realizableDescriptor(CTFontDescriptorRef descripto
     return realized;
 }
 
+// kCTFontVariationAttribute on a font this OS instances itself. 10.9 discards the WHOLE dictionary when
+// it names an axis the font has not got, or gives an axis a value outside its range; newer CoreText
+// applies the axes it recognizes and clamps each value into range. Measured on Skia, whose 'a' is
+// 31.0938 wide at 80pt on the fvar defaults: {wght 1.5454} widens it to 34.2969, while {wght 1.5454,
+// slnt 0} and {wght 700} both leave it at 31.0938. Every WebCore realization asks for all of wght, wdth
+// and a slope axis (UnrealizedCoreTextFont::modifyFromContext), and almost no variable font carries all
+// three, so on this OS the request is thrown away and every variable font renders at its default
+// instance. Rewriting the request to the axes the font has, each value clamped, realizes the instance
+// newer CoreText realizes from the same dictionary.
+//
+// Answers NULL when the request is already one 10.9 realizes as it stands, and when nothing in it
+// survives the rewrite -- the default instance, which is the font in hand either way.
+static bool wk_axisTagValue(CFNumberRef number, uint32_t *tag)
+{
+    long long raw = 0;
+    if (CFGetTypeID(number) != CFNumberGetTypeID() || !CFNumberGetValue(number, kCFNumberLongLongType, &raw))
+        return false;
+    *tag = (uint32_t)raw;
+    return true;
+}
+
+typedef struct {
+    uint32_t tag;
+    double value;
+    bool found;
+} wk_axis_lookup;
+
+// kCTFontVariationAttribute keys an axis by a CFNumber holding its four-character code.
+static void wk_matchRequestedAxis(const void *key, const void *value, void *context)
+{
+    wk_axis_lookup *lookup = (wk_axis_lookup *)context;
+    uint32_t tag = 0;
+    double number = 0;
+    if (!wk_axisTagValue((CFNumberRef)key, &tag) || tag != lookup->tag || CFGetTypeID(value) != CFNumberGetTypeID()
+        || !CFNumberGetValue((CFNumberRef)value, kCFNumberDoubleType, &number))
+        return;
+    lookup->value = number;
+    lookup->found = true;
+}
+
+static bool wk_requestedAxisValue(CFDictionaryRef requested, uint32_t tag, double *value)
+{
+    wk_axis_lookup lookup = { tag, 0, false };
+    CFDictionaryApplyFunction(requested, wk_matchRequestedAxis, &lookup);
+    if (lookup.found)
+        *value = lookup.value;
+    return lookup.found;
+}
+
+static CFDictionaryRef wk_realizableVariations(CFArrayRef axes, CFDictionaryRef requested)
+{
+    CFIndex requestedCount = CFDictionaryGetCount(requested);
+    CFIndex axisCount = CFArrayGetCount(axes);
+    CFMutableDictionaryRef realizable = CFDictionaryCreateMutable(kCFAllocatorDefault, 0,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    bool rewritten = false;
+    for (CFIndex i = 0; realizable && i < axisCount; i++) {
+        CFDictionaryRef axis = (CFDictionaryRef)CFArrayGetValueAtIndex(axes, i);
+        if (CFGetTypeID(axis) != CFDictionaryGetTypeID())
+            continue;
+        CFNumberRef identifier = (CFNumberRef)CFDictionaryGetValue(axis, kCTFontVariationAxisIdentifierKey);
+        CFNumberRef minimum = (CFNumberRef)CFDictionaryGetValue(axis, kCTFontVariationAxisMinimumValueKey);
+        CFNumberRef maximum = (CFNumberRef)CFDictionaryGetValue(axis, kCTFontVariationAxisMaximumValueKey);
+        double lowest = 0, highest = 0;
+        uint32_t tag = 0;
+        if (!identifier || !minimum || !maximum
+            || !wk_axisTagValue(identifier, &tag)
+            || !CFNumberGetValue(minimum, kCFNumberDoubleType, &lowest)
+            || !CFNumberGetValue(maximum, kCFNumberDoubleType, &highest))
+            continue;
+        double value = 0;
+        if (!wk_requestedAxisValue(requested, tag, &value))
+            continue;
+        double clamped = value < lowest ? lowest : (value > highest ? highest : value);
+        if (clamped != value)
+            rewritten = true;
+        CFNumberRef key = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &tag);
+        CFNumberRef number = CFNumberCreate(kCFAllocatorDefault, kCFNumberDoubleType, &clamped);
+        if (key && number)
+            CFDictionarySetValue(realizable, key, number);
+        if (key)
+            CFRelease(key);
+        if (number)
+            CFRelease(number);
+    }
+    if (realizable && !rewritten && CFDictionaryGetCount(realizable) == requestedCount) {
+        CFRelease(realizable);
+        return NULL;
+    }
+    return realizable;
+}
+
+// Variable fonts built from bytes. Such a font draws from a static cut of its sfnt, which carries none of
+// what makes the font variable, so 10.9 reports no axes, no variation and no variation tables for it.
+// The font keeps the descriptor it was realized from -- the source bytes and the variation request ride on
+// it -- and the replacements below answer from that the way newer CoreText answers from the variable font:
+// the axes and the variation in the form 10.9 reports an installed variable font's, the tables the cut
+// lacks from the source, and a descriptor that realizes the same font. A copy of the font realizes that
+// descriptor with the copy's attributes laid over it.
+static const void *wk_variableFontSourceKey(void)
+{
+    // Cached: sel_registerName hashes under the runtime lock, and this runs per table and attribute read.
+    // The SEL is the one address every image's copy of this archive agrees on.
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_variableFontSource");
+    return key;
+}
+
+static CTFontRef wk_recordVariableFontSource(CTFontRef font, CTFontDescriptorRef descriptor)
+{
+    if (font)
+        objc_setAssociatedObject((id)(void *)font, wk_variableFontSourceKey(), (id)(void *)descriptor, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return font;
+}
+
+static CTFontDescriptorRef wk_variableFontSource(CTFontRef font)
+{
+    return font ? (CTFontDescriptorRef)(void *)objc_getAssociatedObject((id)(void *)font, wk_variableFontSourceKey()) : NULL;
+}
+
+static CFDataRef wk_variableFontSourceData(CTFontRef font)
+{
+    CTFontDescriptorRef descriptor = wk_variableFontSource(font);
+    return descriptor ? (CFDataRef)wk_carriedAttribute(descriptor, WK_LEGACY_VARIABLE_FONT_SOURCE_KEY) : NULL;
+}
+
+// 10.9 reports an axis value, 16.16 in the font, truncated to four decimal places: an fvar minimum of
+// -12.34567 reads -12.3456.
+static double wk_reportedAxisValue(int32_t fixed)
+{
+    return (double)((int64_t)fixed * 625 / 4096) / 10000.0;
+}
+
+static wk_legacy_variable_font_axis *wk_copySourceAxes(CFDataRef source, CFIndex *count)
+{
+    CFIndex available = source ? wk_legacy_variable_font_copy_axes(source, NULL, 0) : 0;
+    wk_legacy_variable_font_axis *axes = available > 0
+        ? (wk_legacy_variable_font_axis *)calloc((size_t)available, sizeof(*axes)) : NULL;
+    if (axes)
+        *count = wk_legacy_variable_font_copy_axes(source, axes, available);
+    return axes;
+}
+
+static void wk_releaseSourceAxes(wk_legacy_variable_font_axis *axes, CFIndex count)
+{
+    for (CFIndex i = 0; i < count; i++) {
+        if (axes[i].name)
+            CFRelease(axes[i].name);
+    }
+    free(axes);
+}
+
+static CFArrayRef wk_copyVariationAxesOfSource(CFDataRef source)
+{
+    CFIndex count = 0;
+    wk_legacy_variable_font_axis *axes = wk_copySourceAxes(source, &count);
+    if (!axes)
+        return NULL;
+    CFMutableArrayRef result = CFArrayCreateMutable(kCFAllocatorDefault, count, &kCFTypeArrayCallBacks);
+    for (CFIndex i = 0; result && i < count; i++) {
+        int32_t tag = (int32_t)axes[i].tag;
+        double minimum = wk_reportedAxisValue(axes[i].minimumValue);
+        double maximum = wk_reportedAxisValue(axes[i].maximumValue);
+        double defaultValue = wk_reportedAxisValue(axes[i].defaultValue);
+        CFNumberRef identifier = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &tag);
+        CFNumberRef minimumNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloat64Type, &minimum);
+        CFNumberRef maximumNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloat64Type, &maximum);
+        CFNumberRef defaultNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloat64Type, &defaultValue);
+        const void *keys[] = { kCTFontVariationAxisIdentifierKey, kCTFontVariationAxisMinimumValueKey,
+            kCTFontVariationAxisMaximumValueKey, kCTFontVariationAxisDefaultValueKey, kCTFontVariationAxisNameKey };
+        const void *values[] = { identifier, minimumNumber, maximumNumber, defaultNumber, axes[i].name };
+        CFDictionaryRef axis = CFDictionaryCreate(kCFAllocatorDefault, keys, values, axes[i].name ? 5 : 4,
+            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        if (axis) {
+            CFArrayAppendValue(result, axis);
+            CFRelease(axis);
+        }
+        CFRelease(identifier);
+        CFRelease(minimumNumber);
+        CFRelease(maximumNumber);
+        CFRelease(defaultNumber);
+    }
+    wk_releaseSourceAxes(axes, count);
+    return result;
+}
+
+// The value every axis of a descriptor's source realizes at under its request: the requested value
+// clamped into the axis's range, or the axis's default.
+static CFDictionaryRef wk_copyRealizedVariation(CTFontDescriptorRef descriptor)
+{
+    CFDataRef source = (CFDataRef)wk_carriedAttribute(descriptor, WK_LEGACY_VARIABLE_FONT_SOURCE_KEY);
+    CFDictionaryRef request = (CFDictionaryRef)wk_carriedAttribute(descriptor, kCTFontVariationAttribute);
+    bool haveRequest = request && CFGetTypeID(request) == CFDictionaryGetTypeID();
+    CFIndex count = 0;
+    wk_legacy_variable_font_axis *axes = wk_copySourceAxes(source, &count);
+    CFMutableDictionaryRef result = axes ? CFDictionaryCreateMutable(kCFAllocatorDefault, count,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks) : NULL;
+    for (CFIndex i = 0; result && i < count; i++) {
+        int32_t tag = (int32_t)axes[i].tag;
+        double minimum = wk_reportedAxisValue(axes[i].minimumValue);
+        double maximum = wk_reportedAxisValue(axes[i].maximumValue);
+        double value = wk_reportedAxisValue(axes[i].defaultValue);
+        double requested = 0;
+        if (haveRequest && wk_requestedAxisValue(request, axes[i].tag, &requested))
+            value = requested < minimum ? minimum : (requested > maximum ? maximum : requested);
+        CFNumberRef key = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &tag);
+        CFNumberRef number = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloat64Type, &value);
+        CFDictionarySetValue(result, key, number);
+        CFRelease(key);
+        CFRelease(number);
+    }
+    if (axes)
+        wk_releaseSourceAxes(axes, count);
+    if (request)
+        CFRelease(request);
+    if (source)
+        CFRelease(source);
+    return result;
+}
+
+WK_POLYFILL_REPLACES("CoreText", CFArrayRef, CTFontCopyVariationAxes, (CTFontRef font))
+{
+    CFDataRef source = wk_variableFontSourceData(font);
+    if (!source)
+        return WK_ORIGINAL(CTFontCopyVariationAxes) ? WK_ORIGINAL(CTFontCopyVariationAxes)(font) : NULL;
+    CFArrayRef axes = wk_copyVariationAxesOfSource(source);
+    CFRelease(source);
+    return axes;
+}
+
+WK_POLYFILL_REPLACES("CoreText", CFDictionaryRef, CTFontCopyVariation, (CTFontRef font))
+{
+    CTFontDescriptorRef descriptor = wk_variableFontSource(font);
+    if (!descriptor)
+        return WK_ORIGINAL(CTFontCopyVariation) ? WK_ORIGINAL(CTFontCopyVariation)(font) : NULL;
+    return wk_copyRealizedVariation(descriptor);
+}
+
+static CTFontDescriptorRef wk_descriptorWithGraphicsFont(CTFontRef font, CTFontDescriptorRef descriptor)
+{
+    if (!descriptor)
+        return NULL;
+    CGFontRef graphics = (CGFontRef)objc_getAssociatedObject((id)(void *)font, sel_registerName("wk_fontGraphicsFont"));
+    if (graphics) {
+        const void *key = CFSTR("WKFontGraphicsFont");
+        const void *value = graphics;
+        CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, &key, &value, 1,
+            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        CTFontDescriptorRef copy = CTFontDescriptorCreateCopyWithAttributes(descriptor, attributes);
+        CFRelease(attributes);
+        CFRelease(descriptor);
+        descriptor = copy;
+    }
+    return descriptor;
+}
+
+WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontCopyFontDescriptor, (CTFontRef font))
+{
+    CTFontDescriptorRef descriptor = wk_variableFontSource(font);
+    if (!descriptor)
+        return wk_descriptorWithGraphicsFont(font, wk_descriptorWithCarriedOptions(font,
+            WK_ORIGINAL(CTFontCopyFontDescriptor) ? WK_ORIGINAL(CTFontCopyFontDescriptor)(font) : NULL));
+    CGFloat size = CTFontGetSize(font);
+    CFNumberRef sizeNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberCGFloatType, &size);
+    const void *keys[] = { kCTFontSizeAttribute };
+    const void *values[] = { sizeNumber };
+    CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFRelease(sizeNumber);
+    CTFontDescriptorRef result = attributes ? CTFontDescriptorCreateCopyWithAttributes(descriptor, attributes) : NULL;
+    if (attributes)
+        CFRelease(attributes);
+    return wk_descriptorWithCarriedOptions(font, result);
+}
+
+static CFComparisonResult wk_compareTableTags(const void *left, const void *right, void *context)
+{
+    (void)context;
+    return (uintptr_t)left < (uintptr_t)right ? kCFCompareLessThan
+        : ((uintptr_t)left > (uintptr_t)right ? kCFCompareGreaterThan : kCFCompareEqualTo);
+}
+
+WK_POLYFILL_REPLACES("CoreText", CFArrayRef, CTFontCopyAvailableTables, (CTFontRef font, CTFontTableOptions options))
+{
+    CFArrayRef own = WK_ORIGINAL(CTFontCopyAvailableTables) ? WK_ORIGINAL(CTFontCopyAvailableTables)(font, options) : NULL;
+    CFDataRef source = wk_variableFontSourceData(font);
+    if (!source)
+        return own;
+    CFIndex count = wk_legacy_variable_font_table_tags(source, NULL, 0);
+    uint32_t *tags = count > 0 ? (uint32_t *)calloc((size_t)count, sizeof(*tags)) : NULL;
+    CFMutableArrayRef tables = own ? CFArrayCreateMutableCopy(kCFAllocatorDefault, 0, own)
+        : CFArrayCreateMutable(kCFAllocatorDefault, 0, NULL);
+    if (tags && tables) {
+        count = wk_legacy_variable_font_table_tags(source, tags, count);
+        for (CFIndex i = 0; i < count; i++) {
+            const void *tag = (const void *)(uintptr_t)tags[i];
+            if (!CFArrayContainsValue(tables, CFRangeMake(0, CFArrayGetCount(tables)), tag))
+                CFArrayAppendValue(tables, tag);
+        }
+        CFArraySortValues(tables, CFRangeMake(0, CFArrayGetCount(tables)), wk_compareTableTags, NULL);
+    }
+    free(tags);
+    CFRelease(source);
+    if (own)
+        CFRelease(own);
+    return tables;
+}
+
+WK_POLYFILL_REPLACES("CoreText", CFDataRef, CTFontCopyTable, (CTFontRef font, CTFontTableTag table, CTFontTableOptions options))
+{
+    CFDataRef own = WK_ORIGINAL(CTFontCopyTable) ? WK_ORIGINAL(CTFontCopyTable)(font, table, options) : NULL;
+    CFDataRef source = own ? NULL : wk_variableFontSourceData(font);
+    if (!source)
+        return own;
+    CFDataRef copied = wk_legacy_variable_font_copy_table(source, table);
+    CFRelease(source);
+    return copied;
+}
+
+// A copy's attributes with their variation request rewritten against the axes of the font being copied,
+// or NULL when the request realizes as it stands. 10.9 lays a request it realizes over the copied font's
+// own variation, and copies under one it drops at the default instance: Skia varied to {wght 1.5454}
+// measures 40.625 copied under {wdth 1.2} and 31.0938 under {wdth 1.2, slnt 0}, while an empty request
+// leaves it at 34.2969.
+static CTFontDescriptorRef wk_attributesWithRealizableVariations(CTFontRef font, CTFontDescriptorRef attributes)
+{
+    if (!font || !attributes || !WK_ORIGINAL(CTFontCopyVariationAxes))
+        return NULL;
+    CFArrayRef axes = WK_ORIGINAL(CTFontCopyVariationAxes)(font);
+    if (!axes)
+        return NULL;
+    CFDictionaryRef requested = (CFDictionaryRef)wk_carriedAttribute(attributes, kCTFontVariationAttribute);
+    CFDictionaryRef realizable = requested && CFGetTypeID(requested) == CFDictionaryGetTypeID()
+        ? wk_realizableVariations(axes, requested) : NULL;
+    CFRelease(axes);
+    if (requested)
+        CFRelease(requested);
+    if (!realizable)
+        return NULL;
+    // Built afresh: a descriptor copy merges the two variation dictionaries, keeping the axis 10.9 drops
+    // the request over.
+    CFDictionaryRef carried = CTFontDescriptorCopyAttributes(attributes);
+    CFMutableDictionaryRef replaced = carried ? CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, carried) : NULL;
+    if (carried)
+        CFRelease(carried);
+    CTFontDescriptorRef result = NULL;
+    if (replaced) {
+        CFDictionarySetValue(replaced, kCTFontVariationAttribute, realizable);
+        result = CTFontDescriptorCreateWithAttributesAndOptions(replaced,
+            wk_descriptorIsSystemUI(attributes) ? WK_SYSTEM_UI_FONT_OPTION : 0);
+        CFRelease(replaced);
+    }
+    CFRelease(realizable);
+    return result;
+}
+
+// The font `descriptor` asks for, with its variation request rewritten to one this OS realizes; defined
+// below, beside the copy entry point it reaches CoreText's own implementation through.
+static CTFontRef wk_fontWithRealizableVariations(CTFontRef font, CTFontDescriptorRef descriptor,
+                                                 CGFloat size, const CGAffineTransform *matrix);
+
+// The font with its optical size inside the range its 'trak' table covers; defined beside the above.
+static CTFontRef wk_fontWithTrackingSizeInRange(CTFontRef font);
+
+
 // CTFontCreateWithFontDescriptor / ...AndOptions — DELIBERATE REPLACEMENTS of present-but-broken
 // 10.9 functions: they are where a descriptor's kCTFontVariationAttribute is meant to take effect
 // and where 10.9 instead drops it (see the block comment above), where its weight and width traits
@@ -1526,6 +1923,7 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithFontDescriptor,
                      (CTFontDescriptorRef descriptor, CGFloat size, const CGAffineTransform *matrix))
 {
     const CGAffineTransform *requested = matrix;
+    CTFontDescriptorRef requestedDescriptor = descriptor;
     CGAffineTransform composed;
     wk_optical_size_request opticalSize = wk_opticalSizeRequest(descriptor);
     CTFontDescriptorRef resolved = opticalSize == WK_OPTICAL_SIZE_POINT_SIZE
@@ -1533,26 +1931,36 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithFontDescriptor,
     if (resolved)
         descriptor = resolved;
     matrix = wk_fontMatrixForRequest(wk_descriptorScalesToNothing(descriptor), descriptor, size, matrix, NULL, &composed);
-    CTFontRef instance = wk_realizeVariableFontInstance(descriptor, size, matrix);
+    bool carriesSource = false;
+    CTFontRef instance = wk_realizeVariableFontInstance(descriptor, size, matrix, &carriesSource);
     if (!instance) {
         CTFontDescriptorRef realizable = wk_realizableDescriptor(descriptor);
-        instance = WK_ORIGINAL(CTFontCreateWithFontDescriptor)
-            ? WK_ORIGINAL(CTFontCreateWithFontDescriptor)(realizable ? realizable : descriptor, size, matrix) : NULL;
+        CTFontDescriptorRef nativeDescriptor = realizable ? realizable : descriptor;
+        CGFontRef graphics = nativeDescriptor ? (CGFontRef)wk_carriedAttribute(nativeDescriptor, CFSTR("WKFontGraphicsFont")) : NULL;
+        instance = graphics ? CTFontCreateWithGraphicsFont(graphics, size, matrix, nativeDescriptor)
+            : WK_ORIGINAL(CTFontCreateWithFontDescriptor)(nativeDescriptor, size, matrix);
+        if (graphics)
+            CGFontRelease(graphics);
         if (realizable)
             CFRelease(realizable);
         instance = wkApplyTraitsToFace(instance, descriptor);
+        instance = wk_fontWithRealizableVariations(instance, descriptor, size, matrix);
     }
+    instance = wk_fontWithTrackingSizeInRange(instance);
     if (resolved)
         CFRelease(resolved);
     if (opticalSize == WK_OPTICAL_SIZE_POINT_SIZE)
         wk_markOpticalSizeFollowsPointSize(instance);
-    return wk_recordFontRequest(instance, size, requested);
+    if (carriesSource)
+        wk_recordVariableFontSource(instance, requestedDescriptor);
+    return wk_recordFontRequest(wk_recordDescriptorOptions(instance, requestedDescriptor), size, requested);
 }
 
 WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithFontDescriptorAndOptions,
                      (CTFontDescriptorRef descriptor, CGFloat size, const CGAffineTransform *matrix, CFOptionFlags options))
 {
     const CGAffineTransform *requested = matrix;
+    CTFontDescriptorRef requestedDescriptor = descriptor;
     CGAffineTransform composed;
     wk_optical_size_request opticalSize = wk_opticalSizeRequest(descriptor);
     CTFontDescriptorRef resolved = opticalSize == WK_OPTICAL_SIZE_POINT_SIZE
@@ -1560,20 +1968,29 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithFontDescriptorAndOpt
     if (resolved)
         descriptor = resolved;
     matrix = wk_fontMatrixForRequest(wk_descriptorScalesToNothing(descriptor), descriptor, size, matrix, NULL, &composed);
-    CTFontRef instance = wk_realizeVariableFontInstance(descriptor, size, matrix);
+    bool carriesSource = false;
+    CTFontRef instance = wk_realizeVariableFontInstance(descriptor, size, matrix, &carriesSource);
     if (!instance) {
         CTFontDescriptorRef realizable = wk_realizableDescriptor(descriptor);
-        instance = WK_ORIGINAL(CTFontCreateWithFontDescriptorAndOptions)
-            ? WK_ORIGINAL(CTFontCreateWithFontDescriptorAndOptions)(realizable ? realizable : descriptor, size, matrix, options) : NULL;
+        CTFontDescriptorRef nativeDescriptor = realizable ? realizable : descriptor;
+        CGFontRef graphics = nativeDescriptor ? (CGFontRef)wk_carriedAttribute(nativeDescriptor, CFSTR("WKFontGraphicsFont")) : NULL;
+        instance = graphics ? CTFontCreateWithGraphicsFont(graphics, size, matrix, nativeDescriptor)
+            : WK_ORIGINAL(CTFontCreateWithFontDescriptorAndOptions)(nativeDescriptor, size, matrix, options);
+        if (graphics)
+            CGFontRelease(graphics);
         if (realizable)
             CFRelease(realizable);
         instance = wkApplyTraitsToFace(instance, descriptor);
+        instance = wk_fontWithRealizableVariations(instance, descriptor, size, matrix);
     }
+    instance = wk_fontWithTrackingSizeInRange(instance);
     if (resolved)
         CFRelease(resolved);
     if (opticalSize == WK_OPTICAL_SIZE_POINT_SIZE)
         wk_markOpticalSizeFollowsPointSize(instance);
-    return wk_recordFontRequest(instance, size, requested);
+    if (carriesSource)
+        wk_recordVariableFontSource(instance, requestedDescriptor);
+    return wk_recordFontRequest(wk_recordDescriptorOptions(instance, requestedDescriptor), size, requested);
 }
 
 // An attributes descriptor naming nothing but a kCTFontWeightTrait.
@@ -1599,6 +2016,78 @@ static CTFontDescriptorRef wkWeightRequestDescriptor(CGFloat weight)
     CTFontDescriptorRef descriptor = CTFontDescriptorCreateWithAttributes(attributes);
     CFRelease(attributes);
     return descriptor;
+}
+
+// The URL reader preserves the CFF FontMatrix; the graphics font retains the open file.
+static CGFontRef wk_createGraphicsFontFromSfnt(CFDataRef data)
+{
+    if (CFDataGetLength(data) < 4 || wk_be32(CFDataGetBytePtr(data)) != 'OTTO') {
+        CGDataProviderRef provider = CGDataProviderCreateWithCFData(data);
+        CGFontRef font = provider ? CGFontCreateWithDataProvider(provider) : NULL;
+        if (provider)
+            CGDataProviderRelease(provider);
+        return font;
+    }
+    char directory[PATH_MAX];
+    size_t length = confstr(_CS_DARWIN_USER_TEMP_DIR, directory, sizeof(directory));
+    if (!length || length > sizeof(directory))
+        return NULL;
+    char *path = malloc(strlen(directory) + sizeof("wk-font-XXXXXX"));
+    if (!path)
+        return NULL;
+    strcpy(path, directory);
+    strcat(path, "wk-font-XXXXXX");
+    int fd = mkstemp(path);
+    if (fd < 0) {
+        free(path);
+        return NULL;
+    }
+    const UInt8 *bytes = CFDataGetBytePtr(data);
+    CFIndex remaining = CFDataGetLength(data);
+    while (remaining) {
+        ssize_t written = write(fd, bytes, (size_t)remaining);
+        if (written < 0 && errno == EINTR)
+            continue;
+        if (written <= 0)
+            break;
+        bytes += written;
+        remaining -= written;
+    }
+    close(fd);
+    CGFontRef result = NULL;
+    CFURLRef url = NULL;
+    if (!remaining) {
+        url = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, (const UInt8 *)path, strlen(path), false);
+        CFArrayRef descriptors = url ? CTFontManagerCreateFontDescriptorsFromURL(url) : NULL;
+        if (descriptors && CFArrayGetCount(descriptors) == 1) {
+            const void *keys[] = { kCTFontURLAttribute };
+            const void *values[] = { url };
+            CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1,
+                &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+            CTFontDescriptorRef descriptor = CTFontDescriptorCreateCopyWithAttributes((CTFontDescriptorRef)CFArrayGetValueAtIndex(descriptors, 0), attributes);
+            CTFontRef font = WK_ORIGINAL(CTFontCreateWithFontDescriptor)(descriptor, 12, NULL);
+            CFRelease(descriptor);
+            CFRelease(attributes);
+            if (font) {
+                result = CTFontCopyGraphicsFont(font, NULL);
+                CFRelease(font);
+            }
+        }
+        if (descriptors)
+            CFRelease(descriptors);
+    }
+    if (!result) {
+        unlink(path);
+        free(path);
+        if (url)
+            CFRelease(url);
+        return NULL;
+    }
+    unlink(path);
+    free(path);
+    CFRelease(url);
+    objc_setAssociatedObject((id)(void *)result, sel_registerName("wk_cffURLFont"), (id)(void *)kCFBooleanTrue, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return result;
 }
 
 // The trait values a descriptor carries in its kCTFontTraitsAttribute.
@@ -1737,6 +2226,34 @@ static bool wkRankIsNearer(const wk_face_rank *candidate, const wk_face_rank *be
     if (candidate->weight.distance != best->weight.distance)
         return candidate->weight.distance < best->weight.distance;
     return candidate->isSourceFace && !best->isSourceFace;
+}
+
+static CTFontDescriptorRef wk_bestShippedMatch(CTFontDescriptorRef request, CFArrayRef matches)
+{
+    wk_font_traits wanted;
+    wkRequestedTraits(request, &wanted);
+    if (!wanted.haveWeight && (wanted.symbolic & kCTFontTraitBold))
+        wanted.weight = kCTFontWeightBold;
+    if (!wanted.haveWidth && (wanted.symbolic & kCTFontTraitCondensed))
+        wanted.width = kCTFontWidthCondensed;
+    else if (!wanted.haveWidth && (wanted.symbolic & kCTFontTraitExpanded))
+        wanted.width = kCTFontWidthExpanded;
+    CTFontDescriptorRef best = NULL;
+    wk_face_rank bestRank;
+    bool bestSlant = false;
+    for (CFIndex i = 0; i < CFArrayGetCount(matches); ++i) {
+        CTFontDescriptorRef candidate = (CTFontDescriptorRef)CFArrayGetValueAtIndex(matches, i);
+        wk_font_traits traits;
+        wkDescriptorTraits(candidate, &traits);
+        bool slant = (traits.symbolic & kCTFontTraitItalic) == (wanted.symbolic & kCTFontTraitItalic);
+        wk_face_rank rank = wkRankFace(traits.width, traits.weight, wanted.width, wanted.weight, false);
+        if (!best || (slant && !bestSlant) || (slant == bestSlant && wkRankIsNearer(&rank, &bestRank))) {
+            best = candidate;
+            bestRank = rank;
+            bestSlant = slant;
+        }
+    }
+    return best ? (CTFontDescriptorRef)CFRetain(best) : NULL;
 }
 
 // Realize a family member by name onto the copy's OWN descriptor, so every other attribute the copy
@@ -2075,9 +2592,25 @@ static CTFontRef wkApplyTraitsToFace(CTFontRef copy, CTFontDescriptorRef attribu
 WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateCopyWithAttributes,
                      (CTFontRef font, CGFloat size, const CGAffineTransform *matrix, CTFontDescriptorRef attributes))
 {
+    CTFontDescriptorRef requestedAttributes = attributes;
     wk_font_request source;
     bool haveSource = wk_recordedFontRequest(font, &source);
     const CGAffineTransform *requested = matrix ? matrix : (haveSource ? &source.matrix : NULL);
+    // A variable font built from bytes realizes from the descriptor it keeps, the copy's attributes laid over it.
+    if (wk_variableFontSource(font)) {
+        CTFontDescriptorRef own = CTFontCopyFontDescriptor(font);
+        CFDictionaryRef laid = attributes ? CTFontDescriptorCopyAttributes(attributes) : NULL;
+        CTFontDescriptorRef merged = own && laid ? CTFontDescriptorCreateCopyWithAttributes(own, laid) : NULL;
+        CTFontDescriptorRef realized = merged ? merged : own;
+        CTFontRef copy = realized ? CTFontCreateWithFontDescriptor(realized, size, requested) : NULL;
+        if (merged)
+            CFRelease(merged);
+        if (laid)
+            CFRelease(laid);
+        if (own)
+            CFRelease(own);
+        return copy;
+    }
     CGAffineTransform composed;
     matrix = wk_fontMatrixForRequest(wk_fontScalesToNothing(font), attributes, size, matrix,
                                      haveSource ? &source.matrix : NULL, &composed);
@@ -2090,14 +2623,127 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateCopyWithAttributes,
         ? wk_descriptorWithOpticalSize(attributes, wk_resolvedPointSize(attributes, size, CTFontGetSize(font))) : NULL;
     if (resolved)
         attributes = resolved;
+    CTFontDescriptorRef realizable = wk_attributesWithRealizableVariations(font, attributes);
+    if (realizable)
+        attributes = realizable;
     CTFontRef copy = WK_ORIGINAL(CTFontCreateCopyWithAttributes)
         ? WK_ORIGINAL(CTFontCreateCopyWithAttributes)(font, size, matrix, attributes) : NULL;
     copy = wkApplyTraitsToFace(copy, attributes);
+    copy = wk_fontWithRealizableVariations(copy, attributes, size, matrix);
+    copy = wk_fontWithTrackingSizeInRange(copy);
+    if (realizable)
+        CFRelease(realizable);
     if (resolved)
         CFRelease(resolved);
     if (opticalSize == WK_OPTICAL_SIZE_POINT_SIZE)
         wk_markOpticalSizeFollowsPointSize(copy);
+    wk_inheritDescriptorOptions(copy, font, requestedAttributes);
     return wk_recordFontRequest(copy, size, requested);
+}
+
+// The font `descriptor` asks for, with its variation request rewritten to one this OS realizes. A
+// request that needed rewriting was dropped whole, and a font realized without its request is the
+// default instance, which the rewritten request is laid over. The copy entry point rewrites against the
+// font it copies before copying, so a copy reaches this only when it realizes a face with other axes.
+// The request is read off what the descriptor CARRIES: a matched read answers every descriptor with the
+// realized font's own axis values.
+static CTFontRef wk_fontWithRealizableVariations(CTFontRef font, CTFontDescriptorRef descriptor,
+                                                 CGFloat size, const CGAffineTransform *matrix)
+{
+    if (!font || !descriptor || !WK_ORIGINAL(CTFontCreateCopyWithAttributes) || !WK_ORIGINAL(CTFontCopyVariationAxes))
+        return font;
+    // The axis read comes first: it is the cheap one, and it is NULL for every font that has no axes,
+    // which every realization that is not of a variable font goes through. It is 10.9's own read, which
+    // is NULL for the static cut a variable font built from bytes draws with.
+    CFArrayRef axes = WK_ORIGINAL(CTFontCopyVariationAxes)(font);
+    if (!axes)
+        return font;
+    CFDictionaryRef requested = (CFDictionaryRef)wk_carriedAttribute(descriptor, kCTFontVariationAttribute);
+    CFDictionaryRef realizable = requested && CFGetTypeID(requested) == CFDictionaryGetTypeID()
+        ? wk_realizableVariations(axes, requested) : NULL;
+    CFRelease(axes);
+    if (requested)
+        CFRelease(requested);
+    if (realizable && !CFDictionaryGetCount(realizable)) {
+        CFRelease(realizable);
+        realizable = NULL;
+    }
+    if (!realizable)
+        return font;
+    const void *keys[] = { kCTFontVariationAttribute };
+    const void *values[] = { realizable };
+    CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFRelease(realizable);
+    CTFontDescriptorRef modification = attributes ? CTFontDescriptorCreateWithAttributes(attributes) : NULL;
+    if (attributes)
+        CFRelease(attributes);
+    if (!modification)
+        return font;
+    CTFontRef varied = WK_ORIGINAL(CTFontCreateCopyWithAttributes)(font, size, matrix, modification);
+    CFRelease(modification);
+    if (!varied)
+        return font;
+    CFRelease(font);
+    return varied;
+}
+
+// This OS looks a font's 'trak' value up at its optical size (TFont::SetExtras ->
+// TAATTrakTable::UnscaledTrackAmountForSize) and carries the table's end segments on past its first
+// and last sizes, which takes Apple Color Emoji's tracking to -150 units at 64pt. Newer CoreText holds
+// the value of the nearest end size. At an end size this OS's lookup gives that end value exactly, so a
+// font whose optical size lies past an end is copied at that end size; a copy with size 0 and no matrix
+// keeps the font's own. The horizontal table is the one this OS reads for both orientations.
+static CTFontRef wk_fontWithTrackingSizeInRange(CTFontRef font)
+{
+    if (!font || !WK_ORIGINAL(CTFontCopyAttribute) || !WK_ORIGINAL(CTFontCreateCopyWithAttributes))
+        return font;
+    CFTypeRef named = WK_ORIGINAL(CTFontCopyAttribute)(font, kCTFontOpticalSizeAttribute);
+    double points = 0;
+    bool numbered = named && CFGetTypeID(named) == CFNumberGetTypeID()
+        && CFNumberGetValue((CFNumberRef)named, kCFNumberDoubleType, &points);
+    if (named)
+        CFRelease(named);
+    if (!numbered || !(points > 0))
+        return font;
+
+    // trak: horizOffset at 6; its track data holds nSizes at 2 and the size table's offset at 4, and
+    // the size table is nSizes 16.16 sizes.
+    CFDataRef table = CTFontCopyTable(font, kCTFontTableTrak, kCTFontTableOptionNoOptions);
+    const uint8_t *bytes = table ? CFDataGetBytePtr(table) : NULL;
+    CFIndex length = table ? CFDataGetLength(table) : 0;
+    double first = 0, last = 0;
+    bool ranged = false;
+    if (bytes && length >= 12) {
+        uint16_t trackData = wk_be16(bytes + 6);
+        if (trackData && (CFIndex)trackData + 8 <= length) {
+            uint16_t sizes = wk_be16(bytes + trackData + 2);
+            uint32_t sizeTable = wk_be32(bytes + trackData + 4);
+            if (sizes >= 2 && sizeTable <= (uint64_t)length && ((uint64_t)length - sizeTable) / 4 >= sizes) {
+                first = (int32_t)wk_be32(bytes + sizeTable) / 65536.0;
+                last = (int32_t)wk_be32(bytes + sizeTable + 4 * (sizes - 1)) / 65536.0;
+                ranged = true;
+            }
+        }
+    }
+    if (table)
+        CFRelease(table);
+    if (!ranged)
+        return font;
+    double low = first < last ? first : last;
+    double high = first < last ? last : first;
+    double held = points < low ? low : (points > high ? high : points);
+    if (held == points || !(held > 0))
+        return font;
+
+    CTFontDescriptorRef modification = wk_descriptorWithOpticalSize(NULL, (CGFloat)held);
+    CTFontRef tracked = modification ? WK_ORIGINAL(CTFontCreateCopyWithAttributes)(font, 0, NULL, modification) : NULL;
+    if (modification)
+        CFRelease(modification);
+    if (!tracked)
+        return font;
+    CFRelease(font);
+    return tracked;
 }
 
 // The remaining boundaries a caller names a size and a matrix at. 10.9 realizes each of these exactly
@@ -2121,8 +2767,11 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithNameAndOptions,
 WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithGraphicsFont,
                      (CGFontRef font, CGFloat size, const CGAffineTransform *matrix, CTFontDescriptorRef attributes))
 {
-    return wk_recordFontRequest(WK_ORIGINAL(CTFontCreateWithGraphicsFont)
-        ? WK_ORIGINAL(CTFontCreateWithGraphicsFont)(font, size, matrix, attributes) : NULL, size, matrix);
+    CTFontRef result = WK_ORIGINAL(CTFontCreateWithGraphicsFont)(font, size, matrix, attributes);
+    wk_recordDescriptorOptions(result, attributes);
+    if (result && font && objc_getAssociatedObject((id)(void *)font, sel_registerName("wk_cffURLFont")))
+        objc_setAssociatedObject((id)(void *)result, sel_registerName("wk_fontGraphicsFont"), (id)(void *)font, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return wk_recordFontRequest(result, size, matrix);
 }
 
 // CTFontDescriptorCopyAttribute answers the kCTFontCSSWeightAttribute / kCTFontCSSWidthAttribute
@@ -2164,8 +2813,31 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontDescriptorCopyAttribute,
         return CFRetain(CFSTR("none"));
     CFTypeRef value = WK_ORIGINAL(CTFontDescriptorCopyAttribute)
         ? WK_ORIGINAL(CTFontDescriptorCopyAttribute)(descriptor, attribute) : NULL;
+    if (value && descriptor && attribute && CFEqual(attribute, kCTFontTraitsAttribute)
+        && CFGetTypeID(value) == CFDictionaryGetTypeID()) {
+        CFTypeRef requestedTraits = wk_carriedAttribute(descriptor, kCTFontTraitsAttribute);
+        if (!requestedTraits) {
+            CTFontRef font = WK_ORIGINAL(CTFontCreateWithFontDescriptor)(descriptor, 12, NULL);
+            if (font) {
+                CFDictionaryRef corrected = wk_copyTraitsWithSymbolic((CFDictionaryRef)value, CTFontGetSymbolicTraits(font));
+                CFRelease(value);
+                value = corrected;
+                CFRelease(font);
+            }
+        } else
+            CFRelease(requestedTraits);
+    }
     if (value || !descriptor || !attribute)
         return value;
+    // A variable font built from bytes draws from a static cut, so 10.9 answers no variation for its
+    // descriptor; the variation is the one its source realizes at.
+    if (CFEqual(attribute, kCTFontVariationAttribute)) {
+        CFTypeRef source = wk_carriedAttribute(descriptor, WK_LEGACY_VARIABLE_FONT_SOURCE_KEY);
+        if (!source)
+            return NULL;
+        CFRelease(source);
+        return wk_copyRealizedVariation(descriptor);
+    }
     // A descriptor's variation axes. 10.9 answers NULL for kCTFontVariationAxesAttribute -- measured on
     // this host for that key and for two other spellings of it -- while CTFontCopyVariationAxes answers
     // the same array from the realized font, carrying the identifier, minimum, maximum, default and name
@@ -2626,8 +3298,61 @@ static wk_feature_normalization wk_normalizeFeatureElement(CFTypeRef element, CF
     return WK_FEATURE_NO_AAT_EQUIVALENT;
 }
 
+// The OpenType tag and value an OpenType-form element names: a tag/value dictionary, a [tag, value] pair,
+// or a bare tag, which turns its feature on.
+static bool wk_openTypeElementTagValue(CFTypeRef element, CFStringRef *tag, int *value)
+{
+    CFTypeRef tagValue = NULL, number = NULL;
+    CFTypeID type = CFGetTypeID(element);
+// kCTFontOpenTypeFeatureTag/Value are 10.10+ in the SDK and absent on the 10.9 runtime; this file
+// supplies both (WK_POLYFILL_CONST above), so these read the layer's own definitions.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
+    if (type == CFDictionaryGetTypeID()) {
+        tagValue = CFDictionaryGetValue((CFDictionaryRef)element, kCTFontOpenTypeFeatureTag);
+        number = CFDictionaryGetValue((CFDictionaryRef)element, kCTFontOpenTypeFeatureValue);
+    } else if (type == CFArrayGetTypeID() && CFArrayGetCount((CFArrayRef)element) >= 1) {
+        tagValue = CFArrayGetValueAtIndex((CFArrayRef)element, 0);
+        number = CFArrayGetCount((CFArrayRef)element) > 1 ? CFArrayGetValueAtIndex((CFArrayRef)element, 1) : NULL;
+    } else if (type == CFStringGetTypeID())
+        tagValue = element;
+#pragma clang diagnostic pop
+    if (!tagValue || CFGetTypeID(tagValue) != CFStringGetTypeID())
+        return false;
+    *tag = (CFStringRef)tagValue;
+    if (!number || !wk_intFromNumber(number, value))
+        *value = 1;
+    return true;
+}
+
+// The OpenType tag of the feature an element sets: the tag an OpenType-form element names, or the one tag an
+// AAT pair's selector belongs to. NULL for a selector naming no single tag -- the numeric default an
+// exclusive type's tags share. `pair` is the AAT dictionary the element reduces to.
+static CFStringRef wk_copyFeatureElementTag(CFTypeRef element, CFDictionaryRef pair)
+{
+    CFStringRef tag = NULL;
+    int value = 1, type = 0, selector = 0;
+    char name[5] = { 0 };
+    if (wk_openTypeElementTagValue(element, &tag, &value))
+        return (CFStringRef)CFRetain(tag);
+    if (!pair || !wk_intFromNumber(CFDictionaryGetValue(pair, kCTFontFeatureTypeIdentifierKey), &type)
+        || !wk_intFromNumber(CFDictionaryGetValue(pair, kCTFontFeatureSelectorIdentifierKey), &selector)
+        || !wk_openTypeTagForAATFeature(type, selector, name, &value))
+        return NULL;
+    return CFStringCreateWithCString(kCFAllocatorDefault, name, kCFStringEncodingASCII);
+}
+
 // The settings a feature-settings value names, as the AAT dictionaries 10.9's parser reads. A value that
 // is not an array names none of them; clear directives are not settings and are collected separately.
+//
+// A feature keeps only its last setting, whichever form names it: -apple-system-monospaced-numbers states
+// tnum as the AAT pair {kNumberSpacingType, kMonospacedNumbersSelector}, and WebCore appends the page's
+// font-feature-settings after it, so a later "tnum" 0 turns it off. Several OpenType tags also turn their
+// feature off through one selector their AAT type shares, and 10.9 applies the last entry of an exclusive
+// type: jp83 on followed by jp78, jp90, jp04, smpl and trad off -- all kCharacterShapeType selector 16 --
+// shapes the jp83 glyph back to its default, as smcp does under pcap off, lnum under onum off and sups
+// under subs off. So the OpenType-form settings that turn a feature off come before every other setting,
+// where they cannot undo one a later tag turns on.
 static CFArrayRef wk_featureSettingsAsAAT(CFTypeRef settings)
 {
     CFMutableArrayRef result = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
@@ -2635,23 +3360,54 @@ static CFArrayRef wk_featureSettingsAsAAT(CFTypeRef settings)
         return result;
     CFArrayRef array = (CFArrayRef)settings;
     CFIndex count = CFArrayGetCount(array);
-    for (CFIndex i = 0; i < count; i++) {
-        CFTypeRef element = CFArrayGetValueAtIndex(array, i);
-        CFDictionaryRef aat = NULL;
-        int clearedType = 0;
-        switch (wk_normalizeFeatureElement(element, &aat, &clearedType)) {
-        case WK_FEATURE_AAT:
-            CFArrayAppendValue(result, element);
-            break;
-        case WK_FEATURE_NORMALIZED:
-            CFArrayAppendValue(result, aat);
-            CFRelease(aat);
-            break;
-        case WK_FEATURE_CLEAR:
-        case WK_FEATURE_NO_AAT_EQUIVALENT:
-            break;
+    if (!count)
+        return result;
+    CFDictionaryRef *pairs = (CFDictionaryRef *)calloc((size_t)count, sizeof(CFDictionaryRef));
+    CFStringRef *tags = (CFStringRef *)calloc((size_t)count, sizeof(CFStringRef));
+    bool *first = (bool *)calloc((size_t)count, sizeof(bool));
+    CFMutableArrayRef rest = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+    if (pairs && tags && first && rest) {
+        for (CFIndex i = 0; i < count; i++) {
+            CFTypeRef element = CFArrayGetValueAtIndex(array, i);
+            int clearedType = 0;
+            switch (wk_normalizeFeatureElement(element, &pairs[i], &clearedType)) {
+            case WK_FEATURE_AAT:
+                pairs[i] = (CFDictionaryRef)CFRetain(element);
+                break;
+            case WK_FEATURE_NORMALIZED: {
+                CFStringRef tag = NULL;
+                int value = 1;
+                first[i] = wk_openTypeElementTagValue(element, &tag, &value) && !value;
+                break;
+            }
+            case WK_FEATURE_CLEAR:
+            case WK_FEATURE_NO_AAT_EQUIVALENT:
+                continue;
+            }
+            tags[i] = wk_copyFeatureElementTag(element, pairs[i]);
         }
+        for (CFIndex i = 0; i < count; i++) {
+            if (!pairs[i])
+                continue;
+            bool superseded = false;
+            for (CFIndex later = i + 1; tags[i] && later < count && !superseded; later++)
+                superseded = tags[later] && CFEqual(tags[i], tags[later]);
+            if (!superseded)
+                CFArrayAppendValue(first[i] ? result : rest, pairs[i]);
+        }
+        CFArrayAppendArray(result, rest, CFRangeMake(0, CFArrayGetCount(rest)));
     }
+    for (CFIndex i = 0; i < count; i++) {
+        if (pairs && pairs[i])
+            CFRelease(pairs[i]);
+        if (tags && tags[i])
+            CFRelease(tags[i]);
+    }
+    free(pairs);
+    free(tags);
+    free(first);
+    if (rest)
+        CFRelease(rest);
     return result;
 }
 
@@ -2966,41 +3722,17 @@ typedef const struct __FPFont* FPFontRef;
 
 WK_POLYFILL_ABSENT("CoreText", CFArrayRef, FPFontCreateFontsFromData, (CFDataRef data))
 {
-    if (!data)
+    // The system parser's splitter; on this port every downloadable font is sanitized here (OTS,
+    // unwrapping a WOFF or WOFF2 container as it reads), so the sfnt the rest of the path opens is one
+    // OTS wrote, never the bytes off the network. A font OTS refuses has no sanitized form: the empty
+    // result upstream reads as "something is wrong with the font" and rejects the @font-face. An
+    // FPFontRef is that sanitized CFData, as it is for FPFontCreateMemorySafeFontsFromData below.
+    CFDataRef sanitized = wk_font_is_ots_sanitized(data) ? (CFDataRef)CFRetain(data) : wk_ots_sanitize_font(data);
+    if (!sanitized)
         return NULL;
-    if (wk_font_data_is_woff(data)) {
-        CFDataRef sfnt = wk_ots_sanitize_font(data);
-        if (!sfnt)
-            return NULL;
-        CFArrayRef fonts = FPFontCreateFontsFromData(sfnt);
-        CFRelease(sfnt);
-        return fonts;
-    }
-    // Upstream reads an empty result as "something is wrong with the font" and rejects the
-    // @font-face outright, so the parse has to be attempted here rather than deferred. Accept
-    // exactly what CTFontManagerCreateFontDescriptorFromData above accepts: CoreGraphics' parser
-    // first, then 10.9's own for the data it cannot read.
-    bool usable = false;
-    CGDataProviderRef provider = CGDataProviderCreateWithCFData(data);
-    if (provider) {
-        CGFontRef cgFont = CGFontCreateWithDataProvider(provider);
-        CGDataProviderRelease(provider);
-        if (cgFont) {
-            CGFontRelease(cgFont);
-            usable = true;
-        }
-    }
-    if (!usable && WK_ORIGINAL(CTFontManagerCreateFontDescriptorFromData)) {
-        CTFontDescriptorRef descriptor = WK_ORIGINAL(CTFontManagerCreateFontDescriptorFromData)(data);
-        if (descriptor) {
-            CFRelease(descriptor);
-            usable = true;
-        }
-    }
-    if (!usable)
-        return NULL;
-    const void *values[1] = { data };
-    return CFArrayCreate(kCFAllocatorDefault, values, 1, &kCFTypeArrayCallBacks);
+    CFArrayRef fonts = wk_ots_copy_font_faces(sanitized);
+    CFRelease(sanitized);
+    return fonts;
 }
 
 WK_POLYFILL_ABSENT("CoreText", CFDataRef, FPFontCopySFNTData, (FPFontRef font))
@@ -3023,21 +3755,16 @@ WK_POLYFILL_ABSENT("CoreText", CFArrayRef, FPFontCreateMemorySafeFontsFromData, 
     if (!sanitized)
         return NULL;
     // An FPFontRef is the CFData, as it is for FPFontCreateFontsFromData above.
-    const void *values[1] = { sanitized };
-    CFArrayRef fonts = CFArrayCreate(kCFAllocatorDefault, values, 1, &kCFTypeArrayCallBacks);
+    CFArrayRef fonts = wk_ots_copy_font_faces(sanitized);
     CFRelease(sanitized);
     return fonts;
 }
 
 WK_POLYFILL_ABSENT("CoreText", CTFontDescriptorRef, CTFontManagerCreateMemorySafeFontDescriptorFromData, (CFDataRef data))
 {
-    CFDataRef sanitized = wk_ots_sanitize_font(data);
-    if (!sanitized)
-        return NULL;
-    // The replacement above, which carries this port's legacy-variable-font handling.
-    CTFontDescriptorRef descriptor = CTFontManagerCreateFontDescriptorFromData(sanitized);
-    CFRelease(sanitized);
-    return descriptor;
+    // Reached only with bytes FPFontCreateMemorySafeFontsFromData already sanitized, so it realizes
+    // them without sanitizing again.
+    return wk_realizeDescriptorFromSfnt(data);
 }
 
 WK_POLYFILL_REPLACES("CoreText", CFStringRef, FPFontCopyPostScriptName, (FPFontRef font))
@@ -3504,24 +4231,14 @@ static void wk_markAATFeatureCoverage(CTFontRef font, int featureType, int featu
     CFRelease(data);
 }
 
-// CTFontCopyColorGlyphCoverage (10.13+) answers the colour question. Upstream asks it only of a font
-// CoreText has marked kCTFontTraitColorGlyphs, "colour bitmap glyphs are available", and on 10.9 that
-// trait means an sbix table — the Apple colour-bitmap format Apple Color Emoji is built from, and the
-// same table CTFontGetSbixImageSizeForGlyphAndContentsScale reads above. A glyph is a colour one when
-// some strike holds a non-empty bitmap for it. NULL says the font has none, which is what upstream's
-// call site reads as "no emoji glyphs" (Font::platformInit, FontCoreText.cpp); its three siblings below
-// answer with a bit vector however empty, because unionBitVectors() hands theirs straight to
-// CFBitVectorGetCount() with no null check.
+// Color coverage is glyph-indexed across sbix strikes and COLR base records.
 WK_POLYFILL_ABSENT("CoreText", CFBitVectorRef, CTFontCopyColorGlyphCoverage, (CTFontRef font))
 {
     CFIndex glyphCount = font ? CTFontGetGlyphCount(font) : 0;
     if (glyphCount <= 0)
         return NULL;
     CFDataRef data = CTFontCopyTable(font, kCTFontTableSbix, kCTFontTableOptionNoOptions);
-    if (!data)
-        return NULL;
-
-    wk_font_table sbix = { CFDataGetBytePtr(data), CFDataGetBytePtr(data) ? (uint32_t)CFDataGetLength(data) : 0 };
+    wk_font_table sbix = { data ? CFDataGetBytePtr(data) : NULL, data ? (uint32_t)CFDataGetLength(data) : 0 };
     CFMutableBitVectorRef coverage = CFBitVectorCreateMutable(kCFAllocatorDefault, 0);
     if (coverage) {
         CFBitVectorSetCount(coverage, glyphCount);
@@ -3540,12 +4257,20 @@ WK_POLYFILL_ABSENT("CoreText", CFBitVectorRef, CTFontCopyColorGlyphCoverage, (CT
                     wk_markGlyph(coverage, glyph);
             }
         }
+        CFDataRef colr = wk_fontTable(font, wk_colrTableKey(), kCTFontTableCOLR);
+        wk_colr_tables colorTables = { colr ? CFDataGetBytePtr(colr) : NULL,
+            colr ? (size_t)CFDataGetLength(colr) : 0, NULL, 0 };
+        for (unsigned glyph = 0; glyph < (unsigned)glyphCount; ++glyph) {
+            if (wk_colrHasBaseGlyph(&colorTables, (uint16_t)glyph))
+                wk_markGlyph(coverage, glyph);
+        }
         if (!CFBitVectorGetCountOfBit(coverage, CFRangeMake(0, glyphCount), 1)) {
             CFRelease(coverage);
             coverage = NULL;
         }
     }
-    CFRelease(data);
+    if (data)
+        CFRelease(data);
     return coverage;
 }
 
@@ -3581,28 +4306,120 @@ WK_POLYFILL_ABSENT("CoreText", CFBitVectorRef, CTFontCopyGlyphCoverageForFeature
     return coverage;
 }
 
-// CSS generic family -> concrete 10.9 font descriptor. The cssFamily argument is one of the
-// kCTFontCSSFamily* constants are defined above (each value is its own name). Map each to a
-// font that ships on 10.9 so generic families (serif/sans-serif/monospace/cursive/fantasy) resolve.
+// CSS generic family -> font descriptor. A generic family names one font, and CoreText's fallback table
+// (DefaultFontFallbacks.plist in the CoreText bundle) names the font each of ja, zh-Hans, zh-Hant and ko
+// uses in its place: the nested array of language/font pairs inside that family's cascade.
+static CFDictionaryRef wkCSSFamilyFallbacks;
+
+static void wk_loadCSSFamilyFallbacks(void)
+{
+    CFBundleRef bundle = CFBundleGetBundleWithIdentifier(CFSTR("com.apple.CoreText"));
+    CFURLRef url = bundle ? CFBundleCopyResourceURL(bundle, CFSTR("DefaultFontFallbacks"), CFSTR("plist"), NULL) : NULL;
+    CFReadStreamRef stream = url ? CFReadStreamCreateWithFile(kCFAllocatorDefault, url) : NULL;
+    if (stream && CFReadStreamOpen(stream)) {
+        CFPropertyListRef plist = CFPropertyListCreateWithStream(kCFAllocatorDefault, stream, 0, kCFPropertyListImmutable, NULL, NULL);
+        if (plist && CFGetTypeID(plist) == CFDictionaryGetTypeID())
+            wkCSSFamilyFallbacks = (CFDictionaryRef)plist;
+        else if (plist)
+            CFRelease(plist);
+        CFReadStreamClose(stream);
+    }
+    if (stream)
+        CFRelease(stream);
+    if (url)
+        CFRelease(url);
+}
+
+// Chinese resolves to the table's zh-Hans or zh-Hant by script subtag, then by region (TW, HK and MO
+// write Traditional); every other language matches on its primary subtag.
+static bool wk_languageMatchesFallbackLanguage(CFStringRef language, CFStringRef fallbackLanguage)
+{
+    char requested[64], entry[16];
+    if (!CFStringGetCString(language, requested, sizeof(requested), kCFStringEncodingASCII)
+        || !CFStringGetCString(fallbackLanguage, entry, sizeof(entry), kCFStringEncodingASCII))
+        return false;
+    char *subtags[8];
+    size_t subtagCount = 0;
+    for (char *cursor = requested; *cursor && subtagCount < 8; ) {
+        subtags[subtagCount++] = cursor;
+        while (*cursor && *cursor != '-' && *cursor != '_')
+            ++cursor;
+        if (*cursor)
+            *cursor++ = '\0';
+    }
+    size_t entryPrimaryLength = strcspn(entry, "-");
+    if (!subtagCount || strlen(subtags[0]) != entryPrimaryLength || strncasecmp(subtags[0], entry, entryPrimaryLength))
+        return false;
+    if (strcasecmp(subtags[0], "zh"))
+        return true;
+    bool traditional = false;
+    for (size_t i = 1; i < subtagCount; ++i) {
+        if (!strcasecmp(subtags[i], "Hant") || !strcasecmp(subtags[i], "Hans")) {
+            traditional = !strcasecmp(subtags[i], "Hant");
+            break;
+        }
+        if (!strcasecmp(subtags[i], "TW") || !strcasecmp(subtags[i], "HK") || !strcasecmp(subtags[i], "MO"))
+            traditional = true;
+    }
+    return !strcasecmp(entry, traditional ? "zh-Hant" : "zh-Hans");
+}
+
+static CFStringRef wk_languageFallbackFont(CFStringRef tableKey, CFStringRef language)
+{
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+    pthread_once(&once, wk_loadCSSFamilyFallbacks);
+    CFTypeRef cascade = wkCSSFamilyFallbacks ? CFDictionaryGetValue(wkCSSFamilyFallbacks, tableKey) : NULL;
+    if (!cascade || CFGetTypeID(cascade) != CFArrayGetTypeID())
+        return NULL;
+    CFIndex count = CFArrayGetCount((CFArrayRef)cascade);
+    for (CFIndex i = 0; i < count; ++i) {
+        CFTypeRef group = CFArrayGetValueAtIndex((CFArrayRef)cascade, i);
+        if (CFGetTypeID(group) != CFArrayGetTypeID())
+            continue;
+        CFIndex pairCount = CFArrayGetCount((CFArrayRef)group);
+        for (CFIndex j = 0; j < pairCount; ++j) {
+            CFTypeRef pair = CFArrayGetValueAtIndex((CFArrayRef)group, j);
+            if (CFGetTypeID(pair) != CFArrayGetTypeID() || CFArrayGetCount((CFArrayRef)pair) != 2)
+                continue;
+            CFTypeRef pairLanguage = CFArrayGetValueAtIndex((CFArrayRef)pair, 0);
+            CFTypeRef pairFont = CFArrayGetValueAtIndex((CFArrayRef)pair, 1);
+            if (CFGetTypeID(pairLanguage) == CFStringGetTypeID() && CFGetTypeID(pairFont) == CFStringGetTypeID()
+                && wk_languageMatchesFallbackLanguage(language, (CFStringRef)pairLanguage))
+                return (CFStringRef)pairFont;
+        }
+    }
+    return NULL;
+}
+
 WK_POLYFILL_ABSENT("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateForCSSFamily, (CFStringRef cssFamily, CFStringRef language))
 {
-    (void)language;
     if (!cssFamily)
         return NULL;
+    CFStringRef tableKey = NULL;
     CFStringRef name = NULL;
-    if (CFStringHasSuffix(cssFamily, CFSTR("Serif")) && !CFStringHasSuffix(cssFamily, CFSTR("SansSerif")))
+    if (CFEqual(cssFamily, kCTFontCSSFamilySerif)) {
+        tableKey = CFSTR("serif");
         name = CFSTR("Times");
-    else if (CFStringHasSuffix(cssFamily, CFSTR("SansSerif")))
+    } else if (CFEqual(cssFamily, kCTFontCSSFamilySansSerif)) {
+        tableKey = CFSTR("sans-serif");
         name = CFSTR("Helvetica");
-    else if (CFStringHasSuffix(cssFamily, CFSTR("Monospace")))
+    } else if (CFEqual(cssFamily, kCTFontCSSFamilyMonospace)) {
+        tableKey = CFSTR("monospace");
         name = CFSTR("Courier");
-    else if (CFStringHasSuffix(cssFamily, CFSTR("Cursive")))
+    } else if (CFEqual(cssFamily, kCTFontCSSFamilyCursive)) {
+        tableKey = CFSTR("cursive");
         name = CFSTR("Apple Chancery");
-    else if (CFStringHasSuffix(cssFamily, CFSTR("Fantasy")))
+    } else if (CFEqual(cssFamily, kCTFontCSSFamilyFantasy)) {
+        tableKey = CFSTR("fantasy");
         name = CFSTR("Papyrus");
+    }
     if (!name)
         return NULL;
-    return CTFontDescriptorCreateWithNameAndSize(name, 0.0);
+    CFStringRef languageFont = language ? wk_languageFallbackFont(tableKey, language) : NULL;
+    if (language && CFEqual(cssFamily, kCTFontCSSFamilyCursive)
+        && wk_languageMatchesFallbackLanguage(language, CFSTR("zh-Hant")))
+        languageFont = CFSTR("STKaiTi-TC-Regular");
+    return CTFontDescriptorCreateWithNameAndSize(languageFont ? languageFont : name, 0.0);
 }
 
 // "Last Resort" tofu fallback font descriptor. The LastResort font ships on 10.9.
@@ -3921,16 +4738,436 @@ static bool wkShapeRemovesSlot(const CGGlyph *glyphs, const CGGlyph *arrivedGlyp
     return glyphs[slot] == 0 && character >= 0xDC00 && character <= 0xDFFF;
 }
 
+// CTFontTransformGlyphs builds its run from glyphs alone and defaults to the Latin script. A character
+// stream supplies the script and other context it cannot recover from glyphs. TOpenTypeMorph and TOpenTypePositioningEngine take the language system from the
+// stream's kCTLanguageAttributeName; a default-ignorable character is dropped from the stream before
+// shaping rather than left between the glyphs it joins; and a positioning feature the font's settings
+// request is applied only to a stream. Measured on this host, a CTLine sets Lato "fi" without its ligature
+// under "tr", forms Times f U+200D i into one glyph and applies Hiragino Kaku Gothic ProN's palt (384.00 to
+// 330.05 at 48pt), and CTFontTransformGlyphs over the same glyphs does none of the three. A run that carries
+// one of them, or a non-Latin script with layout tables, is set by a typesetter over its characters.
+//
+// The language system 10.9 selects for a language: ScriptAndLangSysTagsFromLanguage reduces the canonical
+// locale identifier to a Mac language code with CFLocaleGetLanguageRegionEncodingForLocaleIdentifier and
+// indexes this table, read out of that function's jump table. An empty entry selects the default one.
+static const char wk_langSysTagForMacLanguage[152][5] = {
+    "ENG ", "FRA ", "DEU ", "ITA ", "NLD ", "SVE ", "ESP ", "DAN ", "PTG ", "NOR ", "IWR ", "JAN ", "ARA ", "FIN ",
+    "ELL ", "ISL ", "MTS ", "TRK ", "HRV ", "ZHT ", "URD ", "HIN ", "THA ", "KOR ", "LTH ", "PLK ", "HUN ", "ETI ",
+    "LVI ", "NSM ", "FOS ", "FAR ", "RUS ", "ZHS ", "FLE ", "IRI ", "SQI ", "ROM ", "CSY ", "SKY ", "SLV ", "JII ",
+    "SRB ", "MKD ", "BGR ", "UKR ", "BEL ", "UZB ", "KAZ ", "AZE ", "AZE ", "HYE ", "KAT ", "MOL ", "KIR ", "TAJ ",
+    "TKM ", "MNG ", "MNG ", "PAS ", "KUR ", "KSH ", "SND ", "TIB ", "NEP ", "SAN ", "MAR ", "BEN ", "ASM ", "GUJ ",
+    "PAN ", "ORI ", "MAL ", "KAN ", "TAM ", "TEL ", "SNH ", "BRM ", "KHM ", "LAO ", "VIT ", "IND ", "",     "MLY ",
+    "MLY ", "AMH ", "TGY ", "ORO ", "SML ", "SWK ", "RUA ", "",     "CHI ", "MLG ", "NTO ", "",     "",     "",
+    "",     "",     "",     "",     "",     "",     "",     "",     "",     "",     "",     "",     "",     "",
+    "",     "",     "",     "",     "",     "",     "",     "",     "",     "",     "",     "",     "",     "",
+    "",     "",     "WEL ", "EUQ ", "CAT ", "LAT ", "",     "GUA ", "AYM ", "TAT ", "UYG ", "DZN ", "JAV ", "",
+    "GAL ", "AFK ", "BRE ", "INU ", "GAE ", "MNX ", "IRT ", "TGN ", "PGR ", "GRN ", "AZE ", "NYN ",
+};
+
+// What of a font's shaping depends on a run's characters: the language system tags its GSUB and GPOS
+// script lists name, and whether its feature settings turn on a feature its GPOS carries. Kept on the CTFont.
+typedef struct {
+    bool requestsPositioningFeature;
+    CFIndex languageSystemCount;
+    CFIndex scriptCount;
+    uint32_t languageSystems[];
+} wk_shaping_context;
+
+static void wk_collectLanguageSystems(CTFontRef font, CTFontTableTag tableTag, uint32_t **tags, CFIndex *count, CFIndex *capacity)
+{
+    CFDataRef data = CTFontCopyTable(font, tableTag, kCTFontTableOptionNoOptions);
+    if (!data)
+        return;
+    wk_font_table table = { CFDataGetBytePtr(data), CFDataGetBytePtr(data) ? (uint32_t)CFDataGetLength(data) : 0 };
+    uint64_t scriptList = wk_tableU16(table, 4);
+    uint64_t scriptCount = scriptList ? wk_tableU16(table, scriptList) : 0;
+    for (uint64_t s = 0; s < scriptCount; s++) {
+        uint64_t script = scriptList + wk_tableU16(table, scriptList + 2 + s * 6 + 4);
+        uint64_t languageSystemCount = wk_tableU16(table, script + 2);
+        for (uint64_t l = 0; l < languageSystemCount; l++) {
+            if (*count == *capacity) {
+                CFIndex grown = *capacity ? *capacity * 2 : 8;
+                uint32_t *resized = (uint32_t *)realloc(*tags, (size_t)grown * sizeof(uint32_t));
+                if (!resized)
+                    abort();
+                *tags = resized;
+                *capacity = grown;
+            }
+            (*tags)[(*count)++] = wk_tableU32(table, script + 4 + l * 6);
+        }
+    }
+    CFRelease(data);
+}
+
+static void wk_collectScripts(CTFontRef font, CTFontTableTag tag, uint32_t **tags, CFIndex *count)
+{
+    CFDataRef data = CTFontCopyTable(font, tag, kCTFontTableOptionNoOptions);
+    if (!data)
+        return;
+    wk_font_table table = { CFDataGetBytePtr(data), (uint32_t)CFDataGetLength(data) };
+    uint64_t list = wk_tableU16(table, 4);
+    uint16_t scripts = list ? wk_tableU16(table, list) : 0;
+    if (list + 2 + (uint64_t)scripts * 6 <= table.length) {
+        uint32_t *grown = realloc(*tags, (size_t)(*count + scripts) * sizeof(uint32_t));
+        if (scripts && !grown)
+            abort();
+        *tags = grown;
+        for (uint16_t i = 0; i < scripts; ++i)
+            (*tags)[(*count)++] = wk_tableU32(table, list + 2 + (uint64_t)i * 6);
+    }
+    CFRelease(data);
+}
+
+static bool wk_gposCarriesFeature(wk_font_table gpos, const char tag[4])
+{
+    uint32_t wanted = ((uint32_t)(uint8_t)tag[0] << 24) | ((uint32_t)(uint8_t)tag[1] << 16)
+                    | ((uint32_t)(uint8_t)tag[2] << 8) | (uint8_t)tag[3];
+    uint64_t featureList = wk_tableU16(gpos, 6);
+    uint64_t featureCount = featureList ? wk_tableU16(gpos, featureList) : 0;
+    for (uint64_t i = 0; i < featureCount; i++) {
+        if (wk_tableU32(gpos, featureList + 2 + i * 6) == wanted)
+            return true;
+    }
+    return false;
+}
+
+// A setting names its feature by OpenType tag and value or by AAT type and selector, and requests the
+// feature only when it turns it on.
+static bool wk_settingsRequestPositioningFeature(CTFontRef font)
+{
+    CFArrayRef settings = CTFontCopyFeatureSettings(font);
+    if (!settings)
+        return false;
+    CFDataRef data = CTFontCopyTable(font, kCTFontTableGPOS, kCTFontTableOptionNoOptions);
+    wk_font_table gpos = { data ? CFDataGetBytePtr(data) : NULL, data && CFDataGetBytePtr(data) ? (uint32_t)CFDataGetLength(data) : 0 };
+    bool requested = false;
+    for (CFIndex i = 0; gpos.bytes && !requested && i < CFArrayGetCount(settings); i++) {
+        CFTypeRef setting = CFArrayGetValueAtIndex(settings, i);
+        if (!setting || CFGetTypeID(setting) != CFDictionaryGetTypeID())
+            continue;
+        char tag[5] = { 0 };
+        int value = 1;
+// kCTFontOpenTypeFeatureTag/Value are 10.10+ in the SDK and absent on the 10.9 runtime; this file
+// supplies both (WK_POLYFILL_CONST above), so these read the layer's own definitions.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
+        CFTypeRef openTypeTag = CFDictionaryGetValue((CFDictionaryRef)setting, kCTFontOpenTypeFeatureTag);
+        CFTypeRef openTypeValue = CFDictionaryGetValue((CFDictionaryRef)setting, kCTFontOpenTypeFeatureValue);
+#pragma clang diagnostic pop
+        if (openTypeTag && CFGetTypeID(openTypeTag) == CFStringGetTypeID()) {
+            if (!CFStringGetCString((CFStringRef)openTypeTag, tag, sizeof(tag), kCFStringEncodingASCII) || strlen(tag) != 4
+                || (openTypeValue && !wk_intFromNumber(openTypeValue, &value)))
+                continue;
+        } else {
+            int type = 0, selector = 0;
+            if (!wk_intFromNumber(CFDictionaryGetValue((CFDictionaryRef)setting, kCTFontFeatureTypeIdentifierKey), &type)
+                || !wk_intFromNumber(CFDictionaryGetValue((CFDictionaryRef)setting, kCTFontFeatureSelectorIdentifierKey), &selector)
+                || !wk_openTypeTagForAATFeature(type, selector, tag, &value))
+                continue;
+        }
+        requested = value && wk_gposCarriesFeature(gpos, tag);
+    }
+    if (data)
+        CFRelease(data);
+    CFRelease(settings);
+    return requested;
+}
+
+static const void *wk_shapingContextKey(void) { return sel_registerName("wk_shapingContext"); }
+
+// The association is set once and never replaced, so a present value is read without a lock.
+static const wk_shaping_context *wk_shapingContext(CTFontRef font)
+{
+    CFDataRef cached = (CFDataRef)objc_getAssociatedObject((id)(void *)font, wk_shapingContextKey());
+    if (!cached) {
+        objc_sync_enter((id)(void *)font);
+        cached = (CFDataRef)objc_getAssociatedObject((id)(void *)font, wk_shapingContextKey());
+        if (!cached) {
+            uint32_t *tags = NULL;
+            CFIndex count = 0, capacity = 0;
+            wk_collectLanguageSystems(font, kCTFontTableGSUB, &tags, &count, &capacity);
+            wk_collectLanguageSystems(font, kCTFontTableGPOS, &tags, &count, &capacity);
+            CFIndex languageCount = count;
+            wk_collectScripts(font, kCTFontTableGSUB, &tags, &count);
+            wk_collectScripts(font, kCTFontTableGPOS, &tags, &count);
+            CFMutableDataRef context = CFDataCreateMutable(kCFAllocatorDefault, 0);
+            if (!context)
+                abort();
+            CFDataSetLength(context, (CFIndex)(sizeof(wk_shaping_context) + (size_t)count * sizeof(uint32_t)));
+            wk_shaping_context *fields = (wk_shaping_context *)(void *)CFDataGetMutableBytePtr(context);
+            if (!fields)
+                abort();
+            fields->requestsPositioningFeature = wk_settingsRequestPositioningFeature(font);
+            fields->languageSystemCount = languageCount;
+            fields->scriptCount = count - languageCount;
+            if (count)
+                memcpy(fields->languageSystems, tags, (size_t)count * sizeof(uint32_t));
+            free(tags);
+            objc_setAssociatedObject((id)(void *)font, wk_shapingContextKey(), (id)context, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            CFRelease(context);
+            cached = (CFDataRef)objc_getAssociatedObject((id)(void *)font, wk_shapingContextKey());
+        }
+        objc_sync_exit((id)(void *)font);
+    }
+    return (const wk_shaping_context *)(void *)CFDataGetBytePtr(cached);
+}
+
+// CFLocale.h declares this on 10.9; the SDK's header no longer does.
+extern Boolean CFLocaleGetLanguageRegionEncodingForLocaleIdentifier(CFStringRef localeIdentifier, LangCode *languageCode,
+    RegionCode *regionCode, ScriptCode *scriptCode, CFStringEncoding *stringEncoding);
+
+// The last language this thread resolved: a page's runs share one, so its canonical form is found once.
+typedef struct {
+    CFStringRef language;
+    uint32_t languageSystem;
+} wk_language_system_memo;
+
+static pthread_key_t wkLanguageSystemMemoKey;
+
+static void wk_releaseLanguageSystemMemo(void *value)
+{
+    wk_language_system_memo *memo = (wk_language_system_memo *)value;
+    if (memo->language)
+        CFRelease(memo->language);
+    free(memo);
+}
+
+static void wk_makeLanguageSystemMemoKey(void)
+{
+    if (pthread_key_create(&wkLanguageSystemMemoKey, wk_releaseLanguageSystemMemo))
+        abort();
+}
+
+static uint32_t wk_languageSystemForLanguage(CFStringRef language)
+{
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+    pthread_once(&once, wk_makeLanguageSystemMemoKey);
+    wk_language_system_memo *memo = (wk_language_system_memo *)pthread_getspecific(wkLanguageSystemMemoKey);
+    if (!memo) {
+        memo = (wk_language_system_memo *)calloc(1, sizeof(*memo));
+        if (!memo || pthread_setspecific(wkLanguageSystemMemoKey, memo))
+            abort();
+    }
+    if (memo->language && (memo->language == language || CFEqual(memo->language, language)))
+        return memo->languageSystem;
+
+    uint32_t languageSystem = 0;
+    CFStringRef canonical = CFLocaleCreateCanonicalLocaleIdentifierFromString(kCFAllocatorDefault, language);
+    LangCode code = 0x7FFF;
+    if (canonical) {
+        CFLocaleGetLanguageRegionEncodingForLocaleIdentifier(canonical, &code, NULL, NULL, NULL);
+        CFRelease(canonical);
+    }
+    if (code >= 0 && code < (LangCode)(sizeof(wk_langSysTagForMacLanguage) / sizeof(wk_langSysTagForMacLanguage[0]))) {
+        const char *tag = wk_langSysTagForMacLanguage[code];
+        if (tag[0])
+            languageSystem = ((uint32_t)(uint8_t)tag[0] << 24) | ((uint32_t)(uint8_t)tag[1] << 16)
+                           | ((uint32_t)(uint8_t)tag[2] << 8) | (uint8_t)tag[3];
+    }
+    CFStringRef copy = CFStringCreateCopy(kCFAllocatorDefault, language);
+    if (!copy)
+        abort();
+    if (memo->language)
+        CFRelease(memo->language);
+    memo->language = copy;
+    memo->languageSystem = languageSystem;
+    return languageSystem;
+}
+
+static bool wk_shapingDependsOnCharacters(CTFontRef font, const UniChar chars[], CFIndex count, CFStringRef language)
+{
+    if (!font || !chars)
+        return false;
+    bool nonLatin = false;
+    for (CFIndex i = 0; i < count;) {
+        UChar32 character;
+        U16_NEXT(chars, i, count, character);
+        if (u_hasBinaryProperty(character, UCHAR_DEFAULT_IGNORABLE_CODE_POINT))
+            return true;
+        UErrorCode status = U_ZERO_ERROR;
+        UScriptCode script = uscript_getScript(character, &status);
+        nonLatin |= U_SUCCESS(status) && script != USCRIPT_COMMON && script != USCRIPT_INHERITED && script != USCRIPT_LATIN;
+    }
+    const wk_shaping_context *context = wk_shapingContext(font);
+    if (context->requestsPositioningFeature)
+        return true;
+    // TOpenTypeMorph derives a script from characters; a glyph-only transform selects latn.
+    // A non-Latin run can select its own Script table or DFLT, including when only latn is present.
+    if (nonLatin && context->scriptCount)
+        return true;
+    if (!language || !context->languageSystemCount || CFGetTypeID(language) != CFStringGetTypeID())
+        return false;
+    uint32_t languageSystem = wk_languageSystemForLanguage(language);
+    for (CFIndex i = 0; languageSystem && i < context->languageSystemCount; i++) {
+        if (context->languageSystems[i] == languageSystem)
+            return true;
+    }
+    return false;
+}
+
+static CFNumberRef wkTypesetterShapingZeroKern;
+static CFDictionaryRef wkTypesetterShapingOptions[2];
+
+static void wk_makeTypesetterShapingConstants(void)
+{
+    float zero = 0;
+    wkTypesetterShapingZeroKern = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloatType, &zero);
+    for (int level = 0; level < 2; ++level) {
+        CFNumberRef number = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &level);
+        const void *keys[] = { kCTTypesetterOptionForcedEmbeddingLevel };
+        const void *values[] = { number };
+        wkTypesetterShapingOptions[level] = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1,
+            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        CFRelease(number);
+    }
+}
+
+// Set the caller's own nominal glyphs from characters, language and kerning at the forced direction.
+static bool wk_shapeThroughTypesetter(CTFontRef font, CGGlyph glyphs[], CGSize advances[], CGPoint origins[], CFIndex indexes[],
+    const UniChar chars[], CFIndex count, CFOptionFlags options, CFStringRef language,
+    void (^handler)(CFRange, CGGlyph**, CGSize**, CGPoint**, CFIndex**), CGSize *initialAdvance)
+{
+    if (!chars || !indexes || !origins)
+        return false;
+    for (CFIndex i = 0; i < count; i++) {
+        if (indexes[i] != i || (chars[i] >= 0xD800 && chars[i] <= 0xDFFF))
+            return false;
+    }
+
+    CGGlyph inlineNominal[WK_SHAPE_INLINE_GLYPHS];
+    CGSize inlineNominalAdvances[WK_SHAPE_INLINE_GLYPHS];
+    bool inlineBuffers = count <= WK_SHAPE_INLINE_GLYPHS;
+    CGGlyph *nominal = inlineBuffers ? inlineNominal : (CGGlyph *)malloc((size_t)count * sizeof(CGGlyph));
+    CGSize *nominalAdvances = inlineBuffers ? inlineNominalAdvances : (CGSize *)malloc((size_t)count * sizeof(CGSize));
+    if (!nominal || !nominalAdvances)
+        abort();
+    CTFontGetGlyphsForCharacters(font, chars, nominal, count);
+    CTFontGetAdvancesForGlyphs(font, kCTFontOrientationHorizontal, nominal, nominalAdvances, count);
+    // WebCore measures a glyph through a float, so the advances are compared at that precision.
+    bool ownGlyphs = true;
+    for (CFIndex i = 0; i < count && ownGlyphs; i++)
+        ownGlyphs = nominal[i] && nominal[i] == glyphs[i] && (float)nominalAdvances[i].width == (float)advances[i].width;
+    if (!inlineBuffers) {
+        free(nominal);
+        free(nominalAdvances);
+    }
+    if (!ownGlyphs)
+        return false;
+
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+    pthread_once(&once, wk_makeTypesetterShapingConstants);
+    CFNumberRef zeroKern = wkTypesetterShapingZeroKern;
+    CFDictionaryRef typesetterOptions = wkTypesetterShapingOptions[!!(options & WK_CTFONT_SHAPE_RIGHT_TO_LEFT)];
+    CFStringRef string = CFStringCreateWithCharactersNoCopy(kCFAllocatorDefault, chars, count, kCFAllocatorNull);
+    CFMutableDictionaryRef attributes = CFDictionaryCreateMutable(kCFAllocatorDefault, 3,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    if (!string || !attributes || !zeroKern || !typesetterOptions)
+        abort();
+    CFDictionarySetValue(attributes, kCTFontAttributeName, font);
+    if (language && CFGetTypeID(language) == CFStringGetTypeID())
+        CFDictionarySetValue(attributes, kCTLanguageAttributeName, language);
+    if (!(options & WK_CTFONT_SHAPE_WITH_KERNING))
+        CFDictionarySetValue(attributes, kCTKernAttributeName, zeroKern);
+    CFAttributedStringRef attributed = CFAttributedStringCreate(kCFAllocatorDefault, string, attributes);
+    CTTypesetterRef typesetter = attributed ? CTTypesetterCreateWithAttributedStringAndOptions(attributed, typesetterOptions) : NULL;
+    CTLineRef line = typesetter ? CTTypesetterCreateLine(typesetter, CFRangeMake(0, 0)) : NULL;
+    CFArrayRef runs = line ? CTLineGetGlyphRuns(line) : NULL;
+    CTRunRef run = runs && CFArrayGetCount(runs) == 1 ? (CTRunRef)CFArrayGetValueAtIndex(runs, 0) : NULL;
+    CFDictionaryRef runAttributes = run ? CTRunGetAttributes(run) : NULL;
+    CTFontRef runFont = runAttributes ? (CTFontRef)CFDictionaryGetValue(runAttributes, kCTFontAttributeName) : NULL;
+
+    bool shaped = runFont && (runFont == font || CFEqual(runFont, font));
+    if (shaped) {
+        CFIndex runCount = CTRunGetGlyphCount(run);
+        size_t slots = (size_t)(runCount ? runCount : 1);
+        CGGlyph *runGlyphs = (CGGlyph *)malloc(slots * sizeof(CGGlyph));
+        CGSize *runAdvances = (CGSize *)malloc(slots * sizeof(CGSize));
+        CGPoint *runPositions = (CGPoint *)malloc(slots * sizeof(CGPoint));
+        CFIndex *runIndices = (CFIndex *)malloc(slots * sizeof(CFIndex));
+        if (!runGlyphs || !runAdvances || !runPositions || !runIndices)
+            abort();
+        CTRunGetGlyphs(run, CFRangeMake(0, 0), runGlyphs);
+        CTRunGetAdvances(run, CFRangeMake(0, 0), runAdvances);
+        CTRunGetPositions(run, CFRangeMake(0, 0), runPositions);
+        CTRunGetStringIndices(run, CFRangeMake(0, 0), runIndices);
+
+        // CTLine compacts substitutions itself. Its retained invisible glyphs carry string indices
+        // and zero advances, including the sole glyph of a default-ignorable run.
+        CGGlyph *outGlyphs = glyphs; CGSize *outAdvances = advances;
+        CGPoint *outOrigins = origins; CFIndex *outIndexes = indexes;
+        if (runCount != count)
+            handler(CFRangeMake(count, runCount - count), &outGlyphs, &outAdvances, &outOrigins, &outIndexes);
+
+        // Each origin is its glyph's offset from where the advances before it leave the pen; the first
+        // glyph's own position is the run's initial advance.
+        CGFloat pen = 0;
+        CFIndex slot = 0;
+        for (CFIndex r = 0; r < runCount; r++) {
+            if (!slot) {
+                initialAdvance->width = runPositions[r].x;
+                pen = runPositions[r].x;
+            }
+            outGlyphs[slot] = runGlyphs[r];
+            outAdvances[slot] = CGSizeMake(runAdvances[r].width, 0);
+            outOrigins[slot] = CGPointMake(runPositions[r].x - pen, runPositions[r].y);
+            outIndexes[slot] = runIndices[r];
+            pen += runAdvances[r].width;
+            slot++;
+        }
+        free(runGlyphs);
+        free(runAdvances);
+        free(runPositions);
+        free(runIndices);
+    }
+
+    if (line)
+        CFRelease(line);
+    if (typesetter)
+        CFRelease(typesetter);
+    if (attributed)
+        CFRelease(attributed);
+    CFRelease(attributes);
+    CFRelease(string);
+    return shaped;
+}
+
+// CTFontShapeGlyphs takes a right-to-left run in logical order and returns it in visual order, which WebCore
+// reverses back (Font::applyTransforms). CTFontTransformGlyphs reads a run in visual order.
+static void wk_shapeReverse(CGGlyph *glyphs, CGSize *advances, CGPoint *origins, CFIndex *indexes, CFIndex count)
+{
+    for (CFIndex i = 0, j = count - 1; i < j; ++i, --j) {
+        CGGlyph glyph = glyphs[i]; glyphs[i] = glyphs[j]; glyphs[j] = glyph;
+        CGSize advance = advances[i]; advances[i] = advances[j]; advances[j] = advance;
+        if (origins) {
+            CGPoint origin = origins[i]; origins[i] = origins[j]; origins[j] = origin;
+        }
+        if (indexes) {
+            CFIndex index = indexes[i]; indexes[i] = indexes[j]; indexes[j] = index;
+        }
+    }
+}
+
 WK_POLYFILL_ABSENT("CoreText", CGSize, CTFontShapeGlyphs,
     (CTFontRef font, CGGlyph glyphs[], CGSize advances[], CGPoint origins[], CFIndex indexes[], const UniChar chars[], CFIndex count, CFOptionFlags options, CFStringRef language, void (^handler)(CFRange, CGGlyph**, CGSize**, CGPoint**, CFIndex**)))
 {
-    (void)language;
     CGSize zero = { 0, 0 };
     if (count <= 0 || !glyphs || !advances || !WK_SYSTEM(CTFontTransformGlyphs))
         return zero;
 
     uint32_t transform = WK_CTFONT_TRANSFORM_APPLY_SHAPING
         | ((options & WK_CTFONT_SHAPE_WITH_KERNING) ? WK_CTFONT_TRANSFORM_APPLY_POSITIONING : 0);
+
+    CGSize initialAdvance = zero;
+    if (handler && wk_shapingDependsOnCharacters(font, chars, count, language)
+        && wk_shapeThroughTypesetter(font, glyphs, advances, origins, indexes, chars, count, options, language, handler, &initialAdvance))
+        return initialAdvance;
+
+    CTFontRef shapingFont = wk_shapingFont(font, !!(options & WK_CTFONT_SHAPE_RIGHT_TO_LEFT));
+    if (shapingFont)
+        font = shapingFont;
+
+    if (options & WK_CTFONT_SHAPE_RIGHT_TO_LEFT)
+        wk_shapeReverse(glyphs, advances, origins, indexes, count);
 
     // The advances are in/out, and CTFontTransformGlyphs keeps that contract itself: it writes an
     // advance only where it substitutes a glyph (measured, zero-seeded Hoefler "fi" comes back as
@@ -3983,25 +5220,137 @@ WK_POLYFILL_ABSENT("CoreText", CGSize, CTFontShapeGlyphs,
     return zero;   // a transformed glyph array starts at the origin; there is no initial advance to report
 }
 
-// CTRunGetBaseAdvancesAndOrigins (10.11+): the base advances and per-glyph origins over a run range,
-// where a zero length means "to the end of the run". The advances are the ones 10.9's CTRunGetAdvances
-// reports. The origins are all zero: 10.9's CTRun.h declares CTRunStatus without a
-// kCTRunStatusHasOrigins bit, so no run this CoreText produces carries per-glyph origin offsets.
+// 10.9 encodes mark placement in paint advances. Base advances keep mark glyphs at zero,
+// and origins retain their displacement from the advancing pen, so normalizing a space's width
+// does not erase the following mark's placement.
+typedef struct {
+    bool hasOrigins;
+    CFIndex count;
+    // count CGSize advances, followed by count CGPoint origins.
+    CGSize advances[];
+} wk_run_geometry;
+
+// GDEF class 3 identifies marks, including marks with a nonzero hmtx advance.
+static bool wk_runGlyphIsMark(CFDataRef gdef, CGGlyph glyph, CGFloat nominalAdvance)
+{
+    if (!gdef)
+        return !nominalAdvance;
+    CFIndex length = CFDataGetLength(gdef);
+    const uint8_t *bytes = CFDataGetBytePtr(gdef);
+    if (length < 6)
+        return false;
+    unsigned offset = wk_be16(bytes + 4);
+    if (!offset || offset + 4 > length)
+        return false;
+    const uint8_t *classes = bytes + offset;
+    unsigned format = wk_be16(classes);
+    if (format == 1) {
+        if (offset + 6 > length)
+            return false;
+        unsigned start = wk_be16(classes + 2);
+        unsigned count = wk_be16(classes + 4);
+        return glyph >= start && glyph - start < count && offset + 6 + 2 * count <= length
+            && wk_be16(classes + 6 + 2 * (glyph - start)) == 3;
+    }
+    if (format == 2) {
+        unsigned count = wk_be16(classes + 2);
+        if (offset + 4 + 6 * count > length)
+            return false;
+        for (unsigned i = 0; i < count; ++i) {
+            const uint8_t *range = classes + 4 + 6 * i;
+            if (glyph >= wk_be16(range) && glyph <= wk_be16(range + 2))
+                return wk_be16(range + 4) == 3;
+        }
+    }
+    return false;
+}
+
+static const wk_run_geometry *wk_runGeometry(CTRunRef run)
+{
+    const void *key = sel_registerName("wk_runGeometry");
+    CFDataRef cached = (CFDataRef)objc_getAssociatedObject((id)(void *)run, key);
+    if (!cached) {
+        objc_sync_enter((id)(void *)run);
+        cached = (CFDataRef)objc_getAssociatedObject((id)(void *)run, key);
+        if (!cached) {
+            CFIndex count = CTRunGetGlyphCount(run);
+            CFMutableDataRef data = CFDataCreateMutable(kCFAllocatorDefault, 0);
+            if (!data)
+                abort();
+            CFDataSetLength(data, sizeof(wk_run_geometry) + count * (sizeof(CGSize) + sizeof(CGPoint)));
+            wk_run_geometry *geometry = (wk_run_geometry *)(void *)CFDataGetMutableBytePtr(data);
+            geometry->count = count;
+            geometry->hasOrigins = false;
+            CGPoint *origins = (CGPoint *)(geometry->advances + count);
+            if (count) {
+                CTRunGetAdvances(run, CFRangeMake(0, 0), geometry->advances);
+                CFDictionaryRef attributes = CTRunGetAttributes(run);
+                CTFontRef font = attributes ? (CTFontRef)CFDictionaryGetValue(attributes, kCTFontAttributeName) : NULL;
+                bool horizontal = !attributes || CFDictionaryGetValue(attributes, kCTVerticalFormsAttributeName) != kCFBooleanTrue;
+                if (font && horizontal) {
+                    CGGlyph *glyphs = malloc(count * sizeof(CGGlyph));
+                    CGSize *nominal = malloc(count * sizeof(CGSize));
+                    CGPoint *positions = malloc(count * sizeof(CGPoint));
+                    if (!glyphs || !nominal || !positions)
+                        abort();
+                    CTRunGetGlyphs(run, CFRangeMake(0, 0), glyphs);
+                    CTRunGetPositions(run, CFRangeMake(0, 0), positions);
+                    CTFontGetAdvancesForGlyphs(font, kCTFontOrientationHorizontal, glyphs, nominal, count);
+                    CGPoint end = CGPointMake(positions[count - 1].x + geometry->advances[count - 1].width,
+                        positions[count - 1].y + geometry->advances[count - 1].height);
+                    CFDataRef gdef = wk_fontTable(font, sel_registerName("wk_runGDEF"), kCTFontTableGDEF);
+                    CFIndex firstBase = 0;
+                    while (firstBase < count && wk_runGlyphIsMark(gdef, glyphs[firstBase], nominal[firstBase].width))
+                        ++firstBase;
+                    CGFloat pen = firstBase < count ? positions[firstBase].x : end.x;
+                    for (CFIndex i = 0; i < count; ++i) {
+                        origins[i] = CGPointMake(positions[i].x - pen, positions[i].y - end.y);
+                        geometry->hasOrigins |= origins[i].x != 0 || origins[i].y != 0;
+                        CGFloat nextPen = pen;
+                        if (!wk_runGlyphIsMark(gdef, glyphs[i], nominal[i].width)) {
+                            CFIndex nextBase = i + 1;
+                            while (nextBase < count && wk_runGlyphIsMark(gdef, glyphs[nextBase], nominal[nextBase].width))
+                                ++nextBase;
+                            nextPen = nextBase < count ? positions[nextBase].x : end.x;
+                        }
+                        geometry->advances[i] = CGSizeMake(nextPen - pen, 0);
+                        pen = nextPen;
+                    }
+                    free(positions);
+                    free(nominal);
+                    free(glyphs);
+                }
+            }
+            objc_setAssociatedObject((id)(void *)run, key, (id)(void *)data, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            CFRelease(data);
+            cached = (CFDataRef)objc_getAssociatedObject((id)(void *)run, key);
+        }
+        objc_sync_exit((id)(void *)run);
+    }
+    return (const wk_run_geometry *)(const void *)CFDataGetBytePtr(cached);
+}
+
+WK_POLYFILL_REPLACES("CoreText", CTRunStatus, CTRunGetStatus, (CTRunRef run))
+{
+    CTRunStatus status = WK_ORIGINAL(CTRunGetStatus)(run);
+    if (run && wk_runGeometry(run)->hasOrigins)
+        status |= 1u << 4; // kCTRunStatusHasOrigins, from CoreTextSPI.h.
+    return status;
+}
+
 WK_POLYFILL_ABSENT("CoreText", void, CTRunGetBaseAdvancesAndOrigins,
     (CTRunRef run, CFRange range, CGSize *advances, CGPoint *origins))
 {
     if (!run)
         return;
-    CFIndex glyphCount = CTRunGetGlyphCount(run);
-    CFIndex count = range.length ? range.length : glyphCount - range.location;
-    if (count < 0)
-        count = 0;
+    const wk_run_geometry *geometry = wk_runGeometry(run);
+    CFIndex count = range.length ? range.length : geometry->count - range.location;
+    if (range.location < 0 || count < 0 || range.location > geometry->count || count > geometry->count - range.location)
+        return;
     if (advances)
-        CTRunGetAdvances(run, range, advances);
-    if (origins) {
-        for (CFIndex i = 0; i < count; ++i)
-            origins[i] = CGPointZero;
-    }
+        memcpy(advances, geometry->advances + range.location, count * sizeof(CGSize));
+    if (origins)
+        memcpy(origins, (const CGPoint *)(geometry->advances + geometry->count) + range.location, count * sizeof(CGPoint));
 }
 
 // ============================================================================
@@ -4045,23 +5394,201 @@ WK_SYSTEM_FN("CoreGraphics", CGTextDrawingMode, CGContextGetTextDrawingMode, (CG
 static void wk_drawGlyphsInPDFTransparencyLayer(CGContextRef context, CTFontRef font, const CGGlyph *glyphs, const CGPoint *positions, size_t count);
 static void wk_drawGlyphRun(CTFontRef font, const CGGlyph *glyphs, const CGPoint *positions, size_t count, CGContextRef context);
 
+WK_SYSTEM_FN("CoreGraphics", CGColorRef, CGContextGetFillColorAsColor, (CGContextRef));
+
+typedef enum { WK_GLYPH_OUTLINE, WK_GLYPH_SBIX, WK_GLYPH_COLR } wk_glyph_kind;
+
+// What one draw or measure needs of a colour font: its tables, the palette it was realized with, and
+// the glyph count every layer glyph is bounded by.
+typedef struct {
+    CTFontRef font;
+    bool sbix;
+    bool colr;
+    wk_colr_tables tables;
+    uint32_t glyphCount;
+    uint16_t palette;
+    CFDictionaryRef overrides;
+    CGFloat pointSize;
+} wk_color_font;
+
+static bool wk_colorFontOpen(CTFontRef font, wk_color_font *out)
+{
+    if (!font)
+        return false;
+    memset(out, 0, sizeof(*out));
+    out->font = font;
+    out->sbix = wk_sbixFont(font);
+    CFDataRef colr = wk_fontTable(font, wk_colrTableKey(), kCTFontTableCOLR);
+    if (colr) {
+        CFDataRef cpal = wk_fontTable(font, wk_cpalTableKey(), kCTFontTableCPAL);
+        out->colr = colr != NULL;
+        out->tables.colr = colr ? CFDataGetBytePtr(colr) : NULL;
+        out->tables.colrLength = colr ? (size_t)CFDataGetLength(colr) : 0;
+        out->tables.cpal = cpal ? CFDataGetBytePtr(cpal) : NULL;
+        out->tables.cpalLength = cpal ? (size_t)CFDataGetLength(cpal) : 0;
+        out->glyphCount = (uint32_t)CTFontGetGlyphCount(font);
+        int64_t requested = 0;
+        CFNumberRef palette = (CFNumberRef)objc_getAssociatedObject((id)(void *)font, wk_paletteKey());
+        if (palette)
+            CFNumberGetValue(palette, kCFNumberSInt64Type, &requested);
+        out->palette = wk_cpalResolvePalette(&out->tables, requested);
+        out->overrides = (CFDictionaryRef)objc_getAssociatedObject((id)(void *)font, wk_paletteColorsKey());
+    }
+    if (!out->sbix && !out->colr)
+        return false;
+    out->pointSize = CTFontGetSize(font);
+    return true;
+}
+
+static bool wk_sbixGlyph(const wk_color_font *f, CGGlyph glyph)
+{
+    if (!f->sbix)
+        return false;
+    pthread_mutex_lock(&wkSbixLock);
+    bool bitmap = wk_sbixBitmap(f->font, glyph, f->pointSize, NULL, NULL);
+    pthread_mutex_unlock(&wkSbixLock);
+    return bitmap;
+}
+
+// A COLR layer never names a glyph this OS would draw from its sbix strike, which decodes in ImageIO.
+static bool wk_colrLayerExcluded(void *context, uint16_t glyph)
+{
+    return wk_sbixGlyph((const wk_color_font *)context, glyph);
+}
+
+static size_t wk_colrGlyphLayers(const wk_color_font *f, CGGlyph glyph, wk_colr_layer *layers)
+{
+    if (!f->colr || !wk_colrHasBaseGlyph(&f->tables, glyph))
+        return 0;
+    return wk_colrLayers(&f->tables, glyph, f->glyphCount, f->palette, wk_colrLayerExcluded, (void *)f, layers, WK_COLR_MAX_LAYERS);
+}
+
+static wk_glyph_kind wk_glyphKind(const wk_color_font *f, CGGlyph glyph)
+{
+    if (wk_sbixGlyph(f, glyph))
+        return WK_GLYPH_SBIX;
+    wk_colr_layer layers[WK_COLR_MAX_LAYERS];
+    return wk_colrGlyphLayers(f, glyph, layers) ? WK_GLYPH_COLR : WK_GLYPH_OUTLINE;
+}
+
+static size_t wk_colorRunGroup(const wk_color_font *f, const CGGlyph *glyphs, size_t count, size_t from, wk_glyph_kind *outKind)
+{
+    wk_glyph_kind kind = wk_glyphKind(f, glyphs[from]);
+    size_t next = from + 1;
+    while (next < count && wk_glyphKind(f, glyphs[next]) == kind)
+        ++next;
+    *outKind = kind;
+    return next;
+}
+
+static CGColorRef wk_copyLayerColor(const wk_color_font *f, const wk_colr_layer *layer, CGColorRef foreground, CGColorSpaceRef sRGB)
+{
+    if (layer->paletteEntry == WK_COLR_FOREGROUND)
+        return foreground ? CGColorRetain(foreground) : NULL;
+    if (f->overrides) {
+        int64_t entry = layer->paletteEntry;
+        CFNumberRef key = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt64Type, &entry);
+        CFTypeRef override = key ? CFDictionaryGetValue(f->overrides, key) : NULL;
+        if (key)
+            CFRelease(key);
+        if (override && CFGetTypeID(override) == CGColorGetTypeID())
+            return CGColorRetain((CGColorRef)override);
+    }
+    CGFloat components[4] = { layer->red / 255.0, layer->green / 255.0, layer->blue / 255.0, layer->alpha / 255.0 };
+    return sRGB ? CGColorCreate(sRGB, components) : NULL;
+}
+
+// COLR layers composite as one group, applying context alpha, blend mode and shadow once.
+// CTFontCreatePathForGlyph applies the font matrix to the outline; its pen needs the same transform.
+static CGAffineTransform wk_glyphPathMatrix(CTFontRef font, CGPoint position, CGAffineTransform textMatrix)
+{
+    position = CGPointApplyAffineTransform(position, CTFontGetMatrix(font));
+    return CGAffineTransformConcat(CGAffineTransformMakeTranslation(position.x, position.y), textMatrix);
+}
+
+static void wk_drawColrRun(const wk_color_font *f, const CGGlyph *glyphs, const CGPoint *positions, size_t count, CGContextRef context)
+{
+    wk_colr_layer *layers = (wk_colr_layer *)malloc(WK_COLR_MAX_LAYERS * sizeof(*layers));
+    if (!layers)
+        return;
+    CGColorRef foreground = WK_SYSTEM(CGContextGetFillColorAsColor) ? WK_SYSTEM(CGContextGetFillColorAsColor)(context) : NULL;
+    if (foreground)
+        CGColorRetain(foreground);
+    CGColorSpaceRef sRGB = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+
+    CGContextSaveGState(context);
+    CGContextBeginTransparencyLayer(context, NULL);
+    CGAffineTransform textMatrix = CGContextGetTextMatrix(context);
+    for (size_t i = 0; i < count; ++i) {
+        size_t layerCount = wk_colrGlyphLayers(f, glyphs[i], layers);
+        for (size_t j = 0; j < layerCount; ++j) {
+            CGColorRef color = wk_copyLayerColor(f, &layers[j], foreground, sRGB);
+            if (color) {
+                CGContextSetFillColorWithColor(context, color);
+                CGColorRelease(color);
+            }
+            CGAffineTransform matrix = wk_glyphPathMatrix(f->font, positions[i], textMatrix);
+            CGPathRef path = CTFontCreatePathForGlyph(f->font, layers[j].glyph, &matrix);
+            if (path) {
+                CGContextBeginPath(context);
+                CGContextAddPath(context, path);
+                CGContextFillPath(context);
+                CGPathRelease(path);
+            }
+        }
+    }
+    CGContextEndTransparencyLayer(context);
+    CGContextRestoreGState(context);
+
+    if (sRGB)
+        CGColorSpaceRelease(sRGB);
+    if (foreground)
+        CGColorRelease(foreground);
+    free(layers);
+}
+
+static CGRect wk_glyphPathBounds(CTFontRef font, CGGlyph glyph)
+{
+    CGPathRef path = CTFontCreatePathForGlyph(font, glyph, NULL);
+    CGRect rect = path ? CGPathGetPathBoundingBox(path) : CGRectZero;
+    if (path)
+        CFRelease(path);
+    return rect;
+}
+
+// A COLR glyph occupies the union of its layer glyphs.
+static CGRect wk_colrGlyphBounds(const wk_color_font *f, CGGlyph glyph)
+{
+    wk_colr_layer layers[WK_COLR_MAX_LAYERS];
+    size_t layerCount = wk_colrGlyphLayers(f, glyph, layers);
+    CGRect united = CGRectNull;
+    for (size_t j = 0; j < layerCount; ++j) {
+        CGRect rect = wk_glyphPathBounds(f->font, layers[j].glyph);
+        if (!CGRectIsNull(rect) && !CGRectIsInfinite(rect) && !CGRectIsEmpty(rect))
+            united = CGRectIsNull(united) ? rect : CGRectUnion(united, rect);
+    }
+    return CGRectIsNull(united) ? CGRectZero : united;
+}
+
 WK_POLYFILL_REPLACES("CoreText", void, CTFontDrawGlyphs, (CTFontRef font, const CGGlyph *glyphs, const CGPoint *positions, size_t count, CGContextRef context))
 {
-    // A font with no sbix table has no glyph this layer draws, so the whole run goes to CoreText.
-    // Past this point it may, and a glyph carrying a record is never handed to the original: this
-    // OS decodes an sbix strike in ImageIO, and a strike's bytes are a downloadable font's bytes.
-    if (!glyphs || !positions || !context || !count || !wk_sbixFont(font)) {
+    // A font with neither an sbix nor a COLR table has no glyph this layer draws, so the whole run goes to
+    // CoreText. Past this point it may. A glyph carrying an sbix record is never handed to the original:
+    // this OS decodes an sbix strike in ImageIO, and a strike's bytes are a downloadable font's bytes. A
+    // COLR glyph is painted from its layers, which this OS's CoreText does not read.
+    wk_color_font f;
+    if (!glyphs || !positions || !context || !count || !wk_colorFontOpen(font, &f)) {
         wk_drawGlyphRun(font, glyphs, positions, count, context);
         return;
     }
 
-    // A colour bitmap contributes nothing to a text clip on this OS, and CG intersects the clip once
-    // per CALL rather than once per glyph, so a clipping run reaches CoreText as ONE call carrying the
+    // A colour glyph contributes nothing to a text clip on this OS, and CG intersects the clip once per
+    // CALL rather than once per glyph, so a clipping run reaches CoreText as ONE call carrying the
     // outlined glyphs alone. Measured on this OS with kCGTextClip and a full-page fill afterwards: an
     // outlined glyph clips to its own shape, a run of colour glyphs alone leaves an EMPTY clip, and a
     // call carrying no glyphs at all leaves the clip untouched -- so a run with nothing to outline
-    // intersects the clip with an empty rectangle, which is the same outcome. The bitmaps are painted
-    // before that call installs the clip.
+    // intersects the clip with an empty rectangle, which is the same outcome. The colour glyphs are
+    // painted before that call installs the clip.
     CGTextDrawingMode mode = WK_SYSTEM(CGContextGetTextDrawingMode) ? WK_SYSTEM(CGContextGetTextDrawingMode)(context) : kCGTextFill;
 
     // kCGTextInvisible paints nothing at all. The outlined glyphs still reach CoreText, which paints
@@ -4070,9 +5597,9 @@ WK_POLYFILL_REPLACES("CoreText", void, CTFontDrawGlyphs, (CTFontRef font, const 
     if (mode == kCGTextInvisible) {
         size_t i = 0;
         while (i < count) {
-            bool bitmap = false;
-            size_t next = wk_sbixRunGroup(font, glyphs, count, i, &bitmap);
-            if (!bitmap)
+            wk_glyph_kind kind = WK_GLYPH_OUTLINE;
+            size_t next = wk_colorRunGroup(&f, glyphs, count, i, &kind);
+            if (kind == WK_GLYPH_OUTLINE)
                 wk_drawGlyphRun(font, &glyphs[i], &positions[i], next - i, context);
             i = next;
         }
@@ -4082,13 +5609,13 @@ WK_POLYFILL_REPLACES("CoreText", void, CTFontDrawGlyphs, (CTFontRef font, const 
     if (mode >= kCGTextFillClip) {
         // A run this layer draws none of goes to CoreText whole, which is also the only shape that
         // needs no gathering.
-        bool anyBitmap = false;
-        for (size_t i = 0; i < count && !anyBitmap; ) {
-            bool bitmap = false;
-            i = wk_sbixRunGroup(font, glyphs, count, i, &bitmap);
-            anyBitmap = bitmap;
+        bool anyColor = false;
+        for (size_t i = 0; i < count && !anyColor; ) {
+            wk_glyph_kind kind = WK_GLYPH_OUTLINE;
+            i = wk_colorRunGroup(&f, glyphs, count, i, &kind);
+            anyColor = kind != WK_GLYPH_OUTLINE;
         }
-        if (!anyBitmap) {
+        if (!anyColor) {
             wk_drawGlyphRun(font, glyphs, positions, count, context);
             return;
         }
@@ -4101,18 +5628,22 @@ WK_POLYFILL_REPLACES("CoreText", void, CTFontDrawGlyphs, (CTFontRef font, const 
         size_t outlinedCount = 0;
         size_t i = 0;
         while (i < count) {
-            bool bitmap = false;
-            size_t next = wk_sbixRunGroup(font, glyphs, count, i, &bitmap);
-            for (size_t j = i; j < next; ++j) {
-                if (bitmap) {
-                    // kCGTextClip establishes a clip and paints no ink; the other clip modes fill or
-                    // stroke as well, and a colour bitmap is what their fill looks like.
-                    if (mode != kCGTextClip)
-                        wk_drawSbixGlyph(font, glyphs[j], positions[j], context);
-                } else if (outlined) {
+            wk_glyph_kind kind = WK_GLYPH_OUTLINE;
+            size_t next = wk_colorRunGroup(&f, glyphs, count, i, &kind);
+            if (kind == WK_GLYPH_OUTLINE) {
+                for (size_t j = i; outlined && j < next; ++j) {
                     outlinedPositions[outlinedCount] = positions[j];
                     outlined[outlinedCount] = glyphs[j];
                     ++outlinedCount;
+                }
+            } else if (mode != kCGTextClip) {
+                // kCGTextClip establishes a clip and paints no ink; the other clip modes fill or stroke
+                // as well, and a colour glyph's own colours are what their paint looks like.
+                if (kind == WK_GLYPH_COLR)
+                    wk_drawColrRun(&f, &glyphs[i], &positions[i], next - i, context);
+                else {
+                    for (size_t j = i; j < next; ++j)
+                        wk_drawSbixGlyph(font, glyphs[j], positions[j], context);
                 }
             }
             i = next;
@@ -4128,15 +5659,31 @@ WK_POLYFILL_REPLACES("CoreText", void, CTFontDrawGlyphs, (CTFontRef font, const 
     // A painting run keeps its order, so glyphs composite as one CoreText call would paint them.
     size_t i = 0;
     while (i < count) {
-        bool bitmap = false;
-        size_t next = wk_sbixRunGroup(font, glyphs, count, i, &bitmap);
-        if (bitmap) {
+        wk_glyph_kind kind = WK_GLYPH_OUTLINE;
+        size_t next = wk_colorRunGroup(&f, glyphs, count, i, &kind);
+        if (kind == WK_GLYPH_SBIX) {
             for (size_t j = i; j < next; ++j)
                 wk_drawSbixGlyph(font, glyphs[j], positions[j], context);
-        } else
+        } else if (kind == WK_GLYPH_COLR)
+            wk_drawColrRun(&f, &glyphs[i], &positions[i], next - i, context);
+        else
             wk_drawGlyphRun(font, &glyphs[i], &positions[i], next - i, context);
         i = next;
     }
+}
+
+// A glyph ID at or past the font's glyph count has no outline, and CTFontCreatePathForGlyph answers
+// NULL for it -- modern CoreText's answer, and this OS's own for an outline font. This OS's colour-bitmap
+// lookup indexes a font's sbix strike offsets with the ID unbounded by that count, so the answer is
+// given here before the lookup runs. WebCore measures and draws deletedGlyph (0xFFFF) through it.
+WK_POLYFILL_REPLACES("CoreText", CGPathRef, CTFontCreatePathForGlyph,
+                     (CTFontRef font, CGGlyph glyph, const CGAffineTransform *matrix))
+{
+    if (!WK_ORIGINAL(CTFontCreatePathForGlyph))
+        return NULL;
+    if (font && glyph >= CTFontGetGlyphCount(font))
+        return NULL;
+    return WK_ORIGINAL(CTFontCreatePathForGlyph)(font, glyph, matrix);
 }
 
 // This OS reports every glyph of a font that carries an sbix table 0.075 em below where it draws it,
@@ -4152,67 +5699,242 @@ static CGRect wk_rotateRectLeft(CGRect rect)
     return CGRectMake(-CGRectGetMaxY(rect), CGRectGetMinX(rect), rect.size.height, rect.size.width);
 }
 
+// Control characters. CoreText maps U+0000, and every other control character WebKit leaves to it, to one
+// glyph -- the font's zero-width .null -- and WebKit reads that glyph from glyph page 0 as the font's zero
+// width space glyph (Font::platformGlyphInit), whose advance widthForGlyph zeroes. 10.9 answers U+0000 with
+// .null only when asked for it alone or in a short run: at the head of the 256-character page WebKit asks
+// for, it answers glyph 0 (measured: Times, Helvetica and Lucida Grande give .null, glyph 1, alone and
+// glyph 0 as the first of 256). And it maps U+000D to the font's nonmarkingreturn or space glyph, which
+// carries a space's advance (Times 4.00 at 16pt), so a carriage return WebKit sets as text is a space wide.
+// Tab and line feed keep 10.9's space-wide glyph: WebKit gives both the space or tab advance itself.
+static bool wk_isControlCharacterMappedToNull(UniChar character)
+{
+    return (character < 0x20 && character != 0x09 && character != 0x0A) || (character >= 0x7F && character < 0xA0);
+}
+
+// The glyph `font` answers for U+0000 asked for alone.
+static CGGlyph wk_nullGlyph(CTFontRef font, bool (*getGlyphs)(CTFontRef, const UniChar[], CGGlyph[], CFIndex))
+{
+    const UniChar null = 0;
+    CGGlyph glyph = 0;
+    getGlyphs(font, &null, &glyph, 1);
+    return glyph;
+}
+
+// Maps each control character in `characters` to the U+0000 glyph, and answers whether every character
+// has a glyph, a trailing surrogate counting as mapped with its lead.
+static bool wk_mapControlCharactersToNull(CTFontRef font, const UniChar characters[], CGGlyph glyphs[], CFIndex count, bool mapped,
+    bool (*getGlyphs)(CTFontRef, const UniChar[], CGGlyph[], CFIndex))
+{
+    if (!font || !characters || !glyphs || count <= 0)
+        return mapped;
+    bool hasControl = false;
+    for (CFIndex i = 0; i < count && !hasControl; ++i)
+        hasControl = wk_isControlCharacterMappedToNull(characters[i]);
+    if (!hasControl)
+        return mapped;
+    const CGGlyph null = wk_nullGlyph(font, getGlyphs);
+    bool allMapped = true;
+    for (CFIndex i = 0; i < count; ++i) {
+        if (wk_isControlCharacterMappedToNull(characters[i]))
+            glyphs[i] = null;
+        bool trailing = i && characters[i] >= 0xDC00 && characters[i] <= 0xDFFF && characters[i - 1] >= 0xD800 && characters[i - 1] <= 0xDBFF;
+        allMapped = allMapped && (glyphs[i] || (trailing && glyphs[i - 1]));
+    }
+    return allMapped;
+}
+
+WK_POLYFILL_REPLACES("CoreText", bool, CTFontGetGlyphsForCharacters,
+                     (CTFontRef font, const UniChar characters[], CGGlyph glyphs[], CFIndex count))
+{
+    if (!WK_ORIGINAL(CTFontGetGlyphsForCharacters))
+        return false;
+    bool mapped = WK_ORIGINAL(CTFontGetGlyphsForCharacters)(font, characters, glyphs, count);
+    return wk_mapControlCharactersToNull(font, characters, glyphs, count, mapped, WK_ORIGINAL(CTFontGetGlyphsForCharacters));
+}
+
+WK_POLYFILL_REPLACES("CoreText", bool, CTFontGetVerticalGlyphsForCharacters,
+                     (CTFontRef font, const UniChar characters[], CGGlyph glyphs[], CFIndex count))
+{
+    if (!WK_ORIGINAL(CTFontGetVerticalGlyphsForCharacters))
+        return false;
+    bool mapped = WK_ORIGINAL(CTFontGetVerticalGlyphsForCharacters)(font, characters, glyphs, count);
+    return wk_mapControlCharactersToNull(font, characters, glyphs, count, mapped, WK_ORIGINAL(CTFontGetVerticalGlyphsForCharacters));
+}
+
+// A font with neither vmtx nor VORG has no vertical origin of its own, and hangs every glyph set upright
+// from its ascent, as the fonts that do carry vertical metrics here report theirs: Hiragino Kaku Gothic
+// ProN answers -88 at 100pt for every glyph, its ascent. 10.9 instead derives the height of such a font's
+// origin from each glyph's bounding box -- Ahem at 100pt answers -84.9 for a full-height glyph and -64.9
+// for a shorter one, Times -49.85 for 'x' and -71.14 for 'T' -- so an upright glyph moves off the line its
+// horizontal setting sits on. The width, half the advance, is left as 10.9 computes it.
+static const void *wk_verticalOriginTablesKey(void) { return sel_registerName("wk_verticalOriginTables"); }
+
+// Whether the font carries vmtx or VORG, kept on the CTFont as kCFBooleanTrue or kCFBooleanFalse. The
+// association is set once and never replaced, so a present value is read without a lock.
+static bool wk_fontHasVerticalOrigins(CTFontRef font)
+{
+    CFBooleanRef cached = (CFBooleanRef)objc_getAssociatedObject((id)(void *)font, wk_verticalOriginTablesKey());
+    if (!cached) {
+        objc_sync_enter((id)(void *)font);
+        cached = (CFBooleanRef)objc_getAssociatedObject((id)(void *)font, wk_verticalOriginTablesKey());
+        if (!cached) {
+            CFDataRef vmtx = CTFontCopyTable(font, kCTFontTableVmtx, kCTFontTableOptionNoOptions);
+            CFDataRef vorg = vmtx ? NULL : CTFontCopyTable(font, kCTFontTableVORG, kCTFontTableOptionNoOptions);
+            cached = (vmtx || vorg) ? kCFBooleanTrue : kCFBooleanFalse;
+            if (vmtx)
+                CFRelease(vmtx);
+            if (vorg)
+                CFRelease(vorg);
+            objc_setAssociatedObject((id)(void *)font, wk_verticalOriginTablesKey(), (id)(void *)cached, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        objc_sync_exit((id)(void *)font);
+    }
+    return cached == kCFBooleanTrue;
+}
+
+WK_POLYFILL_REPLACES("CoreText", void, CTFontGetVerticalTranslationsForGlyphs,
+                     (CTFontRef font, const CGGlyph glyphs[], CGSize translations[], CFIndex count))
+{
+    if (!WK_ORIGINAL(CTFontGetVerticalTranslationsForGlyphs))
+        return;
+    WK_ORIGINAL(CTFontGetVerticalTranslationsForGlyphs)(font, glyphs, translations, count);
+    if (!font || !translations || count <= 0 || wk_fontHasVerticalOrigins(font))
+        return;
+    CGFloat height = -CTFontGetAscent(font);
+    for (CFIndex i = 0; i < count; ++i)
+        translations[i].height = height;
+}
+
 WK_POLYFILL_REPLACES("CoreText", CGRect, CTFontGetBoundingRectsForGlyphs,
                      (CTFontRef font, CTFontOrientation orientation, const CGGlyph *glyphs, CGRect *boundingRects, CFIndex count))
 {
     if (!WK_ORIGINAL(CTFontGetBoundingRectsForGlyphs))
         return CGRectNull;
-    if (!font || !glyphs || count <= 0 || !wk_sbixFont(font))
+    wk_color_font f;
+    if (!font || !glyphs || count <= 0 || !wk_colorFontOpen(font, &f))
         return WK_ORIGINAL(CTFontGetBoundingRectsForGlyphs)(font, orientation, glyphs, boundingRects, count);
 
     bool vertical = orientation == kCTFontOrientationVertical
         || (orientation == kCTFontOrientationDefault && (CTFontGetSymbolicTraits(font) & kCTFontTraitVertical));
-    CGSize *translations = NULL;
-    if (vertical) {
-        translations = (CGSize *)malloc((size_t)count * sizeof(CGSize));
-        if (!translations)
-            return WK_ORIGINAL(CTFontGetBoundingRectsForGlyphs)(font, orientation, glyphs, boundingRects, count);
-        CTFontGetVerticalTranslationsForGlyphs(font, glyphs, translations, count);
-    }
+    const CFIndex glyphCount = CTFontGetGlyphCount(font);
 
     CGRect united = CGRectNull;
     for (CFIndex i = 0; i < count; ++i) {
         CGRect rect = CGRectZero;
-        pthread_mutex_lock(&wkSbixLock);
-        bool haveBitmap = wk_sbixBitmap(font, glyphs[i], CTFontGetSize(font), NULL, &rect);
-        pthread_mutex_unlock(&wkSbixLock);
-        if (!haveBitmap) {
-            CGPathRef path = CTFontCreatePathForGlyph(font, glyphs[i], NULL);
-            rect = path ? CGPathGetPathBoundingBox(path) : CGRectZero;
-            if (path)
-                CFRelease(path);
+        // A glyph ID at or past the glyph count occupies nothing, and never reaches this OS's colour-bitmap
+        // lookup, which reads it unbounded by that count.
+        if ((CFIndex)glyphs[i] >= glyphCount) {
+            if (boundingRects)
+                boundingRects[i] = CGRectZero;
+            continue;
+        }
+        // Rectangles built here are horizontal glyph space, moved for a vertical run below; CoreText's
+        // own answer for an outline glyph of a font with no sbix table is already placed.
+        bool built = true;
+        wk_glyph_kind kind = wk_glyphKind(&f, glyphs[i]);
+        if (kind == WK_GLYPH_SBIX) {
+            pthread_mutex_lock(&wkSbixLock);
+            wk_sbixBitmap(font, glyphs[i], CTFontGetSize(font), NULL, &rect);
+            pthread_mutex_unlock(&wkSbixLock);
+            rect = CGRectApplyAffineTransform(rect, CTFontGetMatrix(font));
+        } else if (kind == WK_GLYPH_COLR)
+            rect = wk_colrGlyphBounds(&f, glyphs[i]);
+        else if (f.sbix)
+            rect = wk_glyphPathBounds(font, glyphs[i]);
+        else {
+            WK_ORIGINAL(CTFontGetBoundingRectsForGlyphs)(font, orientation, &glyphs[i], &rect, 1);
+            built = false;
         }
         // A glyph that occupies nothing has no rectangle to move, and leaves the union alone.
         if (CGRectIsNull(rect) || CGRectIsInfinite(rect) || CGRectIsEmpty(rect))
             rect = CGRectZero;
-        else if (vertical)
-            rect = wk_rotateRectLeft(CGRectOffset(rect, translations[i].width, translations[i].height));
+        else if (vertical && built) {
+            CGSize translation = CGSizeZero;
+            CTFontGetVerticalTranslationsForGlyphs(font, &glyphs[i], &translation, 1);
+            rect = wk_rotateRectLeft(CGRectOffset(rect, translation.width, translation.height));
+        }
         if (boundingRects)
             boundingRects[i] = rect;
         if (!CGRectIsEmpty(rect))
             united = CGRectIsNull(united) ? rect : CGRectUnion(united, rect);
     }
-    free(translations);
     return CGRectIsNull(united) ? CGRectZero : united;
 }
 
-// One run, through whichever implementation the context calls for.
+// A glyph ID at or past the glyph count of a font carrying an sbix table advances nothing, as it does in
+// modern CoreText; this OS's colour-bitmap lookup reads such an ID unbounded by that count, so it is never
+// asked for one.
+WK_POLYFILL_REPLACES("CoreText", double, CTFontGetAdvancesForGlyphs,
+                     (CTFontRef font, CTFontOrientation orientation, const CGGlyph *glyphs, CGSize *advances, CFIndex count))
+{
+    if (!WK_ORIGINAL(CTFontGetAdvancesForGlyphs))
+        return 0;
+    const CFIndex glyphCount = font && glyphs && count > 0 ? CTFontGetGlyphCount(font) : 0;
+    CFIndex outOfRange = 0;
+    for (CFIndex i = 0; glyphCount && i < count; ++i)
+        outOfRange += (CFIndex)glyphs[i] >= glyphCount;
+    if (!outOfRange || !wk_sbixFont(font))
+        return WK_ORIGINAL(CTFontGetAdvancesForGlyphs)(font, orientation, glyphs, advances, count);
+
+    double total = 0;
+    CFIndex i = 0;
+    while (i < count) {
+        if ((CFIndex)glyphs[i] >= glyphCount) {
+            if (advances)
+                advances[i] = CGSizeZero;
+            ++i;
+            continue;
+        }
+        CFIndex next = i + 1;
+        while (next < count && (CFIndex)glyphs[next] < glyphCount)
+            ++next;
+        total += WK_ORIGINAL(CTFontGetAdvancesForGlyphs)(font, orientation, &glyphs[i], advances ? &advances[i] : NULL, next - i);
+        i = next;
+    }
+    return total;
+}
+
+// One run, through whichever implementation the context calls for. A glyph ID at or past the font's glyph
+// count draws nothing, as it does in modern CoreText; this OS's colour-bitmap lookup reads a font's sbix
+// strike with the ID unbounded by that count, so such a glyph is left out of the run before it is drawn.
 static void wk_drawGlyphRun(CTFontRef font, const CGGlyph *glyphs, const CGPoint *positions, size_t count, CGContextRef context)
 {
+    if (font && glyphs && positions && count) {
+        const CFIndex glyphCount = CTFontGetGlyphCount(font);
+        size_t kept = 0;
+        for (size_t i = 0; i < count; ++i)
+            kept += (CFIndex)glyphs[i] < glyphCount;
+        if (kept < count) {
+            if (!kept)
+                return;
+            CGGlyph inlineGlyphs[128];
+            CGPoint inlinePositions[128];
+            CGGlyph *keptGlyphs = kept <= 128 ? inlineGlyphs : (CGGlyph *)malloc(kept * sizeof(CGGlyph));
+            CGPoint *keptPositions = kept <= 128 ? inlinePositions : (CGPoint *)malloc(kept * sizeof(CGPoint));
+            if (keptGlyphs && keptPositions) {
+                size_t k = 0;
+                for (size_t i = 0; i < count; ++i) {
+                    if ((CFIndex)glyphs[i] >= glyphCount)
+                        continue;
+                    keptGlyphs[k] = glyphs[i];
+                    keptPositions[k] = positions[i];
+                    ++k;
+                }
+                wk_drawGlyphRun(font, keptGlyphs, keptPositions, kept, context);
+            }
+            if (keptGlyphs != inlineGlyphs)
+                free(keptGlyphs);
+            if (keptPositions != inlinePositions)
+                free(keptPositions);
+            return;
+        }
+    }
     if (font && glyphs && positions && count && context && wk_isInsideTransparencyLayer(context)
         && WK_SYSTEM(CGContextGetType) && WK_SYSTEM(CGContextGetType)(context) == WK_CG_CONTEXT_TYPE_PDF)
         wk_drawGlyphsInPDFTransparencyLayer(context, font, glyphs, positions, count);
     else if (WK_ORIGINAL(CTFontDrawGlyphs))
         WK_ORIGINAL(CTFontDrawGlyphs)(font, glyphs, positions, count, context);
-}
-
-// CTFontCreatePathForGlyph places an outline the same way CTFontDrawGlyphs places a
-// glyph: device = CTM * textMatrix * (position + outline). Vertical runs arrive with
-// the vertical text matrix already installed on the context, so reading it here keeps
-// both orientations aligned with the system implementation.
-static CGAffineTransform wk_glyphMatrix(const CGPoint *positions, size_t index, CGAffineTransform textMatrix)
-{
-    return CGAffineTransformConcat(CGAffineTransformMakeTranslation(positions[index].x, positions[index].y), textMatrix);
 }
 
 static void wk_paintOutlines(CGContextRef context, CGPathRef path, bool fills, bool strokes)
@@ -4249,7 +5971,7 @@ static void wk_drawGlyphsInPDFTransparencyLayer(CGContextRef context, CTFontRef 
         // its handling of color glyphs -- is correct.
         CGMutablePathRef path = CGPathCreateMutable();
         for (size_t i = 0; i < count; ++i) {
-            CGAffineTransform matrix = wk_glyphMatrix(positions, i, textMatrix);
+            CGAffineTransform matrix = wk_glyphPathMatrix(font, positions[i], textMatrix);
             CGPathRef glyphPath = CTFontCreatePathForGlyph(font, glyphs[i], &matrix);
             if (!glyphPath)
                 continue;
@@ -4269,7 +5991,7 @@ static void wk_drawGlyphsInPDFTransparencyLayer(CGContextRef context, CTFontRef 
     // to silently drop glyphs.
     size_t i = 0;
     while (i < count) {
-        CGAffineTransform matrix = wk_glyphMatrix(positions, i, textMatrix);
+        CGAffineTransform matrix = wk_glyphPathMatrix(font, positions[i], textMatrix);
         CGPathRef glyphPath = CTFontCreatePathForGlyph(font, glyphs[i], &matrix);
         size_t next = i + 1;
         if (glyphPath) {
@@ -4277,7 +5999,7 @@ static void wk_drawGlyphsInPDFTransparencyLayer(CGContextRef context, CTFontRef 
             CGPathAddPath(path, NULL, glyphPath);
             CFRelease(glyphPath);
             for (; next < count; ++next) {
-                CGAffineTransform nextMatrix = wk_glyphMatrix(positions, next, textMatrix);
+                CGAffineTransform nextMatrix = wk_glyphPathMatrix(font, positions[next], textMatrix);
                 CGPathRef nextPath = CTFontCreatePathForGlyph(font, glyphs[next], &nextMatrix);
                 if (!nextPath)
                     break;
@@ -4288,7 +6010,7 @@ static void wk_drawGlyphsInPDFTransparencyLayer(CGContextRef context, CTFontRef 
             CGPathRelease(path);
         } else {
             for (; next < count; ++next) {
-                CGAffineTransform nextMatrix = wk_glyphMatrix(positions, next, textMatrix);
+                CGAffineTransform nextMatrix = wk_glyphPathMatrix(font, positions[next], textMatrix);
                 CGPathRef nextPath = CTFontCreatePathForGlyph(font, glyphs[next], &nextMatrix);
                 if (nextPath) {
                     CFRelease(nextPath);
@@ -4300,4 +6022,1697 @@ static void wk_drawGlyphsInPDFTransparencyLayer(CGContextRef context, CTFontRef 
         }
         i = next;
     }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Font fallback by grapheme cluster. 10.9's typesetter looks for a fallback font one composed-character
+// cluster at a time, and those clusters leave emoji ZWJ, modifier and tag sequences in pieces; a piece the
+// current font covers stays in it. Times covers ZERO WIDTH JOINER, so a family emoji set in Times comes out
+// as three emoji with the joiners in Times, and the font's ligature never forms. The provider CoreText reads
+// is wrapped so that a UAX #29 cluster 10.9 would split, and the current font does not cover, arrives in one
+// font: the first of the font's cascade list that covers the whole cluster, which is also how 10.9 picks a
+// font for a cluster it keeps whole. CoreText shapes each provided block separately, so the block carrying
+// that font also takes the neighbouring uncovered clusters the same font is picked for, and everything
+// else reaches CoreText in the blocks the caller provided.
+// ---------------------------------------------------------------------------------------------------
+
+typedef const UniChar *(*CTUniCharProviderCallback)(CFIndex stringIndex, CFIndex *charCount, CFDictionaryRef *attributes, void *refCon);
+typedef void (*CTUniCharDisposeCallback)(const UniChar *chars, void *refCon);
+
+// The cascade list of the last font a thread looked a cluster font up for, its fonts created on first use.
+typedef struct {
+    CTFontRef font;
+    CFStringRef language;
+    CFArrayRef descriptors;
+    CFIndex count;
+    CFTypeRef *fonts; // NULL until created; kCFNull for LastResort or a descriptor that yields no font
+} wk_cascadeFonts;
+
+static pthread_key_t wk_cascadeFontsKey;
+static pthread_once_t wk_cascadeFontsKeyOnce = PTHREAD_ONCE_INIT;
+
+static void wk_cascadeFontsClear(wk_cascadeFonts *cascade)
+{
+    for (CFIndex i = 0; i < cascade->count; ++i) {
+        if (cascade->fonts[i])
+            CFRelease(cascade->fonts[i]);
+    }
+    free(cascade->fonts);
+    if (cascade->descriptors)
+        CFRelease(cascade->descriptors);
+    if (cascade->language)
+        CFRelease(cascade->language);
+    if (cascade->font)
+        CFRelease(cascade->font);
+    memset(cascade, 0, sizeof(*cascade));
+}
+
+static void wk_cascadeFontsDestroy(void *cascade)
+{
+    wk_cascadeFontsClear((wk_cascadeFonts *)cascade);
+    free(cascade);
+}
+
+static void wk_cascadeFontsKeyCreate(void)
+{
+    if (pthread_key_create(&wk_cascadeFontsKey, wk_cascadeFontsDestroy))
+        abort();
+}
+
+static wk_cascadeFonts *wk_cascadeFontsFor(CTFontRef font, CFStringRef language)
+{
+    pthread_once(&wk_cascadeFontsKeyOnce, wk_cascadeFontsKeyCreate);
+    wk_cascadeFonts *cascade = (wk_cascadeFonts *)pthread_getspecific(wk_cascadeFontsKey);
+    if (!cascade) {
+        cascade = (wk_cascadeFonts *)calloc(1, sizeof(*cascade));
+        if (!cascade)
+            abort();
+        pthread_setspecific(wk_cascadeFontsKey, cascade);
+    }
+    if (cascade->font && CFEqual(cascade->font, font)
+        && (cascade->language == language || (cascade->language && language && CFEqual(cascade->language, language))))
+        return cascade;
+
+    wk_cascadeFontsClear(cascade);
+    cascade->font = (CTFontRef)CFRetain(font);
+    cascade->language = language ? (CFStringRef)CFRetain(language) : NULL;
+    CTFontDescriptorRef descriptor = CTFontCopyFontDescriptor(font);
+    CFTypeRef cascadeList = descriptor ? CTFontDescriptorCopyAttribute(descriptor, kCTFontCascadeListAttribute) : NULL;
+    if (descriptor)
+        CFRelease(descriptor);
+    if (cascadeList && CFGetTypeID(cascadeList) == CFArrayGetTypeID())
+        cascade->descriptors = (CFArrayRef)cascadeList;
+    else {
+        if (cascadeList)
+            CFRelease(cascadeList);
+        CFArrayRef languages = language ? CFArrayCreate(kCFAllocatorDefault, (const void **)&language, 1, &kCFTypeArrayCallBacks) : NULL;
+        cascade->descriptors = CTFontCopyDefaultCascadeListForLanguages(font, languages);
+        if (languages)
+            CFRelease(languages);
+    }
+    cascade->count = cascade->descriptors ? CFArrayGetCount(cascade->descriptors) : 0;
+    if (cascade->count) {
+        cascade->fonts = (CFTypeRef *)calloc((size_t)cascade->count, sizeof(CFTypeRef));
+        if (!cascade->fonts)
+            abort();
+    }
+    return cascade;
+}
+
+static CTFontRef wk_cascadeFontAt(wk_cascadeFonts *cascade, CFIndex index)
+{
+    if (!cascade->fonts[index]) {
+        CTFontDescriptorRef descriptor = (CTFontDescriptorRef)CFArrayGetValueAtIndex(cascade->descriptors, index);
+        CTFontRef candidate = CTFontCreateWithFontDescriptor(descriptor, CTFontGetSize(cascade->font), NULL);
+        CFStringRef name = candidate ? CTFontCopyPostScriptName(candidate) : NULL;
+        if (!candidate || (name && CFEqual(name, CFSTR("LastResort")))) {
+            cascade->fonts[index] = kCFNull;
+            if (candidate)
+                CFRelease(candidate);
+        } else
+            cascade->fonts[index] = wk_inheritFontRequest(candidate, cascade->font);
+        if (name)
+            CFRelease(name);
+    }
+    return cascade->fonts[index] == kCFNull ? NULL : (CTFontRef)cascade->fonts[index];
+}
+
+enum { WKGlyphLookupLength = 128 };
+
+// Which code points of a block a font has glyphs for, looked up a window at a time.
+typedef struct {
+    CTFontRef font;
+    const UniChar *characters;
+    CFIndex length;
+    CFIndex windowStart;
+    CFIndex windowLength;
+    bool windowCovered;
+    CGGlyph glyphs[WKGlyphLookupLength];
+} wk_coverageCursor;
+
+static void wk_coverageCursorInit(wk_coverageCursor *cursor, CTFontRef font, const UniChar *characters, CFIndex length)
+{
+    cursor->font = font;
+    cursor->characters = characters;
+    cursor->length = length;
+    cursor->windowStart = 0;
+    cursor->windowLength = 0;
+    cursor->windowCovered = false;
+}
+
+static CFIndex wk_codePointLength(const UniChar *characters, CFIndex length, CFIndex position)
+{
+    return U16_IS_LEAD(characters[position]) && position + 1 < length && U16_IS_TRAIL(characters[position + 1]) ? 2 : 1;
+}
+
+// The first code point in [from, limit) the font has no glyph for, or limit.
+static CFIndex wk_nextUncoveredCharacter(wk_coverageCursor *cursor, CFIndex from, CFIndex limit)
+{
+    for (CFIndex position = from; position < limit; ) {
+        if (position < cursor->windowStart || position >= cursor->windowStart + cursor->windowLength) {
+            CFIndex count = cursor->length - position;
+            if (count > WKGlyphLookupLength) {
+                count = WKGlyphLookupLength;
+                if (U16_IS_LEAD(cursor->characters[position + count - 1]))
+                    --count;
+            }
+            cursor->windowCovered = CTFontGetGlyphsForCharacters(cursor->font, cursor->characters + position, cursor->glyphs, count);
+            cursor->windowStart = position;
+            cursor->windowLength = count;
+        }
+        if (cursor->windowCovered) {
+            position = cursor->windowStart + cursor->windowLength;
+            continue;
+        }
+        if (!cursor->glyphs[position - cursor->windowStart])
+            return position;
+        position += wk_codePointLength(cursor->characters, cursor->length, position);
+    }
+    return limit;
+}
+
+static bool wk_fontCoversCluster(CTFontRef font, const UniChar *cluster, CFIndex length)
+{
+    wk_coverageCursor cursor;
+    wk_coverageCursorInit(&cursor, font, cluster, length);
+    return wk_nextUncoveredCharacter(&cursor, 0, length) == length;
+}
+
+// The first font of the cascade list with a glyph for every code point of the cluster, or NULL.
+static CTFontRef wk_cascadeFontCovering(wk_cascadeFonts *cascade, const UniChar *cluster, CFIndex length)
+{
+    for (CFIndex i = 0; i < cascade->count; ++i) {
+        CTFontRef candidate = wk_cascadeFontAt(cascade, i);
+        if (candidate && wk_fontCoversCluster(candidate, cluster, length))
+            return candidate;
+    }
+    return NULL;
+}
+
+// Whether 10.9's composed-character clusters divide the cluster. scratch is a mutable string over external
+// characters, created on first use and repointed at each cluster.
+static bool wk_systemSplitsCluster(CFMutableStringRef *scratch, const UniChar *cluster, CFIndex length)
+{
+    if (wk_codePointLength(cluster, length, 0) == length)
+        return false;
+    if (!*scratch) {
+        *scratch = CFStringCreateMutableWithExternalCharactersNoCopy(kCFAllocatorDefault, NULL, 0, 0, kCFAllocatorNull);
+        if (!*scratch)
+            abort();
+    }
+    CFStringSetExternalCharactersNoCopy(*scratch, (UniChar *)cluster, length, length);
+    return wk_systemComposedCharacterClusterAtIndex(*scratch, 0).length < length;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Logical-order morx subtables. A subtable whose coverage carries the logical-order flag runs over its
+// glyphs in logical order in either direction, or reverse logical order with the descending flag. 10.9's
+// CoreText predates the flag and runs every subtable in layout order, which right to left is reversed, so
+// a subtable written for logical order misses its sequences there: Apple Color Emoji's ligature subtables
+// carry the flag, and a skin-tone, keycap or ZWJ sequence set right to left comes out in pieces. 10.9
+// applies the descending flag against layout order, so right-to-left text is shaped in an instance of the
+// font whose logical-order subtables have the descending flag inverted, which runs them in logical order.
+// The instance carries the font's tables with each sbix strike's glyph images left out, which 10.9 shapes
+// identically, and only shapes: CTRunGetAttributes answers the attributes the text was provided in.
+// ---------------------------------------------------------------------------------------------------
+
+enum {
+    WKMorxCoverageDescending = 0x40000000,
+    WKMorxCoverageLogicalOrder = 0x10000000,
+};
+
+static uint32_t wk_readBigEndian32(const uint8_t *bytes)
+{
+    return ((uint32_t)bytes[0] << 24) | ((uint32_t)bytes[1] << 16) | ((uint32_t)bytes[2] << 8) | bytes[3];
+}
+
+static void wk_writeBigEndian32(uint8_t *bytes, uint32_t value)
+{
+    bytes[0] = (uint8_t)(value >> 24);
+    bytes[1] = (uint8_t)(value >> 16);
+    bytes[2] = (uint8_t)(value >> 8);
+    bytes[3] = (uint8_t)value;
+}
+
+// Whether a morx table has a logical-order subtable. With invert, each such subtable's descending flag is
+// inverted in place.
+static bool wk_morxLogicalOrderSubtables(uint8_t *morx, CFIndex length, bool invert)
+{
+    bool found = false;
+    if (length < 8)
+        return false;
+    uint32_t chainCount = wk_readBigEndian32(morx + 4);
+    CFIndex chain = 8;
+    for (uint32_t c = 0; c < chainCount && chain <= length - 16; ++c) {
+        CFIndex chainLength = wk_readBigEndian32(morx + chain + 4);
+        if (chainLength < 16 || chainLength > length - chain)
+            break;
+        CFIndex chainEnd = chain + chainLength;
+        CFIndex subtable = chain + 16 + 12 * (CFIndex)wk_readBigEndian32(morx + chain + 8);
+        uint32_t subtableCount = wk_readBigEndian32(morx + chain + 12);
+        for (uint32_t s = 0; s < subtableCount && subtable <= chainEnd - 12; ++s) {
+            CFIndex subtableLength = wk_readBigEndian32(morx + subtable);
+            if (subtableLength < 12 || subtableLength > chainEnd - subtable)
+                break;
+            uint32_t coverage = wk_readBigEndian32(morx + subtable + 4);
+            if (coverage & WKMorxCoverageLogicalOrder) {
+                found = true;
+                if (invert)
+                    wk_writeBigEndian32(morx + subtable + 4, coverage ^ WKMorxCoverageDescending);
+            }
+            subtable += subtableLength;
+        }
+        chain = chainEnd;
+    }
+    return found;
+}
+
+// sbix with its strikes and no glyph images: every glyph's data range is empty.
+static CFDataRef wk_createSbixWithoutImages(CFDataRef sbix, CFIndex glyphCount)
+{
+    const uint8_t *table = CFDataGetBytePtr(sbix);
+    CFIndex length = CFDataGetLength(sbix);
+    if (length < 8)
+        return (CFDataRef)CFRetain(sbix);
+    CFIndex strikeCount = wk_readBigEndian32(table + 4);
+    if (strikeCount > (length - 8) / 4)
+        return (CFDataRef)CFRetain(sbix);
+    CFIndex headerLength = 8 + 4 * strikeCount;
+    CFIndex strikeLength = 4 + 4 * (glyphCount + 1);
+    CFMutableDataRef result = CFDataCreateMutable(kCFAllocatorDefault, 0);
+    if (!result)
+        abort();
+    CFDataSetLength(result, headerLength + strikeCount * strikeLength);
+    uint8_t *bytes = CFDataGetMutableBytePtr(result);
+    memcpy(bytes, table, 8);
+    for (CFIndex strike = 0; strike < strikeCount; ++strike) {
+        CFIndex source = wk_readBigEndian32(table + 8 + 4 * strike);
+        CFIndex destination = headerLength + strike * strikeLength;
+        wk_writeBigEndian32(bytes + 8 + 4 * strike, (uint32_t)destination);
+        if (source <= length - 4)
+            memcpy(bytes + destination, table + source, 4);
+        for (CFIndex glyph = 0; glyph <= glyphCount; ++glyph)
+            wk_writeBigEndian32(bytes + destination + 4 + 4 * glyph, (uint32_t)strikeLength);
+    }
+    return result;
+}
+
+static int wk_compareSfntTableTags(const void *a, const void *b)
+{
+    uint32_t first = *(const uint32_t *)a;
+    uint32_t second = *(const uint32_t *)b;
+    return first < second ? -1 : first > second;
+}
+
+static void wk_unmapShapingSfnt(void *bytes, void *length)
+{
+    munmap(bytes, (size_t)length);
+}
+
+// A shaping instance carries the installed font's GPOS repair and the RTL morx flags.
+static CGFontRef wk_createShapingInstance(CTFontRef font, bool rightToLeft)
+{
+    CFDataRef morx = rightToLeft ? CTFontCopyTable(font, 'morx', kCTFontTableOptionNoOptions) : NULL;
+    bool logicalOrder = morx && wk_morxLogicalOrderSubtables((uint8_t *)CFDataGetBytePtr(morx), CFDataGetLength(morx), false);
+    if (morx)
+        CFRelease(morx);
+    CFTypeRef url = WK_ORIGINAL(CTFontCopyAttribute)(font, kCTFontURLAttribute);
+    CFDataRef gpos = url ? CTFontCopyTable(font, kCTFontTableGPOS, kCTFontTableOptionNoOptions) : NULL;
+    CFDataRef repairedGPOS = wk_copy_gpos_with_reachable_last_pair_sets(gpos);
+    if (gpos)
+        CFRelease(gpos);
+    if (url)
+        CFRelease(url);
+    if (!logicalOrder && !repairedGPOS)
+        return NULL;
+
+    CFArrayRef tagArray = CTFontCopyAvailableTables(font, kCTFontTableOptionNoOptions);
+    CFIndex tagCount = tagArray ? CFArrayGetCount(tagArray) : 0;
+    uint32_t *tags = (uint32_t *)malloc((size_t)(tagCount + 1) * sizeof(uint32_t));
+    CFDataRef *tables = (CFDataRef *)malloc((size_t)(tagCount + 1) * sizeof(CFDataRef));
+    if (!tags || !tables)
+        abort();
+    for (CFIndex i = 0; i < tagCount; ++i)
+        tags[i] = (uint32_t)(uintptr_t)CFArrayGetValueAtIndex(tagArray, i);
+    if (tagArray)
+        CFRelease(tagArray);
+    qsort(tags, (size_t)tagCount, sizeof(uint32_t), wk_compareSfntTableTags);
+
+    CFIndex count = 0;
+    CFIndex tablesLength = 0;
+    bool compactFontFormat = false;
+    for (CFIndex i = 0; i < tagCount; ++i) {
+        CFDataRef table = tags[i] == 'GPOS' && repairedGPOS ? (CFDataRef)CFRetain(repairedGPOS)
+            : CTFontCopyTable(font, tags[i], kCTFontTableOptionNoOptions);
+        if (!table)
+            continue;
+        if (tags[i] == 'sbix') {
+            CFDataRef withoutImages = wk_createSbixWithoutImages(table, CTFontGetGlyphCount(font));
+            CFRelease(table);
+            table = withoutImages;
+        }
+        if (tags[i] == 'CFF ' || tags[i] == 'CFF2')
+            compactFontFormat = true;
+        tags[count] = tags[i];
+        tables[count] = table;
+        tablesLength += (CFDataGetLength(table) + 3) & ~(CFIndex)3;
+        ++count;
+    }
+
+    CFIndex directoryLength = 12 + 16 * count;
+    size_t length = directoryLength + tablesLength;
+    // VM storage returns the sfnt pages directly when the reader releases them.
+    uint8_t *bytes = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    if (bytes == MAP_FAILED)
+        abort();
+    wk_writeBigEndian32(bytes, compactFontFormat ? 'OTTO' : 0x00010000);
+    bytes[4] = (uint8_t)(count >> 8);
+    bytes[5] = (uint8_t)count;
+    CFIndex offset = directoryLength;
+    for (CFIndex i = 0; i < count; ++i) {
+        CFIndex tableLength = CFDataGetLength(tables[i]);
+        memcpy(bytes + offset, CFDataGetBytePtr(tables[i]), (size_t)tableLength);
+        if (tags[i] == 'morx' && logicalOrder)
+            wk_morxLogicalOrderSubtables(bytes + offset, tableLength, true);
+        uint8_t *entry = bytes + 12 + 16 * i;
+        wk_writeBigEndian32(entry, tags[i]);
+        wk_writeBigEndian32(entry + 8, (uint32_t)offset);
+        wk_writeBigEndian32(entry + 12, (uint32_t)tableLength);
+        offset += (tableLength + 3) & ~(CFIndex)3;
+        CFRelease(tables[i]);
+    }
+    free(tags);
+    free(tables);
+    if (repairedGPOS)
+        CFRelease(repairedGPOS);
+
+    CFAllocatorContext context = { .info = (void *)length, .deallocate = wk_unmapShapingSfnt };
+    CFAllocatorRef allocator = CFAllocatorCreate(kCFAllocatorDefault, &context);
+    CFDataRef data = CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, bytes, length, allocator);
+    CFRelease(allocator);
+    if (!data)
+        abort();
+    CGFontRef instance = wk_createGraphicsFontFromSfnt(data);
+    CFRelease(data);
+    return instance;
+}
+
+static const void *wk_shapingInstanceKey(bool rightToLeft)
+{
+    return sel_registerName(rightToLeft ? "wk_shapingInstanceRTL" : "wk_shapingInstanceLTR");
+}
+
+static const void *wk_isShapingInstanceKey(void) { return sel_registerName("wk_isShapingInstance"); }
+
+static CGFontRef wk_copyShapingInstanceForFont(CTFontRef font, bool rightToLeft)
+{
+    if (rightToLeft) {
+        CFDataRef morx = CTFontCopyTable(font, 'morx', kCTFontTableOptionNoOptions);
+        bool logicalOrder = morx && wk_morxLogicalOrderSubtables((uint8_t *)CFDataGetBytePtr(morx), CFDataGetLength(morx), false);
+        if (morx)
+            CFRelease(morx);
+        if (!logicalOrder)
+            return wk_copyShapingInstanceForFont(font, false);
+    }
+    CGFontRef graphicsFont = CTFontCopyGraphicsFont(font, NULL);
+    if (!graphicsFont)
+        return NULL;
+    const void *key = wk_shapingInstanceKey(rightToLeft);
+    objc_sync_enter((id)(void *)graphicsFont);
+    CFTypeRef instance = (CFTypeRef)objc_getAssociatedObject((id)(void *)graphicsFont, key);
+    if (!instance) {
+        CGFontRef created = wk_createShapingInstance(font, rightToLeft);
+        instance = created ? (CFTypeRef)created : kCFNull;
+        if (created)
+            objc_setAssociatedObject((id)(void *)created, wk_isShapingInstanceKey(), (id)(void *)kCFBooleanTrue, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject((id)(void *)graphicsFont, key, (id)(void *)instance, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (created)
+            CGFontRelease(created);
+    }
+    CGFontRef result = instance == kCFNull ? NULL : CGFontRetain((CGFontRef)instance);
+    objc_sync_exit((id)(void *)graphicsFont);
+    CGFontRelease(graphicsFont);
+    return result;
+}
+
+static bool wk_isShapingInstance(CTFontRef font)
+{
+    CGFontRef graphicsFont = CTFontCopyGraphicsFont(font, NULL);
+    if (!graphicsFont)
+        return false;
+    bool instance = objc_getAssociatedObject((id)(void *)graphicsFont, wk_isShapingInstanceKey()) != NULL;
+    CGFontRelease(graphicsFont);
+    return instance;
+}
+
+// The source font owns its realized shaping fonts.
+static CTFontRef wk_shapingFont(CTFontRef font, bool rightToLeft)
+{
+    const void *key = sel_registerName(rightToLeft ? "wk_shapingFontRTL" : "wk_shapingFontLTR");
+    objc_sync_enter((id)(void *)font);
+    CFTypeRef cached = (CFTypeRef)objc_getAssociatedObject((id)(void *)font, key);
+    if (cached) {
+        objc_sync_exit((id)(void *)font);
+        return cached == kCFNull ? NULL : (CTFontRef)cached;
+    }
+    CFTypeRef shapingFont = kCFNull;
+    CGFontRef instance = wk_isShapingInstance(font) ? NULL : wk_copyShapingInstanceForFont(font, rightToLeft);
+    if (instance) {
+        CGAffineTransform matrix = CTFontGetMatrix(font);
+        CTFontDescriptorRef descriptor = CTFontCopyFontDescriptor(font);
+        shapingFont = CTFontCreateWithGraphicsFont(instance, CTFontGetSize(font), &matrix, descriptor);
+        CGFontRelease(instance);
+        if (descriptor)
+            CFRelease(descriptor);
+        if (!shapingFont)
+            abort();
+        CGFontRef realizedGraphics = CTFontCopyGraphicsFont((CTFontRef)shapingFont, NULL);
+        objc_setAssociatedObject((id)(void *)realizedGraphics, wk_isShapingInstanceKey(), (id)(void *)kCFBooleanTrue, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        CGFontRelease(realizedGraphics);
+    } else
+        CFRetain(shapingFont);
+
+    objc_setAssociatedObject((id)(void *)font, key, (id)(void *)shapingFont, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    CFRelease(shapingFont);
+    objc_sync_exit((id)(void *)font);
+    return shapingFont == kCFNull ? NULL : (CTFontRef)shapingFont;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The providers CoreText reads through.
+// ---------------------------------------------------------------------------------------------------
+
+typedef struct {
+    CFIndex start;
+    CFIndex count;
+    const UniChar *characters;
+    CFDictionaryRef attributes;
+    bool disposeForwarded;
+} wk_servedBlock;
+
+enum { WKServedBlockInlineCapacity = 4 };
+
+typedef struct {
+    CTUniCharProviderCallback provide;
+    CTUniCharDisposeCallback dispose;
+    void *refCon;
+    bool rightToLeft;
+    bool recordsServedBlocks;
+    bool forwardsDispose;
+    CFMutableArrayRef createdAttributes; // every dictionary made for CoreText, released with the provider
+    CFDictionaryRef lastSourceAttributes;
+    CTFontRef lastClusterFont;
+    CFDictionaryRef lastClusterAttributes;
+    CFDictionaryRef lastShapingSource;
+    CTFontRef lastShapingFont;
+    CFDictionaryRef lastShapingAttributes;
+    wk_servedBlock *servedBlocks; // NULL while the inline blocks hold them
+    CFIndex servedCount;
+    CFIndex servedCapacity;
+    wk_servedBlock inlineServedBlocks[WKServedBlockInlineCapacity];
+    CFIndex outstandingBlocks;
+    bool creationFinished;
+    bool fallsBack; // right to left, CoreText sets some served text in a fallback font
+} wk_clusterFontProvider;
+
+static void wk_keepAttributes(wk_clusterFontProvider *provider, CFMutableDictionaryRef attributes)
+{
+    if (!provider->createdAttributes) {
+        provider->createdAttributes = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+        if (!provider->createdAttributes)
+            abort();
+    }
+    CFArrayAppendValue(provider->createdAttributes, attributes);
+    CFRelease(attributes);
+}
+
+static CFDictionaryRef wk_clusterFontAttributes(wk_clusterFontProvider *provider, CFDictionaryRef source, CTFontRef font)
+{
+    if (provider->lastClusterAttributes && provider->lastSourceAttributes == source && CFEqual(provider->lastClusterFont, font))
+        return provider->lastClusterAttributes;
+    CFMutableDictionaryRef attributes = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, source);
+    if (!attributes)
+        abort();
+    CFDictionarySetValue(attributes, kCTFontAttributeName, font);
+    wk_keepAttributes(provider, attributes);
+    provider->lastSourceAttributes = source;
+    provider->lastClusterFont = font;
+    provider->lastClusterAttributes = attributes;
+    return attributes;
+}
+
+// The attributes a dictionary made for CoreText stands in for, which CTRunGetAttributes answers. CoreText
+// keeps the key on the dictionaries it makes from an attributed string's.
+static CFStringRef wk_sourceAttributesKey(void)
+{
+    return CFSTR("WKSourceAttributes");
+}
+
+// Source attributes with the shaping font.
+static CFDictionaryRef wk_shapingAttributes(wk_clusterFontProvider *provider, CFDictionaryRef source, CTFontRef shapingFont)
+{
+    if (provider->lastShapingAttributes && provider->lastShapingSource == source && provider->lastShapingFont == shapingFont)
+        return provider->lastShapingAttributes;
+    CFMutableDictionaryRef attributes = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, source);
+    if (!attributes)
+        abort();
+    CFDictionarySetValue(attributes, kCTFontAttributeName, shapingFont);
+    CFDictionaryRef original = (CFDictionaryRef)CFDictionaryGetValue(source, wk_sourceAttributesKey());
+    CFDictionarySetValue(attributes, wk_sourceAttributesKey(), original ? original : source);
+    wk_keepAttributes(provider, attributes);
+    provider->lastShapingSource = source;
+    provider->lastShapingFont = shapingFont;
+    provider->lastShapingAttributes = attributes;
+    return attributes;
+}
+
+// A block's grapheme clusters, segmented on first use.
+typedef struct {
+    const UniChar *characters;
+    CFIndex length;
+    UText text;
+    UBreakIterator *iterator;
+} wk_blockClusters;
+
+static UBreakIterator *wk_blockClusterIterator(wk_blockClusters *clusters)
+{
+    if (!clusters->iterator) {
+        UErrorCode status = U_ZERO_ERROR;
+        clusters->text = (UText)UTEXT_INITIALIZER;
+        utext_openUChars(&clusters->text, (const UChar *)clusters->characters, clusters->length, &status);
+        clusters->iterator = wk_characterClusterIterator();
+        ubrk_setUText(clusters->iterator, &clusters->text, &status);
+        if (U_FAILURE(status))
+            abort();
+    }
+    return clusters->iterator;
+}
+
+// The first run of clusters in a block set in a font other than the block's own: clusters the block's font
+// does not cover that 10.9 splits. Answers that font, or NULL.
+static CTFontRef wk_findClusterFontRun(CTFontRef font, CFStringRef language, wk_blockClusters *clusters,
+    wk_coverageCursor *coverage, CFIndex *runStartResult, CFIndex *runEndResult)
+{
+    const UniChar *characters = clusters->characters;
+    CFIndex length = clusters->length;
+
+    // Below U+0300 no character but CR and LF joins another, so a cluster of more than one code point holds a
+    // code point at or above it, and a code point of that cluster without a glyph is that code point or one
+    // next to it.
+    CFIndex position = 0;
+    while (position < length && characters[position] < 0x0300)
+        ++position;
+    if (position == length)
+        return NULL;
+
+    wk_cascadeFonts *cascade = NULL;
+    CFMutableStringRef scratch = NULL;
+    CTFontRef clusterFont = NULL;
+    CFIndex runStart = 0;
+    CFIndex runEnd = 0;
+    while (position < length) {
+        CFIndex next = position + wk_codePointLength(characters, length, position);
+        CFIndex neighbourhoodStart = position;
+        if (position >= 2 && U16_IS_TRAIL(characters[position - 1]) && U16_IS_LEAD(characters[position - 2]))
+            neighbourhoodStart -= 2;
+        else if (position)
+            --neighbourhoodStart;
+        CFIndex neighbourhoodEnd = next < length ? next + wk_codePointLength(characters, length, next) : length;
+        if (wk_nextUncoveredCharacter(coverage, neighbourhoodStart, neighbourhoodEnd) < neighbourhoodEnd) {
+            UBreakIterator *iterator = wk_blockClusterIterator(clusters);
+            CFIndex clusterEnd = ubrk_following(iterator, (int32_t)position);
+            CFIndex clusterStart = ubrk_previous(iterator);
+            CFIndex clusterLength = clusterEnd - clusterStart;
+            if (wk_nextUncoveredCharacter(coverage, clusterStart, clusterEnd) < clusterEnd) {
+                if (wk_systemSplitsCluster(&scratch, characters + clusterStart, clusterLength)) {
+                    if (!cascade)
+                        cascade = wk_cascadeFontsFor(font, language);
+                    CTFontRef candidate = wk_cascadeFontCovering(cascade, characters + clusterStart, clusterLength);
+                    if (candidate) {
+                        clusterFont = candidate;
+                        runStart = clusterStart;
+                        runEnd = clusterEnd;
+                        break;
+                    }
+                }
+            }
+            next = clusterEnd;
+        }
+        position = next;
+        while (position < length && characters[position] < 0x0300)
+            ++position;
+    }
+    if (scratch)
+        CFRelease(scratch);
+    if (!clusterFont)
+        return NULL;
+
+    UBreakIterator *iterator = clusters->iterator;
+    while (runStart > 0) {
+        CFIndex previous = ubrk_preceding(iterator, (int32_t)runStart);
+        if (wk_nextUncoveredCharacter(coverage, previous, runStart) == runStart
+            || wk_cascadeFontCovering(cascade, characters + previous, runStart - previous) != clusterFont)
+            break;
+        runStart = previous;
+    }
+    while (runEnd < length) {
+        CFIndex next = ubrk_following(iterator, (int32_t)runEnd);
+        if (wk_nextUncoveredCharacter(coverage, runEnd, next) == next
+            || wk_cascadeFontCovering(cascade, characters + runEnd, next - runEnd) != clusterFont)
+            break;
+        runEnd = next;
+    }
+    *runStartResult = runStart;
+    *runEndResult = runEnd;
+    return clusterFont;
+}
+
+static bool wk_fontUsesSystemFallbackOnly(CTFontRef font)
+{
+    CFTypeRef attribute = CTFontCopyAttribute(font, kCTFontFallbackOptionAttribute);
+    long option = 0;
+    bool restricted = attribute && CFGetTypeID(attribute) == CFNumberGetTypeID()
+        && CFNumberGetValue((CFNumberRef)attribute, kCFNumberLongType, &option) && option == 1;
+    if (attribute)
+        CFRelease(attribute);
+    return restricted;
+}
+
+// Narrows a block CoreText is handed to its first part that is set one way, and sets it that way.
+static void wk_serveBlock(wk_clusterFontProvider *provider, const UniChar *characters, CFIndex *charCount, CFDictionaryRef *attributes)
+{
+    CFDictionaryRef source = *attributes;
+    CTFontRef font = source ? (CTFontRef)CFDictionaryGetValue(source, kCTFontAttributeName) : NULL;
+    if (!font || CFGetTypeID(font) != CTFontGetTypeID())
+        return;
+    CFIndex length = *charCount;
+    CFStringRef language = (CFStringRef)CFDictionaryGetValue(source, kCTLanguageAttributeName);
+    if (language && CFGetTypeID(language) != CFStringGetTypeID())
+        language = NULL;
+
+    wk_blockClusters clusters = { .characters = characters, .length = length };
+    wk_coverageCursor coverage;
+    wk_coverageCursorInit(&coverage, font, characters, length);
+    // System-only requests select their fallback font before native shaping.
+    if (wk_fontUsesSystemFallbackOnly(font)) {
+        CFIndex uncovered = wk_nextUncoveredCharacter(&coverage, 0, length);
+        if (uncovered < length) {
+            UBreakIterator *iterator = wk_blockClusterIterator(&clusters);
+            CFIndex start = ubrk_preceding(iterator, (int32_t)(uncovered + 1));
+            CFIndex end = ubrk_following(iterator, (int32_t)uncovered);
+            if (!start) {
+                CTFontRef fallback = wk_copySystemFallback(font, characters, end, language, NULL);
+                if (!fallback) {
+                    CTFontDescriptorRef lastResort = CTFontDescriptorCreateLastResort();
+                    fallback = CTFontCreateWithFontDescriptor(lastResort, CTFontGetSize(font), NULL);
+                    CFRelease(lastResort);
+                }
+                fallback = wk_inheritFontRequest(fallback, font);
+                CFDictionaryRef selected = wk_clusterFontAttributes(provider, source, fallback);
+                CTFontRef shaping = wk_shapingFont(fallback, provider->rightToLeft);
+                *attributes = shaping ? wk_shapingAttributes(provider, selected, shaping) : selected;
+                *charCount = end;
+                CFRelease(fallback);
+                return;
+            }
+            length = *charCount = start;
+            clusters.length = start;
+            coverage.length = start;
+        }
+    }
+    CFIndex runStart = 0;
+    CFIndex runEnd = 0;
+    CTFontRef clusterFont = wk_findClusterFontRun(font, language, &clusters, &coverage, &runStart, &runEnd);
+    if (clusterFont && !runStart) {
+        CFDictionaryRef clusterAttributes = wk_clusterFontAttributes(provider, source, clusterFont);
+        CTFontRef shapingFont = wk_shapingFont(clusterFont, provider->rightToLeft);
+        *charCount = runEnd;
+        *attributes = shapingFont ? wk_shapingAttributes(provider, clusterAttributes, shapingFont) : clusterAttributes;
+        return;
+    }
+
+    CFIndex served = clusterFont ? runStart : length;
+    CFIndex uncovered = wk_nextUncoveredCharacter(&coverage, 0, served);
+    if (uncovered < served)
+        provider->fallsBack = true;
+    CTFontRef shapingFont = wk_shapingFont(font, provider->rightToLeft);
+    if (shapingFont) {
+        if (uncovered < served) {
+            UBreakIterator *iterator = wk_blockClusterIterator(&clusters);
+            CFIndex clusterStart = ubrk_preceding(iterator, (int32_t)(uncovered + 1));
+            if (!clusterStart) {
+                // Clusters the font does not cover are set in the fallback font CoreText finds for them.
+                CFIndex end = ubrk_following(iterator, 0);
+                while (end < served) {
+                    CFIndex next = ubrk_following(iterator, (int32_t)end);
+                    if (wk_nextUncoveredCharacter(&coverage, end, next) == next)
+                        break;
+                    end = next;
+                }
+                *charCount = end;
+                return;
+            }
+            served = clusterStart;
+        }
+        *attributes = wk_shapingAttributes(provider, source, shapingFont);
+    }
+    *charCount = served;
+}
+
+static wk_servedBlock *wk_servedBlocks(wk_clusterFontProvider *provider)
+{
+    return provider->servedBlocks ? provider->servedBlocks : provider->inlineServedBlocks;
+}
+
+static void wk_recordServedBlock(wk_clusterFontProvider *provider, CFIndex start, CFIndex count, const UniChar *characters, CFDictionaryRef attributes)
+{
+    CFIndex capacity = provider->servedBlocks ? provider->servedCapacity : WKServedBlockInlineCapacity;
+    if (provider->servedCount == capacity) {
+        wk_servedBlock *blocks = (wk_servedBlock *)malloc((size_t)(2 * capacity) * sizeof(wk_servedBlock));
+        if (!blocks)
+            abort();
+        memcpy(blocks, wk_servedBlocks(provider), (size_t)provider->servedCount * sizeof(wk_servedBlock));
+        free(provider->servedBlocks);
+        provider->servedBlocks = blocks;
+        provider->servedCapacity = 2 * capacity;
+    }
+    wk_servedBlocks(provider)[provider->servedCount++] = (wk_servedBlock) { start, count, characters, attributes, false };
+}
+
+static const UniChar *wk_clusterFontProvide(CFIndex stringIndex, CFIndex *charCount, CFDictionaryRef *attributes, void *refCon)
+{
+    wk_clusterFontProvider *provider = (wk_clusterFontProvider *)refCon;
+    const UniChar *characters = provider->provide(stringIndex, charCount, attributes, provider->refCon);
+    if (!characters || *charCount <= 0)
+        return characters;
+    if (provider->dispose)
+        ++provider->outstandingBlocks;
+    wk_serveBlock(provider, characters, charCount, attributes);
+    if (provider->recordsServedBlocks)
+        wk_recordServedBlock(provider, stringIndex, *charCount, characters, *attributes);
+    return characters;
+}
+
+static void wk_clusterFontProviderRelease(wk_clusterFontProvider *provider)
+{
+    if (provider->createdAttributes)
+        CFRelease(provider->createdAttributes);
+    free(provider->servedBlocks);
+}
+
+static void wk_clusterFontDispose(const UniChar *characters, void *refCon)
+{
+    wk_clusterFontProvider *provider = (wk_clusterFontProvider *)refCon;
+    if (provider->forwardsDispose)
+        provider->dispose(characters, provider->refCon);
+    if (!--provider->outstandingBlocks && provider->creationFinished) {
+        wk_clusterFontProviderRelease(provider);
+        free(provider);
+    }
+}
+
+// A provider with a dispose callback is read again when CoreText releases what it made, so it lives on the
+// heap until the last block is disposed of.
+static wk_clusterFontProvider *wk_clusterFontProviderBegin(wk_clusterFontProvider *local)
+{
+    if (!local->dispose)
+        return local;
+    wk_clusterFontProvider *provider = (wk_clusterFontProvider *)malloc(sizeof(*provider));
+    if (!provider)
+        abort();
+    *provider = *local;
+    return provider;
+}
+
+static void wk_clusterFontProviderEnd(wk_clusterFontProvider *provider)
+{
+    if (!provider->dispose) {
+        wk_clusterFontProviderRelease(provider);
+        return;
+    }
+    provider->creationFinished = true;
+    if (!provider->outstandingBlocks) {
+        wk_clusterFontProviderRelease(provider);
+        free(provider);
+    }
+}
+
+// Whether options force an embedding level, and which.
+static bool wk_forcedEmbeddingLevel(CFDictionaryRef options, int *level)
+{
+    CFNumberRef value = options ? (CFNumberRef)CFDictionaryGetValue(options, kCTTypesetterOptionForcedEmbeddingLevel) : NULL;
+    return value && CFGetTypeID(value) == CFNumberGetTypeID() && CFNumberGetValue(value, kCFNumberIntType, level);
+}
+
+typedef enum { WKNaturalLine, WKNaturalTypesetter } wk_naturalKind;
+
+static CFTypeRef wk_createNaturalDirection(wk_naturalKind, CTUniCharProviderCallback, CTUniCharDisposeCallback, void *refCon, CFDictionaryRef options);
+static CTTypesetterRef wk_createForcedLevelTypesetter(CTUniCharProviderCallback, CTUniCharDisposeCallback, void *refCon, CFDictionaryRef options, int level);
+
+WK_POLYFILL_REPLACES("CoreText", CTTypesetterRef, CTTypesetterCreateWithUniCharProviderAndOptions,
+    (CTUniCharProviderCallback provide, CTUniCharDisposeCallback dispose, void *refCon, CFDictionaryRef options))
+{
+    if (!provide)
+        return WK_ORIGINAL(CTTypesetterCreateWithUniCharProviderAndOptions)(provide, dispose, refCon, options);
+    int level = 0;
+    if (!wk_forcedEmbeddingLevel(options, &level))
+        return (CTTypesetterRef)wk_createNaturalDirection(WKNaturalTypesetter, provide, dispose, refCon, options);
+    return wk_createForcedLevelTypesetter(provide, dispose, refCon, options, level);
+}
+
+WK_POLYFILL_REPLACES("CoreText", CTLineRef, CTLineCreateWithUniCharProvider,
+    (CTUniCharProviderCallback provide, CTUniCharDisposeCallback dispose, void *refCon))
+{
+    if (!provide)
+        return WK_ORIGINAL(CTLineCreateWithUniCharProvider)(provide, dispose, refCon);
+    return (CTLineRef)wk_createNaturalDirection(WKNaturalLine, provide, dispose, refCon, NULL);
+}
+
+static bool wk_isShapingInstance(CTFontRef);
+
+static const void *wk_reportedAttributesKey(void)
+{
+    // Cached, and a SEL so every image's copy of this archive agrees on it.
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_reportedAttributes");
+    return key;
+}
+
+WK_POLYFILL_REPLACES("CoreText", CFDictionaryRef, CTRunGetAttributes, (CTRunRef run))
+{
+    CFDictionaryRef attributes = WK_ORIGINAL(CTRunGetAttributes)(run);
+    CFDictionaryRef source = attributes ? (CFDictionaryRef)CFDictionaryGetValue(attributes, wk_sourceAttributesKey()) : NULL;
+    if (!source || CFGetTypeID(source) != CFDictionaryGetTypeID())
+        return attributes;
+    CTFontRef runFont = (CTFontRef)CFDictionaryGetValue(attributes, kCTFontAttributeName);
+    CTFontRef sourceFont = (CTFontRef)CFDictionaryGetValue(source, kCTFontAttributeName);
+    if (!runFont || !sourceFont || runFont == sourceFont || CFEqual(runFont, sourceFont) || wk_isShapingInstance(runFont))
+        return source;
+    // CoreText set the run in a fallback font: the provided attributes with that font, kept with the run.
+    CFDictionaryRef reported = (CFDictionaryRef)objc_getAssociatedObject((id)(void *)run, wk_reportedAttributesKey());
+    if (!reported) {
+        CFMutableDictionaryRef fallback = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, source);
+        if (!fallback)
+            abort();
+        CFDictionarySetValue(fallback, kCTFontAttributeName, runFont);
+        objc_setAssociatedObject((id)(void *)run, wk_reportedAttributesKey(), (id)(void *)fallback, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        CFRelease(fallback);
+        reported = fallback;
+    }
+    return reported;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Natural direction. Text without a forced embedding level is read from its provider first, and then set
+// by one of two routes.
+//
+// 10.9's CoreText resolves its levels with libicucore's ICU 51, which predates the Unicode 6.3 bracket-pair
+// and isolate rules and classes a code point assigned since by its block's default: an emoji modifier is left
+// to right there, so a skin-tone sequence between Hebrew letters splits into two runs. Modern CoreText
+// resolves levels from current Unicode data. When the levels ICU 51 resolves are the levels this port's ICU
+// 74 resolves, the provided blocks go to CoreText as they were provided. When they differ, the text is laid
+// out from an attributed string that overrides each character to its ICU 74 level. An override can only
+// raise a level, so each is raised by two, which leaves the visual order and every run's direction as they
+// are.
+//
+// A right-to-left run set in a font with logical-order subtables is then set again in its shaping font. The
+// fonts do not enter level resolution, so the second layout resolves the same runs.
+// ---------------------------------------------------------------------------------------------------
+
+WK_SYSTEM_FN("/usr/lib/libicucore.A.dylib", UCharDirection, u_charDirection, (UChar32));
+WK_SYSTEM_FN("/usr/lib/libicucore.A.dylib", UBiDi *, ubidi_open, (void));
+WK_SYSTEM_FN("/usr/lib/libicucore.A.dylib", void, ubidi_setPara, (UBiDi *, const UChar *, int32_t, UBiDiLevel, UBiDiLevel *, UErrorCode *));
+WK_SYSTEM_FN("/usr/lib/libicucore.A.dylib", const UBiDiLevel *, ubidi_getLevels, (UBiDi *, UErrorCode *));
+WK_SYSTEM_FN("/usr/lib/libicucore.A.dylib", void, ubidi_close, (UBiDi *));
+
+// A thread's ICU 74 and ICU 51 resolvers.
+typedef struct {
+    UBiDi *current;
+    UBiDi *system;
+} wk_bidiResolvers;
+
+static pthread_key_t wk_bidiResolversKey;
+static pthread_once_t wk_bidiResolversKeyOnce = PTHREAD_ONCE_INIT;
+
+static void wk_bidiResolversDestroy(void *value)
+{
+    wk_bidiResolvers *resolvers = (wk_bidiResolvers *)value;
+    ubidi_close(resolvers->current);
+    WK_SYSTEM(ubidi_close)(resolvers->system);
+    free(resolvers);
+}
+
+static void wk_bidiResolversKeyCreate(void)
+{
+    if (pthread_key_create(&wk_bidiResolversKey, wk_bidiResolversDestroy))
+        abort();
+}
+
+static wk_bidiResolvers *wk_bidiResolversForThread(void)
+{
+    pthread_once(&wk_bidiResolversKeyOnce, wk_bidiResolversKeyCreate);
+    wk_bidiResolvers *resolvers = (wk_bidiResolvers *)pthread_getspecific(wk_bidiResolversKey);
+    if (resolvers)
+        return resolvers;
+    resolvers = (wk_bidiResolvers *)calloc(1, sizeof(*resolvers));
+    if (!resolvers || !WK_SYSTEM(ubidi_open) || !WK_SYSTEM(ubidi_setPara) || !WK_SYSTEM(ubidi_getLevels) || !WK_SYSTEM(ubidi_close) || !WK_SYSTEM(u_charDirection))
+        abort();
+    resolvers->current = ubidi_open();
+    resolvers->system = WK_SYSTEM(ubidi_open)();
+    if (!resolvers->current || !resolvers->system)
+        abort();
+    pthread_setspecific(wk_bidiResolversKey, resolvers);
+    return resolvers;
+}
+
+// The classes that can give a character a level other than a left-to-right paragraph's.
+static bool wk_directionRaisesLevels(UCharDirection direction)
+{
+    switch (direction) {
+    case U_RIGHT_TO_LEFT:
+    case U_RIGHT_TO_LEFT_ARABIC:
+    case U_ARABIC_NUMBER:
+    case U_LEFT_TO_RIGHT_EMBEDDING:
+    case U_LEFT_TO_RIGHT_OVERRIDE:
+    case U_RIGHT_TO_LEFT_EMBEDDING:
+    case U_RIGHT_TO_LEFT_OVERRIDE:
+    case U_POP_DIRECTIONAL_FORMAT:
+    case U_LEFT_TO_RIGHT_ISOLATE:
+    case U_RIGHT_TO_LEFT_ISOLATE:
+    case U_FIRST_STRONG_ISOLATE:
+    case U_POP_DIRECTIONAL_ISOLATE:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static CTWritingDirection wk_baseWritingDirection(CFDictionaryRef attributes)
+{
+    CTParagraphStyleRef style = attributes ? (CTParagraphStyleRef)CFDictionaryGetValue(attributes, kCTParagraphStyleAttributeName) : NULL;
+    CTWritingDirection direction = kCTWritingDirectionNatural;
+    if (style && CFGetTypeID(style) == CTParagraphStyleGetTypeID())
+        CTParagraphStyleGetValueForSpecifier(style, kCTParagraphStyleSpecifierBaseWritingDirection, sizeof(direction), &direction);
+    return direction;
+}
+
+// The provided text as one run of UTF-16, copied only when its blocks are not already one buffer.
+typedef struct {
+    const UniChar *characters;
+    CFIndex length;
+    UniChar *copy;
+} wk_providedText;
+
+static void wk_providedTextInit(wk_providedText *text, wk_clusterFontProvider *reader)
+{
+    memset(text, 0, sizeof(*text));
+    wk_servedBlock *blocks = wk_servedBlocks(reader);
+    CFIndex count = reader->servedCount;
+    if (!count)
+        return;
+    text->length = blocks[count - 1].start + blocks[count - 1].count;
+    bool contiguous = true;
+    for (CFIndex i = 1; i < count && contiguous; ++i)
+        contiguous = blocks[i - 1].characters + blocks[i - 1].count == blocks[i].characters;
+    if (contiguous) {
+        text->characters = blocks[0].characters;
+        return;
+    }
+    text->copy = (UniChar *)malloc((size_t)text->length * sizeof(UniChar));
+    if (!text->copy)
+        abort();
+    for (CFIndex i = 0; i < count; ++i)
+        memcpy(text->copy + blocks[i].start, blocks[i].characters, (size_t)blocks[i].count * sizeof(UniChar));
+    text->characters = text->copy;
+}
+
+typedef enum {
+    WKLevelsLeftToRight, // every character is at the paragraph's left-to-right level
+    WKLevelsCurrent, // CoreText resolves the levels current Unicode does
+    WKLevelsExplicit, // CoreText resolves other levels; the current ones are handed back
+} wk_levelResolution;
+
+static bool wk_isParagraphSeparator(UChar32 codePoint)
+{
+    // Below U+058D the paragraph separators are LF, CR, U+001C-001E and U+0085.
+    return codePoint < 0x058D
+        ? codePoint == '\n' || codePoint == '\r' || (codePoint >= 0x1C && codePoint <= 0x1E) || codePoint == 0x85
+        : u_charDirection(codePoint) == U_BLOCK_SEPARATOR;
+}
+
+// Where the paragraph holding the character at index ends: after a paragraph separator, taking CR LF as one.
+static CFIndex wk_paragraphEnd(const wk_providedText *text, CFIndex index)
+{
+    for (CFIndex i = index; i < text->length; ) {
+        UChar32 codePoint;
+        U16_NEXT(text->characters, i, text->length, codePoint);
+        if (wk_isParagraphSeparator(codePoint)) {
+            if (codePoint == '\r' && i < text->length && text->characters[i] == '\n')
+                ++i;
+            return i;
+        }
+    }
+    return text->length;
+}
+
+// The served block holding the character at index.
+static const wk_servedBlock *wk_servedBlockAt(wk_clusterFontProvider *provider, CFIndex index)
+{
+    wk_servedBlock *blocks = wk_servedBlocks(provider);
+    for (CFIndex i = 0; i < provider->servedCount; ++i) {
+        if (index < blocks[i].start + blocks[i].count)
+            return &blocks[i];
+    }
+    return NULL;
+}
+
+// Each paragraph takes its level from the paragraph style of the block it starts in, as CoreText gives it.
+static UBiDiLevel wk_paragraphLevel(CTWritingDirection direction)
+{
+    return direction == kCTWritingDirectionRightToLeft ? 1 : direction == kCTWritingDirectionLeftToRight ? 0 : UBIDI_DEFAULT_LTR;
+}
+
+static wk_levelResolution wk_resolveLevels(wk_clusterFontProvider *reader, const wk_providedText *text, UBiDiLevel **levelsResult)
+{
+    if (!text->length)
+        return WKLevelsLeftToRight;
+
+    // ICU 51 implements the Unicode 6.2 bidirectional algorithm. What has changed levels since is classes,
+    // the paired-bracket rule and the depth of explicit embedding, which went from 61 to 125, so text holding
+    // no code point classed differently, no paired bracket and no more explicit controls than 61 resolves
+    // alike in both. Below U+058D the two class every code point alike and the paired brackets are ASCII's,
+    // and below U+0590 no class raises a level. A paragraph whose style changes after it starts is not
+    // resolved by CoreText the way it is by the algorithm, so it is always set at explicit levels.
+    enum { WKSystemMaxExplicitLevel = 61 };
+    bool raises = false;
+    bool mayDiffer = false;
+    bool explicitLevels = false;
+    CFIndex explicitControls = 0;
+    wk_servedBlock *blocks = wk_servedBlocks(reader);
+    CFIndex block = 0;
+    CFIndex blockEnd = blocks[0].start + blocks[0].count;
+    bool paragraphStarts = true;
+    CTWritingDirection paragraphDirection = kCTWritingDirectionNatural;
+    for (CFIndex i = 0; i < text->length && !(raises && (mayDiffer || explicitLevels)); ) {
+        if (i >= blockEnd) {
+            while (blocks[block].start + blocks[block].count <= i)
+                ++block;
+            blockEnd = blocks[block].start + blocks[block].count;
+            if (!paragraphStarts && wk_baseWritingDirection(blocks[block].attributes) != paragraphDirection)
+                explicitLevels = true;
+        }
+        if (paragraphStarts) {
+            paragraphDirection = wk_baseWritingDirection(blocks[block].attributes);
+            raises = raises || paragraphDirection == kCTWritingDirectionRightToLeft;
+            paragraphStarts = false;
+        }
+        UniChar unit = text->characters[i];
+        if (unit < 0x058D) {
+            ++i;
+            // Of these, only the ASCII brackets and the paragraph separators can matter. The next paragraph starts
+            // after a separator, taking CR LF as one.
+            if (unit <= '}' || unit == 0x85) {
+                if (unit == '(' || unit == ')' || unit == '[' || unit == ']' || unit == '{' || unit == '}')
+                    mayDiffer = true;
+                else if (wk_isParagraphSeparator(unit) && !(unit == '\r' && i < text->length && text->characters[i] == '\n'))
+                    paragraphStarts = true;
+            }
+            continue;
+        }
+        UChar32 codePoint;
+        U16_NEXT(text->characters, i, text->length, codePoint);
+        if (wk_isParagraphSeparator(codePoint))
+            paragraphStarts = true;
+        UCharDirection current = u_charDirection(codePoint);
+        UCharDirection system = WK_SYSTEM(u_charDirection)(codePoint);
+        raises = raises || wk_directionRaisesLevels(current) || wk_directionRaisesLevels(system);
+        if (wk_directionRaisesLevels(current) && current != U_RIGHT_TO_LEFT && current != U_RIGHT_TO_LEFT_ARABIC && current != U_ARABIC_NUMBER)
+            ++explicitControls;
+        mayDiffer = mayDiffer || current != system || explicitControls > WKSystemMaxExplicitLevel
+            || u_getIntPropertyValue(codePoint, UCHAR_BIDI_PAIRED_BRACKET_TYPE) != U_BPT_NONE;
+    }
+    if (!raises)
+        return WKLevelsLeftToRight;
+    if (!mayDiffer && !explicitLevels)
+        return WKLevelsCurrent;
+
+    UBiDiLevel *levels = (UBiDiLevel *)malloc((size_t)text->length);
+    if (!levels)
+        abort();
+    wk_bidiResolvers *resolvers = wk_bidiResolversForThread();
+    bool same = true;
+    for (CFIndex start = 0; start < text->length; ) {
+        CFIndex end = wk_paragraphEnd(text, start);
+        UBiDiLevel paragraphLevel = wk_paragraphLevel(wk_baseWritingDirection(wk_servedBlockAt(reader, start)->attributes));
+        UErrorCode status = U_ZERO_ERROR;
+        ubidi_setPara(resolvers->current, (const UChar *)text->characters + start, (int32_t)(end - start), paragraphLevel, NULL, &status);
+        const UBiDiLevel *current = ubidi_getLevels(resolvers->current, &status);
+        UErrorCode systemStatus = U_ZERO_ERROR;
+        WK_SYSTEM(ubidi_setPara)(resolvers->system, (const UChar *)text->characters + start, (int32_t)(end - start), paragraphLevel, NULL, &systemStatus);
+        const UBiDiLevel *system = WK_SYSTEM(ubidi_getLevels)(resolvers->system, &systemStatus);
+        if (U_FAILURE(status) || U_FAILURE(systemStatus) || !current || !system)
+            abort();
+        memcpy(levels + start, current, (size_t)(end - start));
+        same = same && !memcmp(current, system, (size_t)(end - start));
+        start = end;
+    }
+    if (same && !explicitLevels) {
+        free(levels);
+        return WKLevelsCurrent;
+    }
+    *levelsResult = levels;
+    return WKLevelsExplicit;
+}
+
+// The nested overrides that take a character to level to, which is at least 2, from a paragraph at level 0 or 1:
+// the first is left to right, which takes either to level 2.
+static CFArrayRef wk_createOverrideChain(int to)
+{
+    CFMutableArrayRef chain = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+    if (!chain)
+        abort();
+    for (int level = 0; level < to; ) {
+        int rightToLeft = to - level == 1 ? (to & 1) : (level & 1);
+        int value = (rightToLeft ? kCTWritingDirectionRightToLeft : kCTWritingDirectionLeftToRight) | kCTWritingDirectionOverride;
+        CFNumberRef number = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &value);
+        if (!number)
+            abort();
+        CFArrayAppendValue(chain, number);
+        CFRelease(number);
+        level += ((level + 1) & 1) == rightToLeft ? 1 : 2;
+    }
+    return chain;
+}
+
+// Whether a range of the text the provider served is a single code point.
+static bool wk_servedRangeIsOneCodePoint(wk_clusterFontProvider *provider, CFRange range)
+{
+    if (range.length == 1)
+        return true;
+    if (range.length != 2)
+        return false;
+    wk_servedBlock *blocks = wk_servedBlocks(provider);
+    for (CFIndex i = 0; i < provider->servedCount; ++i) {
+        if (blocks[i].start <= range.location && range.location + 2 <= blocks[i].start + blocks[i].count) {
+            const UniChar *characters = blocks[i].characters + (range.location - blocks[i].start);
+            return U16_IS_LEAD(characters[0]) && U16_IS_TRAIL(characters[1]);
+        }
+    }
+    return false;
+}
+
+typedef struct {
+    CFIndex start;
+    CFIndex end;
+    CTFontRef font;
+} wk_rightToLeftRange;
+
+static int wk_compareRightToLeftRanges(const void *a, const void *b)
+{
+    CFIndex first = ((const wk_rightToLeftRange *)a)->start;
+    CFIndex second = ((const wk_rightToLeftRange *)b)->start;
+    return first < second ? -1 : first > second;
+}
+
+// The right-to-left runs of more than one code point set in a font with logical-order subtables, in string
+// order and joined where they meet in one font. NULL when there are none.
+static wk_rightToLeftRange *wk_copyLogicalOrderRightToLeftRanges(wk_clusterFontProvider *provider, CTLineRef line, CFIndex *rangeCount)
+{
+    CFArrayRef runs = CTLineGetGlyphRuns(line);
+    CFIndex runCount = runs ? CFArrayGetCount(runs) : 0;
+    wk_rightToLeftRange *ranges = NULL;
+    CFIndex count = 0;
+    for (CFIndex i = 0; i < runCount; ++i) {
+        CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, i);
+        if (!(CTRunGetStatus(run) & kCTRunStatusRightToLeft))
+            continue;
+        CFRange range = CTRunGetStringRange(run);
+        if (wk_servedRangeIsOneCodePoint(provider, range))
+            continue;
+        CFDictionaryRef runAttributes = WK_ORIGINAL(CTRunGetAttributes)(run);
+        CTFontRef font = runAttributes ? (CTFontRef)CFDictionaryGetValue(runAttributes, kCTFontAttributeName) : NULL;
+        if (!font || CFGetTypeID(font) != CTFontGetTypeID() || !wk_shapingFont(font, true))
+            continue;
+        if (!ranges) {
+            ranges = (wk_rightToLeftRange *)malloc((size_t)runCount * sizeof(wk_rightToLeftRange));
+            if (!ranges)
+                abort();
+        }
+        ranges[count++] = (wk_rightToLeftRange) { range.location, range.location + range.length, font };
+    }
+    if (!count)
+        return NULL;
+    qsort(ranges, (size_t)count, sizeof(wk_rightToLeftRange), wk_compareRightToLeftRanges);
+    CFIndex joined = 0;
+    for (CFIndex i = 1; i < count; ++i) {
+        if (ranges[i].start == ranges[joined].end && ranges[i].font == ranges[joined].font)
+            ranges[joined].end = ranges[i].end;
+        else
+            ranges[++joined] = ranges[i];
+    }
+    *rangeCount = joined + 1;
+    return ranges;
+}
+
+static CGFloat wk_zeroWidthMetric(void *refCon)
+{
+    (void)refCon;
+    return 0;
+}
+
+static void wk_zeroWidthDeallocate(void *refCon)
+{
+    (void)refCon;
+}
+
+typedef enum {
+    WKStandInNone,
+    WKStandInZeroWidth,
+    WKStandInSpace,
+} wk_standIn;
+
+// CoreText does not take an override on two kinds of character. 10.9 classes the isolate controls U+2066-2069 as
+// boundary neutrals, which take the level of the character before them, and a paragraph separator takes its
+// paragraph's level. Where those differ from the character's current level, CoreText lays out a space in its
+// place: a space takes its override and is not a mark, so no cluster before it takes it in, and in a zero-width run
+// delegate it has no advance. LF and CR are laid out as a plain space, which is the advance CoreText gives them.
+// In a font without a space, U+FFFC in a zero-width run delegate stands in.
+static wk_standIn wk_standInFor(const wk_providedText *text, const UBiDiLevel *levels, CFIndex index)
+{
+    UniChar character = text->characters[index];
+    if (character >= 0x2066 && character <= 0x2069)
+        return !index || levels[index] != levels[index - 1] ? WKStandInZeroWidth : WKStandInNone;
+    if (character == '\n' || character == '\r')
+        return WKStandInSpace;
+    if (!U16_IS_SURROGATE(character) && wk_isParagraphSeparator(character))
+        return WKStandInZeroWidth;
+    return WKStandInNone;
+}
+
+typedef struct {
+    CFIndex start;
+    CFIndex end;
+    CFMutableDictionaryRef attributes;
+} wk_levelSegment;
+
+// The attributed string the provided text is laid out from at explicit levels: each block's attributes, each
+// character overridden to its level raised by two, and the ranges given set in their shaping fonts.
+static CFAttributedStringRef wk_createExplicitLevelString(wk_clusterFontProvider *reader, const wk_providedText *text,
+    const UBiDiLevel *levels, const wk_rightToLeftRange *ranges, CFIndex rangeCount)
+{
+    wk_levelSegment *segments = NULL;
+    CFIndex segmentCount = 0;
+    CFIndex segmentCapacity = 0;
+    UniChar *laidOut = NULL;
+    CTRunDelegateRef zeroWidth = NULL;
+    CFArrayRef chains[UBIDI_MAX_EXPLICIT_LEVEL + 4] = { 0 };
+    wk_servedBlock *blocks = wk_servedBlocks(reader);
+    CFIndex rangeIndex = 0;
+    for (CFIndex b = 0; b < reader->servedCount; ++b) {
+        const wk_servedBlock *block = &blocks[b];
+        CFIndex blockEnd = block->start + block->count;
+        for (CFIndex position = block->start; position < blockEnd; ) {
+            wk_standIn standIn = wk_standInFor(text, levels, position);
+            CFIndex end = position + 1;
+            if (standIn == WKStandInNone) {
+                while (end < blockEnd && levels[end] == levels[position] && wk_standInFor(text, levels, end) == WKStandInNone)
+                    ++end;
+            }
+            while (rangeIndex < rangeCount && ranges[rangeIndex].end <= position)
+                ++rangeIndex;
+            const wk_rightToLeftRange *shaping = NULL;
+            if (rangeIndex < rangeCount) {
+                if (ranges[rangeIndex].start <= position) {
+                    shaping = &ranges[rangeIndex];
+                    if (shaping->end < end)
+                        end = shaping->end;
+                } else if (ranges[rangeIndex].start < end)
+                    end = ranges[rangeIndex].start;
+            }
+
+            CFDictionaryRef source = block->attributes;
+            CFMutableDictionaryRef attributes = source ? CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, source)
+                : CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+            if (!attributes)
+                abort();
+            if (shaping && source) {
+                if (CFDictionaryGetValue(source, kCTFontAttributeName) != shaping->font)
+                    source = wk_clusterFontAttributes(reader, source, shaping->font);
+                CFDictionarySetValue(attributes, kCTFontAttributeName, wk_shapingFont(shaping->font, true));
+            }
+            UBiDiLevel level = levels[position];
+            if (!chains[level + 2])
+                chains[level + 2] = wk_createOverrideChain(level + 2);
+            CFDictionarySetValue(attributes, kCTWritingDirectionAttributeName, chains[level + 2]);
+            if (source)
+                CFDictionarySetValue(attributes, wk_sourceAttributesKey(), source);
+
+            if (standIn != WKStandInNone) {
+                CTFontRef font = (CTFontRef)CFDictionaryGetValue(attributes, kCTFontAttributeName);
+                UniChar space = ' ';
+                CGGlyph spaceGlyph;
+                bool hasSpace = font && CFGetTypeID(font) == CTFontGetTypeID() && CTFontGetGlyphsForCharacters(font, &space, &spaceGlyph, 1);
+                if (!laidOut) {
+                    laidOut = (UniChar *)malloc((size_t)text->length * sizeof(UniChar));
+                    if (!laidOut)
+                        abort();
+                    memcpy(laidOut, text->characters, (size_t)text->length * sizeof(UniChar));
+                }
+                laidOut[position] = hasSpace ? ' ' : 0xFFFC;
+                if (standIn == WKStandInZeroWidth || !hasSpace) {
+                    if (!zeroWidth) {
+                        CTRunDelegateCallbacks callbacks = { kCTRunDelegateVersion1, wk_zeroWidthDeallocate, wk_zeroWidthMetric, wk_zeroWidthMetric, wk_zeroWidthMetric };
+                        zeroWidth = CTRunDelegateCreate(&callbacks, NULL);
+                        if (!zeroWidth)
+                            abort();
+                    }
+                    CFDictionarySetValue(attributes, kCTRunDelegateAttributeName, zeroWidth);
+                }
+            }
+
+            if (segmentCount == segmentCapacity) {
+                segmentCapacity = segmentCapacity ? 2 * segmentCapacity : 16;
+                segments = (wk_levelSegment *)realloc(segments, (size_t)segmentCapacity * sizeof(wk_levelSegment));
+                if (!segments)
+                    abort();
+            }
+            segments[segmentCount++] = (wk_levelSegment) { position, end, attributes };
+            position = end;
+        }
+    }
+
+    CFStringRef string = CFStringCreateWithCharacters(kCFAllocatorDefault, laidOut ? laidOut : text->characters, text->length);
+    CFMutableAttributedStringRef result = CFAttributedStringCreateMutable(kCFAllocatorDefault, 0);
+    if (!string || !result)
+        abort();
+    CFAttributedStringReplaceString(result, CFRangeMake(0, 0), string);
+    CFRelease(string);
+    CFAttributedStringBeginEditing(result);
+    for (CFIndex i = 0; i < segmentCount; ++i) {
+        CFAttributedStringSetAttributes(result, CFRangeMake(segments[i].start, segments[i].end - segments[i].start), segments[i].attributes, true);
+        CFRelease(segments[i].attributes);
+    }
+    CFAttributedStringEndEditing(result);
+    free(segments);
+    free(laidOut);
+    if (zeroWidth)
+        CFRelease(zeroWidth);
+    for (size_t i = 0; i < sizeof(chains) / sizeof(*chains); ++i) {
+        if (chains[i])
+            CFRelease(chains[i]);
+    }
+    return result;
+}
+
+// Serves the blocks a reader was handed, with the ranges given set in their shaping fonts. Each block is
+// disposed of once, when CoreText lets go of its start.
+typedef struct {
+    wk_clusterFontProvider base; // the dispose callback, the dictionaries made, and the lifetime
+    wk_servedBlock *blocks;
+    CFIndex blockCount;
+    CFIndex blockCursor;
+    const wk_rightToLeftRange *ranges;
+    CFIndex rangeCount;
+    CFIndex rangeCursor;
+} wk_replayProvider;
+
+static const UniChar *wk_replayProvide(CFIndex stringIndex, CFIndex *charCount, CFDictionaryRef *attributes, void *refCon)
+{
+    wk_replayProvider *provider = (wk_replayProvider *)refCon;
+    if (provider->blockCursor >= provider->blockCount || provider->blocks[provider->blockCursor].start > stringIndex)
+        provider->blockCursor = 0;
+    while (provider->blockCursor < provider->blockCount
+        && provider->blocks[provider->blockCursor].start + provider->blocks[provider->blockCursor].count <= stringIndex)
+        ++provider->blockCursor;
+    if (stringIndex < 0 || provider->blockCursor == provider->blockCount || provider->blocks[provider->blockCursor].start > stringIndex) {
+        *charCount = 0;
+        return NULL;
+    }
+    const wk_servedBlock *block = &provider->blocks[provider->blockCursor];
+
+    if (provider->rangeCursor >= provider->rangeCount || (provider->rangeCursor && provider->ranges[provider->rangeCursor - 1].end > stringIndex))
+        provider->rangeCursor = 0;
+    while (provider->rangeCursor < provider->rangeCount && provider->ranges[provider->rangeCursor].end <= stringIndex)
+        ++provider->rangeCursor;
+
+    CFIndex end = block->start + block->count;
+    CFDictionaryRef served = block->attributes;
+    if (provider->rangeCursor < provider->rangeCount) {
+        const wk_rightToLeftRange *range = &provider->ranges[provider->rangeCursor];
+        if (range->start <= stringIndex && served) {
+            if (range->end < end)
+                end = range->end;
+            CFDictionaryRef source = CFDictionaryGetValue(served, kCTFontAttributeName) == range->font ? served : wk_clusterFontAttributes(&provider->base, served, range->font);
+            served = wk_shapingAttributes(&provider->base, source, wk_shapingFont(range->font, true));
+        } else if (range->start > stringIndex && range->start < end)
+            end = range->start;
+    }
+    if (provider->base.dispose)
+        ++provider->base.outstandingBlocks;
+    *charCount = end - stringIndex;
+    *attributes = served;
+    return block->characters + (stringIndex - block->start);
+}
+
+static void wk_replayProviderRelease(wk_replayProvider *provider)
+{
+    wk_clusterFontProviderRelease(&provider->base);
+    free(provider->blocks);
+}
+
+static void wk_replayDispose(const UniChar *characters, void *refCon)
+{
+    wk_replayProvider *provider = (wk_replayProvider *)refCon;
+    for (CFIndex i = 0; i < provider->blockCount; ++i) {
+        if (!provider->blocks[i].disposeForwarded && provider->blocks[i].characters == characters) {
+            provider->blocks[i].disposeForwarded = true;
+            if (provider->base.forwardsDispose)
+                provider->base.dispose(characters, provider->base.refCon);
+            break;
+        }
+    }
+    if (!--provider->base.outstandingBlocks && provider->base.creationFinished) {
+        wk_replayProviderRelease(provider);
+        free(provider);
+    }
+}
+
+static wk_replayProvider *wk_replayProviderBegin(wk_replayProvider *local, wk_clusterFontProvider *reader, const wk_rightToLeftRange *ranges, CFIndex rangeCount)
+{
+    *local = (wk_replayProvider) {
+        .base = { .dispose = reader->dispose, .refCon = reader->refCon, .forwardsDispose = true },
+        .blockCount = reader->servedCount,
+        .ranges = ranges,
+        .rangeCount = rangeCount,
+    };
+    local->blocks = (wk_servedBlock *)malloc((size_t)(reader->servedCount + 1) * sizeof(wk_servedBlock));
+    if (!local->blocks)
+        abort();
+    memcpy(local->blocks, wk_servedBlocks(reader), (size_t)reader->servedCount * sizeof(wk_servedBlock));
+    if (!local->base.dispose)
+        return local;
+    wk_replayProvider *provider = (wk_replayProvider *)malloc(sizeof(*provider));
+    if (!provider)
+        abort();
+    *provider = *local;
+    return provider;
+}
+
+// After CoreText has made what it makes from the provider. A provider with a dispose callback lives until
+// its last block is disposed of, and the caller may still stop it forwarding until then.
+static void wk_replayProviderEnd(wk_replayProvider *provider)
+{
+    provider->ranges = NULL;
+    provider->rangeCount = 0;
+    if (!provider->base.dispose) {
+        wk_replayProviderRelease(provider);
+        return;
+    }
+    provider->base.creationFinished = true;
+    if (!provider->base.outstandingBlocks) {
+        wk_replayProviderRelease(provider);
+        free(provider);
+    }
+}
+
+static CFTypeRef wk_createFromReplay(wk_naturalKind kind, wk_replayProvider *provider, CFDictionaryRef options)
+{
+    CTUniCharDisposeCallback dispose = provider->base.dispose ? wk_replayDispose : NULL;
+    if (kind == WKNaturalLine)
+        return WK_ORIGINAL(CTLineCreateWithUniCharProvider)(wk_replayProvide, dispose, provider);
+    return WK_ORIGINAL(CTTypesetterCreateWithUniCharProviderAndOptions)(wk_replayProvide, dispose, provider, options);
+}
+
+// Attributed-string clients use the same installed-font GPOS instances as character providers.
+static CFAttributedStringRef wk_copyWithShapingFonts(CFAttributedStringRef string)
+{
+    CFMutableAttributedStringRef copy = NULL;
+    CFIndex length = CFAttributedStringGetLength(string);
+    for (CFIndex i = 0; i < length;) {
+        CFRange range;
+        CFDictionaryRef attributes = CFAttributedStringGetAttributes(string, i, &range);
+        CTFontRef font = (CTFontRef)CFDictionaryGetValue(attributes, kCTFontAttributeName);
+        if (font && CFGetTypeID(font) == CTFontGetTypeID() && wk_fontUsesSystemFallbackOnly(font)) {
+            UniChar *characters = malloc((size_t)range.length * sizeof(UniChar));
+            if (!characters)
+                abort();
+            CFStringGetCharacters(CFAttributedStringGetString(string), range, characters);
+            wk_clusterFontProvider provider = { 0 };
+            for (CFIndex offset = 0; offset < range.length;) {
+                CFIndex count = range.length - offset;
+                CFDictionaryRef selected = attributes;
+                wk_serveBlock(&provider, characters + offset, &count, &selected);
+                if (selected != attributes) {
+                    if (!copy)
+                        copy = CFAttributedStringCreateMutableCopy(kCFAllocatorDefault, 0, string);
+                    CFAttributedStringSetAttributes(copy, CFRangeMake(range.location + offset, count), selected, true);
+                }
+                offset += count;
+            }
+            wk_clusterFontProviderRelease(&provider);
+            free(characters);
+            i = range.location + range.length;
+            continue;
+        }
+        CTFontRef shaping = font && CFGetTypeID(font) == CTFontGetTypeID() ? wk_shapingFont(font, false) : NULL;
+        if (shaping) {
+            if (!copy)
+                copy = CFAttributedStringCreateMutableCopy(kCFAllocatorDefault, 0, string);
+            CFAttributedStringSetAttribute(copy, range, kCTFontAttributeName, shaping);
+            CFAttributedStringSetAttribute(copy, range, wk_sourceAttributesKey(), attributes);
+        }
+        i = range.location + range.length;
+    }
+    return copy;
+}
+
+WK_POLYFILL_REPLACES("CoreText", CTLineRef, CTLineCreateWithAttributedString, (CFAttributedStringRef string))
+{
+    CFAttributedStringRef copy = string ? wk_copyWithShapingFonts(string) : NULL;
+    CTLineRef line = WK_ORIGINAL(CTLineCreateWithAttributedString)(copy ? copy : string);
+    if (copy)
+        CFRelease(copy);
+    return line;
+}
+
+WK_POLYFILL_REPLACES("CoreText", CTTypesetterRef, CTTypesetterCreateWithAttributedStringAndOptions,
+    (CFAttributedStringRef string, CFDictionaryRef options))
+{
+    CFAttributedStringRef copy = string ? wk_copyWithShapingFonts(string) : NULL;
+    CTTypesetterRef typesetter = WK_ORIGINAL(CTTypesetterCreateWithAttributedStringAndOptions)(copy ? copy : string, options);
+    if (copy)
+        CFRelease(copy);
+    return typesetter;
+}
+
+static CFTypeRef wk_createFromAttributedString(wk_naturalKind kind, CFAttributedStringRef string, CFDictionaryRef options)
+{
+    if (kind == WKNaturalLine)
+        return CTLineCreateWithAttributedString(string);
+    return CTTypesetterCreateWithAttributedStringAndOptions(string, options);
+}
+
+static wk_rightToLeftRange *wk_copyLogicalOrderRanges(wk_naturalKind kind, CFTypeRef made, wk_clusterFontProvider *reader, CFIndex *rangeCount)
+{
+    if (!made)
+        return NULL;
+    if (kind == WKNaturalLine)
+        return wk_copyLogicalOrderRightToLeftRanges(reader, (CTLineRef)made, rangeCount);
+    // A typesetter's levels are its paragraphs' and do not depend on where lines break.
+    CTLineRef line = CTTypesetterCreateLine((CTTypesetterRef)made, CFRangeMake(0, 0));
+    if (!line)
+        return NULL;
+    wk_rightToLeftRange *ranges = wk_copyLogicalOrderRightToLeftRanges(reader, line, rangeCount);
+    CFRelease(line);
+    return ranges;
+}
+
+static CFTypeRef wk_createNaturalDirection(wk_naturalKind kind, CTUniCharProviderCallback provide, CTUniCharDisposeCallback dispose, void *refCon, CFDictionaryRef options)
+{
+    wk_clusterFontProvider reader = { .provide = provide, .dispose = dispose, .refCon = refCon, .recordsServedBlocks = true };
+    for (CFIndex index = 0;;) {
+        CFIndex count = 0;
+        CFDictionaryRef attributes = NULL;
+        if (!wk_clusterFontProvide(index, &count, &attributes, &reader) || count <= 0)
+            break;
+        index += count;
+    }
+    wk_providedText text;
+    wk_providedTextInit(&text, &reader);
+    UBiDiLevel *levels = NULL;
+    wk_levelResolution resolution = wk_resolveLevels(&reader, &text, &levels);
+
+    CFTypeRef made;
+    if (resolution != WKLevelsExplicit) {
+        wk_replayProvider storage;
+        wk_replayProvider *provider = wk_replayProviderBegin(&storage, &reader, NULL, 0);
+        made = wk_createFromReplay(kind, provider, options);
+        wk_replayProviderEnd(provider);
+        CFIndex rangeCount = 0;
+        wk_rightToLeftRange *ranges = resolution == WKLevelsCurrent ? wk_copyLogicalOrderRanges(kind, made, &reader, &rangeCount) : NULL;
+        if (ranges) {
+            wk_replayProvider shapingStorage;
+            wk_replayProvider *shaping = wk_replayProviderBegin(&shapingStorage, &reader, ranges, rangeCount);
+            CFTypeRef shaped = wk_createFromReplay(kind, shaping, options);
+            wk_replayProviderEnd(shaping);
+            free(ranges);
+            if (dispose)
+                provider->base.forwardsDispose = false;
+            CFRelease(made);
+            made = shaped;
+        }
+    } else {
+        CFAttributedStringRef string = wk_createExplicitLevelString(&reader, &text, levels, NULL, 0);
+        made = wk_createFromAttributedString(kind, string, options);
+        CFRelease(string);
+        CFIndex rangeCount = 0;
+        wk_rightToLeftRange *ranges = wk_copyLogicalOrderRanges(kind, made, &reader, &rangeCount);
+        if (ranges) {
+            string = wk_createExplicitLevelString(&reader, &text, levels, ranges, rangeCount);
+            CFTypeRef shaped = wk_createFromAttributedString(kind, string, options);
+            CFRelease(string);
+            free(ranges);
+            if (made)
+                CFRelease(made);
+            made = shaped;
+        }
+        free(levels);
+        // The attributed string holds its own copy of the text.
+        if (dispose) {
+            wk_servedBlock *blocks = wk_servedBlocks(&reader);
+            for (CFIndex i = 0; i < reader.servedCount; ++i)
+                dispose(blocks[i].characters, refCon);
+        }
+    }
+    free(text.copy);
+    wk_clusterFontProviderRelease(&reader);
+    return made;
+}
+
+// A forced right-to-left level sets the blocks CoreText reads in a font with logical-order subtables in that
+// font's shaping font as they are read. Where CoreText sets some of the text in a fallback font instead, the
+// runs it set in a font with logical-order subtables are set again in their shaping font.
+static CTTypesetterRef wk_createForcedLevelTypesetter(CTUniCharProviderCallback provide, CTUniCharDisposeCallback dispose, void *refCon, CFDictionaryRef options, int level)
+{
+    bool rightToLeft = level & 1;
+    wk_clusterFontProvider local = { .provide = provide, .dispose = dispose, .refCon = refCon,
+        .rightToLeft = rightToLeft, .recordsServedBlocks = rightToLeft, .forwardsDispose = true };
+    wk_clusterFontProvider *provider = wk_clusterFontProviderBegin(&local);
+    CTTypesetterRef typesetter = WK_ORIGINAL(CTTypesetterCreateWithUniCharProviderAndOptions)(wk_clusterFontProvide,
+        dispose ? wk_clusterFontDispose : NULL, provider, options);
+    CFIndex rangeCount = 0;
+    wk_rightToLeftRange *ranges = typesetter && provider->fallsBack ? wk_copyLogicalOrderRanges(WKNaturalTypesetter, typesetter, provider, &rangeCount) : NULL;
+    if (ranges) {
+        wk_replayProvider storage;
+        wk_replayProvider *shaping = wk_replayProviderBegin(&storage, provider, ranges, rangeCount);
+        CTTypesetterRef shaped = (CTTypesetterRef)wk_createFromReplay(WKNaturalTypesetter, shaping, options);
+        wk_replayProviderEnd(shaping);
+        free(ranges);
+        provider->forwardsDispose = false;
+        CFRelease(typesetter);
+        typesetter = shaped;
+    }
+    wk_clusterFontProviderEnd(provider);
+    return typesetter;
 }

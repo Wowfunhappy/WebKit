@@ -557,6 +557,23 @@ static void wk_install_side(Class side, Class target, int intent)
             class_replaceMethod(target, priv, imp, types);
         else
             class_addMethod(target, priv, imp, types);
+        if (intent == WK_METHODS_ADD_LAYER_PROPERTIES) {
+            const char *name = sel_getName(method_getName(methods[i]));
+            Class layerClass = objc_getClass("CALayer");
+            Class ancestor = target;
+            while (ancestor && ancestor != layerClass)
+                ancestor = class_getSuperclass(ancestor);
+            if (!ancestor || class_isMetaClass(target) || strchr(name, ':')) {
+                fprintf(stderr, "[wk_selref_scope] FATAL: %s.%s is not a CALayer property getter.\n", class_getName(target), name);
+                abort();
+            }
+            char *returnType = method_copyReturnType(methods[i]);
+            objc_property_attribute_t attributes[] = {
+                { "T", returnType }, { "R", "" }, { "N", "" }, { "G", sel_getName(priv) }
+            };
+            class_addProperty(target, name, attributes, sizeof(attributes) / sizeof(*attributes));
+            free(returnType);
+        }
     }
     free(methods);
     // Invalidates the wk_original_of memo: the targets' chains answer differently now.

@@ -47,6 +47,9 @@ struct WebKitMediaWidevineVideoDecodePrivate {
     Lock lock;
     Condition condition;
     RefPtr<CDMProxyWidevine> cdmProxy WTF_GUARDED_BY_LOCK(lock);
+    // The proxy a running decode waits on. setContext() can replace cdmProxy meanwhile, so flushing and
+    // stopping abort this proxy's key wait as well as cdmProxy's.
+    RefPtr<CDMProxyWidevine> decodingProxy WTF_GUARDED_BY_LOCK(lock);
     bool isFlushing WTF_GUARDED_BY_LOCK(lock) { false };
     bool isStopped WTF_GUARDED_BY_LOCK(lock) { false };
     std::unique_ptr<WidevineVideoDecodeClient> decryptionClient;
@@ -238,6 +241,13 @@ static bool isCDMProxyAvailable(WebKitMediaWidevineVideoDecode* self)
 static void attachCDMProxy(WebKitMediaWidevineVideoDecode* self, CDMProxy* proxy)
 {
     Locker locker { self->priv->lock };
+
+    // The drm-cdm-proxy context carries whichever CDM the page created, so a proxy of another key
+    // system is refused rather than cast, and the element is left without one.
+    if (proxy && !GStreamerEMEUtilities::isWidevineKeySystem(proxy->keySystem())) {
+        GST_DEBUG_OBJECT(self, "ignoring a %s CDM proxy", proxy->keySystem().utf8().data());
+        proxy = nullptr;
+    }
 
     GST_DEBUG_OBJECT(self, "attaching CDMProxy %p", proxy);
     self->priv->cdmProxy = static_cast<CDMProxyWidevine*>(proxy);
@@ -616,7 +626,12 @@ static GstFlowReturn webKitMediaWidevineVideoDecodeHandleFrame(GstVideoDecoder* 
             }
         }
         proxy = priv->cdmProxy;
+        priv->decodingProxy = proxy;
     }
+    auto clearDecodingProxy = makeScopeExit([priv] {
+        Locker locker { priv->lock };
+        priv->decodingProxy = nullptr;
+    });
 
     SampleProtection protection;
     if (!readSampleProtection(self, frame->input_buffer, protection)) {
@@ -720,8 +735,9 @@ static GstFlowReturn webKitMediaWidevineVideoDecodeHandleFrame(GstVideoDecoder* 
     auto status = proxy->decryptAndDecodeFrame(context, decoded);
 
     {
+        // A stop aborts the key wait too, and a decode it ended has not failed.
         Locker locker { priv->lock };
-        if (priv->isFlushing)
+        if (priv->isFlushing || priv->isStopped)
             return GST_FLOW_FLUSHING;
     }
 
@@ -819,6 +835,8 @@ static gboolean webKitMediaWidevineVideoDecodeSinkEvent(GstVideoDecoder* decoder
         priv->condition.notifyAll();
         if (priv->cdmProxy)
             priv->cdmProxy->abortWaitingForKey();
+        if (priv->decodingProxy && priv->decodingProxy != priv->cdmProxy)
+            priv->decodingProxy->abortWaitingForKey();
         break;
     }
     case GST_EVENT_FLUSH_STOP: {
@@ -846,6 +864,23 @@ static void webKitMediaWidevineVideoDecodeSetContext(GstElement* element, GstCon
     GST_ELEMENT_CLASS(parent_class)->set_context(element, context);
 }
 
+// Deactivating the sink pad on the way to READY waits for handle_frame, which can be in a key wait,
+// so the element is stopped and the wait aborted first, as the common decryptor does.
+static GstStateChangeReturn webKitMediaWidevineVideoDecodeChangeState(GstElement* element, GstStateChange transition)
+{
+    auto* self = WEBKIT_MEDIA_WV_VIDEO_DECODE(element);
+    if (transition == GST_STATE_CHANGE_PAUSED_TO_READY) {
+        Locker locker { self->priv->lock };
+        self->priv->isStopped = true;
+        self->priv->condition.notifyAll();
+        if (self->priv->cdmProxy)
+            self->priv->cdmProxy->abortWaitingForKey();
+        if (self->priv->decodingProxy && self->priv->decodingProxy != self->priv->cdmProxy)
+            self->priv->decodingProxy->abortWaitingForKey();
+    }
+    return GST_ELEMENT_CLASS(parent_class)->change_state(element, transition);
+}
+
 static void constructed(GObject* object)
 {
     G_OBJECT_CLASS(parent_class)->constructed(object);
@@ -862,6 +897,7 @@ static void webkit_media_widevine_video_decode_class_init(WebKitMediaWidevineVid
 
     GstElementClass* elementClass = GST_ELEMENT_CLASS(klass);
     elementClass->set_context = GST_DEBUG_FUNCPTR(webKitMediaWidevineVideoDecodeSetContext);
+    elementClass->change_state = GST_DEBUG_FUNCPTR(webKitMediaWidevineVideoDecodeChangeState);
 
     GRefPtr<GstCaps> sinkPadTemplateCaps = createSinkPadTemplateCaps();
     gst_element_class_add_pad_template(elementClass, gst_pad_template_new("sink", GST_PAD_SINK, GST_PAD_ALWAYS, sinkPadTemplateCaps.get()));

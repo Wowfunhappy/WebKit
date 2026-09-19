@@ -36,6 +36,9 @@ struct WebKitVideoSinkSignalIdentifiers {
 
 WebCore::WebKitVideoSinkSignalIdentifiers webKitVideoSinkSetMediaPlayerPrivate(GstElement*, const ThreadSafeWeakPtr<WebCore::MediaPlayerPrivateGStreamer>&);
 
+// MAVERICKS_BACKPORT: Cocoa's accelerated fallback sink shares the upstream flush/abort protocol.
+void webKitVideoSinkAttachPlayerProbe(GstElement*, const ThreadSafeWeakPtr<WebCore::MediaPlayerPrivateGStreamer>&);
+
 void webKitVideoSinkDisconnectSignalHandlers(GstElement*, const WebCore::WebKitVideoSinkSignalIdentifiers&);
 
 #endif // ENABLE(VIDEO)

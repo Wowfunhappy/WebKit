@@ -49,6 +49,9 @@ public:
         GRefPtr<GstSample> pullSample();
         GRefPtr<GstEvent> pullEvent();
 
+        // MAVERICKS_BACKPORT: Asynchronous codec consumers receive notification after a sample is queued.
+        void setOutputAvailableCallback(Function<void()>&& callback) { m_outputAvailableCallback = WTF::move(callback); }
+
         bool sendEvent(GstEvent*);
 
         const GRefPtr<GstPad>& pad() const { return m_pad; }
@@ -71,6 +74,8 @@ public:
 
         Lock m_sampleQueueLock;
         Deque<GRefPtr<GstSample>> m_sampleQueue WTF_GUARDED_BY_LOCK(m_sampleQueueLock);
+        // MAVERICKS_BACKPORT: The consumer installs its notification before starting the stream.
+        Function<void()> m_outputAvailableCallback;
 
         Lock m_sinkEventQueueLock;
         Deque<GRefPtr<GstEvent>> m_sinkEventQueue WTF_GUARDED_BY_LOCK(m_sinkEventQueueLock);

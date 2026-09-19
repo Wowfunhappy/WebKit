@@ -773,13 +773,13 @@ set(WebKit_OUTPUT_NAME WebKit)
 # XPC Services
 
 function(WEBKIT_DEFINE_XPC_SERVICES)
-    # MAVERICKS_BACKPORT: 10.9's XPC service bootstrap uses an NSRunLoop-typed main run loop; the
-    # _WebKit run-loop type postdates this OS.
-    set(RUNLOOP_TYPE NSRunLoop)
+    set(RUNLOOP_TYPE _WebKit)
     set(WebKit_XPC_SERVICE_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WebKit.framework/Versions/A/XPCServices)
     WEBKIT_CREATE_SYMLINK(WebProcess ${WebKit_XPC_SERVICE_DIR} ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WebKit.framework/XPCServices)
 
     function(WEBKIT_XPC_SERVICE _target _bundle_identifier _info_plist _executable_name)
+        # MAVERICKS_BACKPORT: native 10.9 run-loop and process-type configuration.
+        mavericks_configure_xpc_service(${_target})
         set(_service_dir ${WebKit_XPC_SERVICE_DIR}/${_bundle_identifier}.xpc/Contents)
         make_directory(${_service_dir}/MacOS)
         make_directory(${_service_dir}/_CodeSignature)
@@ -886,13 +886,8 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
     add_custom_target(WebKitInspectorDockImages ALL DEPENDS ${WebKit_DOCK_IMAGE_FILES})
     add_dependencies(WebKit WebKitInspectorDockImages)
 
-    # MAVERICKS_BACKPORT: WebContentProcess.xib has no 10.9-runnable nib content, so this creates an
-    # empty placeholder .nib (make_directory + touch) where upstream runs `ibtool --compile … .xib`.
-    # The custom target and its dependency edge on WebKit keep the bundle layout matching upstream's.
     add_custom_command(OUTPUT ${WebKit_XPC_SERVICE_DIR}/com.apple.WebKit.WebContent.xpc/Contents/Resources/WebContentProcess.nib COMMAND
-        # MAVERICKS_BACKPORT: empty placeholder .nib in place of upstream's `ibtool --compile … .xib`.
-        ${CMAKE_COMMAND} -E make_directory ${WebKit_XPC_SERVICE_DIR}/com.apple.WebKit.WebContent.xpc/Contents/Resources
-        COMMAND ${CMAKE_COMMAND} -E touch ${WebKit_XPC_SERVICE_DIR}/com.apple.WebKit.WebContent.xpc/Contents/Resources/WebContentProcess.nib
+        ibtool --compile ${WebKit_XPC_SERVICE_DIR}/com.apple.WebKit.WebContent.xpc/Contents/Resources/WebContentProcess.nib ${WEBKIT_DIR}/Resources/WebContentProcess.xib
         VERBATIM)
     add_custom_target(WebContentProcessNib ALL DEPENDS ${WebKit_XPC_SERVICE_DIR}/com.apple.WebKit.WebContent.xpc/Contents/Resources/WebContentProcess.nib)
     add_dependencies(WebKit WebContentProcessNib)

@@ -22,12 +22,28 @@
 
 #include "GRefPtrGStreamer.h"
 #include <wtf/Forward.h>
+#include <wtf/Lock.h> // MAVERICKS_BACKPORT: shared conversion and output-pool lookup serialization.
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
+// MAVERICKS_BACKPORT: the Cocoa converter owns its IOSurface output pools.
+#if PLATFORM(COCOA)
+#include "IntSize.h"
+#include <wtf/HashMap.h>
+#include <wtf/MonotonicTime.h>
+#include <wtf/RetainPtr.h>
+typedef struct CF_BRIDGED_TYPE(id) __CVBuffer* CVPixelBufferRef;
+typedef struct __CVPixelBufferPool* CVPixelBufferPoolRef;
+#endif
+
 namespace WebCore {
+
+#if PLATFORM(COCOA)
+struct PlatformVideoColorSpace;
+#endif // MAVERICKS_BACKPORT: Cocoa pixel-buffer colour metadata.
+
 
 class GStreamerVideoFrameConverter final : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<GStreamerVideoFrameConverter> {
     WTF_MAKE_TZONE_ALLOCATED(GStreamerVideoFrameConverter);
@@ -42,8 +58,14 @@ public:
 
     [[nodiscard]] GRefPtr<GstSample> convert(const GRefPtr<GstSample>&, const GRefPtr<GstCaps>&);
 
+#if PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: packed RGB and planar YUV samples back Cocoa rendering and IPC.
+    RetainPtr<CVPixelBufferRef> pixelBufferFromSample(const GRefPtr<GstSample>&, PlatformVideoColorSpace);
+#endif
+
 private:
     GStreamerVideoFrameConverter();
+    Lock m_lock; // MAVERICKS_BACKPORT: conversion pipelines are shared by streaming and canvas callers.
 
     class Pipeline {
         WTF_MAKE_TZONE_ALLOCATED(Pipeline);
@@ -75,6 +97,16 @@ private:
     void releaseUnusedDMABufMemoryPipelineTimerFired();
 #endif
 
+#if PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: frames reuse an IOSurface pool per size and pixel format; a pool unused for the
+    // pipeline release interval is dropped on the next lookup.
+    struct CVPixelBufferPoolEntry {
+        RetainPtr<CVPixelBufferPoolRef> pool;
+        MonotonicTime lastUse;
+    };
+    Lock m_cvPixelBufferPoolLock;
+    HashMap<std::pair<uint64_t, uint32_t>, CVPixelBufferPoolEntry> m_cvPixelBufferPools WTF_GUARDED_BY_LOCK(m_cvPixelBufferPoolLock);
+#endif
     std::unique_ptr<Pipeline> m_systemMemoryPipeline;
     std::unique_ptr<RunLoop::Timer> m_releaseUnusedSystemMemoryPipelineTimer;
 #if USE(GSTREAMER_GL)

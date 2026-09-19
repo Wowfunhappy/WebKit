@@ -30,9 +30,13 @@
 #import <WebCore/CocoaCookie.h>
 #import <WebCore/CocoaCurlMultipartHandle.h>
 #import <WebCore/CocoaMIMESniffing.h>
+#import <WebCore/Site.h>
 #import <WebCore/Cookie.h>
 #import <WebCore/CookieJar.h>
 #import <WebCore/CredentialStorage.h>
+#import <WebCore/FrameLoaderTypes.h>
+#import <WebCore/HTTPStatusCodes.h>
+#import <WebCore/WebCoreURLResponse.h>
 #import <WebCore/NetworkStorageSession.h>
 #import <WebCore/ProtectionSpace.h>
 #import <WebCore/RegistrableDomain.h>
@@ -47,6 +51,8 @@
 #import <WebCore/SharedBuffer.h>
 #import <WebCore/CocoaDownloadTransport.h>
 #import <wtf/TZoneMallocInlines.h>
+#import <wtf/BlockPtr.h>
+#import <wtf/RunLoop.h>
 #import <wtf/text/MakeString.h>
 #import <wtf/HexNumber.h>
 #import <wtf/text/StringToIntegerConversion.h>
@@ -96,20 +102,22 @@ NetworkDataTaskCurlCocoa::NetworkDataTaskCurlCocoa(NetworkSession& session, Netw
     m_metrics.responseBodyBytesReceived = 0;
     m_metrics.responseBodyDecodedSize = 0;
     m_metrics.additionalNetworkLoadMetricsForWebInspector = AdditionalNetworkLoadMetricsForWebInspector::create();
-    m_authUser = m_request.url().user();
-    m_authPassword = m_request.url().password();
+    m_user = m_request.url().user();
+    m_password = m_request.url().password();
     m_request.removeCredentials();
-    if (m_storedCredentialsPolicy == StoredCredentialsPolicy::Use && !m_request.hasHTTPHeaderField(HTTPHeaderName::Authorization)) {
+    if (m_storedCredentialsPolicy == StoredCredentialsPolicy::Use && m_request.url().protocolIsInHTTPFamily()) {
         if (auto* storage = session.networkStorageSession()) {
-            m_initialCredential = storage->credentialStorage().get(m_partition, m_request.url());
-            if (m_authUser.isEmpty() && !m_initialCredential.isEmpty()) {
-                m_authUser = m_initialCredential.user();
-                m_authPassword = m_initialCredential.password();
-            }
+            if (m_user.isEmpty() && m_password.isEmpty())
+                m_initialCredential = storage->credentialStorage().get(m_partition, m_request.url());
+            else
+                storage->credentialStorage().set(m_partition, Credential(m_user, m_password, CredentialPersistence::None), m_request.url());
         }
     }
-    if (!m_authUser.isEmpty() || !m_authPassword.isEmpty())
+    if (!m_initialCredential.isEmpty() && !m_request.hasHTTPHeaderField(HTTPHeaderName::Authorization)) {
+        m_authUser = m_initialCredential.user();
+        m_authPassword = m_initialCredential.password();
         m_authMethod = CURLAUTH_BASIC;
+    }
 }
 
 NetworkDataTaskCurlCocoa::~NetworkDataTaskCurlCocoa()
@@ -142,26 +150,30 @@ void NetworkDataTaskCurlCocoa::setup()
     m_scheduler = downcast<NetworkSessionCocoa>(*m_session).curlNetworkScheduler(m_webPageProxyID, m_request, m_storedCredentialsPolicy, m_isNavigatingToAppBoundDomain);
     if (std::exchange(m_generatedCookieHeader, false))
         m_request.removeHTTPHeaderField(HTTPHeaderName::Cookie);
-    if (!cookiesBlocked() && !m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
+    if (!m_shouldPreconnect && !cookiesBlocked() && !m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
         if (auto* storage = m_session->networkStorageSession()) {
-            auto cookie = storage->cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), SameSiteInfo::create(m_request), m_request.url(), m_frameID, m_pageID, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, m_session->networkProcess().shouldRelaxThirdPartyCookieBlockingForPage(m_webPageProxyID), IsKnownCrossSiteTracker::No).first;
+            auto cookie = storage->cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request), m_request.url(), m_frameID, m_pageID, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, m_session->networkProcess().shouldRelaxThirdPartyCookieBlockingForPage(m_webPageProxyID), IsKnownCrossSiteTracker::No).first;
             if (!cookie.isEmpty()) {
                 m_request.setHTTPHeaderField(HTTPHeaderName::Cookie, cookie);
                 m_generatedCookieHeader = true;
             }
         }
     }
-    CocoaCurlTransferOptions options;
+    auto wrapper = downcast<NetworkSessionCocoa>(*m_session).sessionWrapperForTask(m_webPageProxyID, m_request, m_storedCredentialsPolicy, m_isNavigatingToAppBoundDomain);
+    RetainPtr<NSURLSessionConfiguration> configuration = wrapper->session.get().configuration;
+    CocoaCurlTransferOptions options(configuration.get().TLSMinimumSupportedProtocolVersion);
     options.request = m_request;
     if (auto body = m_request.httpBody())
         options.upload = CocoaCurlUploadBody::create(*body, &m_session->blobRegistry());
-    options.proxySettings = downcast<NetworkSessionCocoa>(*m_session).proxyConfiguration();
+    // NetworkSessionCocoa writes the explicit dictionary, or the one its HTTP and HTTPS proxy URLs make, into the configuration.
+    options.proxySettings = bridge_cast(configuration.get().connectionProxyDictionary);
     options.acceptedCertificateChain = m_acceptedCertificateChain;
     // a certificate the user accepted for this host governs whether or not the host
     // is HSTS-known; the exception stays scoped to that exact host and chain.
     if (auto allowed = m_session->networkProcess().allowedHTTPSCertificateForHost(m_request.url().host().toString()))
         options.allowedServerTrust = allowed->trust();
     options.boundInterface = downcast<NetworkSessionCocoa>(*m_session).boundInterfaceIdentifier();
+    options.connectionPartition = Site { m_request.firstPartyForCookies() }.toString();
     options.user = m_authUser;
     options.password = m_authPassword;
     options.authentication = m_authMethod;
@@ -205,6 +217,15 @@ void NetworkDataTaskCurlCocoa::resume()
     auto& session = downcast<NetworkSessionCocoa>(*m_session);
     if (m_isMainResource && session.deviceManagementRestrictionsEnabled() && session.allLoadsBlockedByDeviceManagementRestrictionsForTesting()) {
         scheduleFailure(FailureType::RestrictedURL);
+        return;
+    }
+    // NetworkSessionCocoa's sessions have no URLCache, so CFNetwork answers a cache-only load with NSURLErrorResourceUnavailable.
+    if (m_request.cachePolicy() == ResourceRequestCachePolicy::ReturnCacheDataDontLoad) {
+        m_state = State::Running;
+        RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }] {
+            if (protectedThis->m_state == State::Running)
+                protectedThis->finish(NSURLErrorResourceUnavailable, "resource unavailable"_s);
+        });
         return;
     }
     m_state = State::Running;
@@ -260,25 +281,65 @@ void NetworkDataTaskCurlCocoa::invalidateAndCancel()
 
 
 
+// NetworkTaskCocoa::setCookieTransformForFirstPartyRequest: a same-site subresource that resolves through a
+// CNAME, or to an address range, other than the top site's sets cookies whose expiry is capped.
+bool NetworkDataTaskCurlCocoa::shouldCapCookieExpiryForThirdPartyCloaking(const String& remoteAddress, const RegistrableDomain& resolvedCNAMEDomain)
+{
+    auto* storage = m_session->networkStorageSession();
+    if (!storage || !storage->trackingPreventionEnabled() || m_request.isThirdParty())
+        return false;
+    auto firstPartyURL = m_request.firstPartyForCookies();
+    auto firstPartyHostName = firstPartyURL.host().toString();
+    auto cnameDomain = resolvedCNAMEDomain;
+    if (cnameDomain.isEmpty()) {
+        if (auto domain = m_session->thirdPartyCNAMEDomainForTesting())
+            cnameDomain = *domain;
+    }
+    if (cnameDomain.isEmpty()) {
+        auto firstPartyAddress = m_session->firstPartyHostIPAddress(firstPartyHostName);
+        if (!firstPartyAddress)
+            return false;
+        auto address = IPAddress::fromString(remoteAddress);
+        if (!address)
+            return false;
+        return NetworkTaskCocoa::shouldCapCookieExpiryForThirdPartyIPAddress(*address, *firstPartyAddress)
+            && !NetworkTaskCocoa::needsThirdPartyIPAddressQuirk(m_request.url(), RegistrableDomain { firstPartyURL }.string());
+    }
+    auto firstPartyHostCNAME = m_session->firstPartyHostCNAMEDomain(firstPartyHostName);
+    return !cnameDomain.matches(firstPartyURL) && (!firstPartyHostCNAME || cnameDomain != *firstPartyHostCNAME);
+}
+
 // enforce native cookie and tracking policy at every final header section, including authentication.
-void NetworkDataTaskCurlCocoa::curlReceivedCookies(Vector<String>&& fields, CompletionHandler<void(std::optional<String>&&)>&& completion)
+void NetworkDataTaskCurlCocoa::curlReceivedCookies(Vector<String>&& fields, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&& completion)
 {
     auto* storage = m_session->networkStorageSession();
     if (m_state != State::Running || !storage || cookiesBlocked()) {
         completion(std::nullopt);
         return;
     }
+    auto cnameDomain = canonicalName.isEmpty() ? RegistrableDomain { } : NetworkTaskCocoa::lastCNAMEDomain(canonicalName);
+    storeReceivedCookies(WTF::move(fields), remoteAddress, cnameDomain, WTF::move(completion));
+}
+
+void NetworkDataTaskCurlCocoa::storeReceivedCookies(Vector<String>&& fields, const String& remoteAddress, const RegistrableDomain& resolvedCNAMEDomain, CompletionHandler<void(std::optional<String>&&)>&& completion)
+{
+    auto* storage = m_session->networkStorageSession();
     auto sameSite = SameSiteInfo::create(m_request);
+    bool capExpiry = shouldCapCookieExpiryForThirdPartyCloaking(remoteAddress, resolvedCNAMEDomain);
     for (const auto& field : fields) {
         auto cookie = parseHTTPSetCookie(field, m_request.url());
-        if (cookie && (cookie->sameSite == Cookie::SameSitePolicy::None || sameSite.isSameSite || sameSite.isTopSite))
-            storage->setCookie(*cookie, m_request.url(), m_request.firstPartyForCookies());
+        if (!cookie || !(cookie->sameSite == Cookie::SameSitePolicy::None || sameSite.isSameSite || sameSite.isTopSite))
+            continue;
+        // NetworkTaskCocoa's cookiesByCappingExpiry, over its week-long m_ageCapForCNAMECloakedCookies.
+        if (capExpiry)
+            cookie = Cookie { NetworkStorageSession::capExpiryOfPersistentCookie(cookie->createNSHTTPCookie().get(), 24_h * 7).get() };
+        storage->setCookie(*cookie, m_request.url(), m_request.firstPartyForCookies());
     }
     if (m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie) && !m_generatedCookieHeader) {
         completion(std::nullopt);
         return;
     }
-    auto value = storage->cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), sameSite, m_request.url(), m_frameID, m_pageID, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, m_session->networkProcess().shouldRelaxThirdPartyCookieBlockingForPage(m_webPageProxyID), IsKnownCrossSiteTracker::No).first;
+    auto value = storage->cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request), m_request.url(), m_frameID, m_pageID, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, m_session->networkProcess().shouldRelaxThirdPartyCookieBlockingForPage(m_webPageProxyID), IsKnownCrossSiteTracker::No).first;
     completion(WTF::move(value));
 }
 
@@ -323,12 +384,13 @@ void NetworkDataTaskCurlCocoa::redirect()
             encodedLocation.append(static_cast<char>(byte));
     }
     URL url { m_request.url(), encodedLocation.toString() };
-    if (!url.isValid() || !url.protocolIsInHTTPFamily()) {
-        finish(NSURLErrorUnsupportedURL, "Redirect target is not an HTTP URL"_s);
+    if (!url.hasFragmentIdentifier() && m_request.url().hasFragmentIdentifier())
+        url.setFragmentIdentifier(m_request.url().fragmentIdentifier());
+    // CFNetwork refuses a redirect to a file URL before its delegate sees it, failing the current URL.
+    if (url.protocolIsFile()) {
+        finish(NSURLErrorNoPermissionsToReadFile, "You do not have permission to access the requested resource."_s);
         return;
     }
-    if (!url.hasFragmentIdentifier())
-        url.setFragmentIdentifier(m_request.url().fragmentIdentifier());
     ResourceRequest request = m_request;
     // The first-party latch quirk NetworkTaskCocoa applies on its redirects un-blocks cookies for the
     // continuing request here as well.
@@ -336,6 +398,10 @@ void NetworkDataTaskCurlCocoa::redirect()
         && NetworkTaskCocoa::needsFirstPartyCookieBlockingLatchModeQuirk(m_request.firstPartyForCookies(), url, m_request.url()))
         m_cookieBlockingLatched = false;
     request.setURL(URL { url });
+    // Any cross-site redirect makes a request not same-site, as CachedResourceLoader::updateRequestAfterRedirection
+    // decides it.
+    if (!SecurityOrigin::create(request.url())->isSameSiteAs(SecurityOrigin::create(m_request.url())))
+        request.setIsSameSite(false);
     auto method = request.httpMethod();
     if ((m_status == 303 && method != "GET"_s && method != "HEAD"_s) || ((m_status == 301 || m_status == 302) && method == "POST"_s)) {
         request.setHTTPMethod("GET"_s);
@@ -355,14 +421,38 @@ void NetworkDataTaskCurlCocoa::redirect()
         m_acceptedCertificateChain = nullptr;
         m_metrics.hasCrossOriginRedirect = true;
     }
+    // redirectStart is the first transaction's fetch start and fetchStart the last one's, as NSURLSessionTaskMetrics reports them.
+    if (!m_redirectCount)
+        m_metrics.redirectStart = m_metrics.fetchStart;
     ++m_redirectCount;
+    m_user = request.url().user();
+    m_password = request.url().password();
+    request.removeCredentials();
     if (RefPtr client = m_client.get()) {
         client->willPerformHTTPRedirection(ResourceResponse(m_response), WTF::move(request), [protectedThis = Ref { *this }](ResourceRequest&& approved) {
             if (protectedThis->m_state != State::Running)
                 return;
+            // A redirect answered with no request completes with the redirect response itself, as the
+            // NSURLSession delegate's nil answer does (NetworkSessionCocoa's willPerformHTTPRedirection).
+            // CFNetwork delivers that response later, from its own queue, so a loader that refused the
+            // redirect and failed the load has cancelled the task before it arrives.
             if (approved.isNull()) {
-                protectedThis->cancel();
+                RunLoop::mainSingleton().dispatch([protectedThis] {
+                    if (protectedThis->m_state != State::Running)
+                        return;
+                    if (!protectedThis->m_transfer) {
+                        protectedThis->m_finalHeaders = true;
+                        protectedThis->m_result = ResourceError { };
+                    }
+                    protectedThis->publishResponse();
+                });
                 return;
+            }
+            protectedThis->m_metrics.fetchStart = MonotonicTime::now();
+            if (!protectedThis->m_user.isEmpty() || !protectedThis->m_password.isEmpty()) {
+                protectedThis->m_authUser = String();
+                protectedThis->m_authPassword = String();
+                protectedThis->m_authMethod = CURLAUTH_NONE;
             }
             protectedThis->restart(WTF::move(approved));
         });
@@ -373,7 +463,7 @@ void NetworkDataTaskCurlCocoa::redirect()
 void NetworkDataTaskCurlCocoa::authenticate(bool proxy)
 {
     long available = proxy ? m_availableProxyAuthentication : m_availableAuthentication;
-    long method = cocoaCurlAuthenticationMethod(available);
+    long method = cocoaCurlAuthenticationMethod(available, m_response.httpHeaderField(proxy ? "Proxy-Authenticate"_s : "WWW-Authenticate"_s));
     if (!method) {
         publishResponse();
         return;
@@ -385,32 +475,17 @@ void NetworkDataTaskCurlCocoa::authenticate(bool proxy)
     if (previousSpace && *previousSpace != space)
         failures = 0;
     previousSpace = space;
-    if (m_storedCredentialsPolicy == StoredCredentialsPolicy::Use && (failures || (!proxy && !m_initialCredential.isEmpty()))) {
-        auto& user = proxy ? m_proxyUser : m_authUser;
-        auto& password = proxy ? m_proxyPassword : m_authPassword;
-        if (auto* storage = m_session->networkStorageSession()) {
-            auto rejected = storage->credentialStorage().get(m_partition, space);
-            if (rejected.user() == user && rejected.password() == password)
-                storage->credentialStorage().remove(m_partition, space);
-        }
-        RetainPtr nativeStorage = downcast<NetworkSessionCocoa>(*m_session).nsCredentialStorage();
-        RetainPtr rejected = [nativeStorage defaultCredentialForProtectionSpace:nativeSpace.get()];
-        if (rejected && String(rejected.get().user) == user && String(rejected.get().password) == password)
-            [nativeStorage removeCredential:rejected.get() forProtectionSpace:nativeSpace.get()];
-    }
-    Credential proposed;
-    if (m_storedCredentialsPolicy == StoredCredentialsPolicy::Use && !failures) {
-        if (auto* storage = m_session->networkStorageSession())
-            proposed = storage->credentialStorage().get(m_partition, space);
-        if (proposed.isEmpty())
-            proposed = Credential([downcast<NetworkSessionCocoa>(*m_session).nsCredentialStorage() defaultCredentialForProtectionSpace:nativeSpace.get()]);
-    }
-    AuthenticationChallenge challenge(space, proposed, failures, m_response, { });
     auto answer = [protectedThis = Ref { *this }, proxy, method, space, nativeSpace](AuthenticationChallengeDisposition disposition, const Credential& credential) {
         if (protectedThis->m_state != State::Running)
             return;
         if (disposition == AuthenticationChallengeDisposition::Cancel) {
             protectedThis->finish(NSURLErrorUserCancelledAuthentication, "Authentication cancelled"_s);
+            return;
+        }
+        // The transport cannot answer an OAuth challenge with a credential, so the 401 is the load's response.
+        if (method == cocoaCurlOAuthAuthentication) {
+            (proxy ? protectedThis->m_proxyResponseApproved : protectedThis->m_authResponseApproved) = true;
+            protectedThis->publishResponse();
             return;
         }
         auto& attempts = proxy ? protectedThis->m_proxyAuthFailureCount : protectedThis->m_authFailureCount;
@@ -434,6 +509,37 @@ void NetworkDataTaskCurlCocoa::authenticate(bool proxy)
         (proxy ? protectedThis->m_proxyResponseApproved : protectedThis->m_authResponseApproved) = true;
         protectedThis->publishResponse();
     };
+    if (!proxy && (!m_user.isEmpty() || !m_password.isEmpty())) {
+        auto persistence = m_storedCredentialsPolicy == StoredCredentialsPolicy::Use ? CredentialPersistence::ForSession : CredentialPersistence::None;
+        answer(AuthenticationChallengeDisposition::UseCredential, Credential(m_user, m_password, persistence));
+        m_user = String();
+        m_password = String();
+        return;
+    }
+    if (m_storedCredentialsPolicy == StoredCredentialsPolicy::Use && (failures || (!proxy && !m_initialCredential.isEmpty()))) {
+        auto& user = proxy ? m_proxyUser : m_authUser;
+        auto& password = proxy ? m_proxyPassword : m_authPassword;
+        if (auto* storage = m_session->networkStorageSession()) {
+            auto rejected = storage->credentialStorage().get(m_partition, space);
+            if (rejected.user() == user && rejected.password() == password)
+                storage->credentialStorage().remove(m_partition, space);
+        }
+        RetainPtr nativeStorage = downcast<NetworkSessionCocoa>(*m_session).nsCredentialStorage();
+        RetainPtr rejected = [nativeStorage defaultCredentialForProtectionSpace:nativeSpace.get()];
+        if (rejected && String(rejected.get().user) == user && String(rejected.get().password) == password)
+            [nativeStorage removeCredential:rejected.get() forProtectionSpace:nativeSpace.get()];
+    }
+    Credential proposed;
+    if (m_storedCredentialsPolicy == StoredCredentialsPolicy::Use && !failures) {
+        if (auto* storage = m_session->networkStorageSession()) {
+            proposed = storage->credentialStorage().get(m_partition, space);
+            if (!proposed.isEmpty() && proposed != m_initialCredential && m_status == 401)
+                storage->credentialStorage().set(m_partition, proposed, space, m_response.url());
+        }
+        if (proposed.isEmpty())
+            proposed = Credential([downcast<NetworkSessionCocoa>(*m_session).nsCredentialStorage() defaultCredentialForProtectionSpace:nativeSpace.get()]);
+    }
+    AuthenticationChallenge challenge(space, proposed, failures, m_response, { });
     if (!proposed.isEmpty()) {
         answer(AuthenticationChallengeDisposition::UseCredential, proposed);
         return;
@@ -447,36 +553,92 @@ void NetworkDataTaskCurlCocoa::authenticate(bool proxy)
         cancel();
 }
 
-void NetworkDataTaskCurlCocoa::challengeServerTrust()
+NegotiatedLegacyTLS NetworkDataTaskCurlCocoa::negotiatedLegacyTLS() const
+{
+    return m_tlsState && m_tlsState->negotiatedLegacyTLS() ? NegotiatedLegacyTLS::Yes : NegotiatedLegacyTLS::No;
+}
+
+void NetworkDataTaskCurlCocoa::curlRequestedServerTrust(CompletionHandler<void(bool)>&& completion)
+{
+    if (m_state != State::Running) {
+        completion(false);
+        return;
+    }
+    m_tlsState = m_transfer->tlsState();
+    m_serverTrust = m_tlsState->trust;
+    if (!m_serverTrust) {
+        completion(false);
+        return;
+    }
+    if (auto allowed = m_session->networkProcess().allowedHTTPSCertificateForHost(m_request.url().host().toString()); m_tlsState->accepted && allowed && certificatesMatch(allowed->trust().get(), m_serverTrust.get())) {
+        completion(true);
+        return;
+    }
+    auto& session = downcast<NetworkSessionCocoa>(*m_session);
+    if (negotiatedLegacyTLS() == NegotiatedLegacyTLS::Yes) {
+        if (m_shouldPreconnect || (session.fastServerTrustEvaluationEnabled() && !isTopLevelNavigation())) {
+            completion(false);
+            cancel();
+            return;
+        }
+    } else {
+        if (RefPtr client = m_client.get())
+            client->didNegotiateModernTLS(URL { m_request.url().protocolHostAndPort() });
+        if (m_tlsState->accepted) {
+            completion(true);
+            return;
+        }
+    }
+    challengeServerTrust(WTF::move(completion));
+}
+
+void NetworkDataTaskCurlCocoa::challengeServerTrust(CompletionHandler<void(bool)>&& completion)
 {
     // the challenge is raised for an HSTS-known host too; the user's decision governs.
     m_waitingForPolicy = true;
     auto space = cocoaCurlTLSProtectionSpace(m_request.url(), 8, nullptr, m_serverTrust.get());
     if (!space) {
+        completion(false);
         finish(NSURLErrorServerCertificateUntrusted, "Could not construct a certificate challenge"_s);
         return;
     }
     AuthenticationChallenge challenge(ProtectionSpace(space.get()), { }, 0, m_response, { });
-    auto answer = [protectedThis = Ref { *this }](AuthenticationChallengeDisposition disposition, const Credential&) {
-        if (protectedThis->m_state != State::Running)
-            return;
-        if (disposition != AuthenticationChallengeDisposition::UseCredential) {
-            protectedThis->finish(NSURLErrorServerCertificateUntrusted, "The server certificate is not trusted"_s);
+    auto answer = [protectedThis = Ref { *this }, completion = WTF::move(completion)](AuthenticationChallengeDisposition disposition, const Credential&) mutable {
+        if (protectedThis->m_state != State::Running) {
+            completion(false);
             return;
         }
-        protectedThis->m_acceptedCertificateChain = protectedThis->m_tlsState->peerChain;
-        protectedThis->restart(ResourceRequest(protectedThis->m_request));
+        protectedThis->m_waitingForPolicy = false;
+        bool useCredential = disposition == AuthenticationChallengeDisposition::UseCredential;
+        if (useCredential)
+            protectedThis->m_acceptedCertificateChain = protectedThis->m_tlsState->peerChain;
+        completion(useCredential || (disposition == AuthenticationChallengeDisposition::PerformDefaultHandling && protectedThis->m_tlsState->accepted));
+        if (disposition == AuthenticationChallengeDisposition::Cancel)
+            protectedThis->cancel();
     };
     if (RefPtr client = m_client.get())
-        client->didReceiveChallenge(WTF::move(challenge), NegotiatedLegacyTLS::No, WTF::move(answer));
-    else
-        finish(NSURLErrorServerCertificateUntrusted, "The server certificate is not trusted"_s);
+        client->didReceiveChallenge(WTF::move(challenge), negotiatedLegacyTLS(), WTF::move(answer));
+    else if (m_isDownloadSink) {
+        if (auto download = m_session->networkProcess().downloadManager().download(*m_pendingDownloadID))
+            download->didReceiveChallenge(challenge, WTF::move(answer));
+        else
+            answer(AuthenticationChallengeDisposition::Cancel, { });
+    } else
+        answer(AuthenticationChallengeDisposition::Cancel, { });
 }
 
 void NetworkDataTaskCurlCocoa::restart(ResourceRequest&& request)
 {
     detachTransfer();
-    if (!request.url().isValid() || !request.url().protocolIsInHTTPFamily()) {
+    if (!request.url().isValid()) {
+        auto url = cocoaCurlRequestURL(request.url());
+        if (!url) {
+            finish(url.error(), "Invalid HTTP redirect target"_s);
+            return;
+        }
+        request.setURL(WTF::move(*url));
+    }
+    if (!request.url().protocolIsInHTTPFamily()) {
         finish(NSURLErrorUnsupportedURL, "Invalid HTTP redirect target"_s);
         return;
     }
@@ -491,12 +653,7 @@ void NetworkDataTaskCurlCocoa::restart(ResourceRequest&& request)
         m_authFailureCount = 0;
         m_acceptedCertificateChain = nullptr;
     }
-    if (!request.url().user().isEmpty() || !request.url().password().isEmpty()) {
-        m_authUser = request.url().user();
-        m_authPassword = request.url().password();
-        m_authMethod = CURLAUTH_BASIC;
-    }
-    if (m_storedCredentialsPolicy == StoredCredentialsPolicy::Use && m_authUser.isEmpty() && m_authPassword.isEmpty() && !request.hasHTTPHeaderField(HTTPHeaderName::Authorization)) {
+    if (m_storedCredentialsPolicy == StoredCredentialsPolicy::Use && m_user.isEmpty() && m_password.isEmpty() && m_authUser.isEmpty() && m_authPassword.isEmpty() && !request.hasHTTPHeaderField(HTTPHeaderName::Authorization)) {
         if (auto* storage = m_session->networkStorageSession()) {
             m_initialCredential = storage->credentialStorage().get(request.cachePartition(), request.url());
             if (!m_initialCredential.isEmpty()) {
@@ -512,6 +669,7 @@ void NetworkDataTaskCurlCocoa::restart(ResourceRequest&& request)
     m_lastHTTPMethod = m_request.httpMethod();
     m_partition = m_request.cachePartition();
     m_serverTrust = nullptr;
+    m_tlsState = nullptr;
     m_authResponseApproved = false;
     m_proxyResponseApproved = false;
     restrictRequestReferrerToOriginIfNeeded(m_request);
@@ -542,7 +700,7 @@ void NetworkDataTaskCurlCocoa::publishResponse()
     // The metrics NetworkResourceLoader reads for Navigation and Resource Timing, as
     // NetworkSessionCocoa and NetworkDataTaskCurl both attach them.
     m_response.setDeprecatedNetworkLoadMetrics(Box<NetworkLoadMetrics>::create(m_metrics));
-    didReceiveResponse(ResourceResponse(m_response), NegotiatedLegacyTLS::No, PrivateRelayed::No, resolvedAddress, [weakThis = ThreadSafeWeakPtr { *this }](PolicyAction policy) {
+    didReceiveResponse(ResourceResponse(m_response), negotiatedLegacyTLS(), PrivateRelayed::No, resolvedAddress, [weakThis = ThreadSafeWeakPtr { *this }](PolicyAction policy) {
         if (auto task = weakThis.get())
             task->decidePolicy(policy);
     });
@@ -607,7 +765,9 @@ void NetworkDataTaskCurlCocoa::decidePolicy(PolicyAction policy)
         m_multipart = createCocoaCurlMultipartHandle(*this, m_response);
     if (!m_sniffPrefix.isEmpty()) {
         m_pendingData = SharedBuffer::create(std::exchange(m_sniffPrefix, { }));
-        deliverData();
+        RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }] {
+            protectedThis->deliverData();
+        });
         return;
     }
     continueTransfer();
@@ -673,7 +833,7 @@ void NetworkDataTaskCurlCocoa::didReceiveHeaderFromMultipart(Vector<String>&& fi
     RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }, response = WTF::move(response)]() mutable {
         if (protectedThis->m_state != State::Running)
             return;
-        protectedThis->didReceiveResponse(WTF::move(response), NegotiatedLegacyTLS::No, PrivateRelayed::No, std::nullopt, [protectedThis](PolicyAction policy) {
+        protectedThis->didReceiveResponse(WTF::move(response), protectedThis->negotiatedLegacyTLS(), PrivateRelayed::No, std::nullopt, [protectedThis](PolicyAction policy) {
             if (protectedThis->m_state != State::Running)
                 return;
             if (policy != PolicyAction::Use) {
@@ -822,11 +982,13 @@ void NetworkDataTaskCurlCocoa::detachTransfer()
 
 void NetworkDataTaskCurlCocoa::updateMetrics(const NetworkLoadMetrics& metrics)
 {
+    auto redirectStart = m_metrics.redirectStart;
     auto fetchStart = m_metrics.fetchStart;
     auto decoded = m_metrics.responseBodyDecodedSize;
     bool failedTAO = m_metrics.failsTAOCheck;
     bool crossedOrigin = m_metrics.hasCrossOriginRedirect;
     m_metrics = metrics.isolatedCopy();
+    m_metrics.redirectStart = redirectStart;
     m_metrics.fetchStart = fetchStart;
     m_metrics.responseBodyDecodedSize = decoded;
     m_metrics.failsTAOCheck = failedTAO;
@@ -845,6 +1007,16 @@ void NetworkDataTaskCurlCocoa::curlReceivedResponse(CocoaCurlTransferResponse&& 
     m_continueTransfer = WTF::move(completion);
     updateMetrics(response.metrics);
     m_response = WTF::move(response.response);
+    m_responseContentType = WTF::move(response.contentType);
+    // NetworkDataTaskCocoa::updateFirstPartyInfoForSession: the top site's address and CNAME, which a subresource's
+    // are compared with.
+    if (isTopLevelNavigation()) {
+        if (auto* storage = m_session->networkStorageSession(); storage && storage->trackingPreventionEnabled()) {
+            m_session->setFirstPartyHostIPAddress(m_response.url().host().toString(), m_metrics.additionalNetworkLoadMetricsForWebInspector->remoteAddress);
+            if (!response.canonicalName.isEmpty())
+                m_session->setFirstPartyHostCNAMEDomain(m_response.url().host().toString(), NetworkTaskCocoa::lastCNAMEDomain(response.canonicalName));
+        }
+    }
     m_status = m_response.httpStatusCode();
     m_availableAuthentication = response.authentication;
     m_availableProxyAuthentication = response.proxyAuthentication;
@@ -859,9 +1031,15 @@ void NetworkDataTaskCurlCocoa::curlReceivedResponse(CocoaCurlTransferResponse&& 
     m_proxyPort = response.proxyPort;
     m_tlsState = m_transfer->tlsState();
     m_serverTrust = m_tlsState ? m_tlsState->trust : nullptr;
-    auto type = m_response.httpHeaderField(HTTPHeaderName::ContentType);
+    auto& type = m_responseContentType;
     m_noSniff = !m_shouldSniff || equalLettersIgnoringASCIICase(m_response.httpHeaderField(HTTPHeaderName::XContentTypeOptions), "nosniff"_s);
-    m_responseNeedsSniff = m_status != 204 && m_status != 304 && m_request.httpMethod() != "HEAD"_s && MIMESniffer::needsHTTPContentSniffing(type, m_noSniff);
+    m_responseNeedsSniff = m_shouldSniff && m_status != 204 && m_status != 304 && m_request.httpMethod() != "HEAD"_s && MIMESniffer::holdsResponseForSniffing(type);
+    // NetworkSessionCocoa's didReceiveResponse, which skips a 304 and reads nosniff off the response alone.
+    if (!m_responseNeedsSniff && m_status != httpStatus304NotModified) {
+        bool isNoSniff = equalLettersIgnoringASCIICase(m_response.httpHeaderField(HTTPHeaderName::XContentTypeOptions), "nosniff"_s);
+        bool isMainResourceLoad = firstRequest().requester() == ResourceRequestRequester::Main;
+        adjustCocoaCurlMIMETypeIfNecessary(m_response, isMainResourceLoad ? IsMainResourceLoad::Yes : IsMainResourceLoad::No, isNoSniff ? IsNoSniffSet::Yes : IsNoSniffSet::No);
+    }
     m_finalHeaders = true;
     continueAfterHeaders();
 }
@@ -882,11 +1060,11 @@ void NetworkDataTaskCurlCocoa::curlReceivedData(const SharedBuffer& data, Comple
     m_continueTransfer = WTF::move(completion);
     if (m_responseNeedsSniff) {
         m_sniffPrefix.append(data.span());
-        if (m_sniffPrefix.size() < MIMESniffer::resourceHeaderSize) {
+        if (m_sniffPrefix.size() < MIMESniffer::sniffedPrefixLength) {
             continueTransfer();
             return;
         }
-        m_response.setMimeType(MIMESniffer::computeHTTPMIMEType(m_sniffPrefix.span().first(MIMESniffer::resourceHeaderSize), m_response.httpHeaderField(HTTPHeaderName::ContentType), m_noSniff));
+        m_response.setMimeType(MIMESniffer::computeHTTPMIMEType(m_sniffPrefix.span().first(MIMESniffer::sniffedPrefixLength), m_responseContentType, m_noSniff));
         m_responseNeedsSniff = false;
         publishResponse();
         return;
@@ -940,14 +1118,11 @@ void NetworkDataTaskCurlCocoa::curlCompleted(const ResourceError& error, const N
     updateMetrics(metrics);
     m_tlsState = m_transfer->tlsState();
     m_serverTrust = m_tlsState ? m_tlsState->trust : nullptr;
-    if (error.errorCode() == NSURLErrorServerCertificateUntrusted && m_serverTrust && !m_acceptedCertificateChain) {
-        challengeServerTrust();
-        return;
-    }
     m_result = error;
-    // preserve response policy and the received sniffing prefix on an incomplete body, then deliver its transport error.
-    if (m_responseNeedsSniff) {
-        m_response.setMimeType(MIMESniffer::computeHTTPMIMEType(m_sniffPrefix.span(), m_response.httpHeaderField(HTTPHeaderName::ContentType), m_noSniff));
+    // CFNetwork holds a response whose type is still being sniffed until its body is complete; a load
+    // that fails first delivers only its error.
+    if (m_responseNeedsSniff && error.isNull()) {
+        m_response.setMimeType(MIMESniffer::computeHTTPMIMEType(m_sniffPrefix.span(), m_responseContentType, m_noSniff));
         m_responseNeedsSniff = false;
         publishResponse();
         return;

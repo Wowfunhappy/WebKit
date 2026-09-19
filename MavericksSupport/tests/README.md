@@ -4,12 +4,43 @@
 API tests that exercise this port's own surface), run through `scripts/run-layout-tests.sh
 --port-surface` and `scripts/run-api-tests.sh --port-surface`.
 
+`polyfill/tests/run-behaviour-tests.sh font_collections colr_filled_paths` (under
+`MavericksSupport/`) checks both font-collection loading entry points and colored glyph layers
+under stroke mode, transformed text matrices, opacity, and shadows.
+
+The `h264_parameter_sets` behavior probe checks count-only and indexed AVC parameter-set
+queries against native parameter bytes, then decodes four frames for Baseline, High, and
+High AutoLevel profiles.
+
+The `display_p3_profile` behavior probe verifies that primary colors and translucent pixels
+retain their values when drawn from an embedded Display P3 profile into the named native space.
+
+`media-segment-loop.sh` checks repeated MP4 and FLV segment playback through a file-backed
+HTTP push source, including TIME completion, seek sequence numbers, released seek events,
+and complete audio/video tails at each loop boundary.
+It uses the published GStreamer libraries and performs no network I/O.
+
 `cocoa-curl/` is not a manual page either: it holds the programs that exercise the Cocoa curl
 transport directly -- transfers, uploads, cookies, HSTS, proxies and PAC, HTTP and proxy
 authentication, client certificates, downloads and resume, the WebKitLegacy ResourceHandle, the
 NetworkProcess data task -- with the Python fixture servers they talk to. `cocoa-curl/build.sh`
 builds them against the current `WebKitBuild/Release` into `WebKitBuild/Release/cocoa-curl-tests/`;
 each program's leading comment names the fixture it expects and the port.
+
+`curl-canonical-name/run.sh` checks the installed curl resolver metadata with a loopback
+HTTP server and an isolated resolver fixture. It covers connection reuse, DNS-cache hits,
+easy-handle reset, proxy routing and a malformed request after a successful transfer.
+An optional library-directory argument selects an isolated curl build for diagnosis.
+
+`websocket-open-order/run.sh` builds the WebSocket polyfill (`polyfill/polyfills/webkit/websocket.mm`) into a
+client and runs it against a local Python fixture on 127.0.0.1:18987. A handshake followed only by the connection's
+end in the same read completes with an error and never opens. A handshake read with a text frame or a Close(1000)
+frame opens first and delivers the message or close 1000 before the end, whether the connection stays up or ends in
+that read; a close in a later read comes after the open. `websocket-auth/run.sh` runs the same polyfill
+through NTLM and Negotiate against a fixture on 127.0.0.1:18986 (needs python3 with pyspnego).
+Negotiate covers password credentials, an existing ticket, cancellation, and the final server token.
+The runner owns a temporary Kerberos realm on 127.0.0.1:18988 and removes its processes and credentials
+after the run; it does not change the system Kerberos configuration.
 
 Hand-driven pages for the 10.9 backport. Serve them over http, never `file://`:
 
@@ -31,6 +62,7 @@ click, a key press, or a hardware/manual step.
 | `canvas-capture-colorspace-test.html` | canvas `captureStream()` -> VideoFrame colour-space constants soft-linked from CoreMedia; PASS = "SURVIVED 60 captured frames", no WebContent crash | banner | — |
 | `canvas-text-test.html` | canvas `fillText`/`measureText`: baseline placement, alignment and metrics across generic families and sizes | title + banner | — |
 | `canvas_todataurl_crash_test.html` | accelerated 2D canvas `toDataURL()` does not sink the IOSurface backend (WebContent survives the next rendering update) | banner | — |
+| `cdm-proxy-key-system/run.sh [installed\|build]` | Not a page: the ClearKey decryptor, the Widevine decryptor and the Widevine video decoder are each handed a drm-cdm-proxy context holding another key system's CDMProxy (a page swapping MediaKeys mid-playback) and must refuse it; the two decryptors then decrypt one protected buffer and must fail with "CDMProxy was not retrieved in time". Then, on proxies with no CDMInstance, a decrypt waiting for a proxy must wake when setContext() delivers one, and a flush must end a key wait on a proxy setContext() has replaced, each well inside the 5 s / 7 s waits | shell output (PASS/FAIL) | a built tree; `installed` reads the frameworks under `/System`, `build` reads `WebKitBuild/Release/lib` |
 | `cookie-accept-policy/` | Safari's Privacy > "Block cookies and other website data" decides a real load: "Always" blocks a first-party `Set-Cookie`, the other two settings store it (`-[NSHTTPCookieStorage _overrideSessionCookieAcceptPolicy]`) | manual, banner | `python …/server.py`, then http://127.0.0.1:8731/, and the Privacy radio set from the UI; see the dir's README |
 | `datalist-test.html` | `<input list>` suggestion dropdown appears and a pick fires `change` | manual, banner | — |
 | `dnd-test.html` | HTML5 drag-and-drop events and `dropEffect` between two elements | manual, banner | — |
@@ -47,6 +79,8 @@ click, a key press, or a hardware/manual step.
 | `github-flakiness/capture.sh`, `watch.sh` | Records fetch/XHR failures, JS errors and error UI on github.com in the front Safari tab; reports land in `/tmp/github-failure-*.txt` | shell output | Safari on github.com, network |
 | `image-decoders/paste-test.html` | Copy an image out of the page and paste it back, and paste a TIFF put on the pasteboard by another application: the pasted image must decode, which is this port's TIFF decoder reading what `Pasteboard::read` hands the editor | manual (Cmd-C / Cmd-V), banner | serve the repo, then `python2.7 -c "import AppKit,Foundation; pb=AppKit.NSPasteboard.generalPasteboard(); pb.clearContents(); pb.setData_forType_(Foundation.NSData.dataWithContentsOfFile_('…/corpus/corpus-rgb.tiff'), AppKit.NSPasteboardTypeTIFF)"` for the TIFF-only case |
 | `image-decoders/index.html` | Every image format this port decodes in WebCore -- PNG, animated PNG, GIF, animated GIF, BMP, ICO, JPEG, and TIFF in twelve encodings (both byte orders, greyscale, associated/unassociated/unspecified/absent alpha, one strip and many, top and bottom origin, tiled, multi-page) -- carries the same picture, and the page samples four pixels of each through a canvas | title + banner | `python3 MavericksSupport/tests/image-decoders/make-corpus.py` first (the corpus is generated, not committed) |
+| `image-decoders/heif/index.html` | HEIFImageDecoder on LayoutTests' HEIC files (one coded item; a 2000x800 grid with `irot`): decoded size and centre pixel through a canvas; `?photo=<url>` adds a photograph (an iPhone HEIC is a grid with an ICC profile) to judge orientation and colour | title + banner, visual for `?photo=` | serve the repo |
+| `image-decoders/heif/build.sh`, `run.sh` | Not a page: the libheif call sequence HEIFImageDecoder makes, as a standalone harness. `build.sh` builds it against deps/build's libheif (`--ubsan` against a UBSan-trap libheif built from build_deps.sh's options) into `WebKitBuild/Release/heif-tests/`; `run.sh probe <files>` decodes and describes files, `run.sh fuzz <rounds> <iterations> <seed-dir>` mutates them under libgmalloc and keeps any faulting or stalling input | stdout, `crash-*.heic` | deps/build, HEIC seed files |
 | `iconfont-test.html` | Material Icons ligature and codepoint glyphs render as pictograms | visual (title says "icons ready") | network (Google Fonts) |
 | `multi-video-stress.html` | N concurrent GStreamer pipelines with play/pause/seek churn; RunLoop::Timer start/stop from streaming threads | banner (status line), crash count | `LayoutTests/media/content/test.mp4` (relative) |
 | `pdf-transparency-test.html` | Text under opacity/blend/mask/clip/text-shadow/stroke-only survives Print-to-PDF (transparency layers on the PDF context) | manual (print), visual in the PDF | — |
@@ -71,3 +105,5 @@ click, a key press, or a hardware/manual step.
 | `webshare-quarantine-test.html` | `navigator.share({files})` -> `WKShareSheet writeFileToShareableURL:` quarantine attribute | manual, banner | — |
 | `widevine-image/` | Mach-O fixup conversion and CRX3 extraction for Google's Widevine module (`WidevineCdmImage.cpp`, `WidevineCdmArchive.mm`); see `run.sh` | shell output | a built tree; optionally a real `libwidevinecdm.dylib` / `.crx3` |
 | `widevine-keysystem-test.html` | `com.widevine.alpha` and `org.w3.clearkey` reach `requestMediaKeySystemAccess`, `createMediaKeys()` and `createSession()`; the Widevine arm instantiates Google's installed CDM | banner | the Widevine CDM installed (the page installs it on first run) |
+
+`python3 MavericksSupport/tests/cdm-key-wait-teardown/run.py` compiles the production CDM proxy with assertions and checks 100 instance destructions during active key waits. It verifies cancellation and immediate failure of later waits on a detached proxy. The diagnostic links installed WebCore/JSC dependencies; browser MediaKeys replacement remains covered by the layout selection.

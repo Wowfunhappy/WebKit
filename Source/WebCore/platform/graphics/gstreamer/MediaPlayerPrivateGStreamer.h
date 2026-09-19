@@ -50,8 +50,11 @@
 #include <wtf/LoggerHelper.h>
 #include <wtf/OptionSet.h>
 #include <wtf/RefCounted.h>
-// MAVERICKS_BACKPORT: <wtf/RetainPtr.h> for the RetainPtr<CALayer> m_videoLayer used by the Cocoa accelerated-compositing path below.
-#include <wtf/RetainPtr.h>
+// MAVERICKS_BACKPORT: Cocoa presents through the shared sample-buffer layer and video manager.
+#if PLATFORM(COCOA)
+#include "SampleBufferDisplayLayer.h"
+#include "VideoLayerManager.h"
+#endif
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeWeakPtr.h>
@@ -83,6 +86,8 @@ typedef struct _GstMpegtsSection GstMpegtsSection;
 typedef struct _GstStreamVolume GstStreamVolume;
 typedef struct _GstVideoInfo GstVideoInfo;
 
+OBJC_CLASS WebRootSampleBufferBoundsChangeListener; // MAVERICKS_BACKPORT: shared Cocoa bounds observer.
+
 namespace WebCore {
 
 class BitmapTexture;
@@ -103,6 +108,7 @@ class AudioSourceProviderGStreamer;
 
 class AudioTrackPrivateGStreamer;
 class InbandMetadataTextTrackPrivateGStreamer;
+class HLSTimedMetadataGStreamer; // MAVERICKS_BACKPORT: see handleHLSID3Sample().
 class InbandTextTrackPrivateGStreamer;
 class VideoTrackPrivateGStreamer;
 
@@ -114,6 +120,9 @@ void registerWebKitGStreamerElements();
 class MediaPlayerPrivateGStreamer
     : public MediaPlayerPrivateInterface
     , public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<MediaPlayerPrivateGStreamer, WTF::DestructionThread::Main>
+#if PLATFORM(COCOA) // MAVERICKS_BACKPORT: sample-buffer rendering failure callbacks.
+    , public SampleBufferDisplayLayerClient
+#endif
 #if !RELEASE_LOG_DISABLED
     , private LoggerHelper
 #endif
@@ -196,17 +205,13 @@ public:
     PlatformLayer* NODELETE platformLayer() const override;
     bool supportsAcceleratedRendering() const override { return true; }
 #elif PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: accelerated <video> compositing for the Cocoa+CoreGraphics build — the
-    // player exposes a CALayer whose contents triggerRepaint() updates per frame from the streaming
-    // thread (see VideoLayerGStreamerCocoa.h), so frames reach the screen through the compositor
-    // instead of the main-thread tile-repaint path. Streams of every orientation composite here: a
-    // rotated/mirrored source orientation is baked into the frame pixels by
-    // setGStreamerVideoLayerContents. The layer itself carries no orientation transform: as a
-    // compositor-managed contents layer its geometry (bounds/anchor point) is owned by
-    // GraphicsLayerCA, so a transform applied here would fight that geometry (e.g. rotating about a
-    // (0,0) anchor pushes the frame off-screen).
+    // MAVERICKS_BACKPORT: the upstream Cocoa manager hosts the sample-buffer display layer.
     PlatformLayer* platformLayer() const override;
     bool supportsAcceleratedRendering() const override { return true; }
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+    void setVideoFullscreenLayer(PlatformLayer*, Function<void()>&&) final;
+    void setVideoFullscreenFrame(const FloatRect&) final;
+#endif
 #endif
 
 #if ENABLE(ENCRYPTED_MEDIA)
@@ -242,7 +247,17 @@ public:
     void flushCurrentBuffer();
 #endif
 
-    void handleTextSample(GRefPtr<GstSample>&&, TrackID streamId);
+    // void handleTextSample(GRefPtr<GstSample>&&, TrackID streamId);
+    void handleTextSample(GRefPtr<GstSample>&&, std::optional<TrackID> streamId, const String& gstStreamId); // MAVERICKS_BACKPORT: the string names the track when it has no numeric id, see TextSinkGStreamer.cpp.
+#if PLATFORM(COCOA) && ENABLE(DATACUE_VALUE)
+    // MAVERICKS_BACKPORT: an ID3 tag of an HLS stream's timed metadata, see HLSTimedMetadataGStreamer.
+    void handleHLSID3Sample(GRefPtr<GstSample>&&);
+#endif // MAVERICKS_BACKPORT: closes the declaration above.
+
+    // MAVERICKS_BACKPORT: the responses of the WebKitWebSrc elements an adaptive demuxer creates for playlists,
+    // segments and keys, which count toward isCrossOrigin() and didPassCORSAccessCheck() alongside the source's own.
+    void adaptiveDemuxSourceReceivedResponse(Ref<SecurityOrigin>&&, std::optional<bool> didPassAccessControlCheck);
+
 
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const final { return m_logger; }
@@ -273,7 +288,9 @@ public:
         return m_quirkStates.get(owner);
     }
 
-    void setLiveStream(bool isLiveStream) { m_isLiveStream = isLiveStream; }
+    // MAVERICKS_BACKPORT: Adaptive manifest state takes precedence over HTTP byte-length heuristics.
+    // void setLiveStream(bool isLiveStream) { m_isLiveStream = isLiveStream; }
+    void setLiveStream(bool isLiveStream) const;
 
     bool requiresVideoSinkCapsNotifications() const;
     void videoSinkCapsChanged(GstPad*);
@@ -336,8 +353,11 @@ protected:
 #if USE(COORDINATED_GRAPHICS)
     void pushTextureToCompositor(bool isDuplicateSample);
 #elif PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: accelerated-path counterpart of pushTextureToCompositor (see platformLayer()).
-    void pushSampleToVideoLayer(bool isDuplicateSample);
+    // MAVERICKS_BACKPORT: GstBaseSink schedules frames; Cocoa owns display and layer hosting.
+    void initializeVideoLayer();
+    void destroyVideoLayer();
+    void pushSampleToVideoLayer(bool isDuplicateSample, bool flush = false);
+    void sampleBufferDisplayLayerStatusDidFail() final;
 #endif
 
     GstElement* videoSink() const { return m_videoSink.get(); }
@@ -475,6 +495,9 @@ protected:
 #if USE(GSTREAMER_MPEGTS)
     TrackIDHashMap<RefPtr<InbandMetadataTextTrackPrivateGStreamer>> m_metadataTracks;
 #endif
+#if PLATFORM(COCOA) && ENABLE(DATACUE_VALUE)
+    std::unique_ptr<HLSTimedMetadataGStreamer> m_hlsTimedMetadata; // MAVERICKS_BACKPORT: see handleHLSID3Sample().
+#endif // MAVERICKS_BACKPORT: closes the member above.
 
     String errorMessage() const override { return m_errorMessage; }
 
@@ -622,8 +645,11 @@ private:
 #if USE(COORDINATED_GRAPHICS)
     RefPtr<CoordinatedPlatformLayerBufferProxy> m_contentsBufferProxy;
 #elif PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: the accelerated-compositing video layer (see platformLayer()).
-    RetainPtr<CALayer> m_videoLayer;
+    // MAVERICKS_BACKPORT: the MediaStream Cocoa presenter and its bounds observer.
+    Lock m_videoLayerLock;
+    RefPtr<SampleBufferDisplayLayer> m_sampleBufferDisplayLayer;
+    std::unique_ptr<VideoLayerManager> m_videoLayerManager;
+    RetainPtr<WebRootSampleBufferBoundsChangeListener> m_videoLayerBoundsObserver;
 #endif
 
     // These attributes can ONLY be changed from updateBufferingStatus() in order to keep the
@@ -718,6 +744,11 @@ private:
     TrackIDHashMap<String> m_codecs WTF_GUARDED_BY_LOCK(m_codecsLock);
 
     Ref<PlatformMediaResourceLoader> m_loader;
+
+    // MAVERICKS_BACKPORT: see adaptiveDemuxSourceReceivedResponse().
+    mutable Lock m_adaptiveDemuxSourceResponsesLock;
+    HashSet<RefPtr<SecurityOrigin>> m_adaptiveDemuxSourceOrigins WTF_GUARDED_BY_LOCK(m_adaptiveDemuxSourceResponsesLock);
+    bool m_didAdaptiveDemuxSourceFailAccessControlCheck WTF_GUARDED_BY_LOCK(m_adaptiveDemuxSourceResponsesLock) { false };
 
     RefPtr<GStreamerQuirksManager> m_quirksManagerForTesting;
     HashMap<const GStreamerQuirk*, std::unique_ptr<GStreamerQuirkBase::GStreamerQuirkState>> m_quirkStates;

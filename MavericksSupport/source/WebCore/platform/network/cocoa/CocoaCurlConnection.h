@@ -7,21 +7,28 @@
 // session-owned worker pools bridge curl I/O to main-thread browser policy or a synchronous loader queue.
 #include "CocoaCurlTransfer.h"
 #include <wtf/Function.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 
 namespace WebCore {
 class SynchronousLoaderMessageQueue;
 
-class WEBCORE_EXPORT CocoaCurlConnectionPool final : public ThreadSafeRefCounted<CocoaCurlConnectionPool> {
+class WEBCORE_EXPORT CocoaCurlConnectionPool final : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<CocoaCurlConnectionPool> {
 public:
     static Ref<CocoaCurlConnectionPool> create();
     ~CocoaCurlConnectionPool();
     RunLoop& runLoop() const { return m_worker; }
-    CocoaCurlScheduler& scheduler();
+    // Each network partition has a scheduler, and so a connection cache, of its own. A synchronous load
+    // blocks the main thread, which every asynchronous transfer waits on to resume, so synchronous loads
+    // take connections from a scheduler of their own.
+    enum class Loader : bool { Asynchronous, Synchronous };
+    CocoaCurlScheduler& scheduler(const String& partition = { }, Loader = Loader::Asynchronous);
     void invalidate();
 private:
+    using SchedulerKey = std::pair<String, bool>;
     CocoaCurlConnectionPool();
+    void removeScheduler(const SchedulerKey&, CocoaCurlScheduler&);
     Ref<RunLoop> m_worker;
-    RefPtr<CocoaCurlScheduler> m_scheduler; // Only accessed on m_worker.
+    HashMap<SchedulerKey, Ref<CocoaCurlScheduler>> m_schedulers; // Only accessed on m_worker.
     bool m_invalidated { false }; // Only accessed on m_worker.
 };
 
@@ -44,12 +51,13 @@ private:
     void dispatchToClient(Function<void()>&&);
     void acknowledge();
     std::shared_ptr<CocoaCurlTLSState> copyTLSState();
-    void curlReceivedCookies(Vector<String>&&, CompletionHandler<void(std::optional<String>&&)>&&) final;
+    void curlReceivedCookies(Vector<String>&&, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&&) final;
     void curlReceivedResponse(CocoaCurlTransferResponse&&, CompletionHandler<void()>&&) final;
     void curlReceivedInformationalResponse(ResourceResponse&&) final;
     void curlReceivedData(const SharedBuffer&, CompletionHandler<void()>&&) final;
     void curlSentData(uint64_t, uint64_t) final;
     void curlRequestedIdentity(CFArrayRef, CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)>&&) final;
+    void curlRequestedServerTrust(CompletionHandler<void(bool)>&&) final;
     void curlCompleted(const ResourceError&, const NetworkLoadMetrics&) final;
 
     Ref<CocoaCurlConnectionPool> m_pool;
@@ -64,5 +72,8 @@ private:
     CompletionHandler<void(std::optional<String>&&)> m_cookieContinuation; // Worker only.
     CompletionHandler<void()> m_continuation; // Worker only; never destroy a transport Ref on the client thread.
     CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)> m_identityContinuation; // Worker only.
+    // A reused connection can carry a second transfer that asks before the first answer lands; one
+    // peer has one trust decision, so every waiter takes the same one.
+    Vector<CompletionHandler<void(bool)>> m_trustContinuations; // Worker only.
 };
 } // namespace WebCore

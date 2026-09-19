@@ -22,8 +22,8 @@ CDMProxyFactoryWidevine& CDMProxyFactoryWidevine::singleton()
 
 RefPtr<CDMProxy> CDMProxyFactoryWidevine::createCDMProxy(const String& keySystem)
 {
-    ASSERT_UNUSED(keySystem, supportsKeySystem(keySystem));
-    return adoptRef(new CDMProxyWidevine());
+    ASSERT(supportsKeySystem(keySystem));
+    return adoptRef(new CDMProxyWidevine(keySystem));
 }
 
 bool CDMProxyFactoryWidevine::supportsKeySystem(const String& keySystem)

@@ -915,7 +915,17 @@ static void setWebPreferencesForTestOptions(WebPreferences *preferences, const W
             [preferences _setStringPreferenceForTestingWithValue:toNS(value).get() forKey:toNS(WTR::TestOptions::toWebKitLegacyPreferenceKey(key)).get()];
     }];
 
-    [WebPreferences _clearNetworkLoaderSession:^{ }];
+    // Cookie deletion completes asynchronously. Start the next fixture after both test sessions are clear.
+    __block bool cookiesCleared = false;
+    __block bool waitingForCookies = false;
+    [WebPreferences _clearNetworkLoaderSession:^{
+        cookiesCleared = true;
+        if (waitingForCookies)
+            CFRunLoopStop(CFRunLoopGetMain());
+    }];
+    waitingForCookies = true;
+    while (!cookiesCleared)
+        CFRunLoopRun();
     [WebPreferences _setCurrentNetworkLoaderSessionCookieAcceptPolicy:NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain];
 }
 

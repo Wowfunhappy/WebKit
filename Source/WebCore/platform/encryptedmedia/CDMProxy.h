@@ -245,24 +245,44 @@ public:
 
     virtual ~CDMProxy() = default;
 
+    // MAVERICKS_BACKPORT: a decryptor element receives its CDMProxy as an untyped GstContext pointer
+    // and casts it to its own proxy type. This port builds two CENC decryptors (ClearKey and
+    // Widevine) behind that one context, so each checks the key system here before casting.
+    const String& keySystem() const LIFETIME_BOUND { return m_keySystem; }
+
     void updateKeyStore(const KeyStore&);
     void unrefAllKeysFrom(const KeyStore&);
     void setInstance(CDMInstanceProxy*);
     void abortWaitingForKey() const;
 
 protected:
+    // MAVERICKS_BACKPORT: a proxy names its key system (see keySystem() above); one that names none
+    // has an empty key system, which no decryptor accepts.
+    CDMProxy() = default;
+    explicit CDMProxy(const String& keySystem)
+        : m_keySystem(keySystem)
+    {
+    }
+
     RefPtr<KeyHandle> keyHandle(const KeyIDType&) const;
     bool isKeyAvailable(const KeyIDType&) const;
     bool isKeyAvailableUnlocked(const KeyIDType&) const WTF_REQUIRES_LOCK(m_keysLock);
     std::optional<Ref<KeyHandle>> tryWaitForKeyHandle(const KeyIDType&, WeakPtr<CDMProxyDecryptionClient>&&) const;
     std::optional<Ref<KeyHandle>> getOrWaitForKeyHandle(const KeyIDType&, WeakPtr<CDMProxyDecryptionClient>&&) const;
     std::optional<KeyHandleValueVariant> getOrWaitForKeyValue(const KeyIDType&, WeakPtr<CDMProxyDecryptionClient>&&) const;
-    void startedWaitingForKey() const;
-    void stoppedWaitingForKey() const;
+    // MAVERICKS_BACKPORT: key-wait notifications and teardown share the instance lock.
+    void startedWaitingForKey() const WTF_REQUIRES_LOCK(m_instanceLock);
+    void stoppedWaitingForKey() const WTF_REQUIRES_LOCK(m_instanceLock);
     const CDMInstanceProxy* instance() const;
 
 private:
+    const String m_keySystem; // MAVERICKS_BACKPORT: see keySystem() above.
+
     mutable Lock m_instanceLock;
+    // MAVERICKS_BACKPORT: teardown cancels key waits and drains their instance notifications.
+    std::atomic<bool> m_instanceIsDetaching { false };
+    mutable unsigned m_pendingKeyWaits WTF_GUARDED_BY_LOCK(m_instanceLock) { 0 };
+    mutable Condition m_instanceCondition;
     CheckedPtr<CDMInstanceProxy> m_instance WTF_GUARDED_BY_LOCK(m_instanceLock);
 
     mutable Lock m_keysLock;

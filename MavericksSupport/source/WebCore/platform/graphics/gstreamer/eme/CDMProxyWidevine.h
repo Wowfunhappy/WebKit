@@ -54,7 +54,8 @@ public:
         WeakPtr<CDMProxyDecryptionClient> cdmProxyDecryptionClient;
     };
 
-    CDMProxyWidevine() = default;
+    explicit CDMProxyWidevine(const String& keySystem)
+        : CDMProxy(keySystem) { }
     virtual ~CDMProxyWidevine() = default;
 
     void setCdm(RefPtr<WidevineCdm>&&);

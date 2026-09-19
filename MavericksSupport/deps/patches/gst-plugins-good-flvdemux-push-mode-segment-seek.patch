@@ -1,0 +1,113 @@
+# Push-mode FLV segment seeks preserve the source's segment flag and translate
+# completion into TIME. The translated seek has separate ownership and carries
+# the original seek's sequence number.
+
+--- a/gst/flv/gstflvdemux.c
++++ b/gst/flv/gstflvdemux.c
+@@ -3081,7 +3081,10 @@
+ parse:
+   if (G_UNLIKELY (ret != GST_FLOW_OK)) {
+     GST_DEBUG_OBJECT (demux, "got flow return %s", gst_flow_get_name (ret));
+-    goto beach;
++    if (ret != GST_FLOW_EOS || !(demux->segment.flags & GST_SEGMENT_FLAG_SEGMENT))
++      goto beach;
++    /* Consume the remaining tags before the source's segment-done event. */
++    ret = GST_FLOW_OK;
+   }
+ 
+   if (G_UNLIKELY (demux->flushing)) {
+@@ -3236,7 +3239,6 @@
+       if (!flv_demux_handle_seek_push (demux, event))
+         goto seek_failed;
+ 
+-      gst_event_unref (event);
+       demux->state = FLV_STATE_TAG_TYPE;
+       goto beach;
+     }
+@@ -3838,11 +3840,11 @@
+ 
+     GST_DEBUG_OBJECT (demux, "generating an upstream seek at position %"
+         G_GUINT64_FORMAT, offset);
+-    event = gst_event_new_seek (seeksegment.rate, GST_FORMAT_BYTES,
+-        flags | GST_SEEK_FLAG_ACCURATE, GST_SEEK_TYPE_SET,
+-        offset, GST_SEEK_TYPE_NONE, 0);
+-    gst_event_set_seqnum (event, gst_event_get_seqnum (event));
+-    ret = gst_pad_push_event (demux->sinkpad, event);
++    GstEvent *upstream_seek = gst_event_new_seek (seeksegment.rate, GST_FORMAT_BYTES,
++        flags | GST_SEEK_FLAG_ACCURATE,
++        GST_SEEK_TYPE_SET, offset, GST_SEEK_TYPE_NONE, 0);
++    gst_event_set_seqnum (upstream_seek, gst_event_get_seqnum (event));
++    ret = gst_pad_push_event (demux->sinkpad, upstream_seek);
+     if (G_UNLIKELY (!ret)) {
+       GST_WARNING_OBJECT (demux, "upstream seek failed");
+     }
+@@ -3867,6 +3869,14 @@
+     /* Ok seek succeeded, take the newly configured segment */
+     memcpy (&demux->segment, &seeksegment, sizeof (GstSegment));
+ 
++    if (demux->segment.flags & GST_SEGMENT_FLAG_SEGMENT) {
++      GstMessage *message =
++          gst_message_new_segment_start (GST_OBJECT_CAST (demux),
++          GST_FORMAT_TIME, demux->segment.start);
++      gst_message_set_seqnum (message, demux->segment_seqnum);
++      gst_element_post_message (GST_ELEMENT_CAST (demux), message);
++    }
++
+     /* Tell all the stream a new segment is needed */
+     for (guint i = 0; i < demux->audio_tracks->len; i++) {
+       GstFlvDemuxTrack *track = g_ptr_array_index (demux->audio_tracks, i);
+@@ -3937,6 +3947,7 @@
+ 
+     /* copy the event */
+     gst_event_replace (&demux->seek_event, event);
++    gst_event_unref (event);
+ 
+     /* set the building_index flag so that only one thread can setup the
+      * structures for index seeking. */
+@@ -4236,6 +4247,12 @@
+       gst_flv_demux_flush (demux, TRUE);
+       ret = gst_flv_demux_push_src_event (demux, event);
+       break;
++    case GST_EVENT_SEGMENT_DONE:
++      if (demux->random_access || !(demux->segment.flags & GST_SEGMENT_FLAG_SEGMENT)) {
++        ret = gst_flv_demux_push_src_event (demux, event);
++        break;
++      }
++      G_GNUC_FALLTHROUGH;
+     case GST_EVENT_EOS:
+     {
+       GstIndex *index;
+@@ -4260,7 +4277,32 @@
+           demux->no_more_pads = TRUE;
+         }
+ 
+-        if (!gst_flv_demux_push_src_event (demux, event))
++        if (!demux->random_access
++            && (demux->segment.flags & GST_SEGMENT_FLAG_SEGMENT)) {
++          /* a push-mode segment seek ends here, in stream time, as it does
++           * in the pull loop */
++          GstMessage *message;
++          GstEvent *done;
++          gint64 position;
++
++          if (demux->segment.rate >= 0) {
++            if ((position = demux->segment.stop) == -1)
++              position = demux->segment.duration;
++          } else {
++            position = demux->segment.start;
++          }
++          if (GST_CLOCK_TIME_IS_VALID (position))
++            demux->segment.position = position;
++          message = gst_message_new_segment_done (GST_OBJECT_CAST (demux),
++              GST_FORMAT_TIME, position);
++          gst_message_set_seqnum (message, demux->segment_seqnum);
++          gst_element_post_message (GST_ELEMENT_CAST (demux), message);
++          done = gst_event_new_segment_done (GST_FORMAT_TIME, position);
++          gst_event_set_seqnum (done, demux->segment_seqnum);
++          gst_event_unref (event);
++          if (!gst_flv_demux_push_src_event (demux, done))
++            GST_WARNING_OBJECT (demux, "failed pushing segment-done on streams");
++        } else if (!gst_flv_demux_push_src_event (demux, event))
+           GST_WARNING_OBJECT (demux, "failed pushing EOS on streams");
+       }
+       ret = TRUE;

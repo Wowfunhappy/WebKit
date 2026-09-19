@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build the third-party libraries WebKit links that the 10.9 system does not provide:
+# Build vendored dependencies for WebKit and its layout-test server on macOS 10.9:
 #
 #   ICU 74.2 (static)                   -> JSC Intl (ucfpos_*/udtitvfmt_*/... that
 #                                          10.9's ICU 51 libicucore lacks)
@@ -18,10 +18,12 @@
 #                                          every page's images take.
 #   libpng 1.6.43 (static)              -> WebCore's PNGImageDecoder
 #   libjpeg-turbo 3.1.2 (static)        -> WebCore's JPEGImageDecoder
-#   lcms2 2.16 (static)                 -> the ICC engine those two apply embedded profiles with
+#   lcms2 2.16 (static)                 -> ICC conversion for the scalable image decoders
 #   libtiff 4.7.0 (static, on libjpeg)  -> this port's TIFFImageDecoder
 #   libavif 1.3.0 (static, on dav1d)    -> WebCore's AVIFImageDecoder (10.9's ImageIO
 #                                          predates AVIF)
+#   libheif 1.23.4 (static, on FFmpeg)  -> this port's HEIFImageDecoder: HEIC/HEIF stills, their
+#                                          HEVC decoded by FFmpeg's hevc decoder
 #   libxml2 2.13.6 (shared)             -> WebCore XML/SVG parsing, in place of 10.9's
 #                                          crash-prone system libxml2 2.9.0
 #   libxslt 1.1.43 (shared)             -> WebCore XSLT, built against the libxml2 above so one
@@ -30,6 +32,7 @@
 #   libpsl 0.21.5 (shared, ICU)        -> public-suffix rejection in curl's cookie store
 #   zstd 1.5.7 (shared)                 -> the zstd content encoding curl decodes
 #   nghttp2 1.70.0 + libcurl 8.22.0     -> HTTP/2 networking, on that shared BoringSSL
+#   Apache httpd 2.4.68                -> layout-test HTTP/HTTPS, with the toolchain's OpenSSL
 #   GLib + GStreamer (GLIB_VER/GST_VER)  -> the media runtime (core, plugins-base/
 #     (+ codecs)                           good/bad, gst-libav on FFmpeg 8.1.2 with
 #                                          dav1d AV1 decode, libvpx VP8/VP9) that
@@ -59,8 +62,8 @@
 # nothing it already has and each package's build system picks up where it left off. --clean discards
 # work/trees; the tarball and ccache caches sit beside it and survive.
 #
-# --check-recipes asks whether deps/build was published by a completed run of this script and the
-# patches beside it (see recipes_key).
+# --check-recipes asks whether deps/build was published by a completed run of this script with
+# these inputs (see recipes_key).
 set -euo pipefail
 # NB: the 10.9 system bash (3.2) does NOT abort when a ( ... ) section subshell fails,
 # even under set -e / trap ERR -- hence the explicit `|| exit 1` on every section.
@@ -75,9 +78,11 @@ for arg in "$@"; do
     esac
 done
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# /bin/pwd -P spells a directory as the filesystem does, so the keys and process matches below,
+# which compare paths as strings, agree whatever spelling the script was reached by.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && /bin/pwd -P)"
 SELF="$HERE/$(basename "${BASH_SOURCE[0]}")"
-REPO="$(cd "$HERE/../.." && pwd)"                   # repo root
+REPO="$(cd "$HERE/../.." && /bin/pwd -P)"           # repo root
 # The one build log. One fd carries this script's package headers and every package's compile
 # output, in order. --check-recipes answers on stdout, which under build.sh is this same log.
 . "$REPO/MavericksSupport/scripts/build-log.sh"
@@ -147,6 +152,13 @@ SCRATCH="$WORK/trees"
 # does not re-download everything.
 SRC="$WORK/tarballs"
 STAGE="$SCRATCH/install"                            # full autotools install prefix
+HTTPD_STAGE="$SCRATCH/httpd-install"
+HTTPD_CONFIG="$REPO/LayoutTests/http/conf/apache2.4-darwin-httpd.conf"
+HTTPD_OPENSSL="$REPO/MavericksSupport/toolchain/build/openssl"
+HTTPD_INPUT_KEY=$( ( /usr/bin/shasum -a 256 < "$HTTPD_CONFIG" \
+    && cd "$HTTPD_OPENSSL" && find lib/libssl.a lib/libcrypto.a include lib/pkgconfig -type f -print \
+        | LC_ALL=C sort | tr '\n' '\0' | xargs -0 /usr/bin/shasum -a 256 ) \
+    | /usr/bin/shasum -a 256 | awk '{ print $1 }') || exit 1
 
 # The TLS source is the same vendored tree libwebrtc compiles. Hash its content, including
 # generated assembly and build files, so an upstream roll or local edit invalidates both
@@ -159,13 +171,14 @@ BORINGSSL_KEY=$( ( cd "$BORINGSSL_SRC" && find . -type f -print | LC_ALL=C sort 
     | tr '\n' '\0' | xargs -0 /usr/bin/shasum -a 256 ) \
     | /usr/bin/shasum -a 256 | awk '{ print $1 }') || exit 1
 
-# recipes_key: this whole script and every patch beside it -- what a run of it builds from. The
+# recipes_key covers this script, its patches, the TLS sources and the Apache inputs. The
 # collect step drops deps/build's copy and the end of the run writes it back, so the key is in the
 # tree only when a run carried every package, gate and manifest through to the end.
 recipes_key() {
   local p
   { /usr/bin/shasum -a 256 < "$SELF"
     printf '%s\n' "$BORINGSSL_KEY"
+    printf '%s\n' "$HTTPD_INPUT_KEY"
     for p in "$HERE"/patches/*.patch; do printf '%s\n' "$p"; done | LC_ALL=C sort \
       | while read -r p; do printf '%s\n' "${p##*/}"; /usr/bin/shasum -a 256 < "$p"; done
   } | /usr/bin/shasum -a 256 | awk '{ print $1 }'
@@ -178,6 +191,8 @@ if [ -n "$CHECK" ]; then
     echo "### deps recipes: deps/build was not published from this script and these patches"
     exit 1
 fi
+
+RECIPES_KEY=$(recipes_key) || exit 1
 
 mkdir -p "$SCRATCH"
 
@@ -198,9 +213,9 @@ trap 'rc=$?; rm -rf "$LOCK"; build_log_report $rc' EXIT
 # The collect step at the end replaces deps/build/{include,lib,bin}, which every WebKit link reads.
 # Candidates come from ps -axo pid=,command=, which lists every process with its full command line:
 # those whose command ends in a build.sh, resolved below against this checkout's.
-WEBKIT_BUILD="$(cd "$REPO/MavericksSupport" && pwd -P)/build.sh"
+WEBKIT_BUILD="$REPO/MavericksSupport/build.sh"
 _webkit_build_pids() {
-    local p tok cwd
+    local p tok cwd waiter started parent waiting
     for p in $(ps -axo pid=,command= | awk '$0 !~ / -c / && $NF ~ /(^|\/)build\.sh$/ { print $1 }'); do
         tok=$(ps -o command= -p "$p" 2>/dev/null | tr ' ' '\n' | grep -E '(^|/)build\.sh$' | head -1)
         [ -n "$tok" ] || continue
@@ -208,12 +223,25 @@ _webkit_build_pids() {
             /*) ;;
             *)  cwd=$(lsof -a -d cwd -Fn -p "$p" 2>/dev/null | sed -n 's/^n//p' | head -1); tok="$cwd/$tok";;
         esac
-        [ "$(cd "$(dirname "$tok")" 2>/dev/null && echo "$(pwd -P)/$(basename "$tok")")" = "$WEBKIT_BUILD" ] \
-            && echo "$p"
+        if [ "$(cd "$(dirname "$tok")" 2>/dev/null && echo "$(/bin/pwd -P)/$(basename "$tok")")" = "$WEBKIT_BUILD" ]; then
+            parent="$p"; waiting=0
+            while [ "${parent:-0}" -gt 1 ]; do
+                waiter="$REPO/WebKitBuild/Release/.takeover-waiters/$parent"
+                started="$(ps -o lstart= -p "$parent" 2>/dev/null)"
+                if [ -n "$started" ] && [ "$(cat "$waiter" 2>/dev/null)" = "$started" ]; then
+                    waiting=1
+                    break
+                fi
+                parent="$(ps -o ppid= -p "$parent" 2>/dev/null | tr -d ' ')"
+            done
+            [ "$waiting" -eq 1 ] && continue
+            echo "$p"
+        fi
     done
 }
 # A build.sh that is blocked invoking this script has linked nothing yet and names itself in
-# WK_BUILD_AWAITING_DEPS; every other one is a link in flight.
+# WK_BUILD_AWAITING_DEPS. Takeover waiters carry a process-specific marker until the
+# dependency owner exits; every other build is an active consumer.
 _refuse_under_webkit_build() {
     local pids
     pids="$(_webkit_build_pids | sort -un | awk -v self="${WK_BUILD_AWAITING_DEPS:-}" '$0 != self' | tr '\n' ' ')"
@@ -393,6 +421,7 @@ recipe_key() {
     case "$section" in *'$GSTOPTS'*)          printf 'GSTOPTS=%s\n'   "${GSTOPTS:-}";; esac
     case "$section" in *_VANILLA*)            printf 'LENIENT=%s\n'   "${LENIENT:-}";; esac
     case "$section" in *'"$MESON"'*)          printf 'MESON_PIN=%s\n' "${MESON_PIN:-}";; esac
+    case "$section" in *HTTPD_*)              printf 'HTTPD_INPUT_KEY=%s\n' "$HTTPD_INPUT_KEY";; esac
   } | /usr/bin/shasum -a 256 | awk '{ print $1 }'
 }
 
@@ -780,7 +809,7 @@ GAPDIR="$SCRATCH/gap"
 # reads. The objects do not, so a source dropped from GAP_SHARED leaves nothing for `ar` to pick up.
 GAPOBJ="$GAPDIR/obj"
 mkdir -p "$GAPDIR"; rm -rf "$GAPOBJ"; mkdir -p "$GAPOBJ"
-GAP_SHARED="time atcalls utimensat fdopendir statxx getentropy pthread_chdir os_unfair_lock mkostemp os_version aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit mach_timebase_info audiounit_max_frames"
+GAP_SHARED="time atcalls utimensat fdopendir statxx getentropy pthread_chdir os_unfair_lock mkostemp os_version aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit mach_timebase_info audiounit_max_frames wk_symbols"
 GAPCFLAGS="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -fvisibility=hidden -O2 -I$SHARED/include"
 ( for s in $GAP_SHARED; do
     "$TC/bin/clang" $GAPCFLAGS -MD -MF "$GAPOBJ/$s.d" -c "$SHARED/$s.c" -o "$GAPOBJ/$s.o" || exit 1
@@ -817,8 +846,8 @@ GAP_LITERALS="$GAPDIR/gap-literals.txt"
 GAP_BUILDINFO="$GAPDIR/gap-buildinfo.txt"
 { printf 'cflags\t%s\n' "${GAPCFLAGS//$SHARED/\$SHARED}"
   printf 'clang\t%s\n' "$("$TC/bin/clang" --version | head -1)"; } > "$GAP_BUILDINFO"
-# deps/build ships two dylibs this script copies rather than links, so the force_load above never
-# reaches them. The gate holds the deployed set to exactly this list.
+# The deployed images the force_load never reaches, relative to deps/build: the libc++ pair this
+# script copies and the layout-test httpd. The gate holds the deployed set to exactly this list.
 GAP_UNLINKED="$GAPDIR/gap-unlinked.txt"
 : > "$GAP_UNLINKED"
 
@@ -1057,6 +1086,14 @@ if prepare "$d"; then
         && patch -p1 < "$HERE/patches/curl-digest-request-target.patch" ) || exit 1
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-browser-http2.patch" \
         && patch -p1 < "$HERE/patches/curl-browser-http2.patch" ) || exit 1
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-pipewait-connection-ready.patch" \
+        && patch -p1 < "$HERE/patches/curl-pipewait-connection-ready.patch" ) || exit 1
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-idle-connection-input.patch" \
+        && patch -p1 < "$HERE/patches/curl-idle-connection-input.patch" ) || exit 1
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-idle-connection-expiry.patch" \
+        && patch -p1 < "$HERE/patches/curl-idle-connection-expiry.patch" ) || exit 1
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-primary-canonical-name.patch" \
+        && patch -p1 < "$HERE/patches/curl-primary-canonical-name.patch" ) || exit 1
     ( cd "$d" && CC="$CC_VANILLA" CXX="$CXX_VANILLA" PKG_CONFIG=/usr/bin/false \
         CPPFLAGS="-I$STAGE/include" \
         LDFLAGS="-L$STAGE/lib $LDFLAGS -L$TC/lib -Wl,-rpath,$STAGE/lib -Wl,-rpath,$TC/lib -Wl,-headerpad_max_install_names -F$SDK/System/Library/PrivateFrameworks" \
@@ -1157,7 +1194,7 @@ d=$(get https://github.com/webmproject/libvpx/archive/refs/tags/v1.14.1.tar.gz v
 if prepare "$d"; then
     ( cd "$d" && mkdir -p b && cd b \
       && ../configure --target=x86_64-darwin13-gcc --prefix="$STAGE" \
-           --enable-shared --disable-static --enable-pic --enable-vp8 --enable-vp9 \
+           --enable-shared --disable-static --enable-pic --enable-vp8 --enable-vp9 --enable-vp9-highbitdepth \
            --disable-examples --disable-tools --disable-docs --disable-unit-tests \
            --as=nasm \
            --extra-cflags="-isysroot $SDK -mmacosx-version-min=10.9" \
@@ -1284,10 +1321,6 @@ GSTOPTS="-Dbuildtype=release -Dtests=disabled -Dexamples=disabled -Ddoc=disabled
 # on-box verification of the shipped runtime (plugins load, pipelines run).
 d=$(get https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-$GST_VER.tar.xz gstcore) || exit 1
 if prepare "$d"; then
-    # multiqueue: report the queue's current buffering level. See patches/README.md.
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gstreamer-multiqueue-report-current-buffering-level.patch" \
-        && patch -p1 < "$HERE/patches/gstreamer-multiqueue-report-current-buffering-level.patch" ) \
-      || { echo "gstreamer multiqueue buffering-level patch failed to apply"; exit 1; }
     # input-selector: active_sinkpad_lock covers the choice of pad for an upstream event,
     # released before the push; a seek's flush drives this element's own state change on the
     # pushing thread. See patches/README.md.
@@ -1320,6 +1353,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-decodebin2-prefill-pending-group.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-base-decodebin2-prefill-pending-group.patch" ) \
       || { echo "gst-plugins-base decodebin2 pending-group patch failed to apply"; exit 1; }
+    # video-format: 2-bit alpha unpacks to the full 16-bit range. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-video-format-2bit-alpha.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-base-video-format-2bit-alpha.patch" ) \
+      || { echo "gst-plugins-base video-format 2-bit alpha patch failed to apply"; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
         -Dogg=enabled -Dvorbis=enabled -Dopus=enabled -Dorc=enabled ) || exit 1
     prepared "$d"
@@ -1331,16 +1368,30 @@ echo "==== gst-plugins-good ===="
 # Native HLS and DASH use gst-plugins-bad's legacy demuxers through webkitwebsrc.
 d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-$GST_VER.tar.xz gstgood) || exit 1
 if prepare "$d"; then
-    # matroskademux: post DURATION_CHANGED as a parsed duration grows and once when it is
-    # final, not only for the first block. See patches/README.md.
-    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-matroskademux-post-parsed-duration.patch" \
-        && patch -p1 < "$HERE/patches/gst-plugins-good-matroskademux-post-parsed-duration.patch" ) \
-      || { echo "gst-plugins-good matroskademux duration patch failed to apply"; exit 1; }
     # qtdemux: expose the video track of an ISO/IEC 23008-12 image sequence, whose media handler is
     # 'pict'. See patches/README.md.
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-qtdemux-heif-image-sequence.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-good-qtdemux-heif-image-sequence.patch" ) \
       || { echo "gst-plugins-good qtdemux HEIF image sequence patch failed to apply"; exit 1; }
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-qtdemux-upstream-stream-tags.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-qtdemux-upstream-stream-tags.patch" ) \
+      || { echo "gst-plugins-good qtdemux upstream-stream-tags patch failed to apply"; exit 1; }
+    # qtdemux: translate push-mode segment completion into TIME. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-qtdemux-push-mode-segment-seek.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-qtdemux-push-mode-segment-seek.patch" ) \
+      || { echo "gst-plugins-good qtdemux push-mode segment-seek patch failed to apply"; exit 1; }
+    # qtdemux: in push mode, send a fragment's samples in decode-time order across streams. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-qtdemux-push-mode-decode-time-interleave.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-qtdemux-push-mode-decode-time-interleave.patch" ) \
+      || { echo "gst-plugins-good qtdemux decode-time interleave patch failed to apply"; exit 1; }
+    # flvdemux: the same for a push-mode segment seek. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-flvdemux-push-mode-segment-seek.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-flvdemux-push-mode-segment-seek.patch" ) \
+      || { echo "gst-plugins-good flvdemux push-mode segment-seek patch failed to apply"; exit 1; }
+    # osxaudio: a sink takes the buffer frame size it finds. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-good-osxaudio-host-owns-device-buffer-size.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-good-osxaudio-host-owns-device-buffer-size.patch" ) \
+      || { echo "gst-plugins-good osxaudio device-buffer patch failed to apply"; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS \
         -Dvpx=enabled -Dflac=enabled -Dmpg123=enabled -Dosxaudio=enabled -Dosxvideo=enabled \
         -Dorc=enabled -Dadaptivedemux2=disabled ) || exit 1
@@ -1371,6 +1422,18 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtdec-109-sink-template-codecs.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-vtdec-109-sink-template-codecs.patch" ) \
       || { echo "gst-plugins-bad vtdec sink-template patch failed to apply"; exit 1; }
+    # Completed submission prefixes feed vtdec's upstream DPB-bounded PTS queue.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtdec-completion-order.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-vtdec-completion-order.patch" ) \
+      || { echo "gst-plugins-bad vtdec completion-order patch failed to apply"; exit 1; }
+    # H.264 SPS VUI supplies output colorimetry when input caps leave it unspecified.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtdec-h264-sps-colorimetry.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-vtdec-h264-sps-colorimetry.patch" ) \
+      || { echo "gst-plugins-bad vtdec SPS colorimetry patch failed to apply"; exit 1; }
+    # Output reordering follows the SPS bound used by WebKit's Apple decoder.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtdec-h264-reorder-bound.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-vtdec-h264-reorder-bound.patch" ) \
+      || { echo "gst-plugins-bad vtdec H.264 reorder-bound patch failed to apply"; exit 1; }
     # vtenc registers an element per codec whether or not this machine's VideoToolbox
     # has an encoder for it, and the registry is what WebKit's scanner answers encoder support and
     # powerEfficient from: 10.9 has no HEVC encoder at all, and vtenc_h264_hw is registered on
@@ -1380,6 +1443,10 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtenc-hardware-encoder-probe.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-vtenc-hardware-encoder-probe.patch" ) \
       || { echo "gst-plugins-bad vtenc encoder-probe patch failed to apply"; exit 1; }
+    # The source template advertises the H.264 profiles vtenc maps to VideoToolbox.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtenc-h264-profile-caps.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-vtenc-h264-profile-caps.patch" ) \
+      || { echo "gst-plugins-bad vtenc H.264 profile-caps patch failed to apply"; exit 1; }
     # vtenc tells the compression session the color of its frames but hands it source
     # pixel buffers carrying no color attachments; 10.9's VideoToolbox reads the source color from
     # the buffer and answers kVTInsufficientSourceColorDataErr (-12917) for every frame. This
@@ -1387,6 +1454,24 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtenc-source-colorimetry.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-vtenc-source-colorimetry.patch" ) \
       || { echo "gst-plugins-bad vtenc source-colorimetry patch failed to apply"; exit 1; }
+    # H.264 output caps carry the encoded SPS colorimetry reported by h264parse.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtenc-h264-output-colorimetry.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-vtenc-h264-output-colorimetry.patch" ) \
+      || { echo "gst-plugins-bad vtenc H.264 output-colorimetry patch failed to apply"; exit 1; }
+    # vtenc's drain pauses its output task before the loop has taken every frame
+    # VideoToolbox queued. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtenc-drain-queued-frames.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-vtenc-drain-queued-frames.patch" ) \
+      || { echo "gst-plugins-bad vtenc drain-queued-frames patch failed to apply"; exit 1; }
+    # vtdec's drain pauses its output task before the loop has taken every frame
+    # VideoToolbox queued. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtdec-drain-queued-frames.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-vtdec-drain-queued-frames.patch" ) \
+      || { echo "gst-plugins-bad vtdec drain-queued-frames patch failed to apply"; exit 1; }
+    # vtenc answers GST_FLOW_ERROR for a frame VideoToolbox fails to encode. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtenc-encode-errors.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-vtenc-encode-errors.patch" ) \
+      || { echo "gst-plugins-bad vtenc encode-errors patch failed to apply"; exit 1; }
     # hlsdemux: create an output stream for a SUBTITLES rendition, convert the cue times of its
     # WebVTT fragments into stream time, and carry each rendition's name, language and flags.
     # See patches/README.md.
@@ -1404,6 +1489,15 @@ if prepare "$d"; then
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-adaptivedemux-release-manifest-lock-for-downloads.patch" \
         && patch -p1 < "$HERE/patches/gst-plugins-bad-adaptivedemux-release-manifest-lock-for-downloads.patch" ) \
       || { echo "gst-plugins-bad adaptivedemux manifest-lock patch failed to apply"; exit 1; }
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-hlsdemux-resync-current-file.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-hlsdemux-resync-current-file.patch" ) \
+      || { echo "gst-plugins-bad hlsdemux resync-current-file patch failed to apply"; exit 1; }
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-hlsdemux-date-ranges.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-hlsdemux-date-ranges.patch" ) \
+      || { echo "gst-plugins-bad hlsdemux date-ranges patch failed to apply"; exit 1; }
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-mpegtsdemux-rendition-tags.patch" \
+        && patch -p1 < "$HERE/patches/gst-plugins-bad-mpegtsdemux-rendition-tags.patch" ) \
+      || { echo "gst-plugins-bad tsdemux rendition-tags patch failed to apply"; exit 1; }
     # Media HTTP requests use webkitwebsrc; libcurl is a WebCore networking dependency.
     # aes is disabled: WebKit uses HLS demuxers' EVP decryption and has no aesenc/aesdec caller.
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled -Dcurl=disabled \
@@ -1442,6 +1536,44 @@ if prepare "$d"; then
 fi
 ( cd "$d" && make -s -j2 > /dev/null && make -s install > /dev/null ) || exit 1
 
+echo "==== libheif 1.23.4 ===="
+# This port's HEIFImageDecoder (MavericksSupport/source): HEIC/HEIF still images, which 10.9's
+# ImageIO predates. The HEVC-coded items decode through FFmpeg's hevc decoder -- the one the media
+# runtime already runs for HEVC video -- via libheif's FFmpeg backend compiled into libheif.a over the
+# libavcodec above. Plugin loading is off, so no codec module is read from disk; the other backends,
+# the encoders, the uncompressed and header-compression codecs and the tools are off too.
+u=https://github.com/strukturag/libheif/releases/download/v1.23.4/libheif-1.23.4.tar.gz
+if ! built libheif install/lib/libheif.a; then
+    d=$(get "$u" libheif)
+    # libheif's FFmpeg backend hands libavcodec packets without the input padding its HEVC parser
+    # reads into. See patches/README.md.
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/libheif-ffmpeg-decoder-input-padding.patch" \
+        && patch -p1 < "$HERE/patches/libheif-ffmpeg-decoder-input-padding.patch" ) \
+      || { echo "libheif FFmpeg input-padding patch failed to apply"; exit 1; }
+    ( cd "$d" && mkdir -p out && cd out \
+      && "$CMAKE" -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
+           -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+           -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_CXX_COMPILER="$CXX_BIN" \
+           ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE" -DCMAKE_CXX_COMPILER_LAUNCHER="$CCACHE"} \
+           -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
+           -DENABLE_PLUGIN_LOADING=OFF \
+           -DWITH_FFMPEG_DECODER=ON -DWITH_FFMPEG_DECODER_PLUGIN=OFF -DFFMPEG_ROOT="$STAGE" \
+           -DWITH_LIBDE265=OFF -DWITH_X265=OFF -DWITH_KVAZAAR=OFF -DWITH_UVG266=OFF \
+           -DWITH_VVDEC=OFF -DWITH_VVENC=OFF -DWITH_X264=OFF -DWITH_OpenH264_DECODER=OFF \
+           -DWITH_DAV1D=OFF -DWITH_AOM_DECODER=OFF -DWITH_AOM_ENCODER=OFF -DWITH_SvtEnc=OFF \
+           -DWITH_RAV1E=OFF -DWITH_JPEG_DECODER=OFF -DWITH_JPEG_ENCODER=OFF \
+           -DWITH_OpenJPEG_DECODER=OFF -DWITH_OpenJPEG_ENCODER=OFF -DWITH_OPENJPH_ENCODER=OFF \
+           -DWITH_UNCOMPRESSED_CODEC=OFF -DWITH_WEBCODECS=OFF -DWITH_HEADER_COMPRESSION=OFF \
+           -DWITH_LIBSHARPYUV=OFF -DCMAKE_DISABLE_FIND_PACKAGE_ZLIB=ON -DCMAKE_DISABLE_FIND_PACKAGE_Brotli=ON \
+           -DCMAKE_DISABLE_FIND_PACKAGE_TIFF=ON -DCMAKE_DISABLE_FIND_PACKAGE_PNG=ON -DCMAKE_DISABLE_FIND_PACKAGE_JPEG=ON \
+           -DWITH_EXAMPLES=OFF -DWITH_GDK_PIXBUF=OFF -DBUILD_TESTING=OFF -DBUILD_DOCUMENTATION=OFF \
+           -DWITH_FUZZERS=OFF \
+           -DCMAKE_INSTALL_PREFIX="$STAGE" -DCMAKE_INSTALL_LIBDIR=lib .. \
+      && "$NINJA" -j2 heif \
+      && "$CMAKE" --install . ) || exit 1
+    finished libheif "$d"
+fi
+
 echo "==== gst-libav ===="
 d=$(get https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-$GST_VER.tar.xz gstlibav) || exit 1
 if prepare "$d"; then
@@ -1476,6 +1608,43 @@ fi
 ( cd "$d" && "$MESON" compile -C b -j 2 \
   && "$MESON" install -C b ) || exit 1
 
+echo "==== layout-test Apache ===="
+# Apache and its static dependencies use the host C headers and a private install prefix.
+(
+    export SDKROOT=/
+    export CC="$CC_VANILLA" CXX="$CXX_VANILLA"
+    export CFLAGS="-O2 -isysroot / -mmacosx-version-min=10.9"
+    export CXXFLAGS="$CFLAGS" CPPFLAGS=""
+    export LDFLAGS="-isysroot / -mmacosx-version-min=10.9"
+    export PKG_CONFIG_PATH="$HTTPD_OPENSSL/lib/pkgconfig"
+    export PKG_CONFIG_LIBDIR="$HTTPD_OPENSSL/lib/pkgconfig"
+
+    d=$(get https://github.com/PhilipHazel/pcre2/releases/download/pcre2-10.42/pcre2-10.42.tar.bz2 httpd-pcre2)
+    if prepare "$d"; then
+        ( cd "$d" && ./configure --prefix="$HTTPD_STAGE" --disable-shared --enable-static ) || exit 1
+        prepared "$d"
+    fi
+    ( cd "$d" && make -j2 && make install ) || exit 1
+
+    d=$(get https://archive.apache.org/dist/httpd/httpd-2.4.68.tar.bz2 httpd)
+    if prepare "$d"; then
+        apr=$(get https://archive.apache.org/dist/apr/apr-1.7.6.tar.bz2 httpd-apr)
+        apu=$(get https://archive.apache.org/dist/apr/apr-util-1.6.5.tar.bz2 httpd-apr-util)
+        mv "$apr" "$d/srclib/apr"
+        mv "$apu" "$d/srclib/apr-util"
+        modules=$(awk '$1 == "LoadModule" && $2 != "mpm_prefork_module" { sub(/_module$/, "", $2); print $2 }' \
+            "$HTTPD_CONFIG" | tr '\n' ' ')
+        ( cd "$d" && ./configure --prefix="$HTTPD_STAGE" --with-included-apr \
+            --disable-shared --enable-static --disable-util-dso --without-crypto --without-ldap \
+            --without-pgsql --without-mysql --without-sqlite3 --without-sqlite2 --without-oracle --without-odbc \
+            --with-expat=/usr --with-pcre="$HTTPD_STAGE/bin/pcre2-config" \
+            --with-ssl="$HTTPD_OPENSSL" --enable-ssl-staticlib-deps \
+            --with-mpm=prefork --enable-modules=none --enable-mods-static="$modules" --disable-so ) || exit 1
+        prepared "$d"
+    fi
+    ( cd "$d" && make -j2 && make install ) || exit 1
+) || exit 1
+
 echo "==== gap archive coverage ===="
 # Every image the archive force-loads into was linked after the archive itself: the drop above took
 # the ones built from an older generation, and the builds since linked them again. An older one is a
@@ -1499,6 +1668,10 @@ _refuse_under_webkit_build
 rm -f "$DEST/.recipes"
 rm -rf "$DEST/include" "$DEST/lib" "$DEST/bin"
 mkdir -p "$DEST/include" "$DEST/lib/gstreamer-1.0" "$DEST/bin"
+cp -p "$HTTPD_STAGE/bin/httpd" "$DEST/bin/"
+echo "bin/httpd" >> "$GAP_UNLINKED"
+# The Darwin configuration's modules are built into this Apache executable.
+awk '$1 != "LoadModule"' "$HTTPD_CONFIG" > "$DEST/httpd.conf"
 # headers (WebKit's own link deps + the GStreamer/GLib trees WebCore compiles against).
 # -p carries each staged file's mtime across, and mtime is what ninja compares: the staged
 # tree only restamps a header when its package actually rebuilds, so a rerun that changes
@@ -1513,6 +1686,7 @@ cp -Rp "$STAGE/include/woff2"      "$DEST/include/"
 cp -p "$STAGE/include/opentype-sanitiser.h" "$DEST/include/"
 cp -Rp "$STAGE/include/webp"       "$DEST/include/"
 cp -Rp "$STAGE/include/avif"       "$DEST/include/"
+cp -Rp "$STAGE/include/libheif"    "$DEST/include/"
 # libjpeg-turbo, lcms2 and libtiff all install flat headers at the include root, which is where
 # JPEGImageDecoder's <jpeglib.h>, LCMSUniquePtr.h's <lcms2.h> and TIFFImageDecoder's <tiffio.h>
 # look for them. jpeglib.h includes jconfig.h and jmorecfg.h; jerror.h comes with the decoder's
@@ -1549,7 +1723,7 @@ for l in libicuuc.a libicui18n.a libicudata.a \
          libgpg-error.a libgcrypt.a libtasn1.a \
          libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a \
          libwebp.a libwebpdemux.a libsharpyuv.a libavif.a libyuv.a libpng16.a \
-         libjpeg.a liblcms2.a libtiff.a libots.a; do
+         libjpeg.a liblcms2.a libtiff.a libots.a libheif.a; do
   cp -p "$STAGE/lib/$l" "$DEST/lib/"
 done
 
@@ -1566,7 +1740,7 @@ done
 for cxxlib in libc++.1.dylib libc++abi.1.dylib; do
   [ -f "$TC/lib/$cxxlib" ] || { echo "  FATAL: $TC/lib/$cxxlib not found"; exit 1; }
   cp "$TC/lib/$cxxlib" "$STAGE/lib/$cxxlib"
-  echo "$cxxlib" >> "$GAP_UNLINKED"
+  echo "lib/$cxxlib" >> "$GAP_UNLINKED"
 done
 
 # Shared dylibs: each real file deploys UNDER ITS MAJORED INSTALL-NAME BASENAME (the
@@ -1712,6 +1886,8 @@ require_glob "$DEST/include/openssl/crypto.h"
 require_glob "$DEST/include/nghttp2/nghttp2.h"
 require_glob "$DEST/include/curl/curl.h"
 require_glob "$DEST/bin/curl"
+require_glob "$DEST/bin/httpd"
+require_glob "$DEST/httpd.conf"
 require_glob "$DEST/lib/libglib-2.0.*.dylib"
 require_glob "$DEST/lib/libgstreamer-1.0.*.dylib"
 require_glob "$DEST/lib/libgstadaptivedemux-1.0.0.dylib"
@@ -1736,7 +1912,7 @@ require_glob "$DEST/lib/libc++abi.1.dylib"
 for a in libicuuc.a libicui18n.a libicudata.a libgpg-error.a libgcrypt.a libtasn1.a \
          libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a \
          libwebp.a libwebpdemux.a libsharpyuv.a libavif.a libyuv.a libpng16.a \
-         libjpeg.a liblcms2.a libtiff.a libots.a; do
+         libjpeg.a liblcms2.a libtiff.a libots.a libheif.a; do
   require_glob "$DEST/lib/$a"
 done
 require_glob "$DEST/include/webp/decode.h"
@@ -1746,6 +1922,7 @@ require_glob "$DEST/include/lcms2.h"
 require_glob "$DEST/include/tiffio.h"
 require_glob "$DEST/include/opentype-sanitiser.h"
 require_glob "$DEST/include/avif/avif.h"
+require_glob "$DEST/include/libheif/heif.h"
 require_glob "$DEST/include/libxml2/libxml/parser.h"
 require_glob "$DEST/include/libxslt/xslt.h"
 # single-unwinder rule: no libunwind may exist in the deployed set.
@@ -2316,6 +2493,7 @@ for f in $GATE_FILES; do
     | sort -u > "$GATE/und/$b.deps"
   # A second ssl/crypto load could give a two-level import another provider with
   # the same basename. Every direct TLS load must name the deployed BoringSSL pair.
+  : > "$GATE/und/$b.resolved-deps"
   while read -r dep; do
     case "$dep" in
       */libssl.*|*/libcrypto.*)
@@ -2323,18 +2501,35 @@ for f in $GATE_FILES; do
           *) echo "TLS library outside the shared BoringSSL pair in $b: $dep" >> "$FAILS";;
         esac;;
     esac
-  done < "$GATE/und/$b.deps"
-  : > "$GATE/und/$b.pairs"
-  while read -r kind sym from; do
-    [ "$from" = "-" ] && { echo "$kind $sym -" >> "$GATE/und/$b.pairs"; continue; }
-    dep=$(awk -v tok="$from" '{ b=$0; sub(/.*\//,"",b); if (b==tok || index(b, tok ".")==1) { print $0; exit } }' "$GATE/und/$b.deps")
+    load_name="$dep"
     case "$dep" in
       @rpath/*) r="${dep#@rpath/}"
                 if [ -e "$DEST/lib/$r" ]; then dep="$DEST/lib/$r"; else dep="$DEST/lib/gstreamer-1.0/$r"; fi ;;
-      "")       dep="-" ;;
     esac
-    echo "$kind $sym $dep" >> "$GATE/und/$b.pairs"
-  done < "$GATE/und/$b.und"
+    printf '%s\t%s\n' "$load_name" "$dep" >> "$GATE/und/$b.resolved-deps"
+  done < "$GATE/und/$b.deps"
+  # Match every import against the same ordered load-command map in one pass.
+  awk '
+    FILENAME == ARGV[1] {
+      split($0, fields, "\t")
+      names[++count] = fields[1]
+      sub(/.*\//, "", names[count])
+      paths[count] = fields[2]
+      next
+    }
+    {
+      path = "-"
+      if ($3 != "-") {
+        for (i = 1; i <= count; ++i) {
+          if (names[i] == $3 || index(names[i], $3 ".") == 1) {
+            path = paths[i]
+            break
+          }
+        }
+      }
+      print $1, $2, path
+    }
+  ' "$GATE/und/$b.resolved-deps" "$GATE/und/$b.und" > "$GATE/und/$b.pairs"
   awk '$1=="S" && $3!="-"{print $2 "\t" $3}' "$GATE/und/$b.pairs" >> "$GATE/all-strong.txt"
   awk '$1=="W" && $3!="-"{print $2 "\t" $3}' "$GATE/und/$b.pairs" >> "$GATE/all-weak.txt"
   awk '$3=="-"{print $2}' "$GATE/und/$b.pairs" >> "$GATE/unattributed.txt"
@@ -2443,11 +2638,15 @@ cp "$GAP_SYMBOLS"   "$DEST/gap-symbols.txt"    || exit 1
 cp "$GAP_LITERALS"  "$DEST/gap-literals.txt"   || exit 1
 cp "$GAP_BUILDINFO" "$DEST/gap-buildinfo.txt"  || exit 1
 cp "$GAP_UNLINKED"  "$DEST/gap-unlinked.txt"   || exit 1
-echo "  $(wc -l < "$DEST/gap-sources.sha256" | tr -d ' ') source files, $(wc -l < "$DEST/gap-symbols.txt" | tr -d ' ') defined symbols, $(wc -l < "$DEST/gap-literals.txt" | tr -d ' ') literals, $(wc -l < "$DEST/gap-unlinked.txt" | tr -d ' ') copied-not-linked"
+echo "  $(wc -l < "$DEST/gap-sources.sha256" | tr -d ' ') source files, $(wc -l < "$DEST/gap-symbols.txt" | tr -d ' ') defined symbols, $(wc -l < "$DEST/gap-literals.txt" | tr -d ' ') literals, $(wc -l < "$DEST/gap-unlinked.txt" | tr -d ' ') outside its reach"
 
 echo "==== done. deps/build: ===="
 # Past every gate: deps/build is now what this script and the patches beside it build.
-RECIPES_KEY=$(recipes_key) || exit 1
+CURRENT_RECIPES_KEY=$(recipes_key) || exit 1
+if [ "$CURRENT_RECIPES_KEY" != "$RECIPES_KEY" ]; then
+  echo "FATAL: dependency build script or patches changed during this run; rebuild before publication." >&2
+  exit 1
+fi
 printf '%s\n' "$RECIPES_KEY" > "$DEST/.recipes"
 ls "$DEST/lib" | head -40; ls "$DEST/lib/gstreamer-1.0" | wc -l
 echo "  build tree: $(du -sh "$SCRATCH" | awk '{ print $1 }') at $SCRATCH, $(df -h / | awk 'NR == 2 { print $4 }') free on /"

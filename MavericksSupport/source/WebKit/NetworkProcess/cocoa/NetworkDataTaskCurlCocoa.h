@@ -68,12 +68,13 @@ public:
 private:
     NetworkDataTaskCurlCocoa(NetworkSession&, NetworkDataTaskClient&, const NetworkLoadParameters&);
     // native cookie policy runs before internal curl authentication exchanges.
-    void curlReceivedCookies(Vector<String>&&, CompletionHandler<void(std::optional<String>&&)>&&) final;
+    void curlReceivedCookies(Vector<String>&&, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&&) final;
     void curlReceivedResponse(WebCore::CocoaCurlTransferResponse&&, CompletionHandler<void()>&&) final;
     void curlReceivedInformationalResponse(WebCore::ResourceResponse&&) final;
     void curlReceivedData(const WebCore::SharedBuffer&, CompletionHandler<void()>&&) final;
     void curlSentData(uint64_t, uint64_t) final;
     void curlRequestedIdentity(CFArrayRef, CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)>&&) final;
+    void curlRequestedServerTrust(CompletionHandler<void(bool)>&&) final;
     void curlCompleted(const WebCore::ResourceError&, const WebCore::NetworkLoadMetrics&) final;
     void setup();
     void start();
@@ -82,10 +83,13 @@ private:
     void detachTransfer();
     void redirect();
     void authenticate(bool proxy);
-    void challengeServerTrust();
+    void challengeServerTrust(CompletionHandler<void(bool)>&&);
+    NegotiatedLegacyTLS negotiatedLegacyTLS() const;
     void restart(WebCore::ResourceRequest&&);
     void updateMetrics(const WebCore::NetworkLoadMetrics&);
     bool cookiesBlocked();
+    void storeReceivedCookies(Vector<String>&&, const String& remoteAddress, const WebCore::RegistrableDomain& resolvedCNAMEDomain, CompletionHandler<void(std::optional<String>&&)>&&);
+    bool shouldCapCookieExpiryForThirdPartyCloaking(const String& remoteAddress, const WebCore::RegistrableDomain& resolvedCNAMEDomain);
     Vector<uint8_t> downloadResumeData() const;
     void publishResponse();
     void decidePolicy(WebCore::PolicyAction);
@@ -139,6 +143,7 @@ private:
     std::unique_ptr<WebCore::CurlMultipartHandle> m_multipart;
     bool m_waitingForMultipartPolicy { false };
     WebCore::ResourceResponse m_response;
+    String m_responseContentType;
     RefPtr<const WebCore::SharedBuffer> m_pendingData;
     WebCore::NetworkLoadMetrics m_metrics;
     std::optional<WebCore::ResourceError> m_result;

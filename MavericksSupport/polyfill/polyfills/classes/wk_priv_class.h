@@ -39,14 +39,8 @@
 // _OBJC_CLASS_$_ classref, which binds to the alias, so those ARE used. A stub WebKit soft-links has to
 // be findable by NAME as well, which WK_POLYFILL_CLASS (mechanism/wk_polyfill.h) provides.
 //
-// Two families are deliberately NOT stubbed:
-//   - Classes 10.9 DOES have (CATransformLayer, NSColorPopoverController, SFCertificatePanel, ...): an
-//     empty stub would shadow the genuine system class (CATransformLayer backs 3D CSS transforms).
-//   - NSTouchBar and its item classes: HAVE(TOUCH_BAR) is off for the 10.9 deployment target, so WebKit
-//     references none of them, and a 10.9 app that loads this WebKit and feature-detects Touch Bar via
-//     NSClassFromString(@"NSTouchBar") would believe it exists and crash invoking the absent
-//     -[NSResponder setTouchBar:] (observed: Dash.app aborts on launch when its nib-load path enables a
-//     Touch Bar).
+// Classes present on 10.9 use their native implementation, including CATransformLayer,
+// NSColorPopoverController and SFCertificatePanel.
 
 #ifndef WK_PRIV_CLASS_H
 #define WK_PRIV_CLASS_H

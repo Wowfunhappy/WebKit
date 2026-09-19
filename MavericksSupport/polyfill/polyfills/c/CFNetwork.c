@@ -1,7 +1,10 @@
 // CFNetwork: entry points and constants modern WebKit references that 10.9's CFNetwork does not export,
 // with native protection-space and credential coding.
+#include "wk_declared_types.h"
 #include "wk_polyfill.h"
 #include "wk_symbols.h"
+#include "wk_cookie_storage.h"
+#include <dispatch/dispatch.h>
 #include "wk_trust.h"
 #include "wk_url_coding.h"
 
@@ -10,6 +13,7 @@
 #include <malloc/malloc.h>
 #include <objc/message.h>
 #include <objc/runtime.h>
+#include <objc/objc-sync.h>
 #include <syslog.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -17,6 +21,42 @@
 #include <unistd.h>
 
 static const char kCFNetworkSuffix[] = "/CFNetwork.framework/Versions/A/CFNetwork";
+
+typedef struct OpaqueCFHTTPCookieStorage *CFHTTPCookieStorageRef;
+typedef struct __CFURLStorageSession *CFURLStorageSessionRef;
+
+// Mavericks accepts only policies 0 through 2. Map exclusive policy 3 to native policy 2.
+// The native jar retains policy 2; the URL setter applies the exclusive policy's stricter boundary.
+static const void *wk_exclusiveCookiePolicyKey(void)
+{
+    return (const void *)sel_registerName("wk_exclusiveCookieAcceptPolicy");
+}
+
+WK_POLYFILL_REPLACES("CFNetwork", void, CFHTTPCookieStorageSetCookieAcceptPolicy, (CFHTTPCookieStorageRef storage, CFIndex policy))
+{
+    objc_sync_enter((id)storage);
+    WK_ORIGINAL(CFHTTPCookieStorageSetCookieAcceptPolicy)(storage, policy == 3 ? 2 : policy);
+    objc_setAssociatedObject((id)storage, wk_exclusiveCookiePolicyKey(),
+        policy == 3 ? (id)kCFBooleanTrue : nil, OBJC_ASSOCIATION_RETAIN);
+    objc_sync_exit((id)storage);
+}
+
+WK_POLYFILL_REPLACES("CFNetwork", CFIndex, CFHTTPCookieStorageGetCookieAcceptPolicy, (CFHTTPCookieStorageRef storage))
+{
+    objc_sync_enter((id)storage);
+    CFIndex policy = WK_ORIGINAL(CFHTTPCookieStorageGetCookieAcceptPolicy)(storage);
+    if (policy == 2 && objc_getAssociatedObject((id)storage, wk_exclusiveCookiePolicyKey()))
+        policy = 3;
+    objc_sync_exit((id)storage);
+    return policy;
+}
+
+WK_POLYFILL_REPLACES("CFNetwork", CFHTTPCookieStorageRef, _CFHTTPCookieStorageGetDefault, (CFAllocatorRef allocator))
+{
+    CFHTTPCookieStorageRef (*sharedStorage)(void) = dlsym(RTLD_DEFAULT, "wk_sharedCookieStorage");
+    CFHTTPCookieStorageRef storage = sharedStorage ? sharedStorage() : NULL;
+    return storage ? storage : WK_ORIGINAL(_CFHTTPCookieStorageGetDefault)(allocator);
+}
 
 WK_POLYFILL_CONST("CFNetwork", CFStringRef, kCFURLRequestContentDecoderSkipURLCheck, CFSTR("kCFURLRequestContentDecoderSkipURLCheck"));
 
@@ -111,6 +151,101 @@ WK_POLYFILL_ABSENT("CFNetwork", void, _CFURLStorageSessionDisableCache, (void *s
 }
 
 // ---------------------------------------------------------------------------------------------------
+// Private storage sessions.
+//
+// A session created with _kCFURLStorageSessionIsPrivate has the same properties as the default session
+// except that its storage is in-memory only. 10.9 gives one an ExternalCookieStorage instead: a jar
+// registered with cookied under the session's identifier, whose every read is an XPC round trip
+// (0.276 ms per CFHTTPCookieStorageCopyCookiesForURL on this host against 0.0075 ms in memory).
+// CFHTTPCookieStorageCreateInMemory builds the MemoryCookieStorage the contract describes, and a private
+// session carries one from creation, so the ephemeral network sessions, the testing sessions and the Web
+// Process cookie cache all read and write their cookies in process.
+//
+// The jar rides on the session as an object association: it lives exactly as long as the session, and
+// every copy hands back the one jar. The key is a selector, so it is the same address in every image:
+// libpolyfill.a is force-loaded into each framework, WebCore creates the session and WebKit,
+// WebKitLegacy and WebCore all copy the jar out of it. CFHTTPCookieStorageCreateInMemory and
+// _kCFURLStorageSessionIsPrivate are resolved at first use -- 10.9 exports both, the 26.1 SDK's stub
+// library names neither.
+//
+// The jar has to lock. Every HTTPCookieStorage entry point reads a CoreLockable out of its storage --
+// HTTPCookieStorage::deleteAllCookies (0xd2e8e) is `impl = [this+0x10]; if ([impl+0x20]) { lock;
+// ...Locked(); unlock } else ...Locked()` -- and 10.9 builds the storage behind
+// CFHTTPCookieStorageCreateInMemory with MemoryCookieStorage(0) (HTTPCookieStorage::initialize,
+// 0x19524), which leaves that slot NULL, so every operation on such a jar runs its *Locked body with no
+// lock at all. MemoryCookieStorage::createFromArchive passes 1 instead (0xd4733) and gets the mutex, so
+// the storage CFHTTPCookieStorageCreateFromArchive rebuilds from an empty one is the same
+// MemoryCookieStorage with its lock in place. NetworkStorageSession::deleteAllCookies runs on a
+// dispatch queue while the main thread reads the same jar, which is the access the lock serializes.
+static const char kPrivateStorageSession[] = "CFNetwork private storage session";
+
+static const void *wk_privateCookieStorageKey(void)
+{
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_privateStorageSessionCookieJar");
+    return key;
+}
+
+WK_SYSTEM_FN("CFNetwork", CFHTTPCookieStorageRef, CFHTTPCookieStorageCreateInMemory, (CFAllocatorRef, CFHTTPCookieStorageRef));
+WK_SYSTEM_CONST("CFNetwork", CFStringRef, _kCFURLStorageSessionIsPrivate);
+
+static Boolean wk_propertiesAskForPrivateSession(CFDictionaryRef properties)
+{
+    if (!properties)
+        return false;
+    CFStringRef key = WK_SYSTEM(_kCFURLStorageSessionIsPrivate);
+    if (!key)
+        wk_patch_fail(kPrivateStorageSession, "CFNetwork does not export _kCFURLStorageSessionIsPrivate");
+    CFTypeRef value = CFDictionaryGetValue(properties, key);
+    return value && CFGetTypeID(value) == CFBooleanGetTypeID() && CFBooleanGetValue(value);
+}
+
+static CFHTTPCookieStorageRef wk_createLockedInMemoryCookieStorage(CFAllocatorRef allocator)
+{
+    wk_cookieArchiveCreate createArchive = wk_cookieStorageCreateArchive();
+    wk_cookieArchiveRestore restoreArchive = wk_cookieStorageCreateFromArchive();
+    if (!WK_SYSTEM(CFHTTPCookieStorageCreateInMemory) || !createArchive || !restoreArchive)
+        wk_patch_fail(kPrivateStorageSession, "CFNetwork does not export the in-memory cookie storage entry points");
+
+    CFHTTPCookieStorageRef empty = WK_SYSTEM(CFHTTPCookieStorageCreateInMemory)(allocator, NULL);
+    if (!empty)
+        wk_patch_fail(kPrivateStorageSession, "CFNetwork refused an in-memory cookie storage");
+    CFArrayRef archive = createArchive(allocator, empty);
+    CFRelease(empty);
+    if (!archive)
+        wk_patch_fail(kPrivateStorageSession, "an empty cookie storage did not archive");
+    CFHTTPCookieStorageRef storage = (CFHTTPCookieStorageRef)restoreArchive(allocator, archive);
+    CFRelease(archive);
+    if (!storage)
+        wk_patch_fail(kPrivateStorageSession, "CFNetwork refused to rebuild a cookie storage from its archive");
+    return storage;
+}
+
+WK_POLYFILL_REPLACES("CFNetwork", CFURLStorageSessionRef, _CFURLStorageSessionCreate,
+    (CFAllocatorRef allocator, CFStringRef identifier, CFDictionaryRef properties))
+{
+    CFURLStorageSessionRef session = WK_ORIGINAL(_CFURLStorageSessionCreate)(allocator, identifier, properties);
+    if (!session || !wk_propertiesAskForPrivateSession(properties))
+        return session;
+
+    CFHTTPCookieStorageRef storage = wk_createLockedInMemoryCookieStorage(allocator);
+    objc_setAssociatedObject((id)session, wk_privateCookieStorageKey(), (id)storage, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    CFRelease(storage);
+    return session;
+}
+
+WK_POLYFILL_REPLACES("CFNetwork", CFHTTPCookieStorageRef, _CFURLStorageSessionCopyCookieStorage,
+    (CFAllocatorRef allocator, CFURLStorageSessionRef session))
+{
+    CFHTTPCookieStorageRef storage = session
+        ? (CFHTTPCookieStorageRef)objc_getAssociatedObject((id)session, wk_privateCookieStorageKey()) : NULL;
+    if (storage)
+        return (CFHTTPCookieStorageRef)CFRetain(storage);
+    return WK_ORIGINAL(_CFURLStorageSessionCopyCookieStorage)(allocator, session);
+}
+
+// ---------------------------------------------------------------------------------------------------
 // HTTP Strict Transport Security: 10.9's CFNetwork answers from the HSTS policy its own loader records.
 // This build loads over curl, so the policies live in WebCore's store and that store is what the query
 // asks for the application's own session. A named storage session keeps 10.9's own answer, which is
@@ -135,18 +270,39 @@ static wk_hsts_query wk_knownHSTSHostQuery(void)
 // NetworkStorageSession::deleteAllCookies clears a CF storage through this entry point. The storage's
 // own handler reports that clear as a remove-all, which a subscriber cannot reconstruct from a diff:
 // the jar it takes includes cookies no subscriber ever saw.
-typedef struct OpaqueCFHTTPCookieStorage* CFHTTPCookieStorageRef;
 typedef void (*wk_removed_all)(CFHTTPCookieStorageRef);
+WK_SYSTEM_FN("CFNetwork", void, CFHTTPCookieStorageSyncStorageNow, (CFHTTPCookieStorageRef));
 
 WK_POLYFILL_REPLACES("CFNetwork", void, CFHTTPCookieStorageDeleteAllCookies, (CFHTTPCookieStorageRef storage))
 {
     WK_ORIGINAL(CFHTTPCookieStorageDeleteAllCookies)(storage);
+    // 10.9's external storage sends delete-all without a reply; sync is the completion barrier.
+    if (WK_SYSTEM(CFHTTPCookieStorageSyncStorageNow))
+        WK_SYSTEM(CFHTTPCookieStorageSyncStorageNow)(storage);
     // Resolved with dlsym: the cookie observation lives in the WebCore-only half of the layer.
     static wk_removed_all notify;
     if (!notify)
         notify = (wk_removed_all)dlsym(RTLD_DEFAULT, "wk_cookieStorageDidRemoveAllCookies");
     if (notify)
         notify(storage);
+}
+
+// NetworkStorageSession::deleteHTTPCookie removes one cookie through this entry point, which reaches the
+// storage below -[NSHTTPCookieStorage deleteCookie:], where subscribers hear of a removal.
+typedef const struct OpaqueCFHTTPCookie *CFHTTPCookieRef;
+typedef void (*wk_delete_cookie)(CFHTTPCookieStorageRef, CFHTTPCookieRef);
+typedef void (*wk_delete_cookie_notifying)(CFHTTPCookieStorageRef, CFHTTPCookieRef, wk_delete_cookie);
+
+WK_POLYFILL_REPLACES("CFNetwork", void, CFHTTPCookieStorageDeleteCookie, (CFHTTPCookieStorageRef storage, CFHTTPCookieRef cookie))
+{
+    // Resolved with dlsym: the cookie observation lives in the WebCore-only half of the layer.
+    static wk_delete_cookie_notifying notifying;
+    if (!notifying)
+        notifying = (wk_delete_cookie_notifying)dlsym(RTLD_DEFAULT, "wk_cookieStorageDeleteCookie");
+    if (notifying)
+        notifying(storage, cookie, WK_ORIGINAL(CFHTTPCookieStorageDeleteCookie));
+    else
+        WK_ORIGINAL(CFHTTPCookieStorageDeleteCookie)(storage, cookie);
 }
 
 WK_POLYFILL_REPLACES("CFNetwork", Boolean, _CFNetworkIsKnownHSTSHostWithSession, (CFURLRef url, CFTypeRef session))
@@ -278,6 +434,27 @@ enum {
 // CFRuntimeBase precedes the native credential payload on this 64-bit runtime.
 static const size_t kCFPayloadOffset = 2 * sizeof(void *);
 
+// CFNetwork's CFHTTPCookieStorage wrappers pass their CFRuntimeBase payload to HTTPCookieStorage.
+// someCookiesAreSetForURL traverses the native domain index and the storage's inherited base jars.
+bool wk_cookieStorageHasRecordsForURL(CFTypeRef storage, CFURLRef url)
+{
+    static bool (*hasRecords)(const void *, CFURLRef);
+    static CFTypeID (*storageTypeID)(void);
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        wk_image image;
+        if (!wk_find_image(kCFNetworkSuffix, &image))
+            wk_patch_fail("cookie domain index", "CFNetwork image not loaded");
+        hasRecords = wk_symbol_in_image(&image, "__ZN17HTTPCookieStorage23someCookiesAreSetForURLEPK7__CFURL");
+        storageTypeID = dlsym(RTLD_DEFAULT, "CFHTTPCookieStorageGetTypeID");
+        if (!hasRecords || !storageTypeID)
+            wk_patch_fail("cookie domain index", "native storage entry point not found");
+    });
+    if (!storage || !url || CFGetTypeID(storage) != storageTypeID())
+        return false;
+    return hasRecords((const uint8_t *)storage + kCFPayloadOffset, url);
+}
+
 static const uint8_t *wk_credentialPayload(CFTypeRef credential, size_t extent)
 {
     if (!credential || CFGetTypeID(credential) != WK_SYSTEM(CFURLCredentialGetTypeID)())
@@ -302,4 +479,34 @@ SecTrustRef wk_credentialServerTrust(CFTypeRef credential)
     if (!trust || ((uintptr_t)trust & (sizeof(void *) - 1)) || !malloc_size(trust) || CFGetTypeID(trust) != SecTrustGetTypeID())
         return NULL;
     return trust;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The MIME type of a file URL's response. 10.9's loader asks LaunchServices for the type the filename
+// extension names, and LaunchServices declares none of wk_declared_types.h's types, so a response it
+// derives for one of those extensions is typed from the table, as the modern loader types it. A response
+// a caller builds or retypes keeps the MIME type it was given, whatever its URL.
+// ---------------------------------------------------------------------------------------------------
+
+typedef const struct _CFURLResponse *CFURLResponseRef;
+extern CFURLRef CFURLResponseGetURL(CFURLResponseRef);
+
+WK_POLYFILL_REPLACES("CFNetwork", CFStringRef, CFURLResponseGetMIMEType, (CFURLResponseRef response))
+{
+    CFStringRef derived = response ? wkDerivedDeclaredMIMEType(response, CFURLResponseGetURL(response)) : NULL;
+    return derived ? derived : WK_ORIGINAL(CFURLResponseGetMIMEType)(response);
+}
+
+WK_POLYFILL_REPLACES("CFNetwork", void, CFURLResponseSetMIMEType, (CFURLResponseRef response, CFStringRef mimeType))
+{
+    wkMarkGivenMIMEType(response);
+    WK_ORIGINAL(CFURLResponseSetMIMEType)(response, mimeType);
+}
+
+WK_POLYFILL_REPLACES("CFNetwork", CFURLResponseRef, CFURLResponseCreate, (CFAllocatorRef allocator, CFURLRef url,
+    CFStringRef mimeType, SInt64 expectedContentLength, CFStringRef textEncodingName, int cacheStoragePolicy))
+{
+    CFURLResponseRef response = WK_ORIGINAL(CFURLResponseCreate)(allocator, url, mimeType, expectedContentLength, textEncodingName, cacheStoragePolicy);
+    wkMarkGivenMIMEType(response);
+    return response;
 }

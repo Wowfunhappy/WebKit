@@ -17,17 +17,21 @@
 #import <WebCore/Credential.h>
 #import <WebCore/CredentialStorage.h>
 #import <WebCore/NetworkStorageSession.h>
+#import <WebCore/HTTPStatusCodes.h>
 #import <WebCore/HTTPStrictTransportSecurityStore.h>
 #import <WebCore/ResourceError.h>
 #import <WebCore/ResourceLoaderOptions.h>
 #import <WebCore/SameSiteInfo.h>
 #import <WebCore/SecurityOrigin.h>
 #import <WebCore/SharedBuffer.h>
+#import <WebCore/Site.h>
 #import <wtf/FileSystem.h>
 #import <wtf/FileHandle.h>
 #import <wtf/NeverDestroyed.h>
+#import <wtf/HexNumber.h>
 #import <wtf/RefCounted.h>
 #import <wtf/text/MakeString.h>
+#import <wtf/text/StringBuilder.h>
 #include <zlib.h>
 
 using namespace WebCore;
@@ -59,7 +63,8 @@ public:
         client->m_generatedCookieHeader = transfer.generatedCookieHeader;
         client->m_allowCredentials = transfer.allowStoredCredentials;
         client->m_transfer = WTF::move(transfer.connection);
-        client->m_transfer->setClient(client);
+        if (client->m_transfer)
+            client->m_transfer->setClient(client);
         // finished short bodies still carry their actual completion/error after response policy and buffered-data delivery.
         CompletionHandler<void()> continuation = [client, completion = WTF::move(transfer.completion), result = WTF::move(transfer.result), metrics = transfer.response.metrics]() mutable {
             if (completion)
@@ -99,12 +104,16 @@ private:
     void redirect();
     void prepareDestination();
     bool write(std::span<const uint8_t>);
-    void curlReceivedCookies(Vector<String>&&, CompletionHandler<void(std::optional<String>&&)>&&) final;
+    void curlReceivedCookies(Vector<String>&&, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&&) final;
     void curlReceivedResponse(CocoaCurlTransferResponse&&, CompletionHandler<void()>&&) final;
     void curlReceivedInformationalResponse(ResourceResponse&&) final { }
     void curlReceivedData(const SharedBuffer&, CompletionHandler<void()>&&) final;
     void curlSentData(uint64_t, uint64_t) final { }
     void curlRequestedIdentity(CFArrayRef, CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)>&&) final;
+    void curlRequestedServerTrust(CompletionHandler<void(bool)>&& completion) final
+    {
+        completion(!m_finished && m_transfer && m_transfer->tlsState()->accepted);
+    }
     void curlCompleted(const ResourceError&, const NetworkLoadMetrics&) final;
 
     WebDownloadCurl *m_controller;
@@ -117,6 +126,8 @@ private:
     RetainPtr<NSURLAuthenticationChallenge> m_challenge;
     Function<void(NSURLCredential *, bool, bool)> m_challengeAnswer;
     RefPtr<CocoaCurlConnection> m_transfer;
+    // The shared-cache entry a conditional request is revalidating.
+    RetainPtr<NSCachedURLResponse> m_cachedEntry;
     RefPtr<CocoaCurlConnectionPool> m_pool;
     WeakPtr<NetworkStorageSession> m_storage;
     PAL::SessionID m_storageID { PAL::SessionID::defaultSessionID() };
@@ -269,7 +280,15 @@ void WebDownloadCurlClient::beginTransfer()
     if (m_finished)
         return;
     detachTransfer();
-    if (!m_request.url().isValid() || !m_request.url().protocolIsInHTTPFamily()) {
+    if (!m_request.url().isValid()) {
+        auto url = cocoaCurlRequestURL(m_request.url());
+        if (!url) {
+            fail(url.error(), @"The download URL is not valid");
+            return;
+        }
+        m_request.setURL(WTF::move(*url));
+    }
+    if (!m_request.url().protocolIsInHTTPFamily()) {
         fail(NSURLErrorUnsupportedURL, @"The download URL is not an HTTP URL");
         return;
     }
@@ -289,10 +308,34 @@ void WebDownloadCurlClient::beginTransfer()
         redirect();
         return;
     }
+    auto cache = lookUpCocoaCurlCachedResponse(&storage, m_request);
+    if (cache.answer == CocoaCurlCacheAnswer::Unavailable) {
+        fail(NSURLErrorResourceUnavailable, @"The resource is not in the cache");
+        return;
+    }
+    if (cache.answer == CocoaCurlCacheAnswer::UseCached) {
+        CocoaCurlTransferResponse response;
+        response.response = cocoaCurlCachedResponse(cache.entry.get(), m_request);
+        if (ResourceResponse::isRedirectionStatusCode(response.response.httpStatusCode()) && !response.response.httpHeaderField(HTTPHeaderName::Location).isEmpty()) {
+            m_response = WTF::move(response);
+            redirect();
+            return;
+        }
+        curlReceivedResponse(WTF::move(response), [protectedThis = Ref { *this }, data = retainPtr([cache.entry data])] {
+            if (protectedThis->m_finished)
+                return;
+            protectedThis->curlReceivedData(SharedBuffer::create(data.get()), [protectedThis] {
+                if (!protectedThis->m_finished)
+                    protectedThis->curlCompleted({ }, { });
+            });
+        });
+        return;
+    }
+    m_cachedEntry = cache.answer == CocoaCurlCacheAnswer::Revalidate ? WTF::move(cache.entry) : nullptr;
     if (std::exchange(m_generatedCookieHeader, false))
         m_request.removeHTTPHeaderField(HTTPHeaderName::Cookie);
     if (m_request.allowCookies() && !m_request.hasHTTPHeaderField(HTTPHeaderName::Cookie)) {
-        auto value = storage.cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), SameSiteInfo::create(m_request), m_request.url(), std::nullopt, std::nullopt, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
+        auto value = storage.cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request), m_request.url(), std::nullopt, std::nullopt, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
         if (!value.isEmpty()) {
             m_request.setHTTPHeaderField(HTTPHeaderName::Cookie, value);
             m_generatedCookieHeader = true;
@@ -300,11 +343,14 @@ void WebDownloadCurlClient::beginTransfer()
     }
     m_pool = &storage.cocoaCurlConnectionPool(m_allowCredentials);
     Ref scheduler { *m_pool };
-    CocoaCurlTransferOptions options;
+    CocoaCurlTransferOptions options(tls_protocol_version_TLSv12);
     options.request = m_request;
+    if (m_cachedEntry)
+        addCocoaCurlCacheValidators(options.request, m_cachedEntry.get());
     if (auto body = m_request.httpBody())
         options.upload = CocoaCurlUploadBody::create(*body);
     options.acceptedCertificateChain = m_acceptedChain;
+    options.connectionPartition = Site { m_request.firstPartyForCookies() }.toString();
     options.user = m_user;
     options.password = m_password;
     options.authentication = m_auth;
@@ -318,7 +364,7 @@ void WebDownloadCurlClient::beginTransfer()
 }
 
 // a download keeps the same per-response native cookie policy as a document load.
-void WebDownloadCurlClient::curlReceivedCookies(Vector<String>&& fields, CompletionHandler<void(std::optional<String>&&)>&& completion)
+void WebDownloadCurlClient::curlReceivedCookies(Vector<String>&& fields, const String&, const String&, CompletionHandler<void(std::optional<String>&&)>&& completion)
 {
     if (m_finished || !m_storage) {
         completion(std::nullopt);
@@ -337,17 +383,30 @@ void WebDownloadCurlClient::curlReceivedCookies(Vector<String>&& fields, Complet
         completion(std::nullopt);
         return;
     }
-    auto value = storage.cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), SameSiteInfo::create(m_request), m_request.url(), std::nullopt, std::nullopt, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
+    auto value = storage.cookieRequestHeaderFieldValue(m_request.firstPartyForCookies(), cookieRequestSameSiteInfo(m_request), m_request.url(), std::nullopt, std::nullopt, m_request.url().protocolIs("https"_s) ? IncludeSecureCookies::Yes : IncludeSecureCookies::No, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
     completion(WTF::move(value));
 }
 void WebDownloadCurlClient::curlReceivedResponse(CocoaCurlTransferResponse&& response, CompletionHandler<void()>&& completion)
 {
     m_response = WTF::move(response);
-    auto tls = m_transfer->tlsState();
+    invalidateCocoaCurlCacheAfterResponse(m_storage.get(), m_request, m_response.response);
+    auto tls = m_transfer ? m_transfer->tlsState() : nullptr;
     SecTrustResultType trustResult = kSecTrustResultInvalid;
     if (m_storage && tls && tls->trust && SecTrustGetTrustResult(tls->trust.get(), &trustResult) == errSecSuccess && (trustResult == kSecTrustResultProceed || trustResult == kSecTrustResultUnspecified))
         m_storage->httpStrictTransportSecurityStore().receiveHeader(m_request.url(), m_response.response.httpHeaderField("Strict-Transport-Security"_s));
     m_responseCompletion = WTF::move(completion);
+    // A 304 to a revalidation delivers the stored response it confirms, and the stored body once the
+    // destination is ready.
+    if (RetainPtr entry = std::exchange(m_cachedEntry, nullptr); entry && m_response.response.httpStatusCode() == httpStatus304NotModified) {
+        m_response.response = cocoaCurlRevalidatedResponse(entry.get(), m_response.response);
+        m_responseCompletion = [protectedThis = Ref { *this }, data = retainPtr([entry data]), completion = WTF::move(*m_responseCompletion)]() mutable {
+            if (protectedThis->m_finished) {
+                completion();
+                return;
+            }
+            protectedThis->curlReceivedData(SharedBuffer::create(data.get()), WTF::move(completion));
+        };
+    }
     if (!m_storage) {
         fail(NSURLErrorCancelled, @"The download's storage session has closed");
         return;
@@ -371,7 +430,7 @@ void WebDownloadCurlClient::curlReceivedResponse(CocoaCurlTransferResponse&& res
     }
     if (status == 401 || status == 407) {
         bool proxy = status == 407;
-        long method = cocoaCurlAuthenticationMethod(proxy ? m_response.proxyAuthentication : m_response.authentication);
+        long method = cocoaCurlAuthenticationMethod(proxy ? m_response.proxyAuthentication : m_response.authentication, m_response.response.httpHeaderField(proxy ? "Proxy-Authenticate"_s : "WWW-Authenticate"_s));
         if (method) {
             authenticate(proxy, method);
             return;
@@ -427,10 +486,27 @@ void WebDownloadCurlClient::redirect()
         return;
     }
     ResourceRequest redirected = m_request;
-    URL target { m_request.url(), m_response.response.httpHeaderField(HTTPHeaderName::Location) };
-    if (!target.hasFragmentIdentifier())
+    // Location is a byte sequence; retain invalid UTF-8 octets as percent escapes.
+    StringBuilder location;
+    for (auto byte : asBytes(m_response.response.httpHeaderField(HTTPHeaderName::Location).latin1().span())) {
+        if (byte >= 0x80)
+            location.append('%', upperNibbleToASCIIHexDigit(byte), lowerNibbleToASCIIHexDigit(byte));
+        else
+            location.append(static_cast<char>(byte));
+    }
+    URL target { m_request.url(), location.toString() };
+    if (!target.hasFragmentIdentifier() && m_request.url().hasFragmentIdentifier())
         target.setFragmentIdentifier(m_request.url().fragmentIdentifier());
+    // CFNetwork refuses a redirect to a file URL before its delegate sees it, failing the current URL.
+    if (target.protocolIsFile()) {
+        fail(NSURLErrorNoPermissionsToReadFile, @"You do not have permission to access the requested resource.");
+        return;
+    }
     redirected.setURL(WTF::move(target));
+    // Any cross-site redirect makes a request not same-site, as CachedResourceLoader::updateRequestAfterRedirection
+    // decides it.
+    if (!SecurityOrigin::create(redirected.url())->isSameSiteAs(SecurityOrigin::create(m_request.url())))
+        redirected.setIsSameSite(false);
     auto status = m_response.response.httpStatusCode();
     auto method = redirected.httpMethod();
     if ((status == 303 && method != "GET"_s && method != "HEAD"_s) || ((status == 301 || status == 302) && method == "POST"_s)) {
@@ -472,7 +548,16 @@ void WebDownloadCurlClient::challenge(NSURLProtectionSpace *space, NSUInteger fa
 {
     m_challengeAnswer = WTF::move(answer);
     m_challenge = adoptNS([[NSURLAuthenticationChallenge alloc] initWithProtectionSpace:space proposedCredential:proposed previousFailureCount:failures failureResponse:m_response.response.nsURLResponse() error:nil sender:m_controller]);
-    if ([m_delegate respondsToSelector:@selector(download:didReceiveAuthenticationChallenge:)])
+    // NSURLDownload asks download:canAuthenticateAgainstProtectionSpace: first. A delegate without it is
+    // asked about the spaces that predate that question, and default handling answers the rest.
+    bool canAuthenticate = [m_delegate respondsToSelector:@selector(download:canAuthenticateAgainstProtectionSpace:)]
+        ? [m_delegate download:m_download.get() canAuthenticateAgainstProtectionSpace:space]
+        : ![space.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust] && ![space.authenticationMethod isEqualToString:NSURLAuthenticationMethodClientCertificate];
+    if (m_finished)
+        return;
+    if (!canAuthenticate)
+        this->answer(m_challenge.get(), nil, false, true);
+    else if ([m_delegate respondsToSelector:@selector(download:didReceiveAuthenticationChallenge:)])
         [m_delegate download:m_download.get() didReceiveAuthenticationChallenge:m_challenge.get()];
     else
         this->answer(m_challenge.get(), nil, false, true);
@@ -521,7 +606,8 @@ void WebDownloadCurlClient::authenticate(bool proxy, long method)
         }
         auto& failures = proxy ? protectedThis->m_proxyFailures : protectedThis->m_authFailures;
         bool kerberos = useDefault && method == CURLAUTH_NEGOTIATE && protectedThis->m_allowCredentials && !failures;
-        if (!credential && !kerberos) {
+        // The transport cannot answer an OAuth challenge with a credential.
+        if ((!credential && !kerberos) || method == cocoaCurlOAuthAuthentication) {
             protectedThis->fail(NSURLErrorUserAuthenticationRequired, @"The download requires authentication");
             return;
         }
@@ -647,7 +733,7 @@ void WebDownloadCurlClient::curlCompleted(const ResourceError& error, const Netw
 {
     if (m_finished)
         return;
-    auto tls = m_transfer->tlsState();
+    auto tls = m_transfer ? m_transfer->tlsState() : nullptr;
     if (!error.isNull() && tls && tls->evaluated && !tls->accepted && tls->trust && !m_acceptedChain) {
         // the challenge is raised for an HSTS-known host too; the user's decision governs.
         auto space = cocoaCurlTLSProtectionSpace(m_request.url(), 8, nullptr, tls->trust.get());

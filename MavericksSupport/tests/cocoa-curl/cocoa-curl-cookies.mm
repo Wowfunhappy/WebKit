@@ -42,13 +42,13 @@ static void parserTests()
         { "a=1; Extension=bar, invented=2"_s, "a"_s, "1"_s, "/a/b"_s, Cookie::SameSitePolicy::None },
         { "a=1, b=2"_s, "a"_s, "1, b=2"_s, "/a/b"_s, Cookie::SameSitePolicy::None },
         { "a=\"x,y\"; Path=/"_s, "a"_s, "\"x,y\""_s, "/"_s, Cookie::SameSitePolicy::None },
-        { "a=\"x;y\"; Path=/"_s, "a"_s, "\"x"_s, "/"_s, Cookie::SameSitePolicy::None },
+        { "a=\"x;y\"; Path=/"_s, "a"_s, "\"x;y\""_s, "/"_s, Cookie::SameSitePolicy::None },
         { "\ta\t=\t1\t; \tpath\t=\t/zzz"_s, "a"_s, "1"_s, "/zzz"_s, Cookie::SameSitePolicy::None },
         { "a=1; Path=/qux; Path=/"_s, "a"_s, "1"_s, "/"_s, Cookie::SameSitePolicy::None },
         { "a=1; Path=/; Path=/qux"_s, "a"_s, "1"_s, "/qux"_s, Cookie::SameSitePolicy::None },
         { "a=1; Path=/dog; Path="_s, "a"_s, "1"_s, "/a/b"_s, Cookie::SameSitePolicy::None },
         { "a=1; SameSite=Lax; SameSite=Strict"_s, "a"_s, "1"_s, "/a/b"_s, Cookie::SameSitePolicy::Strict },
-        { "a=1; SameSite=Unknown"_s, "a"_s, "1"_s, "/a/b"_s, Cookie::SameSitePolicy::Lax },
+        { "a=1; SameSite=Unknown"_s, "a"_s, "1"_s, "/a/b"_s, Cookie::SameSitePolicy::None },
         { "a=1; SameSite=None; Secure"_s, "a"_s, "1"_s, "/a/b"_s, Cookie::SameSitePolicy::None },
         { "a="_s, "a"_s, ""_s, "/a/b"_s, Cookie::SameSitePolicy::None },
         { "=value"_s, ""_s, "value"_s, "/a/b"_s, Cookie::SameSitePolicy::None },
@@ -86,6 +86,23 @@ static void parserTests()
     };
     for (auto& entry : domains)
         check(parseHTTPSetCookie(entry.field, URL { entry.url }).has_value() == entry.accepted, entry.field.characters());
+    // HTTP fields carry octets as Latin-1. An unquoted value ends at a C1 control octet; the others are kept.
+    for (unsigned character : { 0x80, 0x98, 0x9f }) {
+        auto cookie = parseHTTPSetCookie(makeString("octets=ab"_s, static_cast<char16_t>(character), "value; Path=/"_s), secure);
+        check(cookie && cookie->value == "ab"_s && cookie->path == "/"_s, "unquoted value ends at a C1 control octet");
+    }
+    for (unsigned character : { 0xa0, 0xe9, 0xef, 0xff }) {
+        auto value = makeString(static_cast<char16_t>(character), "value"_s);
+        auto cookie = parseHTTPSetCookie(makeString("octets="_s, value, "; Path=/"_s), secure);
+        check(cookie && cookie->value == value, "unquoted non-ASCII cookie value is preserved");
+        if (cookie) {
+            auto native = cookie->createNSHTTPCookie();
+            check(native && Cookie(native.get()).value == value, "native cookie round trip preserves non-ASCII value");
+        }
+    }
+    auto bomBytes = makeString(static_cast<char16_t>(0xef), static_cast<char16_t>(0xbb), static_cast<char16_t>(0xbf), "value"_s);
+    auto bomCookie = parseHTTPSetCookie(makeString("octets="_s, bomBytes, "; Path=/"_s), secure);
+    check(bomCookie && bomCookie->value == bomBytes, "UTF-8 signature octets retain the upstream cookie encoding");
     auto capped = parse("a=1; Max-Age=99999999999999999999999999999"_s);
     auto nearly = [](double actual, double expected) { return std::abs(actual - expected) < 1000; };
     check(capped && capped->expires && nearly(*capped->expires - capped->created, 400.0 * 24 * 60 * 60 * 1000), "oversized Max-Age saturates at 400 days");

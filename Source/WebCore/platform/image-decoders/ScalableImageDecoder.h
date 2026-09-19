@@ -39,6 +39,11 @@
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
+#if USE(CG) // MAVERICKS_BACKPORT: native images retain their embedded RGB profile for destination-space conversion.
+#include <CoreGraphics/CGColorSpace.h>
+#include <wtf/RetainPtr.h>
+#endif
+
 namespace WebCore {
 
 // ScalableImageDecoder is a base for all format-specific decoders
@@ -177,6 +182,12 @@ public:
     std::optional<IntPoint> hotSpot() const override { return std::nullopt; }
 
 protected:
+#if USE(CG) // MAVERICKS_BACKPORT: format decoders preserve source samples through native image creation.
+    virtual PlatformImagePtr createNativeImage(const ScalableImageDecoderFrame&) const;
+    void setEmbeddedRGBColorProfile(std::span<const uint8_t>);
+    RetainPtr<CGColorSpaceRef> m_embeddedRGBColorSpace;
+#endif
+
     RefPtr<const SharedBuffer> m_data;
     Vector<ScalableImageDecoderFrame, 1> m_frameBufferCache WTF_GUARDED_BY_LOCK(m_lock);
     mutable Lock m_lock;

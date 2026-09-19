@@ -7,6 +7,7 @@
 // legacy ResourceHandle uses Cocoa native values and curl's worker transaction.
 #include "CocoaCurlConnection.h"
 #include "CocoaCurlAuthentication.h"
+#include <WebCore/Credential.h>
 #include <WebCore/CurlMultipartHandle.h>
 #include <WebCore/CurlMultipartHandleClient.h>
 #include <WebCore/NetworkStorageSession.h>
@@ -17,7 +18,8 @@ OBJC_CLASS WebCoreResourceHandleAsOperationQueueDelegate;
 namespace WebCore {
 class ResourceHandle;
 struct CocoaCurlDownloadTransfer {
-    Ref<CocoaCurlConnection> connection;
+    // Absent for a response the shared NSURLCache answered.
+    RefPtr<CocoaCurlConnection> connection;
     Ref<CocoaCurlConnectionPool> pool;
     WeakPtr<NetworkStorageSession> storage;
     ResourceRequest request;
@@ -53,18 +55,20 @@ private:
     void detachTransfer();
     void continueTransfer();
     void publishResponse();
+    void publishCachedResponse(ResourceResponse&&, NSCachedURLResponse *);
     void deliver(std::span<const uint8_t>);
     void redirect();
     void authenticate(bool proxy);
     void challenge(const ProtectionSpace&, const Credential&, unsigned, const ResourceError&, CocoaCurlAuthenticationCompletion&&);
     void finish(const ResourceError&);
     void fail(int, const String&);
-    void curlReceivedCookies(Vector<String>&&, CompletionHandler<void(std::optional<String>&&)>&&) final;
+    void curlReceivedCookies(Vector<String>&&, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&&) final;
     void curlReceivedResponse(CocoaCurlTransferResponse&&, CompletionHandler<void()>&&) final;
     void curlReceivedInformationalResponse(ResourceResponse&&) final;
     void curlReceivedData(const SharedBuffer&, CompletionHandler<void()>&&) final;
     void curlSentData(uint64_t, uint64_t) final;
     void curlRequestedIdentity(CFArrayRef, CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)>&&) final;
+    void curlRequestedServerTrust(CompletionHandler<void(bool)>&&) final;
     void curlCompleted(const ResourceError&, const NetworkLoadMetrics&) final;
     void didReceiveHeaderFromMultipart(Vector<String>&&) final;
     void didReceiveDataFromMultipart(std::span<const uint8_t>) final;
@@ -85,6 +89,7 @@ private:
     RetainPtr<NSURLAuthenticationChallenge> m_challenge;
     String m_user;
     String m_password;
+    Credential m_initialCredential;
     String m_proxyUser;
     String m_proxyPassword;
     long m_auth { CURLAUTH_NONE };
@@ -102,5 +107,10 @@ private:
     bool m_generatedCookie { false };
     Vector<uint8_t> m_sniffed;
     std::unique_ptr<CurlMultipartHandle> m_multipart;
+    // The shared-cache entry a conditional request is revalidating.
+    RetainPtr<NSCachedURLResponse> m_cachedEntry;
+    // The body of a response the shared cache may store, while it stays within the cache's size limit.
+    std::optional<Vector<uint8_t>> m_cacheBody;
+    WallTime m_responseTimestamp;
 };
 }

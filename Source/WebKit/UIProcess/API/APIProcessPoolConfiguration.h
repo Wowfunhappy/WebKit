@@ -191,13 +191,7 @@ private:
     bool m_clientWouldBenefitFromAutomaticProcessPrewarming { false };
     bool m_shouldConfigureJSCForTesting { false };
     bool m_isJITEnabled { true };
-    // MAVERICKS_BACKPORT (10.9): default single-WebProcess mode ON. This port runs all pages of a
-    // pool in one WebContent process (per WebsiteDataStore — processForSite's single-process reuse
-    // skips mismatched stores, so ephemeral sessions still get their own process, preserving the
-    // one-session-per-WebProcess invariant that BroadcastChannel's postMessageLocally relies on).
-    // Sharing one process keeps a Safari extension's content-script <-> global-page safari.*
-    // messaging intra-process and lets inspector WebPages share WebContent with the inspected page.
-    bool m_usesSingleWebProcess { true };
+    bool m_usesSingleWebProcess { false };
 #if PLATFORM(PLAYSTATION)
     WTF::String m_webProcessPath;
     WTF::String m_networkProcessPath;

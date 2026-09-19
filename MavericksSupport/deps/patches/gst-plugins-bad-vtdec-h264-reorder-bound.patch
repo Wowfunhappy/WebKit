@@ -1,0 +1,26 @@
+# Bound output reordering by the SPS, following WebKit’s Apple decoder.
+
+--- a/sys/applemedia/vtdec.c
++++ b/sys/applemedia/vtdec.c
+@@ -2109,7 +2109,20 @@
+     max_dpb_size = GST_VTDEC_DPB_MAX_SIZE;
+   }
+ 
+-  *dpb_size = max_dpb_size;
++  /* The output queue holds reordered pictures, not decoding references.
++   * WebKit's ComputeH264ReorderSizeFromSPS uses these SPS/VUI bounds. */
++  if (sps.pic_order_cnt_type == 2)
++    *dpb_size = 0;
++  else if (sps.vui_parameters_present_flag
++      && sps.vui_parameters.bitstream_restriction_flag)
++    *dpb_size = MIN (max_dpb_size, sps.vui_parameters.num_reorder_frames);
++  else if (sps.constraint_set3_flag && (sps.profile_idc == 44
++          || sps.profile_idc == 86 || sps.profile_idc == 100
++          || sps.profile_idc == 110 || sps.profile_idc == 122
++          || sps.profile_idc == 244))
++    *dpb_size = 0;
++  else
++    *dpb_size = max_dpb_size;
+ 
+   gst_h264_sps_clear (&sps);
+   return TRUE;

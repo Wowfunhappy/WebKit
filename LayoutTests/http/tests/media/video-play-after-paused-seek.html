@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<video muted loop playsinline></video>
+<p>A play promise resolves after seeking a paused, buffered video.</p>
+<script src="../../media-resources/media-file.js"></script>
+<script src="../../media-resources/video-test.js"></script>
+<script>
+(async () => {
+    video.src = findMediaFile('video', '../../media-resources/content/test');
+    await video.play();
+    await sleepFor(4000);
+    video.pause();
+    await sleepFor(2000);
+    const seeked = waitFor(video, 'seeked', true);
+    video.currentTime = 1.25;
+    await seeked;
+    testExpected('video.paused', true);
+    await Promise.race([
+        video.play(),
+        sleepFor(2000).then(() => { throw new Error('play promise remained pending after seek'); })
+    ]);
+    testExpected('video.readyState', HTMLMediaElement.HAVE_FUTURE_DATA, '>=');
+    testExpected('video.paused', false);
+    video.pause();
+    endTest();
+})().catch(error => failTest(error.message));
+</script>

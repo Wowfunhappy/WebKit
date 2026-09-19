@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html class="reftest-wait">
+<link rel="match" href="text-smoothing-after-fill-forwards-expected.html">
+<!-- Allow one-channel raster quantization within the two 56px-high text regions. -->
+<meta name="fuzzy" content="maxDifference=0-1; totalPixels=0-89600">
+<style>
+/* WK1 accelerates opacity animations once the page enters compositing mode. */
+body { margin: 0; background: white; transform: translateZ(0); }
+.sample { position: absolute; left: 20px; top: 20px; font: 20px/28px Arial; }
+.fractional { left: 20.5px; top: 120.5px; font-family: Times; font-size: 24px; }
+@keyframes fade { from { opacity: 0.5; } to { opacity: 1; } }
+.animate { animation: fade 0.5s forwards; }
+</style>
+<body>
+<div class="sample">Text should retain its smoothing when the animation finishes.<br><b>Hamburgefonts 0123456789</b></div>
+<div class="sample fractional">Fractional position and serif text.<br><b>Hamburgefonts 0123456789</b></div>
+<script>
+if (window.testRunner)
+    testRunner.waitUntilDone();
+const samples = [...document.querySelectorAll(".sample")];
+let finished = 0;
+function isComposited(sample) {
+    try {
+        internals.layerIDForElement(sample);
+        return true;
+    } catch {
+        return false;
+    }
+}
+function fail(message) {
+    document.body.style.background = "red";
+    document.body.appendChild(document.createTextNode(message));
+}
+for (const sample of samples) {
+    sample.addEventListener("animationstart", () => {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            if (window.internals && !isComposited(sample))
+                fail("The opacity animation must start on a composited layer.");
+        }));
+    }, { once: true });
+    sample.addEventListener("animationend", () => {
+        if (++finished != samples.length)
+            return;
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            if (window.internals && samples.some(isComposited))
+                fail("The finished animation must release its composited layer.");
+            document.documentElement.classList.remove("reftest-wait");
+            if (window.testRunner)
+                testRunner.notifyDone();
+        }));
+    }, { once: true });
+}
+requestAnimationFrame(() => {
+    for (const sample of samples)
+        sample.classList.add("animate");
+});
+</script>

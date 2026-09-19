@@ -171,6 +171,8 @@ class PortFactory(object):
             'ios-simulator-17-wk2',
             'ipad-simulator-17',
             'ipad-simulator-17-wk2',
+            'mac-mavericks-wk1',
+            'mac-mavericks-wk2',
             'mac-monterey-wk1',
             'mac-monterey-wk2',
             'mac-sonoma-wk1',

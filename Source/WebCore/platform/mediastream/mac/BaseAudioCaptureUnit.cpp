@@ -243,6 +243,9 @@ void BaseAudioCaptureUnit::stopProducingData()
 {
     ASSERT(isMainThread());
     ASSERT(m_producingCount);
+    // MAVERICKS_BACKPORT: producer ownership changes before deferred AudioUnit work can overlap another start.
+    if (m_producingCount && --m_producingCount)
+        return;
 #if PLATFORM(MAC)
     if (!m_suspended) {
         prewarmAudioUnitCreation([weakThis = WeakPtr { *this }] {
@@ -257,7 +260,9 @@ void BaseAudioCaptureUnit::stopProducingData()
 
 void BaseAudioCaptureUnit::continueStopProducingData()
 {
-    if (m_producingCount && --m_producingCount)
+    // MAVERICKS_BACKPORT: stopProducingData counts releases; a new producer can own the unit by this callback.
+    // if (m_producingCount && --m_producingCount)
+    if (m_producingCount)
         return;
 
     if (shouldContinueRunning()) {

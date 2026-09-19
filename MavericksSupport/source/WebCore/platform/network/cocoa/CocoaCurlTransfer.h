@@ -14,12 +14,17 @@
 #include <WebCore/ResourceResponse.h>
 #include <wtf/AbstractRefCounted.h>
 #include <wtf/CompletionHandler.h>
+#include <wtf/Expected.h>
 #include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/FileHandle.h>
+#include <wtf/WallTime.h>
+
+OBJC_CLASS NSCachedURLResponse;
 
 namespace WebCore {
 class CocoaCurlProxyResolver;
+class NetworkStorageSession;
 class ResourceError;
 class SharedBuffer;
 class CocoaCurlTransfer;
@@ -50,14 +55,52 @@ WEBCORE_EXPORT std::optional<uint64_t> cocoaCurlUploadLength(const FormData&);
 WEBCORE_EXPORT bool validateCocoaCurlResumeResponse(const ResourceResponse&, uint64_t offset, const String& validator);
 WEBCORE_EXPORT bool validateCocoaCurlCompletedResume(const ResourceResponse&, uint64_t fileLength);
 WEBCORE_EXPORT void collectCocoaCurlMetrics(CURL*, const ResourceRequest&, MonotonicTime start, bool isProxy, NetworkLoadMetrics&);
+// The bytes a request field value may carry, as CFNetwork admits them: everything but NUL, CR and LF.
+bool isValidCocoaCurlRequestHeaderValue(const String&);
+// Parse the escaped native request URL before applying scheme, origin and port policy.
+WEBCORE_EXPORT Expected<URL, int> cocoaCurlRequestURL(const URL&);
+enum class IsMainResourceLoad : bool;
+enum class IsNoSniffSet : bool;
+// adjustMIMETypeIfNecessary over the native response CFNetwork would build from this one, for a response
+// the transport found no type for.
+WEBCORE_EXPORT void adjustCocoaCurlMIMETypeIfNecessary(ResourceResponse&, IsMainResourceLoad, IsNoSniffSet);
+
+// The storage session's NSURLCache, consulted and filled as NSURLConnection does for WebKitLegacy
+// loads. Private sessions own a memory-only cache. NSURLDownload consults it and stores nothing.
+enum class CocoaCurlCacheAnswer : uint8_t { Load, UseCached, Revalidate, Unavailable };
+struct CocoaCurlCacheLookup {
+    CocoaCurlCacheAnswer answer { CocoaCurlCacheAnswer::Load };
+    RetainPtr<NSCachedURLResponse> entry;
+};
+WEBCORE_EXPORT CocoaCurlCacheLookup lookUpCocoaCurlCachedResponse(NetworkStorageSession*, const ResourceRequest&);
+WEBCORE_EXPORT void invalidateCocoaCurlCacheAfterResponse(NetworkStorageSession*, const ResourceRequest&, const ResourceResponse&);
+// The stored response's validators, on a request that carries none of its own.
+WEBCORE_EXPORT void addCocoaCurlCacheValidators(ResourceRequest&, NSCachedURLResponse *);
+// The stored response a 304 confirms, carrying the fields the 304 updates.
+WEBCORE_EXPORT ResourceResponse cocoaCurlRevalidatedResponse(NSCachedURLResponse *, const ResourceResponse& notModified);
+WEBCORE_EXPORT ResourceResponse cocoaCurlCachedResponse(NSCachedURLResponse *, const ResourceRequest&);
+WEBCORE_EXPORT bool cocoaCurlCacheMayStore(NetworkStorageSession*, const ResourceRequest&, const ResourceResponse&);
+WEBCORE_EXPORT bool cocoaCurlCacheAcceptsLength(NetworkStorageSession*, uint64_t);
+WEBCORE_EXPORT RetainPtr<NSCachedURLResponse> createCocoaCurlCachedResponse(NetworkStorageSession*, const ResourceRequest&, const ResourceResponse&, std::span<const uint8_t>, WallTime responseTimestamp);
+WEBCORE_EXPORT void storeCocoaCurlCachedResponse(NetworkStorageSession*, NSCachedURLResponse *, const ResourceRequest&);
+WEBCORE_EXPORT void removeCocoaCurlCachedResponse(NetworkStorageSession*, const ResourceRequest&);
 
 struct CocoaCurlTransferOptions {
+    // A WebKit2 load takes its session configuration's TLSMinimumSupportedProtocolVersion. Every other
+    // client takes tls_protocol_version_TLSv12, the floor ENABLE(TLS_1_2_DEFAULT_MINIMUM) gives a
+    // session that does not allow legacy TLS.
+    explicit CocoaCurlTransferOptions(tls_protocol_version_t minimumTLSProtocol)
+        : minimumTLSProtocol(minimumTLSProtocol) { }
+
+    tls_protocol_version_t minimumTLSProtocol;
     ResourceRequest request;
     RefPtr<CocoaCurlUploadBody> upload;
     RetainPtr<CFDictionaryRef> proxySettings;
     RetainPtr<CFArrayRef> acceptedCertificateChain;
     RetainPtr<SecTrustRef> allowedServerTrust;
     String boundInterface;
+    // Transfers in different network partitions never share a connection (Fetch's network partition key).
+    String connectionPartition;
     String user;
     String password;
     String proxyCredentialHost;
@@ -77,16 +120,19 @@ struct CocoaCurlTransferResponse {
     long authentication { CURLAUTH_NONE };
     long proxyAuthentication { CURLAUTH_NONE };
     NetworkLoadMetrics metrics;
+    String contentType;
+    String canonicalName;
 };
 
 class CocoaCurlTransferClient : public AbstractRefCounted {
 public:
-    virtual void curlReceivedCookies(Vector<String>&&, CompletionHandler<void(std::optional<String>&&)>&&) = 0;
+    virtual void curlReceivedCookies(Vector<String>&&, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&&) = 0;
     virtual void curlReceivedResponse(CocoaCurlTransferResponse&&, CompletionHandler<void()>&&) = 0;
     virtual void curlReceivedInformationalResponse(ResourceResponse&&) = 0;
     virtual void curlReceivedData(const SharedBuffer&, CompletionHandler<void()>&&) = 0;
     virtual void curlSentData(uint64_t uploaded, uint64_t total) = 0;
     virtual void curlRequestedIdentity(CFArrayRef authorities, CompletionHandler<void(RetainPtr<SecIdentityRef>&&, RetainPtr<CFArrayRef>&&)>&&) = 0;
+    virtual void curlRequestedServerTrust(CompletionHandler<void(bool)>&&) = 0;
     virtual void curlCompleted(const ResourceError&, const NetworkLoadMetrics&) = 0;
 };
 
@@ -122,6 +168,9 @@ private:
     void updateMetrics();
     bool responseEndsAtConnectionClose() const;
     void finish(int, const String&);
+    // Consumed leaves m_finalHeaders telling whether the section was the final one.
+    enum class HeaderSection : uint8_t { Rejected, Consumed, AwaitingCookies };
+    HeaderSection finalizeHeaders();
     size_t header(std::span<const char>);
     size_t data(std::span<const char>);
     size_t invalidResponse(ASCIILiteral);
@@ -147,13 +196,15 @@ private:
     std::array<char, CURL_ERROR_SIZE> m_errorBuffer { };
     RefPtr<SharedBuffer> m_data;
     HTTPHeaderMap m_responseHeaders;
+    String m_contentType;
     Vector<String> m_setCookies;
     String m_statusText;
     String m_version;
     String m_invalidResponse;
     String m_uploadError;
     int m_uploadErrorCode { 0 };
-    int m_status { 0 };
+    // 0 is a status a response may actually carry, so absence is -1.
+    int m_status { -1 };
     uint64_t m_uploaded { 0 };
     MonotonicTime m_started;
     NetworkLoadMetrics m_metrics;

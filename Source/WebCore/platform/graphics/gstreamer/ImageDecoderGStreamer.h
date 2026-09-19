@@ -23,6 +23,7 @@
 
 #include "GStreamerCommon.h"
 #include "GStreamerElementHarness.h"
+#include "GStreamerImageDecoderStream.h" // MAVERICKS_BACKPORT: cumulative-buffer adapter for the streaming demuxer.
 #include "ImageDecoder.h"
 #include "MIMETypeRegistry.h"
 #include "SampleMap.h"
@@ -76,7 +77,10 @@ public:
     void tearDown();
 
 private:
-    void pushEncodedData(const FragmentedSharedBuffer&);
+    // MAVERICKS_BACKPORT: End-of-input drains the streaming decoder once all network data has arrived.
+    // void pushEncodedData(const FragmentedSharedBuffer&);
+    void pushEncodedData(const FragmentedSharedBuffer&, bool allDataReceived = false);
+    GStreamerImageDecoderStream m_encodedStream;
     void storeDecodedSample(GRefPtr<GstSample>&&);
     const ImageDecoderGStreamerSample* sampleAtIndex(size_t) const;
 
@@ -85,8 +89,6 @@ private:
     DecodeOrderSampleMap::iterator m_cursor;
     Lock m_sampleGeneratorLock;
     bool m_eos { false };
-    // MAVERICKS_BACKPORT(upstreamable): the encoded data is whole; see encodedDataStatus().
-    bool m_isAllDataReceived { false };
     bool m_error { false };
     std::optional<IntSize> m_size;
     String m_mimeType;

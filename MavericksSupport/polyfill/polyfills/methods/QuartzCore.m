@@ -1,8 +1,8 @@
-// QuartzCore: Objective-C methods on Core Animation classes that macOS 10.9 does not have, implemented
-// with the APIs 10.9 does have.
+// QuartzCore: Objective-C entry points modern WebKit expects, implemented with 10.9 APIs.
 
 #import "wk_polyfill.h"
 #import "wk_selref_scope.h"
+#import "wk_coregraphics.h"
 #import <Foundation/Foundation.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
@@ -10,6 +10,68 @@
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
+// CAImageProvider is the tiled contents object used by 10.9's CATiledLayer.
+// Its arguments are image size, tile size, LOD count/bias, fade duration, flags;
+// SetSubImage takes the LOD followed by the column and row indices.
+extern CFTypeRef CAImageProviderCreate(unsigned, unsigned, unsigned, unsigned, unsigned, unsigned, double, unsigned);
+extern void CAImageProviderSetSubImage(CFTypeRef, unsigned, unsigned, unsigned, CFTypeRef, unsigned);
+extern CFTypeID CAImageProviderGetTypeID(void);
+
+static const void *wk_layerContentsImageKey(void)
+{
+    return sel_registerName("wk_layerContentsImage");
+}
+
+static CFTypeRef wk_copyTiledLayerContents(CGImageRef image)
+{
+    size_t limit = wk_coreAnimationTextureLimit();
+    size_t width = CGImageGetWidth(image), height = CGImageGetHeight(image);
+    if (!limit || (width <= limit && height <= limit))
+        return NULL;
+    CFTypeRef tiles = CAImageProviderCreate(width, height, limit, limit, 1, 0, 0, 0);
+    if (!tiles)
+        return NULL;
+    for (size_t y = 0; y < height; y += limit) {
+        for (size_t x = 0; x < width; x += limit) {
+            CGImageRef tile = CGImageCreateWithImageInRect(image,
+                CGRectMake(x, y, MIN(limit, width - x), MIN(limit, height - y)));
+            if (!tile) {
+                CFRelease(tiles);
+                return NULL;
+            }
+            CAImageProviderSetSubImage(tiles, 0, x / limit, y / limit, tile, 0);
+            CGImageRelease(tile);
+        }
+    }
+    // The property getter returns the assigned CGImage.
+    objc_setAssociatedObject((id)tiles, wk_layerContentsImageKey(), (id)image, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return tiles;
+}
+
+// CA's plain-image contents require one renderer texture. The native tiled contents
+// object preserves the image's pixel dimensions and CALayer's contents geometry.
+WK_POLYFILL_REPLACE_METHODS(CALayer)
+- (void)setContents:(id)contents
+{
+    CFTypeRef tiles = contents && CFGetTypeID((CFTypeRef)contents) == CGImageGetTypeID()
+        ? wk_copyTiledLayerContents((CGImageRef)contents) : NULL;
+    WK_ORIGINAL_METHOD(void, (id), tiles ? (id)tiles : contents);
+    if (tiles)
+        CFRelease(tiles);
+}
+
+- (id)contents
+{
+    id contents = WK_ORIGINAL_METHOD(id, ());
+    if (contents && CFGetTypeID((CFTypeRef)contents) == CAImageProviderGetTypeID()) {
+        id image = objc_getAssociatedObject(contents, wk_layerContentsImageKey());
+        if (image)
+            return image;
+    }
+    return contents;
+}
+@end
 
 // ---------------------------------------------------------------------------------------------------
 // -[CALayerHost setPreservesFlip:] (10.10+). It controls whether a hosted remote layer tree inherits
@@ -343,6 +405,49 @@ WK_POLYFILL_ADD_METHODS(CASpringAnimation)
 - (void)setInitialVelocity:(CGFloat)velocity
 {
     [self setValue:@(velocity) forKey:@"velocity"];
+}
+@end
+
+// -[CAAnimation preferredFrameRateRange] (12.0+) and -highFrameRateReason (SPI, declared by PAL's
+// QuartzCoreSPI.h) ask the compositor for a rate above the default on a variable-refresh display. 10.9's
+// compositor animates at the display's rate, so both are values the animation carries. They live in
+// CAAnimation's key-value storage, which copies of the animation share.
+typedef uint32_t CAHighFrameRateReason;
+@interface CAAnimation (WKHighFrameRateReason)
+@property CAHighFrameRateReason highFrameRateReason;
+@end
+
+WK_POLYFILL_ADD_METHODS(CAAnimation)
+- (CAFrameRateRange)preferredFrameRateRange
+{
+    // CAFrameRateRange and CAFrameRateRangeDefault are 12.0+ in the SDK; c/QuartzCore.m supplies the constant.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
+    NSValue *value = [self valueForKey:@"preferredFrameRateRange"];
+    if (!value)
+        return CAFrameRateRangeDefault;
+    CAFrameRateRange range;
+    [value getValue:&range];
+    return range;
+#pragma clang diagnostic pop
+}
+
+- (void)setPreferredFrameRateRange:(CAFrameRateRange)range
+{
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
+    [self setValue:[NSValue valueWithBytes:&range objCType:@encode(CAFrameRateRange)] forKey:@"preferredFrameRateRange"];
+#pragma clang diagnostic pop
+}
+
+- (CAHighFrameRateReason)highFrameRateReason
+{
+    return [[self valueForKey:@"highFrameRateReason"] unsignedIntValue];
+}
+
+- (void)setHighFrameRateReason:(CAHighFrameRateReason)reason
+{
+    [self setValue:@(reason) forKey:@"highFrameRateReason"];
 }
 @end
 

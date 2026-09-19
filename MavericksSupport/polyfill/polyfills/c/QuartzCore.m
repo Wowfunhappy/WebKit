@@ -9,9 +9,9 @@
 // declares these with, rather than a pointer to const.
 typedef NSString *PolyNSStringConst;
 
-// CAFrameRateRangeMake (12.0+) -- CADisplayLink frame-rate range constructor. Build the
-// {minimum,maximum,preferred} struct directly. (The struct type is itself 12.0+, so naming it in
-// the prototype is exactly the "unguarded" use the availability warning describes.)
+// CAFrameRateRangeMake and CAFrameRateRangeDefault (12.0+): the {minimum,maximum,preferred} frame-rate
+// range constructor and the all-zero range that leaves the rate to the system. (The struct type is itself
+// 12.0+, so naming it is exactly the "unguarded" use the availability warning describes.)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunguarded-availability-new"
 WK_POLYFILL_ABSENT("QuartzCore", CAFrameRateRange, CAFrameRateRangeMake,
@@ -19,6 +19,8 @@ WK_POLYFILL_ABSENT("QuartzCore", CAFrameRateRange, CAFrameRateRangeMake,
     CAFrameRateRange r = { minimum, maximum, preferred };
     return r;
 }
+
+WK_POLYFILL_CONST("QuartzCore", CAFrameRateRange, CAFrameRateRangeDefault, { 0 });
 #pragma clang diagnostic pop
 
 // kCACornerCurveCircular (10.15+) has no 10.9 symbol. Define it with the documented value so the

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<video muted loop playsinline></video>
+<p>Pausing a looping HTTP video at startup remains paused after preroll.</p>
+<script src="../../media-resources/media-file.js"></script>
+<script src="../../media-resources/video-test.js"></script>
+<script>
+(async () => {
+    video.src = findMediaFile('video', '../../media-resources/content/test');
+    await video.play();
+    video.pause();
+    testExpected('video.paused', true);
+    await sleepFor(500);
+    testExpected('video.paused', true);
+    const pausedTime = video.currentTime;
+    await sleepFor(500);
+    logResult(video.currentTime === pausedTime, 'The paused playback position stays fixed');
+    await video.play();
+    const presented = new Promise(resolve => video.requestVideoFrameCallback(resolve));
+    await presented;
+    testExpected('video.paused', false);
+    video.pause();
+    endTest();
+})().catch(error => failTest(error.message));
+</script>

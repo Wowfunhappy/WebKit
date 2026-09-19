@@ -14,6 +14,9 @@
 // exported on 10.9 and absent from the build SDK's stub library.
 typedef const struct OpaqueCFHTTPCookie *CookieRef;
 typedef struct OpaqueCFHTTPCookieStorage *CFHTTPCookieStorageRef;
+extern void CFHTTPCookieStorageSetCookieAcceptPolicy(CFHTTPCookieStorageRef, CFIndex);
+extern CFIndex CFHTTPCookieStorageGetCookieAcceptPolicy(CFHTTPCookieStorageRef);
+
 typedef CFArrayRef (*ParseFn)(CFAllocatorRef, CFDictionaryRef, CFURLRef);
 typedef CFStringRef (*CopyFn)(CookieRef);
 
@@ -46,6 +49,9 @@ static void check(bool condition, const char *what)
 
 @interface NSHTTPCookieStorage (CookieObservationTest)
 - (instancetype)_initWithCFHTTPCookieStorage:(CFHTTPCookieStorageRef)storage;
+- (CFHTTPCookieStorageRef)_cookieStorage;
+- (void)_saveCookies:(dispatch_block_t)completion;
+- (void)_getCookiesForURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL partition:(NSString *)partition policyProperties:(NSDictionary *)properties completionHandler:(void (^)(NSArray *))handler;
 - (void)_setCookiesChangedHandler:(void (^)(NSArray *, NSString *))handler onQueue:(dispatch_queue_t)queue;
 - (void)_setCookiesRemovedHandler:(void (^)(NSArray *, NSString *, bool))handler onQueue:(dispatch_queue_t)queue;
 - (void)_setSubscribedDomainsForCookieChanges:(NSSet *)domains;
@@ -53,6 +59,102 @@ static void check(bool condition, const char *what)
 @interface NSObject (CookieInternalObservationTest)
 - (void)registerForPostingNotificationsWithContext:(NSHTTPCookieStorage *)context;
 @end
+
+static void checkSharedCookieAcceptPolicy(void)
+{
+    NSHTTPCookieStorage *store = [NSHTTPCookieStorage sharedHTTPCookieStorage];
+    CFHTTPCookieStorageRef jar = store._cookieStorage;
+    CFIndex original = CFHTTPCookieStorageGetCookieAcceptPolicy(jar);
+    NSURL *url = [NSURL URLWithString:@"https://wk-shared-policy-probe.test/"];
+    NSURL *other = [NSURL URLWithString:@"https://other-policy-probe.test/"];
+    NSHTTPCookie *cookie = [NSHTTPCookie cookieWithProperties:@{ NSHTTPCookieName: @"policy", NSHTTPCookieValue: @"value",
+        NSHTTPCookieDomain: url.host, NSHTTPCookiePath: @"/" }];
+    [store deleteCookie:cookie];
+    CFHTTPCookieStorageSetCookieAcceptPolicy(jar, NSHTTPCookieAcceptPolicyAlways);
+    [store _saveCookies:nil];
+    [store setCookies:@[cookie] forURL:url mainDocumentURL:other];
+    check([store cookiesForURL:url].count == 1, "shared Always policy accepts a third-party cookie after a native flush");
+    CFHTTPCookieStorageSetCookieAcceptPolicy(jar, NSHTTPCookieAcceptPolicyNever);
+    [store _saveCookies:nil];
+    check(CFHTTPCookieStorageGetCookieAcceptPolicy(jar) == NSHTTPCookieAcceptPolicyNever,
+        "a native flush preserves the explicit CF cookie policy");
+    NSHTTPCookieStorage *wrapper = [[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:jar];
+    check(wrapper.cookieAcceptPolicy == NSHTTPCookieAcceptPolicyNever,
+        "a new NS wrapper shares the explicit CF cookie policy");
+    __block BOOL completed = NO;
+    [wrapper _getCookiesForURL:url mainDocumentURL:url partition:nil policyProperties:nil completionHandler:^(NSArray *cookies) {
+        check(cookies.count == 1, "shared Never acceptance policy preserves reads of an existing cookie");
+        completed = YES;
+    }];
+    check(completed, "shared policy read completes synchronously");
+    [store deleteCookie:cookie];
+    [wrapper setCookies:@[cookie] forURL:url mainDocumentURL:url];
+    check(![store cookiesForURL:url].count, "shared Never policy rejects a new cookie");
+    [wrapper release];
+    CFHTTPCookieStorageSetCookieAcceptPolicy(jar, original);
+}
+
+static void checkConcurrentExclusivePolicy(void)
+{
+    CFHTTPCookieStorageRef empty = ((CFHTTPCookieStorageRef (*)(CFAllocatorRef, CFDictionaryRef))
+        cfnetwork("CFHTTPCookieStorageCreateInMemory"))(NULL, NULL);
+    CFArrayRef archive = ((CFArrayRef (*)(CFAllocatorRef, CFHTTPCookieStorageRef))
+        cfnetwork("CFHTTPCookieStorageCreateArchive"))(NULL, empty);
+    // Archive restoration gives Mavericks' memory store its native mutex.
+    CFHTTPCookieStorageRef jar = ((CFHTTPCookieStorageRef (*)(CFAllocatorRef, CFArrayRef))
+        cfnetwork("CFHTTPCookieStorageCreateFromArchive"))(NULL, archive);
+    CFRelease(archive);
+    CFRelease(empty);
+    CFHTTPCookieStorageSetCookieAcceptPolicy(jar, NSHTTPCookieAcceptPolicyAlways);
+    __block unsigned inconsistent = 0;
+    __block unsigned notApplied = 0;
+    dispatch_apply(2, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^(size_t worker) {
+        @autoreleasepool {
+            for (unsigned i = 0; i < 20000; ++i) {
+                if (!worker) {
+                    CFIndex requested = i & 1 ? 3 : NSHTTPCookieAcceptPolicyAlways;
+                    CFHTTPCookieStorageSetCookieAcceptPolicy(jar, requested);
+                    if (CFHTTPCookieStorageGetCookieAcceptPolicy(jar) != requested)
+                        ++notApplied;
+                } else {
+                    CFIndex policy = CFHTTPCookieStorageGetCookieAcceptPolicy(jar);
+                    if (policy != NSHTTPCookieAcceptPolicyAlways && policy != 3)
+                        ++inconsistent;
+                }
+            }
+        }
+    });
+    check(!notApplied, "policy writes apply both Always and exclusive modes");
+    check(!inconsistent, "concurrent policy reads report only the selected Always or exclusive modes");
+    if (inconsistent)
+        printf("    [inconsistent policy reads=%u]\n", inconsistent);
+    CFRelease(jar);
+}
+
+static void checkCookieReadAcceptPolicy(void)
+{
+    for (NSURL *url in @[[NSURL URLWithString:@"https://read-policy.test/"], [NSURL fileURLWithPath:@"/cookie-read-policy.html"]]) {
+        CFHTTPCookieStorageRef jar = ((CFHTTPCookieStorageRef (*)(CFAllocatorRef, CFDictionaryRef))
+            cfnetwork("CFHTTPCookieStorageCreateInMemory"))(NULL, NULL);
+        NSHTTPCookieStorage *store = [[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:jar];
+        store.cookieAcceptPolicy = NSHTTPCookieAcceptPolicyAlways;
+        NSHTTPCookie *cookie = [NSHTTPCookie cookieWithProperties:@{ NSHTTPCookieName: @"stored", NSHTTPCookieValue: @"value",
+            NSHTTPCookieDomain: url.isFileURL ? @".^filecookies^" : url.host, NSHTTPCookiePath: @"/" }];
+        [store setCookies:@[cookie] forURL:url mainDocumentURL:url];
+        for (NSNumber *policy in @[@(NSHTTPCookieAcceptPolicyAlways), @(NSHTTPCookieAcceptPolicyNever), @(NSHTTPCookieAcceptPolicyAlways)]) {
+            store.cookieAcceptPolicy = policy.integerValue;
+            __block BOOL completed = NO;
+            [store _getCookiesForURL:url mainDocumentURL:url partition:nil policyProperties:nil completionHandler:^(NSArray *cookies) {
+                check(cookies.count == 1, "acceptance policy changes preserve stored-cookie reads");
+                completed = YES;
+            }];
+            check(completed, "cookie policy reads complete synchronously");
+            check(store.cookies.count == 1, "changing acceptance policy retains stored cookies");
+        }
+        [store release];
+        CFRelease(jar);
+    }
+}
 
 static void checkCookieObservers(void)
 {
@@ -140,8 +242,75 @@ static void checkPublicSetterPolicy(void)
     }
     check(store.cookies.count == 1 && [[store.cookies[0] domain] isEqual:@".project.pages.dev"],
         "public setter rejects a modern private suffix and accepts its tenant domain");
+    NSHTTPCookie *candidate = [NSHTTPCookie cookieWithProperties:@{ NSHTTPCookieName: @"third", NSHTTPCookieValue: @"1",
+        NSHTTPCookieDomain: url.host, NSHTTPCookiePath: @"/" }];
+    NSURL *other = [NSURL URLWithString:@"https://other.pages.dev/"];
+    store.cookieAcceptPolicy = NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain;
+    [store deleteCookie:store.cookies[0]];
+    [store setCookies:@[candidate] forURL:url mainDocumentURL:other];
+    check(!store.cookies.count, "main-document policy rejects an unvisited third-party domain");
+    [store setCookies:@[candidate] forURL:url mainDocumentURL:url];
+    check(store.cookies.count == 1, "main-document policy accepts a first-party cookie");
+    NSHTTPCookie *second = [NSHTTPCookie cookieWithProperties:@{ NSHTTPCookieName: @"second", NSHTTPCookieValue: @"1",
+        NSHTTPCookieDomain: url.host, NSHTTPCookiePath: @"/" }];
+    [store setCookies:@[second] forURL:url mainDocumentURL:other];
+    check(store.cookies.count == 2, "main-document policy retains the existing-cookie exception");
+    [store deleteCookie:second];
+    CFHTTPCookieStorageSetCookieAcceptPolicy(jar, 3); // CF's exclusive main-document policy.
+    check((CFIndex)store.cookieAcceptPolicy == 3, "the NS getter preserves the exclusive CF policy");
+    [store _getCookiesForURL:url mainDocumentURL:other partition:nil policyProperties:nil completionHandler:^(NSArray *cookies) {
+        check(!cookies.count, "exclusive policy withholds existing third-party cookies on reads");
+    }];
+    [store _getCookiesForURL:url mainDocumentURL:url partition:nil policyProperties:nil completionHandler:^(NSArray *cookies) {
+        check(cookies.count == 1, "exclusive policy reads first-party cookies");
+    }];
+    [store setCookies:@[second] forURL:url mainDocumentURL:other];
+    check(store.cookies.count == 1, "exclusive policy rejects third-party cookies on a visited domain");
+    [store setCookies:@[second] forURL:url mainDocumentURL:url];
+    check(store.cookies.count == 2, "exclusive policy accepts first-party cookies");
+    [store deleteCookie:second];
+    store.cookieAcceptPolicy = NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain;
+    [store setCookies:@[second] forURL:url mainDocumentURL:other];
+    check(store.cookies.count == 2, "switching from exclusive to ordinary policy restores the existing-cookie exception");
+    [store _getCookiesForURL:url mainDocumentURL:other partition:nil policyProperties:nil completionHandler:^(NSArray *cookies) {
+        check(cookies.count == 2, "ordinary policy reads existing third-party cookies");
+    }];
     [store release];
     CFRelease(jar);
+}
+
+static void checkPolicySeedScope(void)
+{
+    NSURL *url = [NSURL URLWithString:@"http://child.seed.test/"];
+    NSURL *other = [NSURL URLWithString:@"http://unrelated.test/"];
+    for (NSString *mode in @[@"root", @"secure-parent", @"other-path", @"expired"]) {
+        CFHTTPCookieStorageRef jar = ((CFHTTPCookieStorageRef (*)(CFAllocatorRef, CFDictionaryRef))
+            cfnetwork("CFHTTPCookieStorageCreateInMemory"))(NULL, NULL);
+        NSHTTPCookieStorage *store = [[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:jar];
+        store.cookieAcceptPolicy = NSHTTPCookieAcceptPolicyAlways;
+        BOOL expired = [mode isEqual:@"expired"];
+        NSHTTPCookie *seed = [NSHTTPCookie cookieWithProperties:@{
+            NSHTTPCookieName:@"seed", NSHTTPCookieValue:@"1",
+            NSHTTPCookieDomain:[mode isEqual:@"secure-parent"] ? @".seed.test" : url.host,
+            NSHTTPCookiePath:[mode isEqual:@"other-path"] ? @"/elsewhere" : @"/",
+            NSHTTPCookieSecure:[mode isEqual:@"secure-parent"] ? @YES : @NO,
+            NSHTTPCookieExpires:[NSDate dateWithTimeIntervalSinceNow:expired ? 0.05 : 3600] }];
+        [store setCookie:seed];
+        if (expired)
+            [NSThread sleepForTimeInterval:0.1];
+        store.cookieAcceptPolicy = NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain;
+        NSHTTPCookie *candidate = [NSHTTPCookie cookieWithProperties:@{
+            NSHTTPCookieName:@"candidate", NSHTTPCookieValue:@"1", NSHTTPCookieDomain:url.host, NSHTTPCookiePath:@"/" }];
+        [store setCookies:@[candidate] forURL:url mainDocumentURL:other];
+        BOOL found = NO;
+        for (NSHTTPCookie *cookie in [store cookiesForURL:url]) {
+            if ([cookie.name isEqual:@"candidate"])
+                found = YES;
+        }
+        check(found != expired, [[@"main-document policy seed scope: " stringByAppendingString:mode] UTF8String]);
+        [store release];
+        CFRelease(jar);
+    }
 }
 
 static CFStringRef str(const char *text)
@@ -337,8 +506,7 @@ int main(void)
                 descending = false;
         }
         NSString *got = [names componentsJoinedByString:@","];
-        // The two /-path cookies tie, and the order among them is the one 10.9 gave: the RFC breaks that
-        // tie by creation time, which this platform records only to the second.
+        // The two /-path cookies tie, and keep the order the jar answers them in.
         check(descending && answered.count == 4 && [names[0] isEqualToString:@"testF"] && [names[1] isEqualToString:@"testB"],
               [[NSString stringWithFormat:@"longer cookie-paths are sent first (got %@)", got] UTF8String]);
         forgetCookiesOfDomain(storage, @"order.test");
@@ -444,9 +612,9 @@ int main(void)
     checkPolicy("strict", WK_SAME_SITE_STRICT, "strict reads as Strict");
     checkPolicy("LAX", WK_SAME_SITE_LAX, "LAX reads as Lax");
     checkPolicy("None", WK_SAME_SITE_NONE, "None reads as unspecified");
-    checkPolicy("whatever", WK_SAME_SITE_LAX, "an unrecognised value takes the default enforcement");
-    checkPolicy("", WK_SAME_SITE_LAX, "an empty value takes the default enforcement");
-    checkPolicy("Unsupported", WK_SAME_SITE_LAX, "the value WPT writes takes the default enforcement");
+    checkPolicy("whatever", WK_SAME_SITE_NONE, "an unrecognised value restricts nothing");
+    checkPolicy("", WK_SAME_SITE_NONE, "an empty value restricts nothing");
+    checkPolicy("Unsupported", WK_SAME_SITE_NONE, "the value WPT writes restricts nothing");
 
     // RFC 6265bis 5.5.
     check(wk_sameSiteAllows(WK_SAME_SITE_STRICT, true, false, false), "Strict rides a same-site request");
@@ -560,8 +728,8 @@ int main(void)
                                             @"SameSite": (NSString *)huge };
             id built = [((id (*)(id, SEL, id))objc_msgSend)([NSHTTPCookie alloc], initWithProperties, unrestricted) autorelease];
             check(built != nil, "a value the constants do not name still builds the cookie");
-            check(built && [((NSString *(*)(id, SEL))objc_msgSend)(built, sel_getUid("wk_sameSitePolicy")) isEqualToString:@"lax"],
-                  "an unrecognized SameSite value takes default enforcement");
+            check(built && ![((NSString *(*)(id, SEL))objc_msgSend)(built, sel_getUid("wk_sameSitePolicy")) length],
+                  "an unrecognized SameSite value restricts nothing");
             check(((id (*)(id, SEL, id))objc_msgSend)([NSHTTPCookie class], cookieWithProperties, unrestricted) != nil,
                   "and the class method builds it too");
             NSDictionary *restricted = @{ NSHTTPCookieName: @"c", NSHTTPCookieValue: @"v",
@@ -599,6 +767,10 @@ int main(void)
     }
 
     checkPublicSetterPolicy();
+    checkPolicySeedScope();
+    checkSharedCookieAcceptPolicy();
+    checkConcurrentExclusivePolicy();
+    checkCookieReadAcceptPolicy();
     checkCookieObservers();
 
     printf(failures ? "  %d FAILED\n" : "  ok\n", failures);

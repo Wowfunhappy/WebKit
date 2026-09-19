@@ -490,8 +490,6 @@ list(APPEND WebKit_SERIALIZATION_IN_FILES
 # upstream's:
 #   * -framework AuthKit dropped from target_link_options (AuthKit is absent on 10.9)
 #   * CMAKE_SHARED_LINKER_FLAGS set in string form, not list form
-#   * RUNLOOP_TYPE NSRunLoop (inside an if() block whose other statements consume it)
-#   * the WebContentProcess.nib rule (ibtool -> empty placeholder; inside a function())
 #   * the DEPENDS added to the .sb preprocessing rule (inside an add_custom_command())
 #   * upstream's global add_definitions("-ObjC++ ...") dropped
 # Each carries its own marker at the site.
@@ -627,8 +625,8 @@ set(MAVERICKS_ADDED_WEBKIT_COCOA_SOURCES
 MAVERICKS_FILTER_SOURCE_LIST("${WEBKIT_DIR}" WebKit_UNIFIED_SOURCE_LIST_FILES "Sources.txt" MAVERICKS_WITHHELD_WEBKIT_SOURCES MAVERICKS_ADDED_WEBKIT_SOURCES)
 MAVERICKS_FILTER_SOURCE_LIST("${WEBKIT_DIR}" WebKit_UNIFIED_SOURCE_LIST_FILES "SourcesCocoa.txt" MAVERICKS_WITHHELD_WEBKIT_COCOA_SOURCES MAVERICKS_ADDED_WEBKIT_COCOA_SOURCES)
 
-# The Cocoa curl transport's NetworkProcess task, Safari's native resume facade and its typed resume
-# record -- this backport's own sources, beside the rest of the 10.9 glue. NetworkDataTask.cpp and
+# The Cocoa curl transport's NetworkProcess task and Private Click Measurement request, Safari's native
+# resume facade and its typed resume record -- this backport's own sources, beside the rest of the 10.9 glue. NetworkDataTask.cpp and
 # the download code reach the headers by bare name, so the directories go on the include path.
 find_package(CURL 8.22 REQUIRED)
 find_library(CURL_TASK_SYSTEM_CONFIGURATION_LIBRARY SystemConfiguration REQUIRED)
@@ -637,10 +635,12 @@ find_library(CURL_TASK_CRYPTO_LIBRARY crypto PATHS "${MAVERICKS_DEPS}/lib" NO_DE
 list(APPEND WebKit_PRIVATE_LIBRARIES CURL::libcurl ${CURL_TASK_SSL_LIBRARY} ${CURL_TASK_CRYPTO_LIBRARY} ${CURL_TASK_SYSTEM_CONFIGURATION_LIBRARY})
 list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${MAVERICKS_SUPPORT}/source/WebKit/NetworkProcess/cocoa"
+    "${MAVERICKS_SUPPORT}/source/WebKit/NetworkProcess/PrivateClickMeasurement/cocoa"
     "${MAVERICKS_SUPPORT}/source/WebKit/Shared/Cocoa"
 )
 list(APPEND WebKit_SOURCES
     ${MAVERICKS_SUPPORT}/source/WebKit/NetworkProcess/cocoa/NetworkDataTaskCurlCocoa.mm
+    ${MAVERICKS_SUPPORT}/source/WebKit/NetworkProcess/PrivateClickMeasurement/cocoa/PrivateClickMeasurementCurlLoadTask.mm
     ${MAVERICKS_SUPPORT}/source/WebKit/Shared/Cocoa/CocoaDownloadResumeData.mm
     ${MAVERICKS_SUPPORT}/source/WebKit/UIProcess/Cocoa/CocoaCurlLegacyDownload.mm
 )
@@ -648,3 +648,13 @@ list(APPEND WebKit_SOURCES
 list(APPEND WebKit_SERIALIZATION_IN_FILES
     ../../MavericksSupport/source/WebKit/Shared/Cocoa/CocoaDownloadResumeData.serialization.in
 )
+
+# Mavericks' libxpc maps _NSApplicationMain to POSIXSpawnType App, matching stock WebContent.
+# The other services use the native adaptive NSRunLoop bootstrap and the launcher's importance boost.
+function(mavericks_configure_xpc_service target)
+    if (target STREQUAL "WebProcess")
+        set(RUNLOOP_TYPE _NSApplicationMain PARENT_SCOPE)
+    else ()
+        set(RUNLOOP_TYPE NSRunLoop PARENT_SCOPE)
+    endif ()
+endfunction()

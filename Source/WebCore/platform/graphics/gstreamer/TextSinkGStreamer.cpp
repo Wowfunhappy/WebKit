@@ -43,6 +43,10 @@ struct _WebKitTextSinkPrivate {
     GRefPtr<GstElement> appSink;
     ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer> mediaPlayerPrivate;
     std::optional<TrackID> streamId;
+    // MAVERICKS_BACKPORT: the stream-id of the latest stream-start on the sink pad, which changes when another
+    // text track is selected. A track is matched by the numeric id parseStreamId() reads from it, or by the
+    // string itself when it carries no numeric part.
+    String gstStreamId;
 };
 
 WEBKIT_DEFINE_TYPE_WITH_CODE(WebKitTextSink, webkit_text_sink, GST_TYPE_BIN,
@@ -51,12 +55,15 @@ WEBKIT_DEFINE_TYPE_WITH_CODE(WebKitTextSink, webkit_text_sink, GST_TYPE_BIN,
 static void webkitTextSinkHandleSample(WebKitTextSink* self, GRefPtr<GstSample>&& sample)
 {
     auto* priv = self->priv;
+    /* MAVERICKS_BACKPORT: see gstStreamId above.
     if (!priv->streamId) {
         auto pad = adoptGRef(gst_element_get_static_pad(priv->appSink.get(), "sink"));
         priv->streamId = getStreamIdFromPad(pad.get());
     }
 
     if (!priv->streamId) [[unlikely]] {
+    */
+    if (priv->gstStreamId.isNull()) [[unlikely]] { // MAVERICKS_BACKPORT: see gstStreamId above.
         GST_WARNING_OBJECT(self, "Unable to handle sample with no stream start event.");
         return;
     }
@@ -64,11 +71,13 @@ static void webkitTextSinkHandleSample(WebKitTextSink* self, GRefPtr<GstSample>&
     // Player private methods that interact with WebCore must run from the main thread. Things can
     // be destroyed before that code runs, including the text sink and priv, so pass everything in a
     // safe way.
-    callOnMainThread([mediaPlayerPrivate = ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>(priv->mediaPlayerPrivate), streamId = priv->streamId.value(), sample = WTF::move(sample)]() mutable {
+    // callOnMainThread([mediaPlayerPrivate = ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>(priv->mediaPlayerPrivate), streamId = priv->streamId.value(), sample = WTF::move(sample)]() mutable {
+    callOnMainThread([mediaPlayerPrivate = ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>(priv->mediaPlayerPrivate), streamId = priv->streamId, gstStreamId = priv->gstStreamId.isolatedCopy(), sample = WTF::move(sample)]() mutable { // MAVERICKS_BACKPORT: see gstStreamId above.
         RefPtr player = mediaPlayerPrivate.get();
         if (!player)
             return;
-        player->handleTextSample(WTF::move(sample), streamId);
+        // player->handleTextSample(WTF::move(sample), streamId);
+        player->handleTextSample(WTF::move(sample), streamId, gstStreamId); // MAVERICKS_BACKPORT: see gstStreamId above.
     });
 }
 
@@ -84,6 +93,18 @@ static void webkitTextSinkConstructed(GObject* object)
 
     auto pad = adoptGRef(gst_element_get_static_pad(priv->appSink.get(), "sink"));
     gst_element_add_pad(GST_ELEMENT_CAST(sink), gst_ghost_pad_new("sink", pad.get()));
+
+    // MAVERICKS_BACKPORT: see gstStreamId above. Stream-start and samples arrive on the same streaming thread.
+    gst_pad_add_probe(pad.get(), GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, reinterpret_cast<GstPadProbeCallback>(+[](GstPad*, GstPadProbeInfo* info, WebKitTextSinkPrivate* priv) -> GstPadProbeReturn {
+        auto* event = gst_pad_probe_info_get_event(info);
+        if (GST_EVENT_TYPE(event) != GST_EVENT_STREAM_START)
+            return GST_PAD_PROBE_OK;
+        const gchar* streamId = nullptr;
+        gst_event_parse_stream_start(event, &streamId);
+        priv->gstStreamId = String::fromLatin1(streamId);
+        priv->streamId = parseStreamId(priv->gstStreamId);
+        return GST_PAD_PROBE_OK;
+    }), priv, nullptr);
 
     auto textCaps = adoptGRef(gst_caps_new_empty_simple("application/x-subtitle-vtt"));
     g_object_set(priv->appSink.get(), "emit-signals", TRUE, "enable-last-sample", FALSE, "caps", textCaps.get(), nullptr);

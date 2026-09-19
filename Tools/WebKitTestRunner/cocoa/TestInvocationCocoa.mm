@@ -30,10 +30,7 @@
 #include "PlatformWebView.h"
 #include "TestController.h"
 #include <ImageIO/ImageIO.h>
-// MAVERICKS_BACKPORT: UniformTypeIdentifiers.framework (UTType *, UTTypePNG) is macOS 11+. On 10.9 the PNG
-// CGImageDestination type is the CoreServices UTI CFString kUTTypePNG, which is exactly what
-// CGImageDestinationCreateWithData expects (see dumpBitmap below).
-#include <CoreServices/CoreServices.h>
+#include <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include <WebKit/WKImageCG.h>
 #include <wtf/ASCIICType.h>
 #include <wtf/RetainPtr.h>
@@ -141,7 +138,7 @@ static void dumpBitmap(CGContextRef bitmapContext, const std::string& checksum, 
 {
     auto image = adoptCF(CGBitmapContextCreateImage(bitmapContext));
     auto imageData = adoptCF(CFDataCreateMutable(0, 0));
-    auto imageDest = adoptCF(CGImageDestinationCreateWithData(imageData.get(), kUTTypePNG, 1, 0)); // MAVERICKS_BACKPORT: was bridge_cast(UTTypePNG.identifier)
+    auto imageDest = adoptCF(CGImageDestinationCreateWithData(imageData.get(), bridge_cast(UTTypePNG.identifier), 1, 0));
 
     auto propertiesDictionary = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
     double resolutionWidth = 72.0 * imageSize.width / windowSize.width;

@@ -114,18 +114,47 @@ WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSURLSessionTask", "__NSCFURLSessionTask")
 @end
 ```
 
+Readonly CALayer properties use `WK_POLYFILL_ADD_LAYER_PROPERTIES_ON`. It registers native property
+metadata whose getter is the scoped selector. CALayer KVC and Foundation KVO read that getter,
+including the initial, old, new, and prior values. State changes bracket a coherent update with
+`willChangeValueForKey:` and `didChangeValueForKey:`.
+
 ### An Objective-C class 10.9 lacks entirely
 
 Add the stub to `classes/<Framework>.m`.
 
 ### Looking up a private symbol of a system framework
 
-`polyfills/c/wk_symbols.h` provides image-local symbol lookup for the protection-space secure-coding
-bridge in `CFNetwork.c` (`SerializableArchive::add`). This lets the bridge archive the actual native
-protection space used by Safari's authentication and certificate APIs.
+`polyfills/c/wk_symbols.h` provides image-local symbol lookup. New users require maintainer
+permission and an entry in this list. Its implementation in `polyfills/shared/wk_symbols.c`
+is compiled into both the polyfill archive and the dependency gap archive. Its users are:
+
+- `polyfills/shared/audiounit_max_frames.c` resolves the native AudioUnit and CoreAudio
+  entry points for output-unit buffer-size compatibility.
+
+- The cookie-policy helper in `CFNetwork.c` resolves `HTTPCookieStorage::someCookiesAreSetForURL`
+  for native indexed domain-existence queries. Its CF object payload follows the 64-bit
+  CFRuntimeBase, as in the native storage wrappers. Expiry and Path are checked separately
+  by the Foundation policy adapter.
+- The protection-space secure-coding bridge in `CFNetwork.c` (`SerializableArchive::add`), which archives
+  the native protection space used by Safari's authentication and certificate APIs.
+- The WebCore initializer in `polyfills/methods/Accelerate.m`, which resolves
+  `SetvImageVectorAvailable` from vImage and `_get_cpu_capabilities` from libsystem_kernel. It clears
+  Darwin's `kHasAVX2_0` bit (`0x20000000`) in vImage's process-local dispatch mask. Mavericks' packed
+  8-bit color conversion corrupts patterned pixels on its AVX2 path. Other libraries keep their CPU
+  capabilities. This runs once per WebCore image initialization, before WebCore creates converters;
+  it is never toggled during conversion. All vImage AVX2 operations in that process are affected.
+  The AVFoundation color bridge converts directly to 8-bit BGRA. Both system entry points are
+  required on 10.9.5; an unresolved entry terminates initialization through `wk_patch_fail`.
 
 Cookie parsing and mutation notifications are WebCore's. The polyfill keeps the native jar metadata
 10.9 needs to preserve SameSite across storage and process boundaries.
+
+CoreText classifies shipped fonts using the running machine's OS package receipts.
+`c/wk_font_receipts.c` reads the native BOM records on the first provenance question in a process
+and retains the font paths and packaged sizes for the process lifetime; the WebContent sandbox
+profile allows reading the receipts. Each font caches its answer. Matching checks the current font
+file size against that snapshot.
 
 ## Checking what actually happened
 
@@ -135,8 +164,10 @@ process if a `WK_POLYFILL_REPLACES` targets a symbol 10.9 does not have — i.e.
 a replacement ("10.9 has this but it is broken") is wrong.
 
 `build-polyfill.sh` runs `tests/mechanism/wk_polyfill_test.c` on every build, which checks the layer's
-guarantees against real system symbols on both sides of the present/absent line, then the rest of
-`tests/mechanism/` and every probe in `tests/behaviour/`.
+guarantees against real system symbols on both sides of the present/absent line, followed by the
+selector mechanism tests and all native compatibility probes. `build-polyfill.sh` invokes
+`tests/run-behaviour-tests.sh` unconditionally. The probe runner also accepts names for focused
+checks such as `cg_iosurface_image_reference`.
 
 It then runs the shadow gates (probe programs `tests/gates/`), which ask the running 10.9 (via
 `dlopen`/`dlsym`, not the build SDK) whether any symbol the built archives define is one 10.9 already

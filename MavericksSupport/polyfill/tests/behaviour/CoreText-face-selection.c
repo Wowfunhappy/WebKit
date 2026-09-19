@@ -14,6 +14,9 @@
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
 #include <stdio.h>
+#include "wk_polyfill.h"
+
+WK_SYSTEM_FN("CoreText", CTFontSymbolicTraits, CTFontGetSymbolicTraits, (CTFontRef));
 #include <string.h>
 
 extern const CFStringRef kCTFontUIFontDesignTrait;
@@ -383,6 +386,63 @@ int main(void)
     checkFaceSurvivesAttributesNamingNoFace(emphasized, "the emphasized system UI font");
     if (emphasized)
         CFRelease(emphasized);
+
+    const struct { CFStringRef name; bool italic; } styles[] = {
+        { CFSTR("Apple-Chancery"), true },
+        { CFSTR("AvenirNextCondensed-UltraLightItalic"), true },
+        { CFSTR("Seravek-MediumItalic"), true },
+        { CFSTR("AvenirNextCondensed-HeavyItalic"), true },
+        { CFSTR("NewPeninimMT-Inclined"), true },
+        { CFSTR("NewPeninimMT-BoldInclined"), true },
+        { CFSTR("HelveticaNeue-MediumItalic"), true },
+        { CFSTR("AvenirNext-UltraLightItalic"), true },
+        { CFSTR("Farah"), true },
+    };
+    extern CTFontSymbolicTraits CTFontGetPhysicalSymbolicTraits(CTFontRef);
+    for (unsigned i = 0; i < sizeof(styles) / sizeof(*styles); ++i) {
+        CTFontRef face = CTFontCreateWithName(styles[i].name, 20, NULL);
+        char label[256];
+        CFStringGetCString(styles[i].name, label, sizeof(label), kCFStringEncodingUTF8);
+        CTFontSymbolicTraits symbolic = CTFontGetSymbolicTraits(face);
+        CTFontSymbolicTraits physical = CTFontGetPhysicalSymbolicTraits(face);
+        check(!!(symbolic & kCTFontTraitItalic) == styles[i].italic, label);
+        check(!!(physical & kCTFontTraitItalic) == styles[i].italic, "physical style preserves native italic and adds table italic");
+        CFDictionaryRef traits = CTFontCopyTraits(face);
+        int fromDictionary = 0;
+        CFNumberGetValue(CFDictionaryGetValue(traits, kCTFontSymbolicTrait), kCFNumberIntType, &fromDictionary);
+        check(!!(fromDictionary & kCTFontTraitItalic) == styles[i].italic, "traits dictionary agrees with symbolic traits");
+        if (CFEqual(styles[i].name, CFSTR("Seravek-MediumItalic"))) {
+            bool desiredItalic = true;
+            bool needsSyntheticOblique = desiredItalic && !(physical & kCTFontTraitItalic);
+            check(!needsSyntheticOblique, "computeNecessarySynthesis physical-traits branch keeps Seravek's native italic");
+        }
+        CFRelease(traits);
+        CFRelease(face);
+    }
+
+    CTFontCollectionRef collection = CTFontCollectionCreateFromAvailableFonts(NULL);
+    CFArrayRef installed = CTFontCollectionCreateMatchingFontDescriptors(collection);
+    unsigned removedItalic = 0, addedItalic = 0;
+    for (CFIndex i = 0; i < CFArrayGetCount(installed); ++i) {
+        CTFontRef face = CTFontCreateWithFontDescriptor(CFArrayGetValueAtIndex(installed, i), 12, NULL);
+        CTFontSymbolicTraits native = WK_SYSTEM(CTFontGetSymbolicTraits)(face);
+        CTFontSymbolicTraits current = CTFontGetSymbolicTraits(face);
+        bool removed = (native & kCTFontTraitItalic) && !(current & kCTFontTraitItalic);
+        bool added = !(native & kCTFontTraitItalic) && (current & kCTFontTraitItalic);
+        removedItalic += removed;
+        addedItalic += added;
+        if (removed || added) {
+            postScriptName(face, name, sizeof(name));
+            printf("italic change %s native=%u replacement=%u\n", name,
+                !!(native & kCTFontTraitItalic), !!(current & kCTFontTraitItalic));
+        }
+        CFRelease(face);
+    }
+    printf("installed faces=%ld removed italic=%u added italic=%u\n",
+        (long)CFArrayGetCount(installed), removedItalic, addedItalic);
+    check(!removedItalic, "all installed native italic traits survive");
+    CFRelease(installed);
+    CFRelease(collection);
 
     if (failures) {
         printf("### CoreText face selection: %d failure(s)\n", failures);

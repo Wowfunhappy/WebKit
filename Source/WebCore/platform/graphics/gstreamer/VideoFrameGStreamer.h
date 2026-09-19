@@ -43,9 +43,7 @@ typedef struct _GstSample GstSample;
 namespace WebCore {
 
 #if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: WebCodecs frames are VideoFrameCV on this build (the shared VideoFrame factories
-// come from VideoFrameCV on Cocoa), and the GStreamer encoder takes a GstSample.
-// MavericksSupport/source/.../VideoFrameGStreamerCocoa.mm wraps one for the other.
+// MAVERICKS_BACKPORT: CoreVideo frames supply GstSamples to the GStreamer encoder.
 GRefPtr<GstSample> gstSampleFromCVPixelBuffer(CVPixelBufferRef, const MediaTime&);
 #endif // MAVERICKS_BACKPORT: closes the CoreVideo bridge declaration above.
 
@@ -83,6 +81,10 @@ public:
     static Ref<VideoFrameGStreamer> createWrappedSample(const GRefPtr<GstSample>&, std::optional<CreateOptions> = std::nullopt);
 
     static RefPtr<VideoFrameGStreamer> createFromPixelBuffer(Ref<PixelBuffer>&&, const IntSize& destinationSize, double frameRate, const CreateOptions&, PlatformVideoColorSpace&& = { });
+
+    // MAVERICKS_BACKPORT: GStreamer plane storage backs raw I420A frames and byte copies on Cocoa.
+    static RefPtr<VideoFrame> createI420A(std::span<const uint8_t>, size_t width, size_t height, const ComputedPlaneLayout&, const ComputedPlaneLayout&, const ComputedPlaneLayout&, const ComputedPlaneLayout&, PlatformVideoColorSpace&&);
+    void copyTo(std::span<uint8_t>, VideoPixelFormat, Vector<ComputedPlaneLayout>&&, CompletionHandler<void(std::optional<Vector<PlaneLayout>>&&)>&&);
 
     void setFrameRate(double);
     void setMaxFrameRate(double);
@@ -129,18 +131,9 @@ private:
 
     bool isGStreamer() const final { return true; }
 #if PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: see VideoFrame::copyNativeImage(). The shared Cocoa definition (VideoFrameCV)
-    // assumes a CVPixelBuffer; this override converts the decoded GstSample to a CGImage instead.
-    RefPtr<NativeImage> copyNativeImage() const final;
-
-    // MAVERICKS_BACKPORT: VideoFrame::pixelBuffer() answers null unless the frame is CoreVideo-backed,
-    // and every Cocoa consumer that moves a frame across a process boundary or into a CoreVideo API
-    // reaches for it -- SharedVideoFrameWriter::writeBuffer(), VideoFrameCV-based WebCodecs and canvas
-    // paths among them. Wrap this frame's pixels in a CVPixelBuffer so those paths carry GStreamer frames.
+    // MAVERICKS_BACKPORT: Cocoa image creation and IPC consume the frame's pixels and colour metadata through CoreVideo.
     CVPixelBufferRef pixelBuffer() const final;
-    // VideoFrame is ThreadSafeRefCounted and pixelBuffer() is reached from worker and rendering
-    // threads, so the lazy build is locked: two racing builds would map the same GstVideoFrame twice
-    // and unmap it twice.
+    // Worker and rendering threads share the cached pixel buffer.
     mutable Lock m_cvPixelBufferLock;
     mutable RetainPtr<CVPixelBufferRef> m_cvPixelBuffer WTF_GUARDED_BY_LOCK(m_cvPixelBufferLock);
 #endif

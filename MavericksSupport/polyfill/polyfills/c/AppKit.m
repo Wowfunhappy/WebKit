@@ -160,3 +160,16 @@ WK_POLYFILL_ABSENT("AppKit", BOOL, NSInitializeCGFocusRingStyleForTime,
     style->accumulate = 0;
     return YES;
 }
+
+WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSSpellCheckerDidChangeAutomaticTextCompletionNotification, @"NSSpellCheckerDidChangeAutomaticTextCompletionNotification");
+WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSTouchBarItemIdentifierCharacterPicker, @"NSTouchBarItemIdentifierCharacterPicker");
+WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSTouchBarItemIdentifierTextFormat, @"NSTouchBarItemIdentifierTextFormat");
+WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSTouchBarItemIdentifierTextColorPicker, @"NSTouchBarItemIdentifierTextColorPicker");
+WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSTouchBarItemIdentifierTextStyle, @"NSTouchBarItemIdentifierTextStyle");
+WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSTouchBarItemIdentifierTextAlignment, @"NSTouchBarItemIdentifierTextAlignment");
+WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSTouchBarItemIdentifierTextList, @"NSTouchBarItemIdentifierTextList");
+WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSTouchBarItemIdentifierCandidateList, @"NSTouchBarItemIdentifierCandidateList");
+WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSTouchBarItemIdentifierFixedSpaceSmall, @"NSTouchBarItemIdentifierFixedSpaceSmall");
+WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSTouchBarItemIdentifierFixedSpaceLarge, @"NSTouchBarItemIdentifierFixedSpaceLarge");
+WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSTouchBarItemIdentifierFlexibleSpace, @"NSTouchBarItemIdentifierFlexibleSpace");
+WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSTouchBarItemIdentifierOtherItemsProxy, @"NSTouchBarItemIdentifierOtherItemsProxy");

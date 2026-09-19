@@ -1,0 +1,112 @@
+# vtenc's H.264 output state reports mapped encoded SPS colour descriptions
+# using h264parse's VUI mappings. Input colorimetry supplies the state when
+# the SPS has no mapped colour description.
+# Applied by build_deps with patch -p1.
+
+--- a/sys/applemedia/vtenc.c
++++ b/sys/applemedia/vtenc.c
+@@ -135,6 +135,7 @@
+ #include "vtutil.h"
+ #include "helpers.h"
+ #include <gst/pbutils/codec-utils.h>
++#include <gst/codecparsers/gsth264parser.h>
+ #include <sys/sysctl.h>
+ 
+ #define VTENC_DEFAULT_BITRATE     0
+@@ -1155,12 +1156,77 @@
+ }
+ 
+ static gboolean
++gst_vtenc_h264_colorimetry_from_codec_data (GstVTEnc * self,
++    const guint8 * data, gsize size, GstVideoColorimetry * colorimetry)
++{
++  GstH264NalParser *parser = gst_h264_nal_parser_new ();
++  GstH264DecoderConfigRecord *config = NULL;
++  GstH264ParserResult result;
++  gboolean have_colorimetry = FALSE;
++  guint i;
++
++  result = gst_h264_parser_parse_decoder_config_record (parser, data, size,
++      &config);
++  gst_h264_nal_parser_free (parser);
++  if (result != GST_H264_PARSER_OK) {
++    GST_WARNING_OBJECT (self, "Failed to parse codec-data");
++    return FALSE;
++  }
++
++  for (i = 0; i < config->sps->len; i++) {
++    GstH264NalUnit *nalu = &g_array_index (config->sps, GstH264NalUnit, i);
++    GstH264SPS sps;
++    GstH264VUIParams *vui;
++
++    if (nalu->type != GST_H264_NAL_SPS)
++      continue;
++
++    result = gst_h264_parse_sps (nalu, &sps);
++    if (result != GST_H264_PARSER_OK) {
++      GST_WARNING_OBJECT (self, "Failed to parse SPS, result %d", result);
++      gst_h264_decoder_config_record_free (config);
++      return FALSE;
++    }
++
++    vui = &sps.vui_parameters;
++    if (sps.vui_parameters_present_flag &&
++        vui->video_signal_type_present_flag &&
++        vui->colour_description_present_flag) {
++      GstVideoColorimetry ci = { 0, };
++      gchar *colorimetry_string;
++
++      ci.matrix = gst_video_color_matrix_from_iso (vui->matrix_coefficients);
++      ci.transfer =
++          gst_video_transfer_function_from_iso (vui->transfer_characteristics);
++      ci.primaries = gst_video_color_primaries_from_iso (vui->colour_primaries);
++      if (ci.matrix != GST_VIDEO_COLOR_MATRIX_UNKNOWN &&
++          ci.transfer != GST_VIDEO_TRANSFER_UNKNOWN &&
++          ci.primaries != GST_VIDEO_COLOR_PRIMARIES_UNKNOWN)
++        ci.range = vui->video_full_range_flag ? GST_VIDEO_COLOR_RANGE_0_255 :
++            GST_VIDEO_COLOR_RANGE_16_235;
++      colorimetry_string = gst_video_colorimetry_to_string (&ci);
++      if (colorimetry_string) {
++        *colorimetry = ci;
++        have_colorimetry = TRUE;
++      }
++      g_free (colorimetry_string);
++    }
++    gst_h264_sps_clear (&sps);
++  }
++
++  gst_h264_decoder_config_record_free (config);
++  return have_colorimetry;
++}
++
++static gboolean
+ gst_vtenc_negotiate_downstream (GstVTEnc * self, CMSampleBufferRef sbuf)
+ {
+   gboolean result;
+   GstCaps *caps;
+   GstStructure *s;
+   GstVideoCodecState *state;
++  GstVideoColorimetry encoded_colorimetry = { 0, };
++  gboolean have_encoded_colorimetry = FALSE;
+ 
+   caps = gst_pad_get_pad_template_caps (GST_VIDEO_ENCODER_SRC_PAD (self));
+   caps = gst_caps_make_writable (caps);
+@@ -1233,6 +1299,9 @@
+             codec_data[2] & ~0xDF;
+         sps[2] = codec_data[3];
+         gst_codec_utils_h264_caps_set_level_and_profile (caps, sps, 3);
++        have_encoded_colorimetry =
++            gst_vtenc_h264_colorimetry_from_codec_data (self, codec_data,
++            codec_data_size, &encoded_colorimetry);
+       }
+ 
+       gst_buffer_unref (codec_data_buf);
+@@ -1252,6 +1321,8 @@
+   state =
+       gst_video_encoder_set_output_state (GST_VIDEO_ENCODER_CAST (self), caps,
+       self->input_state);
++  if (have_encoded_colorimetry)
++    state->info.colorimetry = encoded_colorimetry;
+   gst_video_codec_state_unref (state);
+   result = gst_video_encoder_negotiate (GST_VIDEO_ENCODER_CAST (self));
+ 

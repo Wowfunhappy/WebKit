@@ -18,7 +18,45 @@ def log(name, obj):
 def response(fields=b'', body=b'HELLO', status=b'HTTP/1.1 200 OK', length=True, ctype=b'text/plain'):
     return status+b'\r\nContent-Type: '+ctype+b'\r\nCache-Control: no-store\r\n'+fields+(b'Content-Length: '+str(len(body)).encode()+b'\r\n' if length else b'')+b'Connection: close\r\n\r\n'+body
 
+# /cache/<name> responses carry the caching fields each name says; /cache/hits/<name> counts the requests that reached here.
+CACHE_HITS = {}
+def cache_response(path, headers):
+    def reply(fields, body=b'CACHED', status=b'HTTP/1.1 200 OK'):
+        return status+b'\r\nContent-Type: text/plain\r\n'+fields+b'Content-Length: '+str(len(body)).encode()+b'\r\nConnection: close\r\n\r\n'+body
+    name = path.split('/')[2]
+    if name == 'fresh':
+        return reply(b'Cache-Control: max-age=600\r\n')
+    if name == 'stale':
+        if headers.get('if-none-match') == '"v1"':
+            return b'HTTP/1.1 304 Not Modified\r\nETag: "v1"\r\nCache-Control: max-age=0\r\nX-Revalidated: yes\r\nConnection: close\r\n\r\n'
+        return reply(b'Cache-Control: max-age=0\r\nETag: "v1"\r\n')
+    if name == 'refresh':
+        if headers.get('if-none-match') == '"v1"':
+            return b'HTTP/1.1 304 Not Modified\r\nETag: "v1"\r\nCache-Control: max-age=600\r\nX-Revalidated: yes\r\nConnection: close\r\n\r\n'
+        return reply(b'Cache-Control: max-age=0\r\nETag: "v1"\r\n')
+    if name == 'replacement':
+        if headers.get('x-cache-test') == 'no-store':
+            return reply(b'Cache-Control: no-store\r\n', b'REPLACED')
+        return reply(b'Cache-Control: max-age=600\r\n')
+    if name == 'status307':
+        return reply(b'Cache-Control: max-age=600\r\n', status=b'HTTP/1.1 307 Temporary Redirect')
+    if name in ('redirect', 'redirect-stale'):
+        destination = 'fresh' if name == 'redirect' else 'stale'
+        target = path.replace('/cache/' + name + '/', '/cache/' + destination + '/', 1) + '-target'
+        return reply(b'Cache-Control: max-age=600\r\nLocation: ' + target.encode() + b'\r\n', body=b'', status=b'HTTP/1.1 307 Temporary Redirect')
+    if name == 'vary':
+        return reply(b'Cache-Control: max-age=600\r\nVary: X-Cache-Test\r\n')
+    if name == 'nostore':
+        return reply(b'Cache-Control: max-age=600, no-store\r\n')
+    if name == 'large':
+        return reply(b'Cache-Control: max-age=600\r\n', b'L' * 200000)
+    return reply(b'')
+
 CASES = {}
+CASES['_mime_separate'] = response(ctype=b'application/json', fields=b'Content-Type: text/html; charset=utf-8\r\n')
+CASES['_mime_reversed'] = response(ctype=b'text/html; charset=utf-8', fields=b'Content-Type: application/json\r\n')
+CASES['_mime_combined'] = response(ctype=b'application/json, text/html; charset=utf-8')
+CASES['_mime_empty_last'] = response(ctype=b'text/html', fields=b'Content-Type: \r\n')
 CASES['_download_404_body'] = response(status=b'HTTP/1.1 404 Not Found')
 CASES['_download_gzip_mime'] = response(body=gzip.compress(b'ENCODED FILE'), ctype=b'application/x-gzip')
 CASES['_download_gzip_encoding'] = response(fields=b'Content-Encoding: gzip\r\n',body=gzip.compress(b'ENCODED HTTP'),ctype=b'application/octet-stream')
@@ -165,6 +203,15 @@ def handle(c,addr):
             payload=response(body=PAGE.replace('__CASES__',json.dumps(names)).encode(),ctype=b'text/html; charset=utf-8')
         elif path.startswith('/probe/'):
             payload=CASES[path.rsplit('/',1)[-1]]
+        elif path.startswith('/cache/hits/'):
+            with LOCK:
+                count=CACHE_HITS.get(path[len('/cache/hits'):],0)
+            payload=response(body=str(count).encode())
+        elif path.startswith('/cache/'):
+            with LOCK:
+                key=path[len('/cache'):]
+                CACHE_HITS[key]=CACHE_HITS.get(key,0)+1
+            payload=cache_response(path,headers)
         elif path.startswith('/echo/'):
             echo=dict(method=method,target=target,headers=headers,body_hex=body.hex())
             payload=response(body=json.dumps(echo,sort_keys=True).encode(),ctype=b'application/json')

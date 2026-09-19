@@ -1,0 +1,49 @@
+--- a/libheif/plugins/decoder_ffmpeg.cc
++++ b/libheif/plugins/decoder_ffmpeg.cc
+@@ -48,7 +48,10 @@
+ 
+   struct Packet
+   {
++    // The payload, followed by AV_INPUT_BUFFER_PADDING_SIZE zero bytes: libavcodec's parsers and
++    // bitstream readers read past the end of their input into that padding.
+     std::vector<uint8_t> data;
++    size_t size = 0;
+     uintptr_t user_data;
+   };
+ 
+@@ -330,6 +333,8 @@
+   }
+ 
+   pkt.user_data = user_data;
++  pkt.size = pkt.data.size();
++  pkt.data.resize(pkt.size + AV_INPUT_BUFFER_PADDING_SIZE, 0);
+ 
+   decoder->input_data.emplace_back(std::move(pkt));
+ 
+@@ -733,7 +738,7 @@
+       }
+ 
+       parse_av_data = first_pkt.data.data();
+-      parse_av_data_size = (int) first_pkt.data.size();
++      parse_av_data_size = (int) first_pkt.size;
+       size_t n_bytes_consumed = 0;
+ 
+       while (parse_av_data_size > 0) {
+@@ -766,14 +771,13 @@
+         }
+       }
+ 
+-      if (n_bytes_consumed == first_pkt.data.size()) {
++      if (n_bytes_consumed == first_pkt.size) {
+         decoder->input_data.pop_front();
+       }
+       else {
+         if (n_bytes_consumed > 0) {
+-          memmove(first_pkt.data.data(), first_pkt.data.data() + n_bytes_consumed,
+-                  first_pkt.data.size() - n_bytes_consumed);
+-          decoder->input_data.resize(decoder->input_data.size() - n_bytes_consumed);
++          first_pkt.data.erase(first_pkt.data.begin(), first_pkt.data.begin() + n_bytes_consumed);
++          first_pkt.size -= n_bytes_consumed;
+         }
+       }
+     }

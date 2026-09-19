@@ -253,28 +253,42 @@ WK_POLYFILL_ADD_METHODS(NSAppearance)
 @end
 
 // ---------------------------------------------------------------------------------------------------
-// NSWorkspace accessibility display options (10.10+), each read from the 10.9 setting behind it.
-// Invert colours is CoreGraphics' display polarity, the same state the Accessibility pane's checkbox
-// drives. "Enhance contrast" is that pane's slider, stored as a 0..1 number under com.apple.universalaccess.
-// 10.9's Accessibility pane has no reduce-motion and no differentiate-without-colour setting, so those
-// two report NO.
+// NSWorkspace accessibility display options (10.10+). Each is a com.apple.universalaccess entry, read
+// under the key the modern API reads it under, so a writer of that key -- the Accessibility pane on a
+// later system, or WebKit's own preference injection -- is honoured. 10.9's Accessibility pane writes
+// only two of them: the "Enhance contrast" slider, which it stores as a 0..1 number under `contrast`,
+// and invert colours, which is CoreGraphics' display polarity rather than a default. On this system
+// nothing writes reduceMotion or differentiateWithoutColor, so those read as absent and answer NO.
 extern bool CGDisplayUsesInvertedPolarity(void);
+
+static BOOL wk_universalAccessFlag(CFStringRef key)
+{
+    CFTypeRef value = CFPreferencesCopyAppValue(key, CFSTR("com.apple.universalaccess"));
+    if (!value)
+        return NO;
+    BOOL on = NO;
+    if (CFGetTypeID(value) == CFBooleanGetTypeID())
+        on = CFBooleanGetValue((CFBooleanRef)value);
+    else if (CFGetTypeID(value) == CFNumberGetTypeID()) {
+        double number = 0;
+        CFNumberGetValue((CFNumberRef)value, kCFNumberDoubleType, &number);
+        on = number > 0;
+    }
+    CFRelease(value);
+    return on;
+}
 
 WK_POLYFILL_ADD_METHODS(NSWorkspace)
 - (BOOL)accessibilityDisplayShouldIncreaseContrast
 {
-    CFTypeRef value = CFPreferencesCopyAppValue(CFSTR("contrast"), CFSTR("com.apple.universalaccess"));
-    if (!value)
-        return NO;
-    float contrast = 0;
-    if (CFGetTypeID(value) == CFNumberGetTypeID())
-        CFNumberGetValue((CFNumberRef)value, kCFNumberFloatType, &contrast);
-    CFRelease(value);
-    return contrast > 0;
+    return wk_universalAccessFlag(CFSTR("increaseContrast")) || wk_universalAccessFlag(CFSTR("contrast"));
 }
-- (BOOL)accessibilityDisplayShouldDifferentiateWithoutColor { return NO; }
-- (BOOL)accessibilityDisplayShouldReduceMotion              { return NO; }
+- (BOOL)accessibilityDisplayShouldDifferentiateWithoutColor { return wk_universalAccessFlag(CFSTR("differentiateWithoutColor")); }
+- (BOOL)accessibilityDisplayShouldReduceMotion              { return wk_universalAccessFlag(CFSTR("reduceMotion")); }
 - (BOOL)accessibilityDisplayShouldInvertColors              { return CGDisplayUsesInvertedPolarity(); }
+// The values above are read from CFPreferences on every call and held nowhere, and a CFPreferencesSetValue
+// is visible to the next CFPreferencesCopyAppValue in the same process, so there is nothing here to drop.
++ (void)_invalidateAccessibilityDisplayValues { }
 @end
 // The 10.10 workspace notification that says one of those options changed. 10.9's settings each post
 // their own distributed notification instead — libUAPreferences' UAContrastDidChangeNotification and
@@ -1217,13 +1231,9 @@ WK_POLYFILL_ADD_METHODS(NSColorWell)
 @end
 
 // ---------------------------------------------------------------------------------------------------
-// -[NSApplication _effectiveAccentColor] (10.14+ SPI): the default macOS accent/control-tint blue. Must be an
-// EXPLICIT sRGB color, NOT a catalog color like alternateSelectedControlColor: PageClientImpl::accentColor()
-// feeds this through colorFromCocoaColor() -> [color colorUsingColorSpace:], which resolves 10.9 catalog
-// colors to BLACK (same trap as the text-selection colors above). colorWithSRGBRed: is already concrete, so
-// the downstream space conversion is a no-op and the accent stays blue.
+// -[NSApplication _effectiveAccentColor] (10.14+ SPI): concrete sRGB for the blue/graphite accent.
 WK_POLYFILL_ADD_METHODS(NSApplication)
-- (NSColor *)_effectiveAccentColor { return SRGB(0, 122, 255, 255); }
+- (NSColor *)_effectiveAccentColor { return [[NSColor alternateSelectedControlColor] colorUsingColorSpace:[NSColorSpace sRGBColorSpace]]; }
 @end
 
 // ---------------------------------------------------------------------------------------------------
@@ -1784,3 +1794,26 @@ WK_POLYFILL_ADD_METHODS(NSObject)
 @end
 
 #pragma clang diagnostic pop
+
+// The responder retains configuration; 10.9 has no Touch Bar presentation service.
+static const char wk_responderTouchBarKey;
+WK_POLYFILL_ADD_METHODS(NSResponder)
+- (NSTouchBar *)touchBar
+{
+    id bar = objc_getAssociatedObject(self, &wk_responderTouchBarKey);
+    if (!bar) {
+        bar = [self makeTouchBar];
+        [self setTouchBar:bar];
+    }
+    return bar;
+}
+- (void)setTouchBar:(NSTouchBar *)bar
+{
+    objc_setAssociatedObject(self, &wk_responderTouchBarKey, bar, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+- (NSTouchBar *)makeTouchBar { return nil; }
+@end
+
+WK_POLYFILL_ADD_METHODS(NSSpellChecker)
++ (BOOL)isAutomaticTextCompletionEnabled { return NO; }
+@end

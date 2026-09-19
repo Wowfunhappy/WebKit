@@ -40,6 +40,7 @@ OBJC_CLASS NSString;
 OBJC_CLASS NSURLSessionTask;
 
 namespace WebCore {
+class IPAddress; // MAVERICKS_BACKPORT: named by the public cloaking helpers below.
 class RegistrableDomain;
 enum class ThirdPartyCookieBlockingDecision : uint8_t;
 }
@@ -50,6 +51,10 @@ class NetworkTaskCocoa {
 public:
     // MAVERICKS_BACKPORT: public and static, so the curl data task applies the same quirk on its redirects.
     static bool needsFirstPartyCookieBlockingLatchModeQuirk(const URL& firstPartyURL, const URL& requestURL, const URL& redirectingURL);
+    // MAVERICKS_BACKPORT: public and static, so the curl data task decides a cloaked cookie's expiry cap with these.
+    static WebCore::RegistrableDomain lastCNAMEDomain(String);
+    static bool shouldCapCookieExpiryForThirdPartyIPAddress(const WebCore::IPAddress& remote, const WebCore::IPAddress& firstParty);
+    static bool needsThirdPartyIPAddressQuirk(const URL& requestURL, const String& firstPartyRegistrableDomainName);
     virtual ~NetworkTaskCocoa() = default;
 
     void willPerformHTTPRedirection(WebCore::ResourceResponse&&, WebCore::ResourceRequest&&, RedirectCompletionHandler&&);
@@ -84,7 +89,7 @@ protected:
     // MAVERICKS_BACKPORT: declared public and static above.
     // bool needsFirstPartyCookieBlockingLatchModeQuirk(const URL& firstPartyURL, const URL& requestURL, const URL& redirectingURL) const;
     static NSString *lastRemoteIPAddress(NSURLSessionTask *);
-    static WebCore::RegistrableDomain lastCNAMEDomain(String);
+    // static WebCore::RegistrableDomain lastCNAMEDomain(String); // MAVERICKS_BACKPORT: declared public above.
     WebCore::ThirdPartyCookieBlockingDecision requestThirdPartyCookieBlockingDecision(const WebCore::ResourceRequest&) const;
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES)
     bool isOptInCookiePartitioningEnabled() const;

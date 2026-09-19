@@ -1,89 +1,234 @@
-/*
- * VideoFrameGStreamer::pixelBuffer() for the Cocoa+GStreamer build.
- *
- * VideoFrame::pixelBuffer() answers null unless the frame is CoreVideo-backed. With DOM rendering
- * remote, drawImage(video) reaches RemoteGraphicsContextProxy::drawVideoFrame, which ships the frame
- * to the GPU process through SharedVideoFrameWriter::write -> writeBuffer(frame.pixelBuffer()).
- * Without an answer here that carries nothing for a GStreamer-backed frame and the canvas draws an
- * empty rect. The GPU process rebuilds what it receives as a VideoFrameCV, so this is the only
- * direction a GStreamer frame travels.
- *
- * This lives outside VideoFrameGStreamer.cpp because that file is compiled into a unified source,
- * and <CoreVideo/CVPixelBuffer.h> pulls in ApplicationServices -> QuickDraw, whose global `Style`
- * is ambiguous against WebCore::Style in any bundle that also has `using namespace WebCore`.
- */
+// GStreamer frames use IOSurface-backed CoreVideo buffers for Cocoa rendering and IPC.
 
 #include "config.h"
 #include "VideoFrameGStreamer.h"
 
 #if USE(GSTREAMER) && PLATFORM(COCOA)
 
+#include "CMUtilities.h"
 #include "CVUtilities.h"
+#include "DestinationColorSpace.h"
 #include "GStreamerCommon.h"
+#include "GStreamerVideoFrameConverter.h"
+#include "MediaPlayerPrivateGStreamer.h"
+#include "LocalSampleBufferDisplayLayer.h"
+#include "VideoFrameCV.h"
+#include "VideoLayerManagerObjC.h"
+#include <QuartzCore/CALayer.h>
 #include <CoreVideo/CVPixelBuffer.h>
 #include <gst/video/video-frame.h>
 #include <wtf/Scope.h>
 
+// Shared with MediaPlayerPrivateMediaStreamAVFObjC.mm.
+@interface WebRootSampleBufferBoundsChangeListener : NSObject
+- (id)initWithCallback:(WTF::Function<void()>&&)callback;
+- (void)begin:(CALayer*)layer;
+- (void)invalidate;
+@end
+
 namespace WebCore {
 
-// Locked because VideoFrame is ThreadSafeRefCounted and this is reached from a background thread.
-// The frame is downloaded to BGRA and copied into an IOSurface-backed CVPixelBuffer: that is the
-// backing every Cocoa consumer of this path expects. SharedVideoFrameWriter::writeBuffer sends an
-// IOSurface straight across as a Mach send right, and its shared-memory fallback reads the pixels
-// with CVPixelBufferGetBaseAddressOfPlane(), which answers null for a non-planar buffer -- so a
-// plain CVPixelBufferCreateWithBytes() wrapper of the mapped GstVideoFrame reaches neither path and
-// the frame is dropped before it is sent.
+#if ENABLE(VIDEO)
+DestinationColorSpace MediaPlayerPrivateGStreamer::colorSpace()
+{
+    if (RefPtr frame = videoFrameForCurrentTime()) {
+        if (RetainPtr buffer = frame->pixelBuffer())
+            return DestinationColorSpace { createCGColorSpaceForCVPixelBuffer(buffer.get()) };
+    }
+    return DestinationColorSpace::SRGB();
+}
+#endif
+
+// GStreamerVideoFrameConverter.cpp's s_releaseUnusedPipelinesTimerInterval, for the same kind of resource.
+static constexpr Seconds releaseUnusedPixelBufferPoolInterval = 30_s;
+
+RetainPtr<CVPixelBufferRef> GStreamerVideoFrameConverter::pixelBufferFromSample(const GRefPtr<GstSample>& sample, PlatformVideoColorSpace colorSpace)
+{
+    @autoreleasepool {
+        GstVideoInfo info;
+        if (!gst_video_info_from_caps(&info, gst_sample_get_caps(sample.get())))
+            return nullptr;
+        auto format = GST_VIDEO_INFO_FORMAT(&info);
+        if (format != GST_VIDEO_FORMAT_BGRA && format != GST_VIDEO_FORMAT_NV12 && format != GST_VIDEO_FORMAT_I420)
+            return nullptr;
+        OSType pixelFormat = format == GST_VIDEO_FORMAT_BGRA ? kCVPixelFormatType_32BGRA
+            : colorSpace.fullRange.value_or(false) ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
+        IntSize size { GST_VIDEO_INFO_WIDTH(&info), GST_VIDEO_INFO_HEIGHT(&info) };
+        // A pool serves one size and format, as in ImageTransferSessionVT::setSize.
+        RetainPtr<CVPixelBufferPoolRef> pool;
+        {
+            Locker locker { m_cvPixelBufferPoolLock };
+            auto now = MonotonicTime::now();
+            m_cvPixelBufferPools.removeIf([&](auto& entry) {
+                return now - entry.value.lastUse > releaseUnusedPixelBufferPoolInterval;
+            });
+            std::pair<uint64_t, uint32_t> key { (static_cast<uint64_t>(size.width()) << 32) | static_cast<uint32_t>(size.height()), pixelFormat };
+            auto iterator = m_cvPixelBufferPools.find(key);
+            if (iterator == m_cvPixelBufferPools.end()) {
+                auto result = createIOSurfaceCVPixelBufferPool(size.width(), size.height(), pixelFormat);
+                if (!result)
+                    return nullptr;
+                iterator = m_cvPixelBufferPools.add(key, CVPixelBufferPoolEntry { WTF::move(*result), now }).iterator;
+            }
+            iterator->value.lastUse = now;
+            pool = iterator->value.pool;
+        }
+        auto result = createCVPixelBufferFromPool(pool.get());
+        if (!result)
+            return nullptr;
+        auto pixelBuffer = WTF::move(*result);
+        GstVideoFrame frame;
+        if (!gst_video_frame_map(&frame, &info, gst_sample_get_buffer(sample.get()), GST_MAP_READ))
+            return nullptr;
+        auto unmap = makeScopeExit([&] { gst_video_frame_unmap(&frame); });
+        if (CVPixelBufferLockBaseAddress(pixelBuffer.get(), 0) != kCVReturnSuccess)
+            return nullptr;
+        auto unlock = makeScopeExit([&] { CVPixelBufferUnlockBaseAddress(pixelBuffer.get(), 0); });
+        auto copyRows = [&](unsigned plane, uint8_t* destination, size_t destinationStride, size_t rowBytes, size_t rows) {
+            auto* source = static_cast<const uint8_t*>(GST_VIDEO_FRAME_PLANE_DATA(&frame, plane));
+            auto sourceStride = GST_VIDEO_FRAME_PLANE_STRIDE(&frame, plane);
+            for (size_t y = 0; y < rows; ++y)
+                memcpy(destination + y * destinationStride, source + static_cast<ptrdiff_t>(y) * sourceStride, rowBytes);
+        };
+        if (format == GST_VIDEO_FORMAT_BGRA) {
+            copyRows(0, static_cast<uint8_t*>(CVPixelBufferGetBaseAddress(pixelBuffer.get())), CVPixelBufferGetBytesPerRow(pixelBuffer.get()), size.width() * 4, size.height());
+            colorSpace.matrix = std::nullopt;
+            colorSpace.fullRange = true;
+        } else {
+            copyRows(0, static_cast<uint8_t*>(CVPixelBufferGetBaseAddressOfPlane(pixelBuffer.get(), 0)), CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer.get(), 0), size.width(), size.height());
+            auto chromaWidth = (size.width() + 1) / 2;
+            auto chromaHeight = (size.height() + 1) / 2;
+            auto* destination = static_cast<uint8_t*>(CVPixelBufferGetBaseAddressOfPlane(pixelBuffer.get(), 1));
+            auto destinationStride = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer.get(), 1);
+            if (format == GST_VIDEO_FORMAT_NV12)
+                copyRows(1, destination, destinationStride, chromaWidth * 2, chromaHeight);
+            else {
+                auto* u = static_cast<const uint8_t*>(GST_VIDEO_FRAME_PLANE_DATA(&frame, 1));
+                auto* v = static_cast<const uint8_t*>(GST_VIDEO_FRAME_PLANE_DATA(&frame, 2));
+                for (int y = 0; y < chromaHeight; ++y) {
+                    for (int x = 0; x < chromaWidth; ++x) {
+                        destination[x * 2] = u[x];
+                        destination[x * 2 + 1] = v[x];
+                    }
+                    destination += destinationStride;
+                    u += GST_VIDEO_FRAME_PLANE_STRIDE(&frame, 1);
+                    v += GST_VIDEO_FRAME_PLANE_STRIDE(&frame, 2);
+                }
+            }
+        }
+        CVBufferRemoveAllAttachments(pixelBuffer.get());
+        attachColorSpaceToPixelBuffer(colorSpace, pixelBuffer.get());
+        return pixelBuffer;
+    }
+}
+
 CVPixelBufferRef VideoFrameGStreamer::pixelBuffer() const
 {
     Locker locker { m_cvPixelBufferLock };
-    if (m_cvPixelBuffer)
-        return m_cvPixelBuffer.get();
-
-    auto sample = const_cast<VideoFrameGStreamer*>(this)->downloadSample(GST_VIDEO_FORMAT_BGRA);
-    if (!sample)
-        return nullptr;
-
-    GstVideoInfo videoInfo;
-    if (!gst_video_info_from_caps(&videoInfo, gst_sample_get_caps(sample.get())))
-        return nullptr;
-
-    GstVideoFrame frame;
-    if (!gst_video_frame_map(&frame, &videoInfo, gst_sample_get_buffer(sample.get()), GST_MAP_READ))
-        return nullptr;
-
-    auto unmapFrame = makeScopeExit([&] {
-        gst_video_frame_unmap(&frame);
-    });
-
-    auto width = GST_VIDEO_FRAME_WIDTH(&frame);
-    auto height = GST_VIDEO_FRAME_HEIGHT(&frame);
-    auto pool = createIOSurfaceCVPixelBufferPool(width, height, kCVPixelFormatType_32BGRA, 1, true);
-    if (!pool)
-        return nullptr;
-    auto buffer = createCVPixelBufferFromPool(pool->get());
-    if (!buffer)
-        return nullptr;
-
-    if (CVPixelBufferLockBaseAddress(buffer->get(), 0) != kCVReturnSuccess)
-        return nullptr;
-    auto* destination = static_cast<uint8_t*>(CVPixelBufferGetBaseAddress(buffer->get()));
-    auto destinationStride = CVPixelBufferGetBytesPerRow(buffer->get());
-    auto* source = static_cast<const uint8_t*>(GST_VIDEO_FRAME_PLANE_DATA(&frame, 0));
-    auto sourceStride = static_cast<size_t>(GST_VIDEO_FRAME_PLANE_STRIDE(&frame, 0));
-    auto rowBytes = std::min(destinationStride, sourceStride);
-    for (int row = 0; row < height; ++row)
-        memcpy(destination + row * destinationStride, source + row * sourceStride, rowBytes);
-    CVPixelBufferUnlockBaseAddress(buffer->get(), 0);
-
-    m_cvPixelBuffer = WTF::move(*buffer);
+    if (!m_cvPixelBuffer) {
+        auto* features = gst_caps_get_features(gst_sample_get_caps(m_sample.get()), 0);
+        IntSize size { GST_VIDEO_INFO_WIDTH(&m_info.info), GST_VIDEO_INFO_HEIGHT(&m_info.info) };
+        auto format = pixelFormat();
+        bool directFormat = format == GST_VIDEO_FORMAT_BGRA || format == GST_VIDEO_FORMAT_NV12 || format == GST_VIDEO_FORMAT_I420;
+        auto sample = directFormat && size == presentationSize()
+            && gst_caps_features_contains(features, GST_CAPS_FEATURE_MEMORY_SYSTEM_MEMORY)
+            ? m_sample : const_cast<VideoFrameGStreamer*>(this)->downloadSample(GST_VIDEO_FORMAT_BGRA);
+        if (sample)
+            m_cvPixelBuffer = GStreamerVideoFrameConverter::singleton().pixelBufferFromSample(sample, colorSpace());
+    }
     return m_cvPixelBuffer.get();
 }
 
-// The reverse direction. WebCodecs frames are VideoFrameCV on this build -- the shared
-// VideoFrame::createFromPixelBuffer factories come from VideoFrameCV on Cocoa -- while the GStreamer
-// encoder takes a GstSample, so a CoreVideo frame reaching it needs wrapping. The copy is one memcpy
-// per plane out of the locked CVPixelBuffer; the caps name the layout CoreVideo reports rather than
-// converting, so the encoder negotiates the format it was already given.
+#if ENABLE(VIDEO)
+void MediaPlayerPrivateGStreamer::initializeVideoLayer()
+{
+    m_videoLayerManager = makeUnique<VideoLayerManagerObjC>(m_logger, m_logIdentifier);
+    m_sampleBufferDisplayLayer = LocalSampleBufferDisplayLayer::create(*this);
+    if (!m_sampleBufferDisplayLayer)
+        return;
+    m_sampleBufferDisplayLayer->setLogIdentifier(m_logIdentifier);
+    // GstBaseSink delivers preroll and clock-scheduled frames, including after pause/seek.
+    m_sampleBufferDisplayLayer->setRenderPolicy(SampleBufferDisplayLayer::RenderPolicy::Immediately);
+    m_sampleBufferDisplayLayer->initialize(false, { }, false, [](bool) { });
+    m_videoLayerManager->setVideoLayer(m_sampleBufferDisplayLayer->rootLayer(), { });
+    m_videoLayerBoundsObserver = adoptNS([[WebRootSampleBufferBoundsChangeListener alloc] initWithCallback:[weakThis = ThreadSafeWeakPtr { *this }] {
+        if (RefPtr self = weakThis.get())
+            self->m_sampleBufferDisplayLayer->updateBoundsAndPosition(self->m_sampleBufferDisplayLayer->rootLayer().bounds);
+    }]);
+    [m_videoLayerBoundsObserver begin:m_sampleBufferDisplayLayer->rootLayer()];
+}
+
+void MediaPlayerPrivateGStreamer::destroyVideoLayer()
+{
+    [m_videoLayerBoundsObserver invalidate];
+    m_videoLayerBoundsObserver = nullptr;
+    m_videoLayerManager->didDestroyVideoLayer();
+    m_sampleBufferDisplayLayer = nullptr;
+}
+
+void MediaPlayerPrivateGStreamer::sampleBufferDisplayLayerStatusDidFail()
+{
+    pushSampleToVideoLayer(true, true);
+}
+
+PlatformLayer* MediaPlayerPrivateGStreamer::platformLayer() const
+{
+    return m_videoLayerManager->videoInlineLayer();
+}
+
+void MediaPlayerPrivateGStreamer::pushSampleToVideoLayer(bool isDuplicateSample, bool flush)
+{
+    Locker layerLocker { m_videoLayerLock };
+    if (!m_sampleBufferDisplayLayer)
+        return;
+    if (flush)
+        m_sampleBufferDisplayLayer->flush();
+    GRefPtr<GstSample> sample;
+    ImageOrientation::Orientation orientation;
+    {
+        Locker locker { m_sampleMutex };
+        sample = m_sample;
+        if (!sample)
+            return;
+        orientation = m_videoSourceOrientation.orientation();
+        if (!isDuplicateSample)
+            ++m_sampleCount;
+    }
+    Ref<VideoFrame> frame = VideoFrameGStreamer::createWrappedSample(sample);
+    RetainPtr pixelBuffer = frame->pixelBuffer();
+    if (!pixelBuffer)
+        return;
+    bool mirrored = orientation == ImageOrientation::Orientation::OriginTopRight || orientation == ImageOrientation::Orientation::OriginBottomLeft
+        || orientation == ImageOrientation::Orientation::OriginLeftTop || orientation == ImageOrientation::Orientation::OriginRightBottom;
+    auto rotation = VideoFrame::Rotation::None;
+    switch (orientation) {
+    case ImageOrientation::Orientation::OriginRightTop:
+    case ImageOrientation::Orientation::OriginRightBottom: rotation = VideoFrame::Rotation::Right; break;
+    case ImageOrientation::Orientation::OriginBottomRight:
+    case ImageOrientation::Orientation::OriginBottomLeft: rotation = VideoFrame::Rotation::UpsideDown; break;
+    case ImageOrientation::Orientation::OriginLeftBottom:
+    case ImageOrientation::Orientation::OriginLeftTop: rotation = VideoFrame::Rotation::Left; break;
+    default: break;
+    }
+    auto displayFrame = VideoFrameCV::create(frame->presentationTime(), mirrored, rotation, WTF::move(pixelBuffer));
+    m_sampleBufferDisplayLayer->enqueueVideoFrame(displayFrame);
+}
+
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+void MediaPlayerPrivateGStreamer::setVideoFullscreenLayer(PlatformLayer* layer, Function<void()>&& completionHandler)
+{
+    RefPtr frame = videoFrameForCurrentTime();
+    RefPtr image = frame ? frame->copyNativeImage() : nullptr;
+    m_videoLayerManager->setVideoFullscreenLayer(layer, WTF::move(completionHandler), image ? image->platformImage() : nullptr);
+}
+
+void MediaPlayerPrivateGStreamer::setVideoFullscreenFrame(const FloatRect& frame)
+{
+    m_videoLayerManager->setVideoFullscreenFrame(frame);
+}
+#endif
+#endif
+
 GRefPtr<GstSample> gstSampleFromCVPixelBuffer(CVPixelBufferRef pixelBuffer, const MediaTime& presentationTime)
 {
     if (!pixelBuffer)
@@ -94,41 +239,26 @@ GRefPtr<GstSample> gstSampleFromCVPixelBuffer(CVPixelBufferRef pixelBuffer, cons
     if (width <= 0 || height <= 0)
         return nullptr;
 
-    // NV12 names limited-range Y'CbCr in GStreamer, so the full-range CoreVideo format carries the
-    // matching colorimetry rather than being silently read as limited. The full-range string is derived
-    // from BT.601 with the range replaced, not written out: the numeric form is
-    // range:matrix:transfer:primaries and gst_video_colorimetry_from_string does not validate the
-    // fields, so a hand-written quadruple parses and then propagates whatever it says.
-    ASCIILiteral format;
-    char* colorimetry = nullptr;
     GstVideoFormat videoFormat;
     switch (CVPixelBufferGetPixelFormatType(pixelBuffer)) {
     case kCVPixelFormatType_32BGRA:
-        format = "BGRA"_s;
         videoFormat = GST_VIDEO_FORMAT_BGRA;
         break;
     case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange:
-        format = "NV12"_s;
+    case kCVPixelFormatType_420YpCbCr8BiPlanarFullRange:
         videoFormat = GST_VIDEO_FORMAT_NV12;
-        colorimetry = g_strdup(GST_VIDEO_COLORIMETRY_BT601);
         break;
-    case kCVPixelFormatType_420YpCbCr8BiPlanarFullRange: {
-        format = "NV12"_s;
-        videoFormat = GST_VIDEO_FORMAT_NV12;
-        GstVideoColorimetry fullRange;
-        if (gst_video_colorimetry_from_string(&fullRange, GST_VIDEO_COLORIMETRY_BT601)) {
-            fullRange.range = GST_VIDEO_COLOR_RANGE_0_255;
-            colorimetry = gst_video_colorimetry_to_string(&fullRange);
-        }
-        break;
-    }
     default:
         return nullptr;
     }
-    auto freeColorimetry = makeScopeExit([&] {
-        if (colorimetry)
-            g_free(colorimetry);
-    });
+
+    GstVideoInfo videoInfo;
+    gst_video_info_set_format(&videoInfo, videoFormat, width, height);
+    auto colorSpace = computeVideoFrameColorSpace(pixelBuffer);
+    fillVideoInfoColorimetryFromColorSpace(&videoInfo, colorSpace);
+    // A BGRA buffer carries no YCbCr matrix attachment, so the matrix GStreamer requires is supplied here.
+    if (videoFormat == GST_VIDEO_FORMAT_BGRA)
+        videoInfo.colorimetry.matrix = GST_VIDEO_COLOR_MATRIX_RGB;
 
     if (CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly) != kCVReturnSuccess)
         return nullptr;
@@ -136,10 +266,7 @@ GRefPtr<GstSample> gstSampleFromCVPixelBuffer(CVPixelBufferRef pixelBuffer, cons
         CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
     });
 
-    // CoreVideo pads each row to its own alignment -- a 300-wide BGRA buffer reports 1216 bytes per row,
-    // not 1200 -- so the rows are copied at the source stride and the real strides and plane offsets are
-    // declared on the buffer. Without that meta, downstream derives both from the caps and reads every
-    // row after the first at the wrong offset.
+    // Video metadata carries CoreVideo's row strides and plane offsets.
     auto planeCount = CVPixelBufferIsPlanar(pixelBuffer) ? CVPixelBufferGetPlaneCount(pixelBuffer) : 0;
     gsize planeOffsets[GST_VIDEO_MAX_PLANES] = { 0, };
     gint planeStrides[GST_VIDEO_MAX_PLANES] = { 0, };
@@ -179,10 +306,7 @@ GRefPtr<GstSample> gstSampleFromCVPixelBuffer(CVPixelBufferRef pixelBuffer, cons
 
     GST_BUFFER_DTS(buffer.get()) = GST_BUFFER_PTS(buffer.get()) = toValidGstClockTime(presentationTime);
 
-    auto caps = adoptGRef(gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, format.characters(),
-        "width", G_TYPE_INT, width, "height", G_TYPE_INT, height, nullptr));
-    if (colorimetry)
-        gst_caps_set_simple(caps.get(), "colorimetry", G_TYPE_STRING, colorimetry, nullptr);
+    auto caps = adoptGRef(gst_video_info_to_caps(&videoInfo));
     return adoptGRef(gst_sample_new(buffer.get(), caps.get(), nullptr, nullptr));
 }
 

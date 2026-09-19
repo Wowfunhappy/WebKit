@@ -47,9 +47,12 @@
 
 extern "C" CFTypeRef WebCoreCookieCreateFromHTTPResponseField(CFStringRef, CFURLRef) CF_RETURNS_RETAINED;
 extern "C" void WebCoreCookieStorageSetHTTPResponseCookies(CFTypeRef, CFArrayRef, CFURLRef, CFURLRef, bool, bool);
+extern "C" void _CFHTTPMessageSetResponseURL(CFHTTPMessageRef, CFURLRef);
 #import <Security/Security.h>
 #import "wk_url_coding.h"
 #import <CommonCrypto/CommonDigest.h>
+#import <GSS/GSS.h>
+#import <dlfcn.h>
 #import <Foundation/Foundation.h>
 #import <pthread.h>
 #import <objc/runtime.h>
@@ -142,11 +145,14 @@ typedef NS_ENUM(NSInteger, WKWSState) {
     WKWSState _state;
     BOOL _transportOpen;
     BOOL _sentClose;
-    uint16_t _sentCloseCode;        // status the close reports; 1005 when the sent Close frame carried no code
 
     BOOL _secure;                   // wss
     BOOL _peerTrustAnswered;        // the server's certificate has been put to the delegate and accepted
     BOOL _peerTrustPending;         // a server-trust challenge is with the delegate, awaiting its answer
+    NSInteger _authenticationFailureCount; // challenges already answered, as previousFailureCount
+    id _connectionAuthentication;   // the NTLM or Negotiate exchange in progress on this connection
+    NSUInteger _discardedBodyBytes; // body bytes of a refused handshake to skip before the next response
+    BOOL _awaitingCredential;       // the connection is held while the session delegate chooses a credential
     NSString *_targetHost;          // origin host (for CONNECT + TLS peer name)
     UInt32 _targetPort;             // origin port
 
@@ -173,41 +179,16 @@ typedef NS_ENUM(NSInteger, WKWSState) {
 - (instancetype)initWithRequest:(NSURLRequest *)request protocol:(NSString *)protocol session:(NSURLSession *)session taskIdentifier:(NSUInteger)identifier;
 @end
 
-// The script a PAC URL names, fetched once per URL for the life of the process, as CFNetwork's own PAC
-// machinery caches it -- otherwise every WebSocket handshake pays a network round trip for the same
-// bytes. The fetch is bounded because it runs on the socket's serial queue: an unreachable PAC host
-// would otherwise leave the WebSocket neither connected nor failed for as long as it hung.
 static NSString *wkProxyAutoConfigurationScriptForURL(NSURL *scriptURL)
 {
-    static NSMutableDictionary *cache;
-    static pthread_mutex_t cacheLock = PTHREAD_MUTEX_INITIALIZER;
-    NSString *key = [scriptURL absoluteString];
-    if (!key.length)
+    if (![scriptURL absoluteString].length)
         return nil;
-
-    pthread_mutex_lock(&cacheLock);
-    NSString *cached = cache[key];
-    pthread_mutex_unlock(&cacheLock);
-    if (cached)
-        return cached;
 
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:scriptURL
         cachePolicy:NSURLRequestUseProtocolCachePolicy timeoutInterval:10];
     NSData *data = [NSURLConnection sendSynchronousRequest:request returningResponse:NULL error:NULL];
-    NSString *script = data ? ([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]
+    return data ? ([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]
         ?: [[NSString alloc] initWithData:data encoding:NSISOLatin1StringEncoding]) : nil;
-
-    // Only a fetched script is remembered. A fetch that failed is retried at full price on the next
-    // connect, as the trust-result cache in methods/Foundation.m does with a failed evaluation: one
-    // unreachable moment must not become a permanent answer for the life of the process.
-    if (script.length) {
-        pthread_mutex_lock(&cacheLock);
-        if (!cache)
-            cache = [[NSMutableDictionary alloc] init];
-        cache[key] = script;
-        pthread_mutex_unlock(&cacheLock);
-    }
-    return script;
 }
 
 // CFNetworkCopyProxiesForURL does not run a PAC: for an auto-configuration setup it returns an entry
@@ -259,6 +240,19 @@ static const NSUInteger kWKWSMaximumRedirects = 16;
 // ws://wss:// URL silently drops every Secure cookie (e.g. figma's __Host-figma.authn / figma.session),
 // leaving the handshake unauthenticated. WebKit looks WebSocket cookies up the same way
 // (WebSocketHandshake::httpURLForAuthenticationAndCookies).
+// 10.9's UTF-8 decoders consume a leading U+FEFF as a byte-order mark. It is a character of the
+// text, so it is put back.
+static NSString *wsTextFromUTF8(NSData *bytes)
+{
+    NSString *text = [[NSString alloc] initWithData:bytes encoding:NSUTF8StringEncoding];
+    if (!text)
+        return nil;
+    static const unsigned char mark[] = { 0xEF, 0xBB, 0xBF };
+    if (bytes.length >= sizeof(mark) && !memcmp(bytes.bytes, mark, sizeof(mark)))
+        text = [[NSString stringWithFormat:@"%C", (unichar)0xFEFF] stringByAppendingString:text];
+    return text;
+}
+
 static NSURL *wsCookieURL(NSURL *url)
 {
     NSString *scheme = url.scheme.lowercaseString;
@@ -431,6 +425,219 @@ static void wsDispatchToCallbackQueue(NSURLSession *session, void (^work)(void))
 @interface WKWebSocketStream (WKWebSocketTransport)
 - (NSString *)targetHost;
 - (void)adoptPeerTrust:(SecTrustRef)trust;
+@end
+
+// NTLM is computed by the generator CFNetwork itself runs its NTLM exchanges on, which it exports; version 2
+// is the one CFNetwork asks for, its type-1 message carrying flags 0x00088207 as CFNetwork's does.
+typedef struct WKNtlmGenerator *WKNtlmGeneratorRef;
+static const int wsNtlmVersion2 = 2;
+static OSStatus (*wsNtlmGeneratorCreate)(int, WKNtlmGeneratorRef *);
+static void (*wsNtlmGeneratorRelease)(WKNtlmGeneratorRef);
+static OSStatus (*wsNtlmCreateClientRequest)(WKNtlmGeneratorRef, CFDataRef *);
+static OSStatus (*wsNtlmCreateClientResponse)(WKNtlmGeneratorRef, CFDataRef, CFStringRef, CFStringRef, CFStringRef, CFDataRef *);
+
+static BOOL wsLoadNtlmGenerator(void)
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        wsNtlmGeneratorCreate = (OSStatus (*)(int, WKNtlmGeneratorRef *))dlsym(RTLD_DEFAULT, "NtlmGeneratorCreate");
+        wsNtlmGeneratorRelease = (void (*)(WKNtlmGeneratorRef))dlsym(RTLD_DEFAULT, "NtlmGeneratorRelease");
+        wsNtlmCreateClientRequest = (OSStatus (*)(WKNtlmGeneratorRef, CFDataRef *))dlsym(RTLD_DEFAULT, "NtlmCreateClientRequest");
+        wsNtlmCreateClientResponse = (OSStatus (*)(WKNtlmGeneratorRef, CFDataRef, CFStringRef, CFStringRef, CFStringRef, CFDataRef *))dlsym(RTLD_DEFAULT, "NtlmCreateClientResponse");
+    });
+    return wsNtlmGeneratorCreate && wsNtlmGeneratorRelease && wsNtlmCreateClientRequest && wsNtlmCreateClientResponse;
+}
+
+// Negotiate is SPNEGO through GSS.framework, which WebKit does not link, so it is loaded where first needed.
+static struct {
+    __typeof__(gss_import_name) *importName;
+    __typeof__(gss_init_sec_context) *initSecContext;
+    __typeof__(gss_release_buffer) *releaseBuffer;
+    __typeof__(gss_release_name) *releaseName;
+    __typeof__(gss_release_cred) *releaseCredential;
+    __typeof__(gss_delete_sec_context) *deleteContext;
+    __typeof__(gss_aapl_initial_cred) *initialCredential;
+    gss_OID spnego;
+    gss_OID kerberos;
+    gss_OID hostBasedService;
+    gss_OID userName;
+} wsGSS;
+
+static BOOL wsLoadGSS(void)
+{
+    static dispatch_once_t once;
+    static BOOL loaded;
+    dispatch_once(&once, ^{
+        void *image = dlopen("/System/Library/Frameworks/GSS.framework/GSS", RTLD_LAZY | RTLD_LOCAL);
+        if (!image)
+            return;
+        wsGSS.importName = (__typeof__(gss_import_name) *)dlsym(image, "gss_import_name");
+        wsGSS.initSecContext = (__typeof__(gss_init_sec_context) *)dlsym(image, "gss_init_sec_context");
+        wsGSS.releaseBuffer = (__typeof__(gss_release_buffer) *)dlsym(image, "gss_release_buffer");
+        wsGSS.releaseName = (__typeof__(gss_release_name) *)dlsym(image, "gss_release_name");
+        wsGSS.releaseCredential = (__typeof__(gss_release_cred) *)dlsym(image, "gss_release_cred");
+        wsGSS.deleteContext = (__typeof__(gss_delete_sec_context) *)dlsym(image, "gss_delete_sec_context");
+        wsGSS.initialCredential = (__typeof__(gss_aapl_initial_cred) *)dlsym(image, "gss_aapl_initial_cred");
+        wsGSS.spnego = (gss_OID)dlsym(image, "__gss_spnego_mechanism_oid_desc");
+        wsGSS.kerberos = (gss_OID)dlsym(image, "__gss_krb5_mechanism_oid_desc");
+        wsGSS.hostBasedService = (gss_OID)dlsym(image, "__gss_c_nt_hostbased_service_oid_desc");
+        wsGSS.userName = (gss_OID)dlsym(image, "__gss_c_nt_user_name_oid_desc");
+        loaded = wsGSS.importName && wsGSS.initSecContext && wsGSS.releaseBuffer && wsGSS.releaseName && wsGSS.releaseCredential
+            && wsGSS.deleteContext && wsGSS.initialCredential && wsGSS.spnego && wsGSS.kerberos && wsGSS.hostBasedService
+            && wsGSS.userName;
+    });
+    return loaded;
+}
+
+static BOOL wsSchemeIsConnectionBased(NSString *scheme)
+{
+    return [scheme isEqualToString:(__bridge NSString *)kCFHTTPAuthenticationSchemeNTLM]
+        || [scheme isEqualToString:(__bridge NSString *)kCFHTTPAuthenticationSchemeNegotiate];
+}
+
+// The token a WWW-Authenticate field carries for |scheme|, written "<scheme> <base64>".
+static NSData *wsChallengeToken(NSHTTPURLResponse *response, NSString *scheme)
+{
+    for (NSString *challenge in [[response valueForHTTPHeaderField:@"WWW-Authenticate"] ?: @"" componentsSeparatedByString:@","]) {
+        NSString *trimmed = [challenge stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (trimmed.length > scheme.length + 1 && [trimmed characterAtIndex:scheme.length] == ' '
+            && [[trimmed substringToIndex:scheme.length] caseInsensitiveCompare:scheme] == NSOrderedSame)
+            return [[NSData alloc] initWithBase64EncodedString:[trimmed substringFromIndex:scheme.length + 1] options:0];
+    }
+    return nil;
+}
+
+// One NTLM or Negotiate exchange: the messages a credential sends, each answering the server's last token.
+@interface WKWebSocketConnectionAuthentication : NSObject {
+    NSString *_scheme;
+    NSString *_host;
+    NSURLCredential *_credential;
+    WKNtlmGeneratorRef _ntlm;
+    gss_ctx_id_t _context;
+    gss_cred_id_t _gssCredential;
+    gss_name_t _service;
+    BOOL _gssComplete;
+    OM_uint32 _gssFlags;
+}
+- (instancetype)initWithScheme:(NSString *)scheme host:(NSString *)host credential:(NSURLCredential *)credential;
+- (NSString *)scheme;
+- (NSString *)authorizationForToken:(NSData *)token;
+- (BOOL)completeForResponse:(NSHTTPURLResponse *)response;
+@end
+
+@implementation WKWebSocketConnectionAuthentication
+- (instancetype)initWithScheme:(NSString *)scheme host:(NSString *)host credential:(NSURLCredential *)credential
+{
+    if (!(self = [super init]))
+        return nil;
+    _scheme = scheme;
+    _host = host;
+    _credential = credential;
+    return self;
+}
+
+- (void)dealloc
+{
+    if (_ntlm)
+        wsNtlmGeneratorRelease(_ntlm);
+    OM_uint32 minor = 0;
+    if (_context)
+        wsGSS.deleteContext(&minor, &_context, GSS_C_NO_BUFFER);
+    if (_gssCredential)
+        wsGSS.releaseCredential(&minor, &_gssCredential);
+    if (_service)
+        wsGSS.releaseName(&minor, &_service);
+}
+
+- (NSString *)scheme
+{
+    return _scheme;
+}
+
+// The Authorization field that answers |token|, or opens the exchange when there is none.
+- (NSString *)authorizationForToken:(NSData *)token
+{
+    if ([_scheme isEqualToString:(__bridge NSString *)kCFHTTPAuthenticationSchemeNTLM])
+        return [self ntlmAuthorizationForToken:token];
+    return [self negotiateAuthorizationForToken:token];
+}
+
+- (NSString *)ntlmAuthorizationForToken:(NSData *)token
+{
+    if (!wsLoadNtlmGenerator())
+        return nil;
+    CFDataRef message = NULL;
+    if (!token) {
+        if (_ntlm || wsNtlmGeneratorCreate(wsNtlmVersion2, &_ntlm) != errSecSuccess || wsNtlmCreateClientRequest(_ntlm, &message) != errSecSuccess)
+            return nil;
+    } else {
+        if (!_ntlm)
+            return nil;
+        // A domain account is written DOMAIN\user.
+        NSString *user = _credential.user ?: @"";
+        NSString *domain = @"";
+        NSRange separator = [user rangeOfString:@"\\"];
+        if (separator.location != NSNotFound) {
+            domain = [user substringToIndex:separator.location];
+            user = [user substringFromIndex:NSMaxRange(separator)];
+        }
+        if (wsNtlmCreateClientResponse(_ntlm, (__bridge CFDataRef)token, (__bridge CFStringRef)domain, (__bridge CFStringRef)user,
+            (__bridge CFStringRef)(_credential.password ?: @""), &message) != errSecSuccess)
+            return nil;
+    }
+    NSData *data = CFBridgingRelease(message);
+    return data.length ? [@"NTLM " stringByAppendingString:[data base64EncodedStringWithOptions:0]] : nil;
+}
+
+- (NSData *)advanceNegotiateWithToken:(NSData *)token
+{
+    if (!wsLoadGSS())
+        return nil;
+    OM_uint32 minor = 0;
+    if (!_service) {
+        NSData *name = [[NSString stringWithFormat:@"HTTP@%@", _host] dataUsingEncoding:NSUTF8StringEncoding];
+        gss_buffer_desc buffer = { name.length, (void *)name.bytes };
+        if (wsGSS.importName(&minor, &buffer, wsGSS.hostBasedService, &_service) != GSS_S_COMPLETE)
+            return nil;
+    }
+    // Without a credential the exchange uses the Kerberos tickets the user already holds.
+    if (!token && _credential.user.length && !_gssCredential) {
+        NSData *userName = [_credential.user dataUsingEncoding:NSUTF8StringEncoding];
+        gss_buffer_desc buffer = { userName.length, (void *)userName.bytes };
+        gss_name_t desired = GSS_C_NO_NAME;
+        if (wsGSS.importName(&minor, &buffer, wsGSS.userName, &desired) != GSS_S_COMPLETE)
+            return nil;
+        OM_uint32 major = wsGSS.initialCredential(desired, wsGSS.kerberos,
+            (__bridge CFDictionaryRef)@{ (__bridge id)kGSSICPassword: _credential.password ?: @"" }, &_gssCredential, NULL);
+        wsGSS.releaseName(&minor, &desired);
+        if (major != GSS_S_COMPLETE)
+            return nil;
+    }
+    gss_buffer_desc input = { token.length, (void *)token.bytes };
+    gss_buffer_desc output = GSS_C_EMPTY_BUFFER;
+    OM_uint32 major = wsGSS.initSecContext(&minor, _gssCredential, &_context, _service, wsGSS.spnego, GSS_C_MUTUAL_FLAG,
+        GSS_C_INDEFINITE, GSS_C_NO_CHANNEL_BINDINGS, token ? &input : GSS_C_NO_BUFFER, NULL, &output, &_gssFlags, NULL);
+    NSData *data = [NSData dataWithBytes:output.value length:output.length];
+    wsGSS.releaseBuffer(&minor, &output);
+    _gssComplete = major == GSS_S_COMPLETE;
+    return GSS_ERROR(major) ? nil : data;
+}
+
+- (NSString *)negotiateAuthorizationForToken:(NSData *)token
+{
+    NSData *data = [self advanceNegotiateWithToken:token];
+    return data.length ? [@"Negotiate " stringByAppendingString:[data base64EncodedStringWithOptions:0]] : nil;
+}
+
+- (BOOL)completeForResponse:(NSHTTPURLResponse *)response
+{
+    if (![_scheme isEqualToString:(__bridge NSString *)kCFHTTPAuthenticationSchemeNegotiate])
+        return YES;
+    NSData *token = wsChallengeToken(response, _scheme);
+    if (token.length && ![self advanceNegotiateWithToken:token])
+        return NO;
+    return _gssComplete && (_gssFlags & GSS_C_MUTUAL_FLAG);
+}
 @end
 
 @implementation WKWebSocketStream
@@ -751,6 +958,24 @@ static enum ssl_verify_result_t wsCollectPeerTrust(SSL *ssl, uint8_t *alert)
     return ssl_verify_ok;
 }
 
+// The floor the task's session configuration names, which NetworkSessionCocoa sets from its legacy TLS policy.
+static long wsMinimumTLSVersion(tls_protocol_version_t version)
+{
+    switch (version) {
+    case tls_protocol_version_TLSv10:
+        return CURL_SSLVERSION_TLSv1_0;
+    case tls_protocol_version_TLSv11:
+        return CURL_SSLVERSION_TLSv1_1;
+    case tls_protocol_version_TLSv12:
+        return CURL_SSLVERSION_TLSv1_2;
+    case tls_protocol_version_TLSv13:
+        return CURL_SSLVERSION_TLSv1_3;
+    default:
+        // An SSL 3 codepoint or none: BoringSSL's lowest protocol is TLS 1.0.
+        return CURL_SSLVERSION_TLSv1_0;
+    }
+}
+
 static CURLcode wsInstallClientHello(CURL *curl, void *ctx, void *stream)
 {
     (void)curl;
@@ -847,7 +1072,7 @@ static CURLcode wsInstallClientHello(CURL *curl, void *ctx, void *stream)
         curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, 0L);
         curl_easy_setopt(_curl, CURLOPT_CAINFO, NULL);
         curl_easy_setopt(_curl, CURLOPT_CAPATH, NULL);
-        curl_easy_setopt(_curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+        curl_easy_setopt(_curl, CURLOPT_SSLVERSION, wsMinimumTLSVersion(_session.configuration.TLSMinimumSupportedProtocolVersion));
         curl_easy_setopt(_curl, CURLOPT_SSL_CTX_FUNCTION, wsInstallClientHello);
         curl_easy_setopt(_curl, CURLOPT_SSL_CTX_DATA, (__bridge void *)self);
     }
@@ -885,12 +1110,19 @@ static CURLcode wsInstallClientHello(CURL *curl, void *ctx, void *stream)
 // The peer ended the connection.
 - (void)handleEndOfConnection
 {
-    if (_state != WKWSStateClosed && _state != WKWSStateClosing) {
+    // A connection held for a credential that closes is replaced once the credential is chosen.
+    if (_awaitingCredential && _state == WKWSStateHandshaking) {
+        [self resetConnection];
+        return;
+    }
+    if (_state == WKWSStateOpen) {
+        [self deliverDidCloseWithCode:1006 reason:nil];
+        [self deliverError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNetworkConnectionLost userInfo:nil]];
+        [self teardownTransport];
+    } else if (_state != WKWSStateClosed && _state != WKWSStateClosing) {
         [self failWithReason:@"WebSocket connection closed unexpectedly"];
     } else if (_state == WKWSStateClosing && _sentClose) {
-        // The peer ended the connection without echoing a Close frame: the close completes with the
-        // status this side sent.
-        [self deliverDidCloseWithCode:_sentCloseCode reason:nil];
+        [self deliverDidCloseWithCode:1006 reason:nil];
         [self deliverError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNetworkConnectionLost userInfo:nil]];
         [self teardownTransport];
     } else
@@ -1160,7 +1392,8 @@ static CURLcode wsInstallClientHello(CURL *curl, void *ctx, void *stream)
     }
     [req appendString:@"\r\n"];
 
-    [self writeBytes:[req dataUsingEncoding:NSUTF8StringEncoding]];
+    // Each field value is octets, one per character, as the HTTP transport writes them.
+    [self writeBytes:[req dataUsingEncoding:NSISOLatin1StringEncoding allowLossyConversion:YES]];
 }
 
 + (NSString *)acceptForKey:(NSString *)key
@@ -1174,6 +1407,13 @@ static CURLcode wsInstallClientHello(CURL *curl, void *ctx, void *stream)
 - (void)processInput
 {
     if (_state == WKWSStateHandshaking) {
+        if (_discardedBodyBytes) {
+            NSUInteger skipped = MIN(_discardedBodyBytes, _inBuffer.length);
+            [_inBuffer replaceBytesInRange:NSMakeRange(0, skipped) withBytes:NULL length:0];
+            _discardedBodyBytes -= skipped;
+            if (_discardedBodyBytes)
+                return;
+        }
         const char terminator[] = "\r\n\r\n";
         NSRange end = [_inBuffer rangeOfData:[NSData dataWithBytes:terminator length:4] options:0 range:NSMakeRange(0, _inBuffer.length)];
         if (end.location == NSNotFound)
@@ -1189,7 +1429,8 @@ static CURLcode wsInstallClientHello(CURL *curl, void *ctx, void *stream)
 }
 
 // RFC 6455 4.1: "The HTTP version MUST be at least 1.1." The version is the status line up to its
-// first space; a major version alone is enough from 2 on.
+// first space, and everything after its dot is the minor version's digits; a major version alone is
+// enough from 2 on.
 static BOOL wsParseIntegerRun(const uint8_t *bytes, NSUInteger length, int *value)
 {
     if (!length)
@@ -1235,7 +1476,7 @@ static BOOL wsHeaderHasValidHTTPVersion(const uint8_t *line, NSUInteger length)
     while (dot + 1 + minorDigits < length && line[dot + 1 + minorDigits] >= '0' && line[dot + 1 + minorDigits] <= '9')
         minorDigits++;
     int minor = 0;
-    if (!wsParseIntegerRun(line + dot + 1, minorDigits, &minor))
+    if (dot + 1 + minorDigits != length || !wsParseIntegerRun(line + dot + 1, minorDigits, &minor))
         return NO;
 
     return (major >= 1 && minor >= 1) || major >= 2;
@@ -1358,6 +1599,9 @@ static BOOL wsHeaderHasValidHTTPVersion(const uint8_t *line, NSUInteger length)
     if (statusCode == 301 || statusCode == 302 || statusCode == 303 || statusCode == 307 || statusCode == 308)
         return [self followRedirect];
 
+    if (statusCode == 401)
+        return [self authenticateWithHeaderData:headerData];
+
     if (statusCode != 101)
         return [self handshakeFailed:statusCode];
 
@@ -1403,9 +1647,243 @@ static BOOL wsHeaderHasValidHTTPVersion(const uint8_t *line, NSUInteger length)
         }
     }
 
+    if (_connectionAuthentication && ![_connectionAuthentication completeForResponse:response])
+        return [self handshakeFailed:statusCode];
     _state = WKWSStateOpen;
+    _connectionAuthentication = nil;
     [self deliverDidOpenWithProtocol:serverProtocol ?: @""];
     return YES;
+}
+
+- (void)resetConnection
+{
+    [self teardownTransport];
+    _state = WKWSStateConnecting;
+    [_inBuffer setLength:0];
+    [_outBuffer setLength:0];
+    _transportOpen = NO;
+    _peerTrustAnswered = NO;
+    _peerTrustPending = NO;
+    _discardedBodyBytes = 0;
+    _awaitingCredential = NO;
+    _connectionAuthentication = nil;
+}
+
+// A refused handshake leaves its connection usable when the response keeps it open and frames its body with
+// a length; that body is skipped before the next response is read.
+- (BOOL)holdConnectionAfterRefusal
+{
+    NSHTTPURLResponse *response = (NSHTTPURLResponse *)_response;
+    for (NSString *token in [[response valueForHTTPHeaderField:@"Connection"] ?: @"" componentsSeparatedByString:@","]) {
+        if ([[token stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] caseInsensitiveCompare:@"close"] == NSOrderedSame)
+            return NO;
+    }
+    if ([response valueForHTTPHeaderField:@"Transfer-Encoding"])
+        return NO;
+    NSString *length = [response valueForHTTPHeaderField:@"Content-Length"];
+    NSScanner *scanner = [NSScanner scannerWithString:length ?: @""];
+    long long value = 0;
+    if (!length.length || ![scanner scanLongLong:&value] || !scanner.isAtEnd || value < 0)
+        return NO;
+    _discardedBodyBytes = (NSUInteger)value;
+    return _transportOpen;
+}
+
+// The challenge a 401 puts to the session delegate, as NSURLSession puts it: the protection space names
+// the hop and the scheme, the URL's own userinfo is the proposal, and the 401 itself is the failure
+// response the delegate is answering about.
+static NSURLProtectionSpace *wsPasswordProtectionSpace(NSURL *url, NSString *authenticationMethod, NSString *realm)
+{
+    BOOL secure = [url.scheme.lowercaseString isEqualToString:@"wss"];
+    return [[NSURLProtectionSpace alloc] initWithHost:url.host ?: @""
+        port:url.port ? url.port.integerValue : (secure ? 443 : 80)
+        protocol:secure ? NSURLProtectionSpaceHTTPS : NSURLProtectionSpaceHTTP
+        realm:realm authenticationMethod:authenticationMethod];
+}
+
+// The protection space method CFNetwork names for each scheme CFHTTPAuthentication answers.
+static NSString *wsAuthenticationMethodForScheme(NSString *scheme)
+{
+    if ([scheme isEqualToString:(__bridge NSString *)kCFHTTPAuthenticationSchemeBasic])
+        return NSURLAuthenticationMethodHTTPBasic;
+    if ([scheme isEqualToString:(__bridge NSString *)kCFHTTPAuthenticationSchemeDigest])
+        return NSURLAuthenticationMethodHTTPDigest;
+    if ([scheme isEqualToString:(__bridge NSString *)kCFHTTPAuthenticationSchemeNTLM])
+        return NSURLAuthenticationMethodNTLM;
+    if ([scheme isEqualToString:(__bridge NSString *)kCFHTTPAuthenticationSchemeNegotiate])
+        return NSURLAuthenticationMethodNegotiate;
+    return nil;
+}
+
+static NSURLAuthenticationChallenge *wsPasswordChallenge(NSURLProtectionSpace *space,
+    NSURLCredential *proposed, NSInteger failureCount, NSURLResponse *failureResponse)
+{
+    if (!space)
+        return nil;
+    return [[NSURLAuthenticationChallenge alloc] initWithProtectionSpace:space proposedCredential:proposed
+        previousFailureCount:failureCount failureResponse:failureResponse error:nil
+        sender:[[WKWebSocketChallengeSender alloc] init]];
+}
+
+// A server challenge is answered with the credential the session delegate chooses: NetworkSessionCocoa
+// answers URLSession:task:didReceiveChallenge: for a WebSocket task too, and its 401 branch is what puts the
+// accepted credential into the session's credential storage.
+- (BOOL)authenticateWithHeaderData:(NSData *)headerData
+{
+    if (WKWebSocketConnectionAuthentication *exchange = std::exchange(_connectionAuthentication, nil)) {
+        // The server's answer to the exchange's last message, on the connection that sent it: the exchange
+        // goes on without the delegate, and this 401 does not refuse the credential.
+        NSData *token = wsChallengeToken((NSHTTPURLResponse *)_response, exchange.scheme);
+        if (token.length) {
+            NSString *authorization = [exchange authorizationForToken:token];
+            if (!authorization || ![self holdConnectionAfterRefusal])
+                return [self handshakeFailed:401];
+            _connectionAuthentication = exchange;
+            NSMutableURLRequest *next = [_request mutableCopy];
+            [next setValue:authorization forHTTPHeaderField:@"Authorization"];
+            [next setValue:nil forHTTPHeaderField:@"Cookie"];
+            WKWebSocketStream *taskSelf = self;
+            dispatch_async(_ioQueue, ^{ [taskSelf continueWithHandshakeRequest:next status:401]; });
+            return NO;
+        }
+    }
+    NSURL *url = _request.URL.absoluteURL;
+    // CFHTTPAuthentication reads the challenge off a response that names the URL it answers, as the
+    // responses CFNetwork's own HTTP stream produces do; it picks the strongest scheme offered.
+    CFHTTPMessageRef message = CFHTTPMessageCreateEmpty(NULL, false);
+    id authentication = nil;
+    if (CFHTTPMessageAppendBytes(message, (const UInt8 *)headerData.bytes, headerData.length)) {
+        _CFHTTPMessageSetResponseURL(message, (__bridge CFURLRef)url);
+        authentication = CFBridgingRelease(CFHTTPAuthenticationCreateFromResponse(NULL, message));
+    }
+    CFRelease(message);
+    if (!authentication || !CFHTTPAuthenticationIsValid((__bridge CFHTTPAuthenticationRef)authentication, NULL))
+        return [self handshakeFailed:401];
+    NSString *scheme = CFBridgingRelease(CFHTTPAuthenticationCopyMethod((__bridge CFHTTPAuthenticationRef)authentication));
+    NSString *method = wsAuthenticationMethodForScheme(scheme);
+    if (!method)
+        return [self handshakeFailed:401];
+    NSString *realm = CFBridgingRelease(CFHTTPAuthenticationCopyRealm((__bridge CFHTTPAuthenticationRef)authentication)) ?: @"";
+
+    NSString *user = (__bridge_transfer NSString *)CFURLCopyUserName((__bridge CFURLRef)url);
+    NSString *password = (__bridge_transfer NSString *)CFURLCopyPassword((__bridge CFURLRef)url);
+    // The URL's userinfo is proposed on the first challenge only: a credential the server has already
+    // refused is not offered again, which is what previousFailureCount says to a delegate and what
+    // ends the exchange for a task whose delegate does not answer challenges.
+    NSURLProtectionSpace *space = wsPasswordProtectionSpace(url, method, realm);
+    if (!space)
+        return [self handshakeFailed:401];
+
+    // NSURLSession's order: the credentials the URL names, then the ones the session was given for
+    // this space, and a challenge only for a space it holds nothing for.
+    NSURLCredential *proposed = nil;
+    if (!_authenticationFailureCount) {
+        if (user.length || password.length)
+            proposed = [NSURLCredential credentialWithUser:user ?: @"" password:password ?: @"" persistence:NSURLCredentialPersistenceNone];
+        else
+            proposed = [_session.configuration.URLCredentialStorage defaultCredentialForProtectionSpace:space];
+    }
+    NSURLAuthenticationChallenge *challenge = wsPasswordChallenge(space, proposed, _authenticationFailureCount, _response);
+    if (!challenge)
+        return [self handshakeFailed:401];
+
+    _authenticationFailureCount++;
+
+    // NTLM and Negotiate answer on the connection that asked, which is held while the answer is sought.
+    // Any other refused connection is finished with, and goes down first: the read pass that delivered this
+    // 401 goes on to report the server's close of it, and a connection still standing there fails the task
+    // before the credentialed handshake can be made.
+    if (wsSchemeIsConnectionBased(scheme) && [self holdConnectionAfterRefusal])
+        _awaitingCredential = YES;
+    else
+        [self resetConnection];
+
+    // A URL that carries its own userinfo answers with it directly, without a delegate round trip:
+    // NSURLSession applies the credentials the URL names, and only a challenge it has nothing to
+    // answer with reaches URLSession:task:didReceiveChallenge:.
+    if (proposed) {
+        WKWebSocketStream *taskSelf = self;
+        dispatch_async(_ioQueue, ^{ [taskSelf continueWithCredential:proposed authentication:authentication]; });
+        return NO;
+    }
+
+    __weak id delegate = _delegate;
+    __weak NSURLSession *session = _session;
+    WKWebSocketStream *taskSelf = self;
+    dispatch_queue_t ioQueue = _ioQueue;
+    wsDispatchToCallbackQueue(_session, ^{
+        void (^answer)(NSURLCredential *) = ^(NSURLCredential *credential) {
+            dispatch_async(ioQueue, ^{
+                [taskSelf continueWithCredential:credential authentication:authentication];
+            });
+        };
+        id<NSURLSessionTaskDelegate> d = (id<NSURLSessionTaskDelegate>)delegate;
+        if (![d respondsToSelector:@selector(URLSession:task:didReceiveChallenge:completionHandler:)]) {
+            answer(proposed);
+            return;
+        }
+        [d URLSession:session task:(NSURLSessionTask *)taskSelf didReceiveChallenge:challenge
+            completionHandler:^(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential *credential) {
+                switch (disposition) {
+                case NSURLSessionAuthChallengeUseCredential:
+                    answer(credential);
+                    break;
+                case NSURLSessionAuthChallengePerformDefaultHandling:
+                    answer(proposed);
+                    break;
+                case NSURLSessionAuthChallengeCancelAuthenticationChallenge: {
+                    dispatch_async(ioQueue, ^{
+                        [taskSelf failWithError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorUserCancelledAuthentication userInfo:nil]
+                            reason:@"Authentication cancelled"];
+                    });
+                    break;
+                }
+                case NSURLSessionAuthChallengeRejectProtectionSpace: {
+                    dispatch_async(ioQueue, ^{ [taskSelf handshakeFailed:401]; });
+                    break;
+                }
+                }
+            }];
+    });
+    return NO;
+}
+
+- (void)continueWithCredential:(NSURLCredential *)credential authentication:(id)authentication
+{
+    if (_state == WKWSStateClosed)
+        return;
+    _awaitingCredential = NO;
+    // The userinfo has been spent on the header; a URL that still carried it would put it on the wire.
+    NSURLComponents *components = [NSURLComponents componentsWithURL:_request.URL.absoluteURL resolvingAgainstBaseURL:NO];
+    components.user = nil;
+    components.password = nil;
+    NSURL *hopURL = components.URL;
+
+    CFHTTPAuthenticationRef auth = (__bridge CFHTTPAuthenticationRef)authentication;
+    NSString *scheme = CFBridgingRelease(CFHTTPAuthenticationCopyMethod(auth));
+    NSString *authorization = nil;
+    if (wsSchemeIsConnectionBased(scheme)) {
+        if (credential || [scheme isEqualToString:(__bridge NSString *)kCFHTTPAuthenticationSchemeNegotiate]
+            || !CFHTTPAuthenticationRequiresUserNameAndPassword(auth)) {
+            _connectionAuthentication = [[WKWebSocketConnectionAuthentication alloc] initWithScheme:scheme host:hopURL.host credential:credential];
+            authorization = [_connectionAuthentication authorizationForToken:nil];
+        }
+    } else if (credential || !CFHTTPAuthenticationRequiresUserNameAndPassword(auth)) {
+        CFHTTPMessageRef hop = CFHTTPMessageCreateRequest(NULL, CFSTR("GET"), (__bridge CFURLRef)hopURL, kCFHTTPVersion1_1);
+        if (CFHTTPMessageApplyCredentials(hop, auth, (__bridge CFStringRef)credential.user, (__bridge CFStringRef)credential.password, NULL))
+            authorization = CFBridgingRelease(CFHTTPMessageCopyHeaderFieldValue(hop, CFSTR("Authorization")));
+        CFRelease(hop);
+    }
+    if (!authorization) {
+        [self handshakeFailed:401];
+        return;
+    }
+
+    NSMutableURLRequest *authenticatedRequest = [_request mutableCopy];
+    authenticatedRequest.URL = hopURL;
+    [authenticatedRequest setValue:authorization forHTTPHeaderField:@"Authorization"];
+    [authenticatedRequest setValue:nil forHTTPHeaderField:@"Cookie"];
+    [self continueWithHandshakeRequest:authenticatedRequest status:401];
 }
 
 // A handshake that answers with a redirect is followed on a new connection, with the session delegate
@@ -1435,17 +1913,13 @@ static BOOL wsHeaderHasValidHTTPVersion(const uint8_t *line, NSUInteger length)
     // The Cookie header belongs to the hop that sent it; the next hop's is looked up for its own URL
     // once the delegate has answered.
     [newRequest setValue:nil forHTTPHeaderField:@"Cookie"];
+    if (!wsURLsAreSameOrigin(_request.URL, newURL))
+        [newRequest setValue:nil forHTTPHeaderField:@"Authorization"];
     // Fetch: a request whose origin is not the redirect target's carries an opaque origin from there on.
     if ([newRequest valueForHTTPHeaderField:@"Origin"] && !wsURLsAreSameOrigin(_request.URL, newURL))
         [newRequest setValue:@"null" forHTTPHeaderField:@"Origin"];
 
-    [self teardownTransport];
-    _state = WKWSStateConnecting;
-    [_inBuffer setLength:0];
-    [_outBuffer setLength:0];
-    _transportOpen = NO;
-    _peerTrustAnswered = NO;
-    _peerTrustPending = NO;
+    [self resetConnection];
 
     __weak id delegate = _delegate;
     __weak NSURLSession *session = _session;
@@ -1453,7 +1927,7 @@ static BOOL wsHeaderHasValidHTTPVersion(const uint8_t *line, NSUInteger length)
     dispatch_queue_t ioQueue = _ioQueue;
     wsDispatchToCallbackQueue(_session, ^{
         void (^continueWithRequest)(NSURLRequest *) = ^(NSURLRequest *request) {
-            dispatch_async(ioQueue, ^{ [taskSelf continueWithRedirectRequest:request status:redirectResponse.statusCode]; });
+            dispatch_async(ioQueue, ^{ [taskSelf continueWithHandshakeRequest:request status:redirectResponse.statusCode]; });
         };
         id<NSURLSessionTaskDelegate> d = (id<NSURLSessionTaskDelegate>)delegate;
         if ([d respondsToSelector:@selector(URLSession:task:willPerformHTTPRedirection:newRequest:completionHandler:)])
@@ -1464,9 +1938,7 @@ static BOOL wsHeaderHasValidHTTPVersion(const uint8_t *line, NSUInteger length)
     return NO;
 }
 
-// The delegate's answer: a request to continue with, or nil for a redirect it declines to follow --
-// which leaves the handshake unfinished, so it is reported as the failure it is.
-- (void)continueWithRedirectRequest:(NSURLRequest *)request status:(NSInteger)statusCode
+- (void)continueWithHandshakeRequest:(NSURLRequest *)request status:(NSInteger)statusCode
 {
     if (_state == WKWSStateClosed)
         return;
@@ -1478,7 +1950,10 @@ static BOOL wsHeaderHasValidHTTPVersion(const uint8_t *line, NSUInteger length)
     wsApplyStoredCookies([self cookieStorage], hop, wsSiteForCookies(hop) ?: _siteForCookies,
         wsSiteForCookies(hop) ? wsIsTopLevelNavigation(hop) : _isTopLevelNavigation);
     [self setCurrentRequest:hop];
-    [self startConnection];
+    if (_transportOpen && _curl)
+        [self sendHandshake];
+    else
+        [self startConnection];
 }
 
 - (BOOL)handshakeFailed:(NSInteger)statusCode
@@ -1643,7 +2118,7 @@ static void maskBytes(uint8_t *bytes, NSUInteger length, const uint8_t key[4])
             if (_messageOpcode == 0x1) {
                 // RFC 6455 makes an undecodable text frame a protocol failure (close 1007). Substituting an
                 // empty string would hand JS a message the peer never sent and hide the fault.
-                NSString *text = [[NSString alloc] initWithData:_messageBuffer encoding:NSUTF8StringEncoding];
+                NSString *text = wsTextFromUTF8(_messageBuffer);
                 if (!text) {
                     [_messageBuffer setLength:0];
                     _messageOpcode = -1;
@@ -1755,7 +2230,6 @@ static void maskBytes(uint8_t *bytes, NSUInteger length, const uint8_t key[4])
     if (_sentClose)
         return;
     _sentClose = YES;
-    _sentCloseCode = code ? code : 1005;
     NSMutableData *payload = [NSMutableData data];
     if (code) {
         uint8_t codeBytes[2] = { (uint8_t)(code >> 8), (uint8_t)(code & 0xFF) };

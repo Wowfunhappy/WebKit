@@ -70,7 +70,9 @@ CheckedUint32 ShareableBitmapConfiguration::calculateBitsPerComponent(const Dest
 
 CheckedUint32 ShareableBitmapConfiguration::calculateBytesPerPixel(const DestinationColorSpace& colorSpace)
 {
-    return colorSpace.usesExtendedRange() ? 8 : 4;
+    // MAVERICKS_BACKPORT: Quartz float bitmap storage uses 32-bit components.
+    // return colorSpace.usesExtendedRange() ? 8 : 4;
+    return colorSpace.usesExtendedRange() ? 16 : 4;
 }
 
 CheckedUint32 ShareableBitmapConfiguration::calculateBytesPerRow(const IntSize& size, const DestinationColorSpace& colorSpace)
@@ -90,7 +92,9 @@ CGBitmapInfo ShareableBitmapConfiguration::calculateBitmapInfo(const Destination
 {
     CGBitmapInfo info = 0;
     if (colorSpace.usesExtendedRange()) {
-        info |= kCGBitmapFloatComponents | static_cast<CGBitmapInfo>(kCGBitmapByteOrder16Host);
+        // MAVERICKS_BACKPORT: each native float component occupies a 32-bit host-order word.
+        // info |= kCGBitmapFloatComponents | static_cast<CGBitmapInfo>(kCGBitmapByteOrder16Host);
+        info |= kCGBitmapFloatComponents | static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Host);
 
         if (isOpaque)
             info |= kCGImageAlphaNoneSkipLast;

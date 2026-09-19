@@ -1,0 +1,9 @@
+
+PASS __Http: Does not set via DOM 'Path=/'
+PASS __Http: Does not set via DOM 'Secure; Path=/'
+PASS __Http: Does not set via DOM 'Secure; Path=/; httponly'
+PASS __Http: Does not set via HTTP with 'Path=/;' (without Secure)
+PASS __Http: Does not set via HTTP with 'Secure; Path=/'
+PASS __Http: Does set via HTTP with 'Secure; Path=/;httponly'
+PASS __Http: Does set via HTTP with 'Secure; Path=/cookies/;httponly'
+

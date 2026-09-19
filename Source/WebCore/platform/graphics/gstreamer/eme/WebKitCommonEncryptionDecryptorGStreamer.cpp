@@ -65,6 +65,10 @@ enum DecryptionState {
 #define WEBKIT_MEDIA_CENC_DECRYPT_GET_PRIVATE(obj) (G_TYPE_INSTANCE_GET_PRIVATE((obj), WEBKIT_TYPE_MEDIA_CENC_DECRYPT, WebKitMediaCommonEncryptionDecryptPrivate))
 struct _WebKitMediaCommonEncryptionDecryptPrivate {
     RefPtr<CDMProxy> cdmProxy;
+    // MAVERICKS_BACKPORT: the proxy a running decrypt waits on, recorded where the decryptor takes its copy
+    // (webKitMediaCommonEncryptionDecryptTakeDecryptingProxy()). setContext() can replace cdmProxy while
+    // the lock is dropped, so flushing and stopping abort this proxy's key wait as well as cdmProxy's.
+    RefPtr<CDMProxy> decryptingProxy;
 
     // Protect the access to the structure members.
     Lock lock;
@@ -280,6 +284,7 @@ static GstFlowReturn transformInPlace(GstBaseTransform* base, GstBuffer* buffer)
     auto scopeExit = makeScopeExit([buffer, protectionMeta, priv] {
         gst_buffer_remove_meta(buffer, reinterpret_cast<GstMeta*>(protectionMeta));
         priv->decryptionState = DecryptionState::Idle;
+        priv->decryptingProxy = nullptr; // MAVERICKS_BACKPORT: see decryptingProxy.
     });
 
     bool isCbcs = false;
@@ -426,7 +431,11 @@ static void attachCDMProxy(WebKitMediaCommonEncryptionDecrypt* self, CDMProxy* p
     Locker locker { priv->lock };
     GST_DEBUG_OBJECT(self, "Attaching CDMProxy %p", proxy);
     priv->cdmProxy = proxy;
-    klass->cdmProxyAttached(self, priv->cdmProxy);
+    // klass->cdmProxyAttached(self, priv->cdmProxy);
+    // MAVERICKS_BACKPORT: this port builds two CENC decryptors (ClearKey and Widevine) behind one
+    // drm-cdm-proxy context, and each refuses a proxy of another key system; only an accepted one is kept.
+    if (!klass->cdmProxyAttached(self, priv->cdmProxy))
+        priv->cdmProxy = nullptr;
     priv->condition.notifyOne();
 }
 
@@ -454,7 +463,7 @@ static gboolean installCDMProxyIfNotAvailable(WebKitMediaCommonEncryptionDecrypt
     }
 
     attachCDMProxy(self, proxy);
-    return TRUE; // MAVERICKS_BACKPORT: closes the early-return split above.
+    return isCDMProxyAvailable(self); // MAVERICKS_BACKPORT: attachCDMProxy() keeps no refused proxy; closes the early-return split above.
 }
 
 static gboolean sinkEventHandler(GstBaseTransform* trans, GstEvent* event)
@@ -485,16 +494,24 @@ static gboolean sinkEventHandler(GstBaseTransform* trans, GstEvent* event)
         GST_DEBUG_OBJECT(self, "Flush-start");
         {
             Locker locker { priv->lock };
-            bool isCdmProxyAttached = priv->cdmProxy;
+            // bool isCdmProxyAttached = priv->cdmProxy;
+            // MAVERICKS_BACKPORT: the proxies are taken under the lock, because setContext() can replace
+            // priv->cdmProxy once it is released, and the one a decrypt is waiting on is aborted too.
+            RefPtr<CDMProxy> cdmProxy = priv->cdmProxy;
+            RefPtr<CDMProxy> decryptingProxy = priv->decryptingProxy;
             priv->isFlushing = true;
             ASSERT(priv->decryptionState == DecryptionState::Idle || priv->decryptionState == DecryptionState::Decrypting);
             if (priv->decryptionState == DecryptionState::Decrypting)
                 priv->decryptionState = DecryptionState::FlushPending;
-            if (isCdmProxyAttached) {
+            // if (isCdmProxyAttached) {
+            if (cdmProxy) { // MAVERICKS_BACKPORT: see above.
                 locker.unlockEarly();
-                priv->cdmProxy->abortWaitingForKey();
+                // priv->cdmProxy->abortWaitingForKey();
+                cdmProxy->abortWaitingForKey(); // MAVERICKS_BACKPORT: see above.
             } else
                 priv->condition.notifyOne();
+            if (decryptingProxy && decryptingProxy != cdmProxy) // MAVERICKS_BACKPORT: see above.
+                decryptingProxy->abortWaitingForKey();
         }
         break;
     case GST_EVENT_FLUSH_STOP:
@@ -525,6 +542,14 @@ WeakPtr<WebCore::CDMProxyDecryptionClient> webKitMediaCommonEncryptionDecryptGet
     return WeakPtr { *priv->cdmProxyDecryptionClientImplementation, EnableWeakPtrThreadingAssertions::No };
 }
 
+// MAVERICKS_BACKPORT: see decryptingProxy. The lock order is this element's lock, then the decryptor's.
+void webKitMediaCommonEncryptionDecryptTakeDecryptingProxy(WebKitMediaCommonEncryptionDecrypt* self, const ScopedLambda<RefPtr<CDMProxy>()>& takeProxy)
+{
+    WebKitMediaCommonEncryptionDecryptPrivate* priv = WEBKIT_MEDIA_CENC_DECRYPT_GET_PRIVATE(self);
+    Locker locker { priv->lock };
+    priv->decryptingProxy = takeProxy();
+}
+
 static GstStateChangeReturn changeState(GstElement* element, GstStateChange transition)
 {
     WebKitMediaCommonEncryptionDecrypt* self = WEBKIT_MEDIA_CENC_DECRYPT(element);
@@ -547,6 +572,8 @@ static GstStateChangeReturn changeState(GstElement* element, GstStateChange tran
         priv->condition.notifyOne();
         if (priv->cdmProxy)
             priv->cdmProxy->abortWaitingForKey();
+        if (priv->decryptingProxy && priv->decryptingProxy != priv->cdmProxy) // MAVERICKS_BACKPORT: see decryptingProxy.
+            priv->decryptingProxy->abortWaitingForKey();
         break;
     }
     default:
@@ -571,7 +598,12 @@ static void setContext(GstElement* element, GstContext* context)
         Locker locker { priv->lock };
         priv->cdmProxy = value ? reinterpret_cast<CDMProxy*>(g_value_get_pointer(value)) : nullptr;
         GST_DEBUG_OBJECT(self, "received new CDMInstance %p", priv->cdmProxy.get());
-        klass->cdmProxyAttached(self, priv->cdmProxy);
+        // klass->cdmProxyAttached(self, priv->cdmProxy);
+        // MAVERICKS_BACKPORT: keeps only a proxy the decryptor accepted and wakes a transformInPlace()
+        // waiting for one, as attachCDMProxy() does.
+        if (!klass->cdmProxyAttached(self, priv->cdmProxy))
+            priv->cdmProxy = nullptr;
+        priv->condition.notifyOne();
         return;
     }
 

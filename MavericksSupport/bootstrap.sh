@@ -4,6 +4,16 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+WK_IBTOOL=/Applications/Xcode.app/Contents/Developer/usr/bin/ibtool
+if [ ! -x "$WK_IBTOOL" ]; then
+    WK_IBTOOL="$(command -v ibtool || true)"
+fi
+if [ -z "$WK_IBTOOL" ] || ! "$WK_IBTOOL" --version >/dev/null 2>&1; then
+    echo "ERROR: Xcode 6.2's ibtool is required to compile WebAuthenticationPanel.nib." >&2
+    echo "Install Xcode 6.2 at /Applications/Xcode.app, or provide a working ibtool on PATH." >&2
+    exit 1
+fi
+
 echo "### [1/4] toolchain (clang + cmake/ninja/python3/nasm/ccache)"
 "$HERE/toolchain/bootstrap.sh"
 

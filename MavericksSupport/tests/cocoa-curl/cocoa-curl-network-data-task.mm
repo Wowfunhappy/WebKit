@@ -79,6 +79,9 @@ int main()
             { @"http://127.0.0.1:18981/probe/redirect_limit_20", 0, 0, 20, 0, @"/echo/redirect_done_20" },
             { @"http://127.0.0.1:18981/probe/redirect_limit_21", NSURLErrorHTTPTooManyRedirects, 0, 20, 0 },
             { @"http://127.0.0.1:18982/basic", 0, 2097152, 0, 1 },
+            // A data store that does not allow legacy TLS gives its sessions a TLS 1.2 floor, which a TLS 1.1-only
+            // server cannot meet.
+            { @"https://127.0.0.1:19451/", NSURLErrorSecureConnectionFailed, 0, 0, 0 },
         };
         for (auto& item : cases) {
             DataTaskProbe* probe = [DataTaskProbe new];

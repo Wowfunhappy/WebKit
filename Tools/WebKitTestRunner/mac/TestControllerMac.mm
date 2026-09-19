@@ -67,11 +67,7 @@
 
 namespace WTR {
 
-// MAVERICKS_BACKPORT: WebKitTestRunner is built without ARC here, so the zeroing-weak qualifier is
-// unavailable; use __unsafe_unretained. This is a non-owning reference that the popup-tracking machinery
-// always clears to nil on cancel (swizzledCancelTracking) before the menu can deallocate -- and every read
-// wraps it in a RetainPtr first -- so the auto-nil that __weak would provide is not relied upon.
-static __unsafe_unretained NSMenu *gCurrentPopUpMenu;
+static __weak NSMenu *gCurrentPopUpMenu;
 
 void TestController::notifyDone()
 {
@@ -146,10 +142,7 @@ void TestController::platformInitialize(const Options& options)
     
     cocoaPlatformInitialize(options);
 
-    // MAVERICKS_BACKPORT: -[NSApplication _effectiveAccentColor] is macOS 10.14+; on 10.9 there is no accent
-    // color, so leave m_defaultAppAccentColor nil (the restore in platformResetStateToConsistentValues is
-    // already guarded by `if (m_defaultAppAccentColor && ...)`, which short-circuits before touching the SPI).
-    if (!m_defaultAppAccentColor && [NSApp respondsToSelector:@selector(_effectiveAccentColor)])
+    if (!m_defaultAppAccentColor)
         m_defaultAppAccentColor = NSApp._effectiveAccentColor;
 
     [NSSound _setAlertType:0];
@@ -176,11 +169,7 @@ void TestController::platformInitialize(const Options& options)
 void TestController::platformDestroy()
 {
     [WebKitTestRunnerPasteboard releaseLocalPasteboards];
-// MAVERICKS_BACKPORT: match initializeDNS()'s guard (TestControllerCocoa.mm). m_resolverConfig is only ever
-// published when ENABLE(DNS_SERVER_FOR_TESTING) is on, so this unpublish is dead code otherwise -- and the
-// nw_resolver_config_* SPIs live in Network.framework, which does not exist on macOS 10.9, so referencing
-// nw_resolver_config_unpublish under the weaker guard left it as an undefined symbol at link time.
-#if ENABLE(DNS_SERVER_FOR_TESTING) && !ENABLE(DNS_SERVER_FOR_TESTING_IN_NETWORKING_PROCESS)
+#if !ENABLE(DNS_SERVER_FOR_TESTING_IN_NETWORKING_PROCESS)
     if (auto resolverConfig = m_resolverConfig)
         nw_resolver_config_unpublish(resolverConfig.get());
 #endif
@@ -204,10 +193,7 @@ bool TestController::platformResetStateToConsistentValues(const TestOptions& opt
 
     cocoaResetStateToConsistentValues(options);
 
-    // MAVERICKS_BACKPORT: -[WKWebView _obscuredContentInsets]/_setObscuredContentInsets:immediate: are not
-    // present in this build; guard the SPI so the absent selector does not raise. (Tests that exercise obscured
-    // content insets do not run here.)
-    if (RetainPtr webView = m_mainWebView ? m_mainWebView->platformView() : nil; webView && [webView respondsToSelector:@selector(_obscuredContentInsets)]) {
+    if (RetainPtr webView = m_mainWebView ? m_mainWebView->platformView() : nil) {
         auto newObscuredInsetTop = options.obscuredInsetTop();
         auto newObscuredInsetLeft = options.obscuredInsetLeft();
         auto obscuredInset = [webView _obscuredContentInsets];

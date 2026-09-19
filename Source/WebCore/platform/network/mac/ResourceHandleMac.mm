@@ -537,9 +537,7 @@ void ResourceHandle::didReceiveAuthenticationChallenge(const AuthenticationChall
 
     // Proxy authentication is handled by CFNetwork internally. We can get here if the user cancels
     // CFNetwork authentication dialog, and we shouldn't ask the client to display another one in that case.
-    // MAVERICKS_BACKPORT: curl proxy challenges use WebKit's credential contract; native non-HTTP handlers retain theirs.
-    // if (challenge.protectionSpace().isProxy()) {
-    if (challenge.protectionSpace().isProxy() && !d->m_cocoaCurlHandle) {
+    if (challenge.protectionSpace().isProxy()) {
         // Cannot use receivedRequestToContinueWithoutCredential(), because current challenge is not yet set.
         [challenge.sender() continueWithoutCredentialForAuthenticationChallenge:challenge.nsURLAuthenticationChallenge()];
         return;

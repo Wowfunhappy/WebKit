@@ -172,12 +172,24 @@ struct MediaPlayerPrivateNotifier {
     ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer> m_player;
 };
 
-WebKitVideoSinkSignalIdentifiers webKitVideoSinkSetMediaPlayerPrivate(GstElement* appSink, const ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>& player)
+// MAVERICKS_BACKPORT: both accelerated sinks install the upstream probe before receiving frames.
+void webKitVideoSinkAttachPlayerProbe(GstElement* sink, const ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>& player)
 {
     static std::once_flag onceFlag;
     std::call_once(onceFlag, [] {
         GST_DEBUG_CATEGORY_INIT(webkit_gst_video_sink_common_debug, "webkitvideosinkcommon", 0, "WebKit Video Sink Common utilities");
     });
+
+    // MAVERICKS_BACKPORT: upstream flush events abort pending presentation tasks on either sink.
+    GRefPtr<GstPad> pad = adoptGRef(gst_element_get_static_pad(sink, "sink"));
+    gst_pad_add_probe(pad.get(), static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_PUSH | GST_PAD_PROBE_TYPE_QUERY_DOWNSTREAM
+        | GST_PAD_PROBE_TYPE_EVENT_FLUSH | GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM),
+        WebKitVideoSinkProbe::doProbe, new WebKitVideoSinkProbe(player), WebKitVideoSinkProbe::deleteUserData);
+}
+
+WebKitVideoSinkSignalIdentifiers webKitVideoSinkSetMediaPlayerPrivate(GstElement* appSink, const ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>& player)
+{
+    webKitVideoSinkAttachPlayerProbe(appSink, player);
 
     WebKitVideoSinkSignalIdentifiers identifiers;
     identifiers.newSample = g_signal_connect_data(appSink, "new-sample", G_CALLBACK(+[](GstElement* sink, MediaPlayerPrivateNotifier* notifier) -> GstFlowReturn {
@@ -209,9 +221,11 @@ WebKitVideoSinkSignalIdentifiers webKitVideoSinkSetMediaPlayerPrivate(GstElement
 
     GRefPtr<GstPad> pad = adoptGRef(gst_element_get_static_pad(appSink, "sink"));
 
+    /* MAVERICKS_BACKPORT: installed by webKitVideoSinkAttachPlayerProbe above.
     gst_pad_add_probe(pad.get(), static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_PUSH | GST_PAD_PROBE_TYPE_QUERY_DOWNSTREAM
         | GST_PAD_PROBE_TYPE_EVENT_FLUSH | GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM),
         WebKitVideoSinkProbe::doProbe, new WebKitVideoSinkProbe(player), WebKitVideoSinkProbe::deleteUserData);
+    */ // MAVERICKS_BACKPORT: probe registration is shared above.
 
     RefPtr strongPlayer = player.get();
     if (!strongPlayer) [[unlikely]]

@@ -1,0 +1,71 @@
+# H.264 output profiles match the VideoToolbox profile mappings in vtenc.
+# Main remains first, matching the encoder's default for an unconstrained request.
+# Constrained Baseline output caps retain the native SPS constraint flags.
+--- a/sys/applemedia/vtenc.c
++++ b/sys/applemedia/vtenc.c
+@@ -363,11 +363,27 @@
+   }
+ 
+   switch (codec_details->format_id) {
+-    case kCMVideoCodecType_H264:
++    case kCMVideoCodecType_H264: {
++      static const gchar *names[] = { "main", "baseline",
++        "constrained-baseline", "high" };
++      GValue profiles = G_VALUE_INIT;
++      GValue profile = G_VALUE_INIT;
++      guint i;
++      g_value_init (&profiles, GST_TYPE_LIST);
++      g_value_init (&profile, G_TYPE_STRING);
++      for (i = 0; i < G_N_ELEMENTS (names); ++i) {
++        g_value_set_static_string (&profile, names[i]);
++        gst_value_list_append_value (&profiles, &profile);
++      }
++      gst_structure_set_value (gst_caps_get_structure (src_caps, 0),
++          "profile", &profiles);
++      g_value_unset (&profile);
++      g_value_unset (&profiles);
+       gst_structure_set (gst_caps_get_structure (src_caps, 0),
+           "stream-format", G_TYPE_STRING, "avc",
+           "alignment", G_TYPE_STRING, "au", NULL);
+       break;
++    }
+     case kCMVideoCodecType_HEVC:
+     case kCMVideoCodecType_HEVCWithAlpha:
+       gst_structure_set (gst_caps_get_structure (src_caps, 0),
+@@ -931,6 +947,7 @@
+ 
+   if (profile == NULL)
+     profile = "main";
++  self->h264_constrained_baseline = !strcmp (profile, "constrained-baseline");
+   if (level_arg == NULL)
+     level_arg = "AutoLevel";
+   strlcpy (level, level_arg, sizeof (level));
+@@ -939,7 +956,7 @@
+       !strcmp (profile, "baseline")) {
+     profile = "Baseline";
+     self->h264_profile = GST_H264_PROFILE_BASELINE;
+-  } else if (g_str_has_prefix (profile, "high")) {
++  } else if (!strcmp (profile, "high")) {
+     profile = "High";
+     self->h264_profile = GST_H264_PROFILE_HIGH;
+   } else if (!strcmp (profile, "main")) {
+@@ -1230,7 +1247,8 @@
+         }
+ 
+         sps[0] = codec_data[1];
+-        sps[1] = codec_data[2] & ~0xDF;
++        sps[1] = self->h264_constrained_baseline ? codec_data[2] :
++            codec_data[2] & ~0xDF;
+         sps[2] = codec_data[3];
+         gst_codec_utils_h264_caps_set_level_and_profile (caps, sps, 3);
+       }
+--- a/sys/applemedia/vtenc.h
++++ b/sys/applemedia/vtenc.h
+@@ -81,6 +81,7 @@
+   CMVideoCodecType specific_format_id;
+   CFStringRef profile_level;
+   GstH264Profile h264_profile;
++  gboolean h264_constrained_baseline;
+   guint bitrate;
+   guint max_bitrate;
+   float bitrate_window;

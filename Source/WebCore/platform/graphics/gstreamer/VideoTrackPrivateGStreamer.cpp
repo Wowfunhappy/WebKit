@@ -77,10 +77,15 @@ VideoTrackPrivateGStreamer::VideoTrackPrivateGStreamer(ThreadSafeWeakPtr<MediaPl
 void VideoTrackPrivateGStreamer::capsChanged(TrackID streamId, GRefPtr<GstCaps>&& caps)
 {
     ASSERT(isMainThread());
+    // MAVERICKS_BACKPORT: the decoder probe's codec stands in for caps that name no codec, such as a playbin pad's raw
+    // caps. It is the first codec that decoder saw, so caps naming a codec are the newer description.
+    bool capsNameCodec = caps && !GMallocString::unsafeAdoptFromUTF8(gst_codec_utils_caps_get_mime_codec(caps.get())).isEmpty();
     updateConfigurationFromCaps(WTF::move(caps));
 
     RefPtr player = m_data->m_player.get();
     if (!player)
+        return;
+    if (capsNameCodec) // MAVERICKS_BACKPORT: see capsNameCodec above.
         return;
 
     auto codec = player->codecForStreamId(streamId);

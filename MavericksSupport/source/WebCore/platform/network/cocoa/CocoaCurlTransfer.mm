@@ -11,7 +11,17 @@
 #include "HTTPParsers.h"
 #include "ResourceError.h"
 #include "SharedBuffer.h"
+#include "WebCoreURLResponse.h"
+#include "CacheValidation.h"
+#include "HTTPStatusCodes.h"
+#include "NetworkStorageSession.h"
 #include <Foundation/Foundation.h>
+#include <wtf/NumberOfCores.h>
+#include <wtf/WorkerPool.h>
+#include <wtf/BlockPtr.h>
+#include <wtf/darwin/DispatchExtras.h>
+#include <wtf/Scope.h>
+#include <wtf/cocoa/TypeCastsCocoa.h>
 #include <wtf/text/MakeString.h>
 #include <wtf/FileHandle.h>
 #include <wtf/FileSystem.h>
@@ -27,6 +37,10 @@ extern "C" CFStringRef _CFNetworkCopyPreferredLanguageCode(void);
 // curl framing, upload streams and TLS are independent of a Cocoa loader's policy client.
 // CFNetwork's native conversion preserves FormDataStreamCFNet's { domain: 0, error: -43 }.
 extern "C" CFErrorRef _CFErrorCreateWithStreamError(CFAllocatorRef, CFStreamError*);
+
+@interface NSURLCache (CocoaCurlStorageSession)
+- (instancetype)_initWithExistingCFURLCache:(CFURLCacheRef)cache;
+@end
 
 namespace WebCore {
 static std::optional<uint64_t> cocoaCurlUploadElementLength(const FormDataElement&, int& failureErrno);
@@ -146,6 +160,10 @@ size_t CocoaCurlTransfer::readCallback(char* data, size_t size, size_t count, vo
             if (!transfer.m_uploadFile) {
                 if (!file->fileModificationTimeMatchesExpectation())
                     return abortUpload("The upload file changed after it was selected"_s);
+                if (!transfer.m_options.upload->elementLength(transfer.m_uploadElement)) {
+                    ++transfer.m_uploadElement;
+                    continue;
+                }
                 errno = 0;
                 transfer.m_uploadFile = FileSystem::openFile(file->filename, FileSystem::FileOpenMode::Read);
                 auto length = transfer.m_uploadFile ? transfer.m_uploadFile.size() : std::nullopt;
@@ -202,6 +220,281 @@ int CocoaCurlTransfer::progressCallback(void* context, curl_off_t, curl_off_t, c
     return 0;
 }
 
+static long cocoaCurlMinimumTLSVersion(tls_protocol_version_t version)
+{
+    switch (version) {
+    case tls_protocol_version_TLSv10:
+        return CURL_SSLVERSION_TLSv1_0;
+    case tls_protocol_version_TLSv11:
+        return CURL_SSLVERSION_TLSv1_1;
+    case tls_protocol_version_TLSv12:
+        return CURL_SSLVERSION_TLSv1_2;
+    case tls_protocol_version_TLSv13:
+        return CURL_SSLVERSION_TLSv1_3;
+    default:
+        // An SSL 3 codepoint or none: BoringSSL's lowest protocol is TLS 1.0.
+        return CURL_SSLVERSION_TLSv1_0;
+    }
+}
+
+Expected<URL, int> cocoaCurlRequestURL(const URL& input)
+{
+    if (input.isValid())
+        return input;
+    if (input.string().isEmpty())
+        return makeUnexpected(NSURLErrorBadURL);
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    auto escaped = adoptCF(CFURLCreateStringByAddingPercentEscapes(nullptr, input.string().createCFString().get(), CFSTR("%#[]"), nullptr, kCFStringEncodingUTF8));
+ALLOW_DEPRECATED_DECLARATIONS_END
+    if (!escaped)
+        return makeUnexpected(NSURLErrorBadURL);
+    auto* parsed = curl_url();
+    if (!parsed)
+        return makeUnexpected(NSURLErrorUnknown);
+    auto cleanup = makeScopeExit([parsed] { curl_url_cleanup(parsed); });
+    auto status = curl_url_set(parsed, CURLUPART_URL, String(escaped.get()).utf8().data(), 0);
+    if (status != CURLUE_OK)
+        return makeUnexpected(status == CURLUE_OUT_OF_MEMORY ? NSURLErrorUnknown : NSURLErrorBadURL);
+    char* normalized = nullptr;
+    status = curl_url_get(parsed, CURLUPART_URL, &normalized, 0);
+    if (status != CURLUE_OK)
+        return makeUnexpected(status == CURLUE_OUT_OF_MEMORY ? NSURLErrorUnknown : NSURLErrorBadURL);
+    URL result { String::fromUTF8(normalized) };
+    curl_free(normalized);
+    if (!result.isValid())
+        return makeUnexpected(NSURLErrorBadURL);
+    return result;
+}
+
+void adjustCocoaCurlMIMETypeIfNecessary(ResourceResponse& response, IsMainResourceLoad isMainResourceLoad, IsNoSniffSet isNoSniffSet)
+{
+    if (!response.mimeType().isEmpty())
+        return;
+    RetainPtr fields = adoptNS([[NSMutableDictionary alloc] init]);
+    // The selected Content-Type is empty; the combined exposed header can contain earlier values.
+    for (auto& field : response.httpHeaderFields()) {
+        if (field.keyAsHTTPHeaderName != HTTPHeaderName::ContentType)
+            [fields setObject:field.value.createNSString().get() forKey:field.key.createNSString().get()];
+    }
+    RetainPtr native = adoptNS([[NSHTTPURLResponse alloc] initWithURL:response.url().createNSURL().get() statusCode:response.httpStatusCode() HTTPVersion:(NSString *)kCFHTTPVersion1_1 headerFields:fields.get()]);
+    adjustMIMETypeIfNecessary([native _CFURLResponse], isMainResourceLoad, isNoSniffSet);
+    if (CFStringRef type = CFURLResponseGetMIMEType([native _CFURLResponse]))
+        response.setMimeType(String(type));
+}
+
+// A request whose Cache-Control names only-if-cached accepts nothing but a stored response.
+static bool cocoaCurlRequestIsOnlyIfCached(const ResourceRequest& request)
+{
+    for (auto directive : StringView(request.httpHeaderField(HTTPHeaderName::CacheControl)).split(',')) {
+        auto name = directive.left(directive.find('=')).trim([](auto c) { return c == ' ' || c == '\t'; });
+        if (equalLettersIgnoringASCIICase(name, "only-if-cached"_s))
+            return true;
+    }
+    return false;
+}
+
+static NSString *const cocoaCurlCacheResponseTimestampKey = @"WebKitResponseTimestamp";
+static NSString *const cocoaCurlCacheStatusTextKey = @"WebKitHTTPStatusText";
+static NSString *const cocoaCurlCacheHTTPVersionKey = @"WebKitHTTPVersion";
+static NSString *const cocoaCurlCacheVaryingRequestHeadersKey = @"WebKitVaryingRequestHeaders";
+static NSString *const cocoaCurlCacheRangeKey = @"WebKitRequestRange";
+
+static RetainPtr<NSURLCache> cocoaCurlURLCache(NetworkStorageSession* storage)
+{
+    if (!storage)
+        return nullptr;
+    if (auto platformSession = storage->platformSession()) {
+        auto cache = adoptCF(_CFURLStorageSessionCopyCache(kCFAllocatorDefault, platformSession));
+        if (!cache)
+            return nullptr;
+        return adoptNS([[NSURLCache alloc] _initWithExistingCFURLCache:cache.get()]);
+    }
+    if (storage->sessionID().isEphemeral())
+        return nullptr;
+    return [NSURLCache sharedURLCache];
+}
+
+static RetainPtr<NSURLRequest> cocoaCurlCacheRequest(const ResourceRequest& request)
+{
+    auto cacheRequest = request;
+    auto url = cacheRequest.url();
+    url.removeFragmentIdentifier();
+    cacheRequest.setURL(WTF::move(url));
+    return cacheRequest.nsURLRequest(HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody);
+}
+
+CocoaCurlCacheLookup lookUpCocoaCurlCachedResponse(NetworkStorageSession* storage, const ResourceRequest& request)
+{
+    auto policy = request.cachePolicy();
+    auto absent = policy == ResourceRequestCachePolicy::ReturnCacheDataDontLoad || cocoaCurlRequestIsOnlyIfCached(request) ? CocoaCurlCacheAnswer::Unavailable : CocoaCurlCacheAnswer::Load;
+    if (!storage || request.httpMethod() != "GET"_s
+        || (policy == ResourceRequestCachePolicy::ReloadIgnoringCacheData && !request.isConditional()) || policy == ResourceRequestCachePolicy::DoNotUseAnyCache)
+        return { absent, nullptr };
+    RetainPtr cache = cocoaCurlURLCache(storage);
+    RetainPtr entry = [cache cachedResponseForRequest:cocoaCurlCacheRequest(request).get()];
+    if (!entry)
+        return { absent, nullptr };
+    if (request.httpHeaderField(HTTPHeaderName::Range) != String(dynamic_objc_cast<NSString>([entry userInfo][cocoaCurlCacheRangeKey])))
+        return { absent, nullptr };
+    ResourceResponse response([entry response]);
+    if (ResourceResponse::isRedirectionStatusCode(response.httpStatusCode()) && request.url().hasFragmentIdentifier())
+        return { absent, nullptr };
+    if (!response.httpHeaderField(HTTPHeaderName::Vary).isEmpty()) {
+        RetainPtr stored = dynamic_objc_cast<NSArray>([entry userInfo][cocoaCurlCacheVaryingRequestHeadersKey]);
+        if (!stored)
+            return { absent, nullptr };
+        Vector<std::pair<String, String>> varying;
+        for (id field in stored.get()) {
+            RetainPtr pair = dynamic_objc_cast<NSArray>(field);
+            if ([pair count] != 1 && [pair count] != 2)
+                return { absent, nullptr };
+            varying.append({ String(dynamic_objc_cast<NSString>(pair.get()[0])), [pair count] == 2 ? String(dynamic_objc_cast<NSString>(pair.get()[1])) : String() });
+        }
+        if (!verifyVaryingRequestHeaders(storage, varying, request))
+            return { absent, nullptr };
+    }
+    if (request.isConditional() && !response.isRedirection())
+        return { CocoaCurlCacheAnswer::Revalidate, WTF::move(entry) };
+    if (policy == ResourceRequestCachePolicy::ReturnCacheDataElseLoad || policy == ResourceRequestCachePolicy::ReturnCacheDataDontLoad || cocoaCurlRequestIsOnlyIfCached(request))
+        return { CocoaCurlCacheAnswer::UseCached, WTF::move(entry) };
+    // NetworkCache's responseNeedsRevalidation: the request's no-cache or max-age=0 revalidates, and its
+    // max-stale extends the staleness a response may carry and still be used.
+    auto requestDirectives = parseCacheControlDirectives(request.httpHeaderFields());
+    bool requestRevalidates = requestDirectives.noCache || (requestDirectives.maxAge && requestDirectives.maxAge.value() == 0_ms);
+    if (policy == ResourceRequestCachePolicy::UseProtocolCachePolicy && !requestRevalidates && !response.cacheControlContainsNoCache()) {
+        if (RetainPtr timestamp = dynamic_objc_cast<NSNumber>([entry userInfo][cocoaCurlCacheResponseTimestampKey])) {
+            auto responseTime = WallTime::fromRawSeconds([timestamp doubleValue]);
+            auto staleness = computeCurrentAge(response, responseTime) - computeFreshnessLifetimeForHTTPFamily(response, responseTime);
+            if (staleness <= (requestDirectives.maxStale ? requestDirectives.maxStale.value() : 0_ms))
+                return { CocoaCurlCacheAnswer::UseCached, WTF::move(entry) };
+        }
+    }
+    if (response.hasCacheValidatorFields() && !response.isRedirection())
+        return { CocoaCurlCacheAnswer::Revalidate, WTF::move(entry) };
+    return { CocoaCurlCacheAnswer::Load, nullptr };
+}
+
+void addCocoaCurlCacheValidators(ResourceRequest& request, NSCachedURLResponse *entry)
+{
+    ResourceResponse response([entry response]);
+    auto entityTag = response.httpHeaderField(HTTPHeaderName::ETag);
+    if (!entityTag.isEmpty() && !request.hasHTTPHeaderField(HTTPHeaderName::IfNoneMatch))
+        request.setHTTPHeaderField(HTTPHeaderName::IfNoneMatch, entityTag);
+    auto lastModified = response.httpHeaderField(HTTPHeaderName::LastModified);
+    if (!lastModified.isEmpty() && !request.hasHTTPHeaderField(HTTPHeaderName::IfModifiedSince))
+        request.setHTTPHeaderField(HTTPHeaderName::IfModifiedSince, lastModified);
+}
+
+static ResourceResponse cocoaCurlStoredResponse(NSCachedURLResponse *entry)
+{
+    ResourceResponse native([entry response]);
+    auto response = ResourceResponse::fromCrossThreadData(native.crossThreadData());
+    if (auto statusText = dynamic_objc_cast<NSString>([entry userInfo][cocoaCurlCacheStatusTextKey]))
+        response.setHTTPStatusText(String(statusText));
+    if (auto version = dynamic_objc_cast<NSString>([entry userInfo][cocoaCurlCacheHTTPVersionKey]))
+        response.setHTTPVersion(String(version));
+    return response;
+}
+
+ResourceResponse cocoaCurlCachedResponse(NSCachedURLResponse *entry, const ResourceRequest& request)
+{
+    auto response = cocoaCurlStoredResponse(entry);
+    // Cache identity excludes fragments; response URLs describe the current request.
+    response.setURL(URL { request.url() });
+    response.setSource(ResourceResponse::Source::DiskCache);
+    return response;
+}
+
+ResourceResponse cocoaCurlRevalidatedResponse(NSCachedURLResponse *entry, const ResourceResponse& notModified)
+{
+    auto response = cocoaCurlStoredResponse(entry);
+    updateResponseHeadersAfterRevalidation(response, notModified);
+    response.setURL(URL { notModified.url() });
+    response.setSource(ResourceResponse::Source::DiskCacheAfterValidation);
+    return response;
+}
+
+bool cocoaCurlCacheMayStore(NetworkStorageSession* storage, const ResourceRequest& request, const ResourceResponse& response)
+{
+    if (!cocoaCurlURLCache(storage) || request.httpMethod() != "GET"_s || request.cachePolicy() == ResourceRequestCachePolicy::DoNotUseAnyCache)
+        return false;
+    if (response.cacheControlContainsNoStore() || parseCacheControlDirectives(request.httpHeaderFields()).noStore)
+        return false;
+    // Partial entries support a single byte range, matched verbatim at lookup as in NetworkCache.
+    if (response.httpStatusCode() == httpStatus206PartialContent
+        && (!parseRange(request.httpHeaderField(HTTPHeaderName::Range), RangeAllowWhitespace::Yes) || !response.contentRange().isValid()))
+        return false;
+    if (response.isRedirection() && request.url().hasFragmentIdentifier())
+        return false;
+    if (!isStatusCodeCacheableByDefault(response.httpStatusCode())) {
+        bool hasExpirationHeaders = response.expires() || response.cacheControlMaxAge();
+        if (!isStatusCodePotentiallyCacheable(response.httpStatusCode()) || !hasExpirationHeaders)
+            return false;
+    }
+    return response.expectedContentLength() < 0 || cocoaCurlCacheAcceptsLength(storage, response.expectedContentLength());
+}
+
+// CFNetwork offers a response to the cache only when its body is at most a twentieth of the cache's capacity.
+bool cocoaCurlCacheAcceptsLength(NetworkStorageSession* storage, uint64_t length)
+{
+    RetainPtr cache = cocoaCurlURLCache(storage);
+    return cache && length <= std::max([cache memoryCapacity], [cache diskCapacity]) / 20;
+}
+
+RetainPtr<NSCachedURLResponse> createCocoaCurlCachedResponse(NetworkStorageSession* storage, const ResourceRequest& request, const ResourceResponse& response, std::span<const uint8_t> body, WallTime responseTimestamp)
+{
+    RetainPtr varying = adoptNS([[NSMutableArray alloc] init]);
+    for (auto& [name, value] : collectVaryingRequestHeaders(storage, request, response))
+        [varying addObject:value.isNull() ? @[ name.createNSString().get() ] : @[ name.createNSString().get(), value.createNSString().get() ]];
+    RetainPtr userInfo = adoptNS([@{
+        cocoaCurlCacheResponseTimestampKey: @(responseTimestamp.secondsSinceEpoch().seconds()),
+        cocoaCurlCacheVaryingRequestHeadersKey: varying.get(),
+        // ResourceResponse::initNSURLResponse synthesizes HTTP/1.1 and its reason phrase.
+        cocoaCurlCacheStatusTextKey: response.httpStatusText().createNSString().get(),
+        cocoaCurlCacheHTTPVersionKey: response.httpVersion().createNSString().get()
+    } mutableCopy]);
+    auto range = request.httpHeaderField(HTTPHeaderName::Range);
+    if (!range.isNull())
+        [userInfo setObject:range.createNSString().get() forKey:cocoaCurlCacheRangeKey];
+    RetainPtr data = adoptNS([[NSData alloc] initWithBytes:body.data() length:body.size()]);
+    return adoptNS([[NSCachedURLResponse alloc] initWithResponse:response.nsURLResponse() data:data.get() userInfo:userInfo.get() storagePolicy:NSURLCacheStorageAllowed]);
+}
+
+void storeCocoaCurlCachedResponse(NetworkStorageSession* storage, NSCachedURLResponse *entry, const ResourceRequest& request)
+{
+    RetainPtr cache = cocoaCurlURLCache(storage);
+    [cache storeCachedResponse:entry forRequest:cocoaCurlCacheRequest(request).get()];
+}
+
+void removeCocoaCurlCachedResponse(NetworkStorageSession* storage, const ResourceRequest& request)
+{
+    if (request.cachePolicy() == ResourceRequestCachePolicy::DoNotUseAnyCache)
+        return;
+    RetainPtr cache = cocoaCurlURLCache(storage);
+    [cache removeCachedResponseForRequest:cocoaCurlCacheRequest(request).get()];
+}
+
+void invalidateCocoaCurlCacheAfterResponse(NetworkStorageSession* storage, const ResourceRequest& request, const ResourceResponse& response)
+{
+    if (isSafeMethod(request.httpMethod()) || response.httpStatusCode() < 200 || response.httpStatusCode() >= 400)
+        return;
+    // RFC 9111 section 4.4 invalidates the stored GET even when the unsafe request uses no-store.
+    ResourceRequest cachedRequest { URL { request.url() } };
+    cachedRequest.setCachePartition(request.cachePartition());
+    RetainPtr cache = cocoaCurlURLCache(storage);
+    [cache removeCachedResponseForRequest:cocoaCurlCacheRequest(cachedRequest).get()];
+}
+
+bool isValidCocoaCurlRequestHeaderValue(const String& value)
+{
+    for (unsigned i = 0; i < value.length(); ++i) {
+        char16_t character = value[i];
+        if (!character || character == '\r' || character == '\n')
+            return false;
+    }
+    return true;
+}
+
 bool CocoaCurlTransfer::setup()
 {
     auto& request = m_options.request;
@@ -219,7 +512,7 @@ bool CocoaCurlTransfer::setup()
     };
     bool carriesPriority = false;
     for (auto& field : request.httpHeaderFields()) {
-        if (!isValidHTTPToken(field.key) || !isValidHTTPHeaderValue(field.value))
+        if (!isValidHTTPToken(field.key) || !isValidCocoaCurlRequestHeaderValue(field.value))
             return false;
         if (equalLettersIgnoringASCIICase(field.key, "cookie"_s) && !field.value.isEmpty())
             continue;
@@ -229,7 +522,10 @@ bool CocoaCurlTransfer::setup()
         if (equalLettersIgnoringASCIICase(field.key, "dnt"_s))
             continue;
         carriesPriority |= equalLettersIgnoringASCIICase(field.key, "priority"_s);
-        if (!appendHeader(makeString(field.key, field.value.isEmpty() ? ";"_s : ": "_s, field.value).latin1()))
+        bool isEventID = field.keyAsHTTPHeaderName && *field.keyAsHTTPHeaderName == HTTPHeaderName::LastEventID;
+        auto line = makeString(field.key, field.value.isEmpty() ? ";"_s : ": "_s, field.value);
+        bool needsUTF8 = isEventID && !field.value.containsOnlyASCII();
+        if (!appendHeader(needsUTF8 ? line.utf8() : line.latin1()))
             return false;
     }
     if (!request.hasHTTPHeaderField(HTTPHeaderName::ContentType) && !appendHeader(CString("Content-Type:")))
@@ -267,7 +563,8 @@ bool CocoaCurlTransfer::setup()
         CURL_SET(CURLOPT_PIPEWAIT, 1L);
     } else
         CURL_SET(CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
-    CURL_SET(CURLOPT_HTTP09_ALLOWED, 0L);
+    // WebCore applies the default-port restriction and document sandbox to HTTP/0.9 responses.
+    CURL_SET(CURLOPT_HTTP09_ALLOWED, 1L);
     CURL_SET(CURLOPT_SUPPRESS_CONNECT_HEADERS, 0L);
     CURL_SET(CURLOPT_ACCEPT_ENCODING, COCOA_CURL_ACCEPT_ENCODING);
     CURL_SET(CURLOPT_HTTP_CONTENT_DECODING, m_options.decodeContent ? 1L : 0L);
@@ -278,10 +575,10 @@ bool CocoaCurlTransfer::setup()
     CURL_SET(CURLOPT_CAPATH, nullptr);
     CURL_SET(CURLOPT_SSL_CTX_FUNCTION, sslContextCallback);
     CURL_SET(CURLOPT_SSL_CTX_DATA, this);
-    CURL_SET(CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+    CURL_SET(CURLOPT_SSLVERSION, cocoaCurlMinimumTLSVersion(m_options.minimumTLSProtocol));
     CURL_SET(CURLOPT_ERRORBUFFER, m_errorBuffer.data());
     // A NULL CURLOPT_COOKIE is the only value for which curl sends no Cookie field at all; an
-    // empty string produces an empty one.
+    // empty string produces an empty one. Its value is octets, as every other field's is.
     auto cookieField = request.httpHeaderField(HTTPHeaderName::Cookie);
     CURL_SET(CURLOPT_COOKIE, cookieField.isEmpty() ? nullptr : cookieField.latin1().data());
     CURL_SET(CURLOPT_HTTPHEADER, m_headers);
@@ -323,10 +620,18 @@ bool CocoaCurlTransfer::setup()
     } else if (request.httpMethod() == "POST"_s) {
         CURL_SET(CURLOPT_POST, 1L);
         CURL_SET(CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(0));
+    } else if (request.httpMethod() != "GET"_s && request.httpMethod() != "HEAD"_s) {
+        CURL_SET(CURLOPT_UPLOAD, 1L);
+        CURL_SET(CURLOPT_INFILESIZE_LARGE, static_cast<curl_off_t>(0));
+        CURL_SET(CURLOPT_READFUNCTION, readCallback);
+        CURL_SET(CURLOPT_READDATA, this);
     }
     if (request.httpMethod() == "HEAD"_s)
         CURL_SET(CURLOPT_NOBODY, 1L);
-    CURL_SET(CURLOPT_CUSTOMREQUEST, request.httpMethod().utf8().data());
+    // CFNetwork names PATCH in upper case however the request spells it, as WebCore does the methods
+    // Fetch normalizes; every other method goes out as written.
+    auto method = equalLettersIgnoringASCIICase(request.httpMethod(), "patch"_s) ? "PATCH"_s : request.httpMethod();
+    CURL_SET(CURLOPT_CUSTOMREQUEST, method.utf8().data());
     if (m_options.preconnect)
         CURL_SET(CURLOPT_CONNECT_ONLY, CURL_CONNECT_ONLY_REUSABLE);
 #undef CURL_SET
@@ -340,6 +645,19 @@ void CocoaCurlTransfer::start()
         return;
     m_running = true;
     m_started = m_metrics.fetchStart = MonotonicTime::now();
+    auto url = cocoaCurlRequestURL(m_options.request.url());
+    if (!url) {
+        finish(url.error(), "The HTTP URL is not valid"_s);
+        return;
+    }
+    if (m_options.request.url() != *url)
+        m_options.request.setURL(WTF::move(*url));
+    // CFNetwork answers a request whose Cache-Control names only-if-cached from its cache alone, and fails it
+    // with NSURLErrorCannotLoadFromNetwork when the cache holds nothing for it.
+    if (cocoaCurlRequestIsOnlyIfCached(m_options.request)) {
+        finish(NSURLErrorCannotLoadFromNetwork, "The resource is not in the cache"_s);
+        return;
+    }
     if (!setup()) {
         finish(m_uploadError.isEmpty() ? NSURLErrorCannotLoadFromNetwork : NSURLErrorUnknown, m_uploadError.isEmpty() ? "Could not initialize the HTTP transfer"_s : m_uploadError);
         return;
@@ -390,6 +708,13 @@ void CocoaCurlTransfer::timeout()
     finish(NSURLErrorTimedOut, "Request timed out waiting for network activity"_s);
 }
 
+// 10.9's Security framework evaluates chains in parallel up to the active core count and slows past it.
+static WorkerPool& cocoaCurlTrustEvaluationQueue()
+{
+    static NeverDestroyed<Ref<WorkerPool>> queue = WorkerPool::create("Cocoa certificate verification"_s, WTF::numberOfProcessorCores());
+    return queue.get();
+}
+
 CURLcode CocoaCurlTransfer::sslContextCallback(CURL*, void* context, void* data)
 {
     auto& transfer = *static_cast<CocoaCurlTransfer*>(data);
@@ -432,17 +757,25 @@ CURLcode CocoaCurlTransfer::sslContextCallback(CURL*, void* context, void* data)
             return false;
         ++transfer->m_clientInteractions;
         transfer->m_timer.stop();
-        static NeverDestroyed<Ref<ConcurrentWorkQueue>> trustQueue = ConcurrentWorkQueue::create("Cocoa certificate verification"_s);
         // Keep the bridge (and therefore its session worker) alive through cancellation. Both client and transfer references return to the curl worker for release.
-        trustQueue.get()->dispatch([client = WTF::move(client), transfer = WTF::move(transfer), verification = WTF::move(verification)]() mutable {
+        cocoaCurlTrustEvaluationQueue().postTask([client = WTF::move(client), transfer = WTF::move(transfer), verification = WTF::move(verification)]() mutable {
             verification->evaluate();
             Ref worker { transfer->m_scheduler->runLoop() };
             worker->dispatch([client = WTF::move(client), transfer = WTF::move(transfer), verification = WTF::move(verification)]() mutable {
-                --transfer->m_clientInteractions;
-                if (!transfer->m_running)
+                if (!transfer->m_running) {
+                    --transfer->m_clientInteractions;
                     return;
+                }
                 verification->apply(*transfer->m_tls);
-                transfer->resumeTransfer();
+                client->curlRequestedServerTrust([transfer](bool accepted) {
+                    ASSERT(transfer->m_scheduler->runLoop().isCurrent());
+                    --transfer->m_clientInteractions;
+                    if (!transfer->m_running)
+                        return;
+                    transfer->m_tls->accepted = accepted;
+                    transfer->m_tls->evaluated = true;
+                    transfer->resumeTransfer();
+                });
             });
         });
         return true;
@@ -507,115 +840,162 @@ size_t CocoaCurlTransfer::invalidResponse(ASCIILiteral reason)
     return CURL_WRITEFUNC_ERROR;
 }
 
+CocoaCurlTransfer::HeaderSection CocoaCurlTransfer::finalizeHeaders()
+{
+    if (m_finalHeaders)
+        return HeaderSection::Consumed;
+    long origin = 0, tunnel = 0;
+    curl_easy_getinfo(m_easy, CURLINFO_RESPONSE_CODE, &origin);
+    curl_easy_getinfo(m_easy, CURLINFO_HTTP_CONNECTCODE, &tunnel);
+    // CONNECT fields belong to the proxy exchange, before origin TLS trust exists.
+    if (!origin && tunnel && tunnel == m_status && m_version != "HTTP/0.9"_s) {
+        m_setCookies.clear();
+        if (m_status >= 200 && m_status < 300)
+            return HeaderSection::Consumed;
+    }
+    if (m_status < 0) {
+        invalidResponse("Missing HTTP status"_s);
+        return HeaderSection::Rejected;
+    }
+    auto& type = m_contentType;
+    curl_off_t length = -1;
+    curl_easy_getinfo(m_easy, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &length);
+    auto contentEncoding = m_responseHeaders.get(HTTPHeaderName::ContentEncoding);
+    if (m_options.decodeContent && !contentEncoding.isEmpty() && !equalLettersIgnoringASCIICase(contentEncoding, "identity"_s))
+        length = -1;
+    if (m_status == 101)
+        length = 0;
+    ResourceResponse response(URL { m_options.request.url() }, extractMIMETypeFromMediaType(type).convertToASCIILowercase(), length, extractCharsetFromMediaType(type).toString());
+    response.setHTTPStatusCode(m_status);
+    response.setHTTPStatusText(String(m_statusText));
+    response.setHTTPVersion(String(m_version));
+    response.setHTTPHeaderFields(WTF::move(m_responseHeaders));
+    response.setSource(ResourceResponse::Source::Network);
+    updateTLS();
+    if (m_tls && m_tls->trust)
+        response.setCertificateInfo(CertificateInfo(retainPtr(m_tls->trust.get())));
+    // CFNetwork delivers a 101 to a request that asked for no upgrade as the load's response, with no body.
+    if (m_status >= 100 && m_status < 200 && m_status != 101) {
+        if (!m_metrics.firstInterimResponseStart)
+            m_metrics.firstInterimResponseStart = MonotonicTime::now();
+        m_setCookies.clear();
+        m_scheduler->runLoop().dispatch([transfer = Ref { *this }, response = WTF::move(response)]() mutable {
+            if (transfer->m_running) {
+                if (RefPtr client = transfer->m_client)
+                    client->curlReceivedInformationalResponse(WTF::move(response));
+            }
+        });
+        return HeaderSection::Consumed;
+    }
+    m_response.response = WTF::move(response);
+    m_response.contentType = m_contentType;
+    char* canonicalName = nullptr;
+    curl_easy_getinfo(m_easy, CURLINFO_PRIMARY_CANONICAL_NAME, &canonicalName);
+    m_response.canonicalName = canonicalName && m_response.proxyHost.isEmpty() ? String::fromUTF8(canonicalName) : String();
+    auto host = m_options.request.url().host().toString();
+    if (host.endsWith('.'))
+        host = host.left(host.length() - 1);
+    if (m_response.canonicalName.endsWith('.'))
+        m_response.canonicalName = m_response.canonicalName.left(m_response.canonicalName.length() - 1);
+    if (equalIgnoringASCIICase(m_response.canonicalName, host))
+        m_response.canonicalName = { };
+
+    m_metrics.responseStart = MonotonicTime::now();
+    m_finalHeaders = true;
+    if (m_setCookies.isEmpty())
+        return HeaderSection::Consumed;
+    // suspend every cookie-bearing response section,
+    // including libcurl's internal authentication exchanges, until the
+    // owning native jar supplies the next request's Cookie field.
+    ++m_clientInteractions;
+    m_timer.stop();
+    // The resolver name and remote address belong to the connection carrying this response.
+    char* primaryIP = nullptr;
+    curl_easy_getinfo(m_easy, CURLINFO_PRIMARY_IP, &primaryIP);
+    m_scheduler->runLoop().dispatch([transfer = Ref { *this }, cookies = std::exchange(m_setCookies, { }), remoteAddress = primaryIP ? String::fromUTF8(primaryIP) : String(), canonicalName = m_response.canonicalName.isolatedCopy()]() mutable {
+        RefPtr client = transfer->m_running ? transfer->m_client : nullptr;
+        if (!client) {
+            --transfer->m_clientInteractions;
+            if (transfer->m_running)
+                transfer->cancel();
+            return;
+        }
+        client->curlReceivedCookies(WTF::move(cookies), remoteAddress, canonicalName, [transfer](std::optional<String>&& cookie) {
+            --transfer->m_clientInteractions;
+            if (!transfer->m_running)
+                return;
+            if (cookie && (!isValidCocoaCurlRequestHeaderValue(*cookie) || curl_easy_setopt(transfer->m_easy, CURLOPT_COOKIE, cookie->isEmpty() ? nullptr : cookie->latin1().data()) != CURLE_OK)) {
+                transfer->finish(NSURLErrorCannotLoadFromNetwork, "Could not update the outgoing cookie field"_s);
+                return;
+            }
+            transfer->m_acknowledgeHeader = true;
+            transfer->resumeTransfer();
+        });
+    });
+    return HeaderSection::AwaitingCookies;
+}
+
 size_t CocoaCurlTransfer::header(std::span<const char> bytes)
 {
     activity();
     if (std::exchange(m_acknowledgeHeader, false))
         return bytes.size();
     String line(bytes);
-    if (!line.endsWith("\r\n"_s))
+    // The HTTP standard requires CRLF, but recipients may recognize a bare LF for compatibility.
+    unsigned delimiterLength = line.endsWith("\r\n"_s) ? 2 : line.endsWith('\n') ? 1 : 0;
+    if (!delimiterLength)
         return invalidResponse("Invalid HTTP field delimiter"_s);
-    line = line.left(line.length() - 2);
+    line = line.left(line.length() - delimiterLength);
     if (line.startsWith("HTTP/"_s)) {
         auto space = line.find(' ');
-        auto code = space == notFound ? std::nullopt : parseInteger<int>(StringView(line).substring(space + 1, 3));
-        if (!code || *code < 100 || *code > 999)
+        // RFC 9112 status-code: one to three digits, closed by the space before the reason phrase
+        // or by the end of the line. Leading zeroes belong to the token, so 077 is 77 and 0200 is
+        // too long to be a status code at all.
+        std::optional<int> code;
+        if (space != notFound) {
+            auto end = space + 1;
+            while (end < line.length() && isASCIIDigit(line[end]))
+                ++end;
+            auto digits = end - space - 1;
+            if (digits && digits <= 3 && (end == line.length() || line[end] == ' '))
+                code = parseInteger<int>(StringView(line).substring(space + 1, digits));
+        }
+        if (!code)
             return invalidResponse("Invalid HTTP status line"_s);
         m_status = *code;
         m_version = line.left(space);
         m_statusText = extractReasonPhraseFromHTTPStatusLine(line);
         m_responseHeaders = { };
+        m_contentType = { };
         m_finalHeaders = false;
         return bytes.size();
     }
     if (m_finalHeaders)
         return bytes.size();
     if (line.isEmpty()) {
-        long origin = 0, tunnel = 0;
-        curl_easy_getinfo(m_easy, CURLINFO_RESPONSE_CODE, &origin);
-        curl_easy_getinfo(m_easy, CURLINFO_HTTP_CONNECTCODE, &tunnel);
-        // CONNECT fields belong to the proxy exchange, before origin TLS trust exists.
-        if (!origin && tunnel == m_status) {
-            m_setCookies.clear();
-            if (m_status >= 200 && m_status < 300)
-                return bytes.size();
-        }
-        if (!m_status)
-            return invalidResponse("Missing HTTP status"_s);
-        auto type = m_responseHeaders.get(HTTPHeaderName::ContentType);
-        curl_off_t length = -1;
-        curl_easy_getinfo(m_easy, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &length);
-        auto contentEncoding = m_responseHeaders.get(HTTPHeaderName::ContentEncoding);
-        if (m_options.decodeContent && !contentEncoding.isEmpty() && !equalLettersIgnoringASCIICase(contentEncoding, "identity"_s))
-            length = -1;
-        ResourceResponse response(URL { m_options.request.url() }, extractMIMETypeFromMediaType(type).convertToASCIILowercase(), length, extractCharsetFromMediaType(type).toString());
-        response.setHTTPStatusCode(m_status);
-        response.setHTTPStatusText(String(m_statusText));
-        response.setHTTPVersion(String(m_version));
-        response.setHTTPHeaderFields(WTF::move(m_responseHeaders));
-        response.setSource(ResourceResponse::Source::Network);
-        updateTLS();
-        if (m_tls && m_tls->trust)
-            response.setCertificateInfo(CertificateInfo(retainPtr(m_tls->trust.get())));
-        if (m_status < 200) {
-            if (!m_metrics.firstInterimResponseStart)
-                m_metrics.firstInterimResponseStart = MonotonicTime::now();
-            if (m_status == 101)
-                return invalidResponse("Unexpected protocol upgrade in an HTTP transfer"_s);
-            m_setCookies.clear();
-            m_scheduler->runLoop().dispatch([transfer = Ref { *this }, response = WTF::move(response)]() mutable {
-                if (transfer->m_running) {
-                    if (RefPtr client = transfer->m_client)
-                        client->curlReceivedInformationalResponse(WTF::move(response));
-                }
-            });
-            return bytes.size();
-        }
-        m_response.response = WTF::move(response);
-        m_metrics.responseStart = MonotonicTime::now();
-        m_finalHeaders = true;
-        if (!m_setCookies.isEmpty()) {
-            // suspend every cookie-bearing response section,
-            // including libcurl's internal authentication exchanges, until the
-            // owning native jar supplies the next request's Cookie field.
-            ++m_clientInteractions;
-            m_timer.stop();
-            m_scheduler->runLoop().dispatch([transfer = Ref { *this }, cookies = std::exchange(m_setCookies, { })]() mutable {
-                RefPtr client = transfer->m_running ? transfer->m_client : nullptr;
-                if (!client) {
-                    --transfer->m_clientInteractions;
-                    if (transfer->m_running)
-                        transfer->cancel();
-                    return;
-                }
-                client->curlReceivedCookies(WTF::move(cookies), [transfer](std::optional<String>&& cookie) {
-                    --transfer->m_clientInteractions;
-                    if (!transfer->m_running)
-                        return;
-                    if (cookie && (!isValidHTTPHeaderValue(*cookie) || curl_easy_setopt(transfer->m_easy, CURLOPT_COOKIE, cookie->isEmpty() ? nullptr : cookie->latin1().data()) != CURLE_OK)) {
-                        transfer->finish(NSURLErrorCannotLoadFromNetwork, "Could not update the outgoing cookie field"_s);
-                        return;
-                    }
-                    transfer->m_acknowledgeHeader = true;
-                    transfer->resumeTransfer();
-                });
-            });
+        auto section = finalizeHeaders();
+        if (section == HeaderSection::Rejected)
+            return CURL_WRITEFUNC_ERROR;
+        if (section == HeaderSection::AwaitingCookies)
             return CURL_WRITEFUNC_PAUSE;
-        }
         return bytes.size();
     }
     auto colon = line.find(':');
+    // Every line delivered here is a field line: curl drops the rest of the section's lines.
+    ASSERT(colon != notFound);
     if (colon == notFound)
         return invalidResponse("Invalid HTTP header field"_s);
     auto name = line.left(colon);
     auto value = line.substring(colon + 1).trim([](auto c) { return c == ' ' || c == '\t'; });
-    if (!isValidHTTPToken(name) || !isValidHTTPHeaderValue(value))
-        return invalidResponse("Invalid HTTP header name or value"_s);
+    // CFNetwork keeps a field whose name is not a token; a NUL, CR or LF in the value fails the load.
+    if (!isValidHTTPHeaderValue(value))
+        return invalidResponse("Invalid HTTP header value"_s);
     if (equalLettersIgnoringASCIICase(name, "set-cookie"_s))
         m_setCookies.append(value);
+    // Native CFNetwork renders using the last Content-Type field. Fetch and XHR expose all field values.
     if (equalLettersIgnoringASCIICase(name, "content-type"_s))
-        m_responseHeaders.set(name, value);
-    else if (!equalLettersIgnoringASCIICase(name, "strict-transport-security"_s) || !m_responseHeaders.contains(name))
+        m_contentType = value;
+    if (!equalLettersIgnoringASCIICase(name, "strict-transport-security"_s) || !m_responseHeaders.contains(name))
         m_responseHeaders.add(name, value);
     return bytes.size();
 }
@@ -623,6 +1003,8 @@ size_t CocoaCurlTransfer::header(std::span<const char> bytes)
 size_t CocoaCurlTransfer::data(std::span<const char> bytes)
 {
     activity();
+    if (m_status == 101)
+        return bytes.size();
     // libcurl coalesces decoded output in its pause buffer. A
     // replay can include both the delivered prefix and previously unseen bytes.
     // Keep the prefix until this complete callback buffer can be acknowledged.
@@ -632,6 +1014,18 @@ size_t CocoaCurlTransfer::data(std::span<const char> bytes)
     }
     if (m_deferred)
         return CURL_WRITEFUNC_PAUSE;
+    // curl delivers a headerless HTTP/0.9 response directly to the body callback.
+    // Preserve its version so the loader applies the same policy as native CFNetwork.
+    if (!m_finalHeaders) {
+        m_status = httpStatus200OK;
+        m_statusText = "OK"_s;
+        m_version = "HTTP/0.9"_s;
+        m_responseHeaders = { };
+        m_contentType = { };
+        m_setCookies.clear();
+        if (finalizeHeaders() == HeaderSection::Rejected)
+            return CURL_WRITEFUNC_ERROR;
+    }
     m_data = SharedBuffer::create(asBytes(bytes.subspan(m_deliveredDataBytes)));
     ++m_clientInteractions;
     m_timer.stop();
@@ -721,6 +1115,9 @@ static std::optional<uint64_t> cocoaCurlUploadElementLength(const FormDataElemen
             return std::nullopt;
         errno = 0;
         auto handle = FileSystem::openFile(file->filename, FileSystem::FileOpenMode::Read);
+        // FormDataElement::lengthInBytes sizes a file it cannot read as empty, and FormDataStreamCFNet skips its stream.
+        if (!handle && (file->fileLength == BlobDataItem::toEndOfFile || !file->fileLength))
+            return 0;
         if (!handle)
             failureErrno = errno;
         auto size = handle ? handle.size() : std::nullopt;
@@ -789,32 +1186,40 @@ void collectCocoaCurlMetrics(CURL* easy, const ResourceRequest& request, Monoton
 {
     if (!easy)
         return;
-    curl_off_t dns = 0, connected = 0, tls = 0, uploaded = 0, downloaded = 0;
+    curl_off_t dns = 0, connected = 0, tls = 0, uploaded = 0, downloaded = 0, ready = 0;
+    long connections = 0;
     curl_easy_getinfo(easy, CURLINFO_NAMELOOKUP_TIME_T, &dns);
     curl_easy_getinfo(easy, CURLINFO_CONNECT_TIME_T, &connected);
     curl_easy_getinfo(easy, CURLINFO_APPCONNECT_TIME_T, &tls);
-    if (dns) {
-        metrics.domainLookupStart = started;
-        metrics.domainLookupEnd = started + Seconds::fromMicroseconds(dns);
-    }
-    if (connected) {
-        metrics.connectStart = started + Seconds::fromMicroseconds(dns);
-        metrics.connectEnd = started + Seconds::fromMicroseconds(tls ? tls : connected);
-    }
-    if (tls)
-        metrics.secureConnectionStart = started + Seconds::fromMicroseconds(connected);
-    curl_off_t ready = 0;
     curl_easy_getinfo(easy, CURLINFO_PRETRANSFER_TIME_T, &ready);
+    curl_easy_getinfo(easy, CURLINFO_NUM_CONNECTS, &connections);
+    // A request sent over a connection an earlier transfer opened has no lookup, connect or TLS phase of its
+    // own; NetworkSessionCocoa marks such a TLS connection with reusedTLSConnectionSentinel.
+    bool reused = ready && !connections;
+    if (reused) {
+        if (request.url().protocolIs("https"_s))
+            metrics.secureConnectionStart = reusedTLSConnectionSentinel;
+    } else {
+        if (dns) {
+            metrics.domainLookupStart = started;
+            metrics.domainLookupEnd = started + Seconds::fromMicroseconds(dns);
+        }
+        if (connected) {
+            metrics.connectStart = started + Seconds::fromMicroseconds(dns);
+            metrics.connectEnd = started + Seconds::fromMicroseconds(tls ? tls : connected);
+        }
+        if (tls)
+            metrics.secureConnectionStart = started + Seconds::fromMicroseconds(connected);
+    }
     if (ready)
         metrics.requestStart = started + Seconds::fromMicroseconds(ready);
     curl_easy_getinfo(easy, CURLINFO_SIZE_UPLOAD_T, &uploaded);
     curl_easy_getinfo(easy, CURLINFO_SIZE_DOWNLOAD_T, &downloaded);
     auto& extended = *metrics.additionalNetworkLoadMetricsForWebInspector;
-    long requestSize = 0, headerSize = 0, connections = 0;
+    long requestSize = 0, headerSize = 0;
     curl_easy_getinfo(easy, CURLINFO_REQUEST_SIZE, &requestSize);
     curl_easy_getinfo(easy, CURLINFO_HEADER_SIZE, &headerSize);
-    curl_easy_getinfo(easy, CURLINFO_NUM_CONNECTS, &connections);
-    metrics.isReusedConnection = !connections && !!metrics.responseStart;
+    metrics.isReusedConnection = reused;
     extended.requestHeaderBytesSent = requestSize;
     extended.responseHeaderBytesReceived = headerSize;
     extended.requestHeaders = request.httpHeaderFields();
@@ -843,25 +1248,27 @@ void collectCocoaCurlMetrics(CURL* easy, const ResourceRequest& request, Monoton
 void CocoaCurlTransfer::updateMetrics()
 {
     collectCocoaCurlMetrics(m_easy, m_options.request, m_started, !m_response.proxyHost.isEmpty(), m_metrics);
+    if (m_version == "HTTP/0.9"_s)
+        m_metrics.protocol = "http/0.9"_s;
 }
 
 // RFC 9112 6.3 item 7: a response carrying neither Content-Length nor a chunked transfer coding is
-// delimited by the connection close, so the close is where the message ends and the bytes already
-// delivered are the whole of it, whatever the status says. curl reports the read that meets that close
-// as a failure -- the peer closing without a TLS close_notify, or the socket erroring -- and without
-// this the whole response would be a failed load. CurlRequest::didCompleteTransfer answers the same
-// question the same way for upstream's curl-backed loader (isConnectionCloseEndOfBody). The two
-// further conditions here are the framings this transport can report CURLE_RECV_ERROR from and that
-// one cannot: HTTP/2, whose framing carries its own end of stream, and a chunked coding, whose last
-// chunk is the end of the body and whose absence is a truncation.
+// delimited by the connection close, and a header section the close cuts off is the whole message; curl
+// and CFNetwork both end the message there on a plain connection. A peer that closes a TLS connection
+// without a close_notify makes curl report CURLE_RECV_ERROR for that same close, with no socket error.
+// A reset carries one, and CFNetwork fails it as a lost connection. HTTP/2 framing carries its own end of
+// stream, and a chunked coding whose last chunk is absent is a truncation.
 bool CocoaCurlTransfer::responseEndsAtConnectionClose() const
 {
-    if (!m_finalHeaders)
+    long socketError = 0;
+    if (m_status < 0 || curl_easy_getinfo(m_easy, CURLINFO_OS_ERRNO, &socketError) != CURLE_OK || socketError)
         return false;
     long version = 0;
     if (curl_easy_getinfo(m_easy, CURLINFO_HTTP_VERSION, &version) != CURLE_OK
-        || (version != CURL_HTTP_VERSION_1_0 && version != CURL_HTTP_VERSION_1_1))
+        || (version != CURL_HTTP_VERSION_1_0 && version != CURL_HTTP_VERSION_1_1 && m_version != "HTTP/0.9"_s))
         return false;
+    if (!m_finalHeaders)
+        return true;
     auto& response = m_response.response;
     return response.httpHeaderField(HTTPHeaderName::ContentLength).isEmpty()
         && response.httpHeaderField(HTTPHeaderName::TransferEncoding).isEmpty();
@@ -884,7 +1291,19 @@ void CocoaCurlTransfer::curlDidComplete(CURLcode result)
         finish(NSURLErrorCannotParseResponse, m_invalidResponse);
         return;
     }
-    if (!m_publishedResponse && m_finalHeaders && (result == CURLE_OK || m_status == 401 || m_status == 407)) {
+    // A close-delimited message ends its header section at the connection close, which libcurl
+    // reports by delivering no blank line at all.
+    if (result == CURLE_OK && !m_finalHeaders && !m_publishedResponse && m_status >= 0) {
+        auto section = finalizeHeaders();
+        if (!m_invalidResponse.isEmpty()) {
+            finish(NSURLErrorCannotParseResponse, m_invalidResponse);
+            return;
+        }
+        // The cookie hand-off re-enters here through resumeTransfer().
+        if (section == HeaderSection::AwaitingCookies)
+            return;
+    }
+    if (!m_publishedResponse && m_finalHeaders) {
         ++m_clientInteractions;
         m_timer.stop();
         m_scheduler->runLoop().dispatch([transfer = Ref { *this }] { --transfer->m_clientInteractions; transfer->publishResponse(); });
@@ -897,7 +1316,11 @@ void CocoaCurlTransfer::curlDidComplete(CURLcode result)
         return;
     }
     int code = NSURLErrorUnknown;
-    if (result == CURLE_OPERATION_TIMEDOUT)
+    if (result == CURLE_URL_MALFORMAT)
+        code = NSURLErrorBadURL;
+    else if (result == CURLE_UNSUPPORTED_PROTOCOL)
+        code = NSURLErrorUnsupportedURL;
+    else if (result == CURLE_OPERATION_TIMEDOUT)
         code = NSURLErrorTimedOut;
     else if (result == CURLE_COULDNT_CONNECT)
         code = NSURLErrorCannotConnectToHost;

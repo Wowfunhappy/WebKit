@@ -152,7 +152,7 @@ WEBKIT_OPTION_DEFINE(ENABLE_PREDEFINED_COLOR_SPACE_DISPLAY_P3 "Toggle predefined
 # This port decodes every image format in WebCore rather than in 10.9's ImageIO, so the decoders'
 # libraries are as required as libgcrypt above -- a tree without them builds a WebKit that draws no
 # JPEG, PNG or TIFF at all. Asked here, by name, rather than left to a link failure inside WebCore.
-foreach (_image_lib libpng16 libjpeg liblcms2 libtiff)
+foreach (_image_lib libpng16 libjpeg liblcms2 libtiff libheif)
     if (NOT EXISTS "${MAVERICKS_DEPS}/lib/${_image_lib}.a")
         message(FATAL_ERROR
             "${MAVERICKS_DEPS}/lib/${_image_lib}.a is missing.\n"
@@ -164,6 +164,11 @@ endforeach ()
 # applications as TIFF -- Pasteboard::write(PasteboardImage) writes public.tiff and Pasteboard::read
 # hands image/tiff to the editor -- so this port carries one, in MavericksSupport/source on libtiff.
 SET_AND_EXPOSE_TO_BUILD(USE_TIFF TRUE)
+
+# ON. Upstream Cocoa decodes HEIC in ImageIO, which this port hands no image bytes to, so
+# HEIFImageDecoder in MavericksSupport/source decodes it on libheif, whose only codec backend is
+# the FFmpeg the media runtime already carries.
+SET_AND_EXPOSE_TO_BUILD(USE_HEIF TRUE)
 
 # The OpenType Sanitiser backs the CoreText polyfill's memory-safe font parser, which every
 # downloadable font goes through (polyfill/polyfills/c/ots_font_parser.cpp). Asked here, by name,
@@ -268,6 +273,9 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_RESOURCE_USAGE PRIVATE OFF)
 # VideoPresentation/PlaybackSession interface files are withheld from the build lists rather than edited.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_VIDEO_PRESENTATION_MODE PRIVATE OFF)
 
+# AVKit playback controls require PlaybackSessionInterfaceMac and its video-presentation backend.
+add_compile_definitions(ENABLE_WEB_PLAYBACK_CONTROLS_MANAGER=0)
+
 # OFF -- WebXR needs an OpenXR runtime to bind against, and there is no OpenXR
 # framework on 10.9 (verified absent from both /System/Library/Frameworks and PrivateFrameworks) nor any
 # VR/AR device support in this OS for one to sit on.
@@ -299,14 +307,12 @@ SET_AND_EXPOSE_TO_BUILD(USE_MOZILLA_PUSH_SERVICE TRUE)
 # unentitled daemon cannot read). Upstream defines this flag only in Xcode configurations, so
 # cmakeconfig.h is its only definition and no header is preempted.
 SET_AND_EXPOSE_TO_BUILD(ENABLE_RELOCATABLE_WEBPUSHD TRUE)
-# OFF -- declarative Web Push is a layer over the same push infrastructure, targeting
-# daemon-side notification display, which needs HAVE(FULL_FEATURED_USER_NOTIFICATIONS) (macOS 14+; on this
-# port the daemon cannot show notifications, the UI process does). Classic push -> service worker ->
-# showNotification does not need it. The dependency is one-way: every ENABLE(DECLARATIVE_WEB_PUSH) site has
-# an #else, so WEB_PUSH on / DECLARATIVE off compiles; only the reverse split does not. Upstream Cocoa turns
-# it on for PLATFORM(MAC) in PlatformEnableCocoa.h:343 behind `#if !defined(...)`; this preempts that so the
-# header stays byte-upstream.
-SET_AND_EXPOSE_TO_BUILD(ENABLE_DECLARATIVE_WEB_PUSH FALSE)
+# ON, as upstream Cocoa has it for PLATFORM(MAC) in PlatformEnableCocoa.h behind `#if !defined(...)`, which
+# cmakeconfig.h preempts so that header stays byte-upstream. WebPushDaemon's declarative shortcut -- showing
+# an immutable payload's notification from the daemon itself -- is nested inside
+# HAVE(FULL_FEATURED_USER_NOTIFICATIONS) (macOS 14+) and falls through here to the pending-message queue, so
+# a declarative payload reaches the service worker's PushEvent and the UI process displays it.
+SET_AND_EXPOSE_TO_BUILD(ENABLE_DECLARATIVE_WEB_PUSH TRUE)
 
 # ON — 10.9's ImageIO predates AVIF, so WebCore's own AVIFImageDecoder
 # serves it, the same way WEBPImageDecoder serves WebP (ScalableImageDecoder::create dispatches
@@ -344,6 +350,8 @@ SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER_GL FALSE)
 SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER_MPEGTS TRUE)
 SET_AND_EXPOSE_TO_BUILD(USE_TEXTURE_MAPPER FALSE)
 SET_AND_EXPOSE_TO_BUILD(USE_COORDINATED_GRAPHICS FALSE)
+# TLS here is BoringSSL on every OS, so the default TLS 1.2 floor upstream enables at a 26.0 deployment target holds on this port too.
+SET_AND_EXPOSE_TO_BUILD(ENABLE_TLS_1_2_DEFAULT_MINIMUM TRUE)
 include("${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/OptionsMacGStreamer.cmake")
 
 # The libxml2 2.13 from deps/build (@rpath install name, shipped alongside GStreamer) instead of the

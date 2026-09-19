@@ -8,6 +8,8 @@
 // declares these with, rather than a pointer to const.
 typedef NSString *PolyNSStringConst;
 
+WK_POLYFILL_CONST("Foundation", PolyNSStringConst, NSItemProviderErrorDomain, @"NSItemProviderErrorDomain");
+
 // NSHTTPCookie SameSite property key (NSString, 10.13+). REAL Foundation value: upstream writes the
 // same cookie property under this constant in NetworkStorageSessionCocoa's setAllCookiesToSameSiteStrict
 // and under the literal @"SameSite" in CookieCocoa's createNSHTTPCookie, and reads both back through

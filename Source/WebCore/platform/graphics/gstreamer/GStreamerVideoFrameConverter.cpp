@@ -156,34 +156,73 @@ GStreamerVideoFrameConverter::Pipeline& GStreamerVideoFrameConverter::ensurePipe
 #if USE(GSTREAMER_GL)
     auto* features = gst_caps_get_features(caps, 0);
     if (features && gst_caps_features_contains(features, GST_CAPS_FEATURE_MEMORY_DMABUF)) {
+        // MAVERICKS_BACKPORT: conversion is serialized; resource-release timers run on the main loop.
+        /*
         if (!m_dmabufMemoryPipeline) {
             m_dmabufMemoryPipeline = makeUnique<Pipeline>(Pipeline::Type::DMABufMemory);
             m_releaseUnusedDMABufMemoryPipelineTimer = makeUnique<RunLoop::Timer>(RunLoop::currentSingleton(), "GStreamerVideoFrameConverter::ReleaseUnusedDMABufMemoryPipelineTimer"_s, this, &GStreamerVideoFrameConverter::releaseUnusedDMABufMemoryPipelineTimerFired);
             m_releaseUnusedDMABufMemoryPipelineTimer->setPriority(RunLoopSourcePriority::ReleaseUnusedResourcesTimer);
         }
         m_releaseUnusedDMABufMemoryPipelineTimer->startOneShot(s_releaseUnusedPipelinesTimerInterval);
+        */ // MAVERICKS_BACKPORT: serialized pipeline and main-loop timer ownership.
+        if (!m_dmabufMemoryPipeline)
+            m_dmabufMemoryPipeline = makeUnique<Pipeline>(Pipeline::Type::DMABufMemory);
+        RunLoop::mainSingleton().dispatch([this] {
+            Locker locker { m_lock };
+            if (!m_dmabufMemoryPipeline)
+                return;
+            if (!m_releaseUnusedDMABufMemoryPipelineTimer)
+                m_releaseUnusedDMABufMemoryPipelineTimer = makeUnique<RunLoop::Timer>(RunLoop::mainSingleton(), "GStreamerVideoFrameConverter::ReleaseUnusedDMABufMemoryPipelineTimer"_s, this, &GStreamerVideoFrameConverter::releaseUnusedDMABufMemoryPipelineTimerFired);
+            m_releaseUnusedDMABufMemoryPipelineTimer->startOneShot(s_releaseUnusedPipelinesTimerInterval);
+        });
         return *m_dmabufMemoryPipeline;
     }
 
     if (features && gst_caps_features_contains(features, GST_CAPS_FEATURE_MEMORY_GL_MEMORY)) {
+        // MAVERICKS_BACKPORT: conversion is serialized; resource-release timers run on the main loop.
+        /*
         if (!m_glMemoryPipeline) {
             m_glMemoryPipeline = makeUnique<Pipeline>(Pipeline::Type::GLMemory);
             m_releaseUnusedGLMemoryPipelineTimer = makeUnique<RunLoop::Timer>(RunLoop::currentSingleton(), "GStreamerVideoFrameConverter::ReleaseUnusedGLMemoryPipelineTimer"_s, this, &GStreamerVideoFrameConverter::releaseUnusedGLMemoryPipelineTimerFired);
             m_releaseUnusedGLMemoryPipelineTimer->setPriority(RunLoopSourcePriority::ReleaseUnusedResourcesTimer);
         }
         m_releaseUnusedGLMemoryPipelineTimer->startOneShot(s_releaseUnusedPipelinesTimerInterval);
+        */ // MAVERICKS_BACKPORT: serialized pipeline and main-loop timer ownership.
+        if (!m_glMemoryPipeline)
+            m_glMemoryPipeline = makeUnique<Pipeline>(Pipeline::Type::GLMemory);
+        RunLoop::mainSingleton().dispatch([this] {
+            Locker locker { m_lock };
+            if (!m_glMemoryPipeline)
+                return;
+            if (!m_releaseUnusedGLMemoryPipelineTimer)
+                m_releaseUnusedGLMemoryPipelineTimer = makeUnique<RunLoop::Timer>(RunLoop::mainSingleton(), "GStreamerVideoFrameConverter::ReleaseUnusedGLMemoryPipelineTimer"_s, this, &GStreamerVideoFrameConverter::releaseUnusedGLMemoryPipelineTimerFired);
+            m_releaseUnusedGLMemoryPipelineTimer->startOneShot(s_releaseUnusedPipelinesTimerInterval);
+        });
         return *m_glMemoryPipeline;
     }
 #else
     UNUSED_PARAM(caps);
 #endif
 
+    // MAVERICKS_BACKPORT: conversion is serialized; resource-release timers run on the main loop.
+    /*
     if (!m_systemMemoryPipeline) {
         m_systemMemoryPipeline = makeUnique<Pipeline>(Pipeline::Type::SystemMemory);
         m_releaseUnusedSystemMemoryPipelineTimer = makeUnique<RunLoop::Timer>(RunLoop::currentSingleton(), "GStreamerVideoFrameConverter::ReleaseUnusedSystemMemoryPipelineTimer"_s, this, &GStreamerVideoFrameConverter::releaseUnusedSystemMemoryPipelineTimerFired);
         m_releaseUnusedSystemMemoryPipelineTimer->setPriority(RunLoopSourcePriority::ReleaseUnusedResourcesTimer);
     }
     m_releaseUnusedSystemMemoryPipelineTimer->startOneShot(s_releaseUnusedPipelinesTimerInterval);
+    */ // MAVERICKS_BACKPORT: serialized pipeline and main-loop timer ownership.
+    if (!m_systemMemoryPipeline)
+        m_systemMemoryPipeline = makeUnique<Pipeline>(Pipeline::Type::SystemMemory);
+    RunLoop::mainSingleton().dispatch([this] {
+        Locker locker { m_lock };
+        if (!m_systemMemoryPipeline)
+            return;
+        if (!m_releaseUnusedSystemMemoryPipelineTimer)
+            m_releaseUnusedSystemMemoryPipelineTimer = makeUnique<RunLoop::Timer>(RunLoop::mainSingleton(), "GStreamerVideoFrameConverter::ReleaseUnusedSystemMemoryPipelineTimer"_s, this, &GStreamerVideoFrameConverter::releaseUnusedSystemMemoryPipelineTimerFired);
+        m_releaseUnusedSystemMemoryPipelineTimer->startOneShot(s_releaseUnusedPipelinesTimerInterval);
+    });
     return *m_systemMemoryPipeline;
 }
 
@@ -193,6 +232,7 @@ GRefPtr<GstSample> GStreamerVideoFrameConverter::convert(const GRefPtr<GstSample
     if (gst_caps_is_equal(inputCaps, destinationCaps.get()))
         return GRefPtr(sample);
 
+    Locker locker { m_lock }; // MAVERICKS_BACKPORT: streaming and canvas callers share conversion pipelines.
     auto outputSample = ensurePipeline(inputCaps).run(sample, destinationCaps.get());
     if (!outputSample)
         return nullptr;
@@ -226,6 +266,7 @@ IGNORE_WARNINGS_END
 
 void GStreamerVideoFrameConverter::releaseUnusedSystemMemoryPipelineTimerFired()
 {
+    Locker locker { m_lock }; // MAVERICKS_BACKPORT: serialize retirement with conversion.
     m_systemMemoryPipeline = nullptr;
     m_releaseUnusedSystemMemoryPipelineTimer = nullptr;
 }
@@ -233,12 +274,14 @@ void GStreamerVideoFrameConverter::releaseUnusedSystemMemoryPipelineTimerFired()
 #if USE(GSTREAMER_GL)
 void GStreamerVideoFrameConverter::releaseUnusedGLMemoryPipelineTimerFired()
 {
+    Locker locker { m_lock }; // MAVERICKS_BACKPORT: serialize retirement with conversion.
     m_glMemoryPipeline = nullptr;
     m_releaseUnusedGLMemoryPipelineTimer = nullptr;
 }
 
 void GStreamerVideoFrameConverter::releaseUnusedDMABufMemoryPipelineTimerFired()
 {
+    Locker locker { m_lock }; // MAVERICKS_BACKPORT: serialize retirement with conversion.
     m_dmabufMemoryPipeline = nullptr;
     m_releaseUnusedDMABufMemoryPipelineTimer = nullptr;
 }

@@ -4,6 +4,8 @@
 #include "wk_hosts.h"
 #include "wk_symbols.h"
 
+#include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 // ---------------------------------------------------------------------------------------------------
@@ -256,18 +258,15 @@ CFStringRef wk_sameSiteCopyServerComment(CFStringRef comment)
     return wk_copyDecodedField(comment, range);
 }
 
-// The policy |value| names. "None" is permissive; a value the modern constants do not name leaves the
-// attribute with no meaning, and RFC 6265bis 5.4.7 hands such a cookie the default enforcement, which
-// is Lax. A cookie carrying no SameSite attribute at all never reaches here -- its comment has no
-// policy field and wk_sameSitePolicyOfComment answers None -- so this is only about a value that was
-// written and is not one of the three.
+// The policy |value| names. Only "Strict" and "Lax" restrict; any other value, like no value, leaves the
+// cookie unrestricted, which is how CFNetwork reads NSHTTPCookieSameSitePolicy.
 wk_same_site_policy wk_sameSitePolicyOfValue(CFStringRef value)
 {
-    if (!value || CFStringCompare(value, CFSTR("none"), kCFCompareCaseInsensitive) == kCFCompareEqualTo)
-        return WK_SAME_SITE_NONE;
-    if (CFStringCompare(value, CFSTR("strict"), kCFCompareCaseInsensitive) == kCFCompareEqualTo)
+    if (value && CFStringCompare(value, CFSTR("strict"), kCFCompareCaseInsensitive) == kCFCompareEqualTo)
         return WK_SAME_SITE_STRICT;
-    return WK_SAME_SITE_LAX;
+    if (value && CFStringCompare(value, CFSTR("lax"), kCFCompareCaseInsensitive) == kCFCompareEqualTo)
+        return WK_SAME_SITE_LAX;
+    return WK_SAME_SITE_NONE;
 }
 
 wk_same_site_policy wk_sameSitePolicyOfComment(CFStringRef comment)

@@ -1,7 +1,4 @@
-// The port's HAVE_* values, supplied through the hook PlatformHave.h has for additions from outside
-// the main repository. Every block it preempts is `#if !defined(HAVE_X)`-guarded upstream, so
-// defining the value here keeps Source/WTF/wtf/PlatformHave.h byte-upstream. polyfill/headers is on
-// every compile's include path (-idirafter, cmake/OptionsMacMavericks.cmake).
+// Native capability overrides for PlatformHave.h's WebKitAdditions hook.
 
 #pragma once
 
@@ -53,6 +50,10 @@
 // ContactPicker reference is HAVE(CONTACTSUI)-guarded.
 #define HAVE_CONTACTSUI 0
 
+// The polyfill layer implements CTFontManagerCreateMemorySafeFontDescriptorFromData and
+// FPFontCreateMemorySafeFontsFromData on the OpenType Sanitiser (polyfill/polyfills/c/CoreText.c).
+#define HAVE_CTFONTMANAGER_CREATEMEMORYSAFEFONTDESCRIPTORFROMDATA 1
+
 // CoreTelephony is not usable on 10.9; CoreTelephonyUtilities is HAVE(CORE_TELEPHONY)-guarded.
 #define HAVE_CORE_TELEPHONY 0
 
@@ -65,7 +66,6 @@
 // ISO/IEC 23008-12 image sequences (.heics) decode through this port's GStreamer stack: the file is
 // an ISO-BMFF one whose samples are HEVC, so qtdemux and the HEVC decoder carry it, and
 // ImageDecoderGStreamer is what the image pipeline reaches for them. Not an upstream macro — this
-// port introduces it. Distinct from HAVE(HEIC), which describes ImageIO decoding every HEIF flavour
-// including still images and puts image/heic in the image Accept header; 10.9's ImageIO decodes none
-// of them and nothing here decodes a still HEIF item, so that one stays off.
+// port introduces it. Still HEIF images are HEIFImageDecoder's, on libheif; HAVE(HEIC) covers those
+// and the image Accept header.
 #define HAVE_HEIF_IMAGE_SEQUENCE 1

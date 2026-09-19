@@ -1,6 +1,7 @@
 // Foundation: stubs of the Foundation classes 10.9 does not have.
 #import "wk_priv_class.h"
 #import <Foundation/Foundation.h>
+#import <AppKit/AppKit.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -577,3 +578,96 @@ WK_PRIV_CLASS(NSExtension) @interface NSExtension : NSObject
 
 @end
 WK_PRIV_ALIAS(NSExtension);
+
+// NSItemProvider (10.10+): a typed item plus the promise of its data. WebKit's Mac use is the narrow
+// deprecated one — wrap one already-materialised item under one UTI and hand it to
+// NSSharingServicePicker, which both WebContextMenuProxyMac's service-controls menu and WebKitLegacy's
+// WebContextMenuClient do. WebSharingServicePickerController reads the shared item back through
+// -registeredTypeIdentifiers and -loadItemForTypeIdentifier:options:completionHandler:.
+//
+// 10.9's picker takes any NSPasteboardWriting, and its pasteboard types ARE UTIs, so writing the
+// wrapped item under its own type identifier is what makes the picker offer the same services the
+// modern one offers for the same item.
+WK_PRIV_CLASS(NSItemProvider) @interface NSItemProvider : NSObject <NSPasteboardWriting> {
+    id _item;
+    NSString *_typeIdentifier;
+}
+- (instancetype)initWithItem:(id)item typeIdentifier:(NSString *)typeIdentifier;
+- (NSArray *)registeredTypeIdentifiers;
+- (void)loadItemForTypeIdentifier:(NSString *)typeIdentifier options:(NSDictionary *)options completionHandler:(void (^)(id, NSError *))completionHandler;
+@end
+
+@implementation NSItemProvider
+
+- (instancetype)initWithItem:(id)item typeIdentifier:(NSString *)typeIdentifier
+{
+    if (!(self = [super init]))
+        return nil;
+    _item = [item retain];
+    _typeIdentifier = [typeIdentifier copy];
+    return self;
+}
+
+- (void)dealloc
+{
+    [_item release];
+    [_typeIdentifier release];
+    [super dealloc];
+}
+
+- (NSArray *)registeredTypeIdentifiers
+{
+    return _typeIdentifier ? [NSArray arrayWithObject:_typeIdentifier] : [NSArray array];
+}
+
+// The load runs on a private serial queue and the handler is called there, which is where the real
+// class calls it: a caller is entitled to return from this method before the handler runs, and to hold
+// a lock across the call.
+- (void)loadItemForTypeIdentifier:(NSString *)typeIdentifier options:(NSDictionary *)options completionHandler:(void (^)(id, NSError *))completionHandler
+{
+    (void)options;
+    if (!completionHandler)
+        return;
+
+    static dispatch_queue_t loadQueue;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        loadQueue = dispatch_queue_create("org.webkit.mavericks.NSItemProvider", DISPATCH_QUEUE_SERIAL);
+    });
+
+    // dispatch_async copies the block, which retains self and copies completionHandler for the
+    // duration; requested is copied because the caller owns its string.
+    NSString *requested = [typeIdentifier copy];
+    dispatch_async(loadQueue, ^{
+        @autoreleasepool {
+            if (requested && _typeIdentifier && ![requested isEqualToString:_typeIdentifier])
+                completionHandler(nil, [NSError errorWithDomain:@"NSItemProviderErrorDomain" code:-1000 userInfo:nil]);
+            else
+                completionHandler(_item, nil);
+            [requested release];
+        }
+    });
+}
+
+- (NSArray *)writableTypesForPasteboard:(NSPasteboard *)pasteboard
+{
+    (void)pasteboard;
+    return [self registeredTypeIdentifiers];
+}
+
+// Written under the type it was registered with, so the item's own NSPasteboardWriting answers wherever
+// it has one — NSString, NSURL, NSImage and NSAttributedString all do. NSData carries no such
+// conformance and is already a property list value.
+- (id)pasteboardPropertyListForType:(NSString *)type
+{
+    if ([_item respondsToSelector:@selector(pasteboardPropertyListForType:)])
+        return [_item pasteboardPropertyListForType:type];
+    if ([_item isKindOfClass:[NSData class]])
+        return _item;
+    if ([_item respondsToSelector:@selector(TIFFRepresentation)])
+        return [_item TIFFRepresentation];
+    return nil;
+}
+
+@end
+WK_PRIV_ALIAS(NSItemProvider);

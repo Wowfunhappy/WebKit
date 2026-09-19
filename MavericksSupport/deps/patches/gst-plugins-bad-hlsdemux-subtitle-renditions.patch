@@ -14,15 +14,42 @@
 # cannot be converted because no primary fragment has provided a PCR yet keeps its original
 # value, and a cue that converts to a negative stream time is clamped to zero.
 #
+# A rendition's NAME and LANGUAGE become its stream's title and language tags. They are kept
+# on the stream and merged into every tag event it sends, because the element sends other tags
+# on the same stream -- the ID3 tags of a packed audio fragment, a bitrate change -- and a new
+# stream tag event replaces the one before it downstream.
+#
+# A rendition's CHARACTERISTICS travel with them, as the string tag "hls-characteristics" the
+# element registers. The rendition's stream also carries its tags, type and flags in a GstStream
+# on its stream-start event, so a player finds them when it first sees the stream rather than
+# whenever the tag events arrive. A URI rendition's tags additionally go out in the typed
+# "hls-rendition-tags" event described below, so a demuxer splitting its fragments applies them
+# over the container's own values, as hlsdemux2 applies a rendition's LANGUAGE with
+# GST_TAG_MERGE_REPLACE over the demuxed tags.
+#
+# A rendition without a URI is carried inside the variant's own stream. The playlist parser
+# keeps such a rendition, as the successor's parser does (setup_streams and the playlist update
+# already skip one as "a placeholder for a stream contained in another mux"), and its tags go out
+# on the variant's stream in a sticky "hls-rendition-tags" event holding one tag list per stream
+# type, for the demuxer splitting that stream to apply to its streams of that type (see the
+# tsdemux and qtdemux patches).
+#
 # A subtitle rendition otherwise travels the path the audio renditions already take: its
 # fragments are typefound (WebVTT types as application/x-subtitle-vtt) and pushed as their own
 # stream, and is_primary_playlist stays false for every rendition, so bitrate switching keeps
 # following the main playlist.
 #
+# A rendition without a URI marked DEFAULT sets "<type>-default" in the hls-rendition-tags event,
+# so the demuxer splitting the variant's stream selects its stream of that type. A subtitle
+# rendition with FORCED=YES carries the characteristic "public.subtitles.forced-only", the value
+# of AVFoundation's AVMediaCharacteristicContainsOnlyForcedSubtitles. When setup_streams reuses the
+# streams of the previous variant it skips a rendition without a URI, as stream creation and the
+# playlist update already do.
+#
 # Applied by build_deps with patch -p1.
 --- a/gst-libs/gst/adaptivedemux/gstadaptivedemux.h
 +++ b/gst-libs/gst/adaptivedemux/gstadaptivedemux.h
-@@ -195,6 +195,10 @@
+@@ -195,6 +195,18 @@
    gboolean eos;
  
    gboolean do_block; /* TRUE if stream should block on preroll */
@@ -30,23 +57,130 @@
 +  /* Flags this stream announces on its stream-start event, so a subclass can mark a
 +   * stream sparse or as the one to select by default */
 +  GstStreamFlags stream_flags;
++
++  /* Tags describing this stream as the manifest declares it, merged into every tag event the
++   * stream sends */
++  GstTagList *stream_tags;
++
++  /* The type of the stream the manifest describes, announced with stream_tags and stream_flags in
++   * a GstStream on the stream-start event */
++  GstStreamType stream_type;
  };
  
  /**
 --- a/gst-libs/gst/adaptivedemux/gstadaptivedemux.c
 +++ b/gst-libs/gst/adaptivedemux/gstadaptivedemux.c
-@@ -965,6 +965,8 @@
+@@ -965,6 +965,16 @@
    event = gst_event_new_stream_start (stream_id);
    if (demux->have_group_id)
      gst_event_set_group_id (event, demux->group_id);
 +  if (stream->stream_flags != GST_STREAM_FLAG_NONE)
 +    gst_event_set_stream_flags (event, stream->stream_flags);
++  if (stream->stream_tags) {
++    GstStream *stream_object = gst_stream_new (stream_id, NULL,
++        stream->stream_type, stream->stream_flags);
++
++    gst_stream_set_tags (stream_object, stream->stream_tags);
++    gst_event_set_stream (event, stream_object);
++    gst_object_unref (stream_object);
++  }
  
    gst_pad_push_event (pad, event);
    g_free (stream_id);
+@@ -1448,6 +1458,7 @@
+     gst_caps_unref (stream->pending_caps);
+ 
+   g_clear_pointer (&stream->pending_tags, gst_tag_list_unref);
++  g_clear_pointer (&stream->stream_tags, gst_tag_list_unref);
+ 
+   g_free (stream);
+ }
+@@ -2488,6 +2499,14 @@
+       gst_tag_list_add (tags, GST_TAG_MERGE_KEEP,
+           GST_TAG_NOMINAL_BITRATE, stream->fragment.bitrate, NULL);
+     }
++    if (stream->stream_tags) {
++      if (tags)
++        tags = gst_tag_list_make_writable (tags);
++      else
++        tags = gst_tag_list_new_empty ();
++
++      gst_tag_list_insert (tags, stream->stream_tags, GST_TAG_MERGE_REPLACE);
++    }
+     if (tags)
+       pending_tags = gst_event_new_tag (tags);
+   }
+--- a/ext/hls/m3u8.h
++++ b/ext/hls/m3u8.h
+@@ -165,6 +165,7 @@
+   gchar *name;
+   gchar *lang;
+   gchar *uri;
++  gchar *characteristics;       /* comma-separated media characteristic UTIs */
+   gboolean is_default;
+   gboolean autoselect;
+   gboolean forced;
+--- a/ext/hls/m3u8.c
++++ b/ext/hls/m3u8.c
+@@ -1305,6 +1305,7 @@
+     g_free (media->name);
+     g_free (media->uri);
+     g_free (media->lang);
++    g_free (media->characteristics);
+     g_free (media);
+   }
+ }
+@@ -1392,8 +1393,11 @@
+       media->forced = g_ascii_strcasecmp (v, "yes") == 0;
+     } else if (strcmp (a, "AUTOSELECT") == 0) {
+       media->autoselect = g_ascii_strcasecmp (v, "yes") == 0;
++    } else if (strcmp (a, "CHARACTERISTICS") == 0) {
++      g_free (media->characteristics);
++      media->characteristics = gst_m3u8_unquote (v);
+     } else {
+-      /* unhandled: ASSOC-LANGUAGE, INSTREAM-ID, CHARACTERISTICS */
++      /* unhandled: ASSOC-LANGUAGE, INSTREAM-ID */
+       GST_FIXME ("EXT-X-MEDIA: unhandled attribute: %s = %s", a, v);
+     }
+   }
+@@ -1401,9 +1405,6 @@
+   if (media->mtype == GST_HLS_MEDIA_TYPE_INVALID)
+     goto required_attributes_missing;
+ 
+-  if (media->uri == NULL)
+-    goto existing_stream;
+-
+   if (media->group_id == NULL || media->name == NULL)
+     goto required_attributes_missing;
+ 
+@@ -1429,12 +1430,6 @@
+     goto out_error;
+     /* fall through */
+   }
+-existing_stream:
+-  {
+-    GST_DEBUG ("EXT-X-MEDIA without URI, describes embedded stream, skipping");
+-    /* fall through */
+-  }
+-
+ out_error:
+   {
+     gst_hls_media_unref (media);
 --- a/ext/hls/gsthlsdemux.h
 +++ b/ext/hls/gsthlsdemux.h
-@@ -92,6 +92,9 @@
+@@ -39,6 +39,11 @@
+ 
+ G_BEGIN_DECLS
+ 
++/* The CHARACTERISTICS an EXT-X-MEDIA rendition declares, as a comma-separated list of media
++ * characteristic UTIs (for example "public.accessibility.describes-video") */
++#define GST_HLS_DEMUX_TAG_CHARACTERISTICS "hls-characteristics"
++
++
+ #define GST_TYPE_HLS_DEMUX \
+   (gst_hls_demux_get_type())
+ #define GST_HLS_DEMUX(obj) \
+@@ -92,6 +97,9 @@
    gboolean do_typefind;         /* Whether we need to typefind the next buffer */
    GstBuffer *pending_typefind_buffer; /* for collecting data until typefind succeeds */
  
@@ -56,7 +190,7 @@
    GstAdapter *pending_encrypted_data;  /* for chunking data into 16 byte multiples for decryption */
    GstBuffer *pending_decrypted_buffer; /* last decrypted buffer for pkcs7 unpadding.
                                            We only know that it is the last at EOS */
-@@ -143,6 +146,12 @@
+@@ -143,6 +151,12 @@
  
    GstDateTime *prog_dt;
  
@@ -80,7 +214,19 @@
  #include "gsthlselements.h"
  #include "gsthlsdemux.h"
  
-@@ -265,6 +267,7 @@
+@@ -145,6 +147,11 @@
+   GstElementClass *element_class;
+   GstAdaptiveDemuxClass *adaptivedemux_class;
+ 
++  gst_tag_register_static (GST_HLS_DEMUX_TAG_CHARACTERISTICS, GST_TAG_FLAG_META,
++      G_TYPE_STRING, "HLS characteristics",
++      "Media characteristic UTIs an HLS rendition declares",
++      gst_tag_merge_strings_with_comma);
++
+   gobject_class = (GObjectClass *) klass;
+   element_class = (GstElementClass *) klass;
+   adaptivedemux_class = (GstAdaptiveDemuxClass *) klass;
+@@ -265,6 +272,7 @@
    gst_buffer_replace (&hls_stream->pending_decrypted_buffer, NULL);
    gst_buffer_replace (&hls_stream->pending_typefind_buffer, NULL);
    gst_buffer_replace (&hls_stream->pending_pcr_buffer, NULL);
@@ -88,19 +234,50 @@
    hls_stream->current_offset = -1;
    gst_hls_demux_stream_decrypt_end (hls_stream);
  }
-@@ -489,6 +492,47 @@
+@@ -489,7 +497,170 @@
    return GST_FLOW_OK;
  }
  
-+/* The NAME and LANGUAGE an EXT-X-MEDIA rendition declares, as tags on its stream, so a
-+ * player can label the track and match it against language preferences. */
-+static void
-+set_tags_for_media (GstAdaptiveDemuxStream * stream, GstHLSMedia * media)
++/* The field of a "hls-rendition-tags" event carrying the tags of renditions of a type. */
++static const gchar *
++rendition_tags_field (GstHLSMediaType mtype)
++{
++  switch (mtype) {
++    case GST_HLS_MEDIA_TYPE_AUDIO:
++      return "audio";
++    case GST_HLS_MEDIA_TYPE_VIDEO:
++      return "video";
++    case GST_HLS_MEDIA_TYPE_SUBTITLES:
++      return "text";
++    default:
++      return NULL;
++  }
++}
++
++static GstStreamType
++rendition_stream_type (GstHLSMediaType mtype)
++{
++  switch (mtype) {
++    case GST_HLS_MEDIA_TYPE_AUDIO:
++      return GST_STREAM_TYPE_AUDIO;
++    case GST_HLS_MEDIA_TYPE_VIDEO:
++      return GST_STREAM_TYPE_VIDEO;
++    case GST_HLS_MEDIA_TYPE_SUBTITLES:
++      return GST_STREAM_TYPE_TEXT;
++    default:
++      return GST_STREAM_TYPE_UNKNOWN;
++  }
++}
++
++/* The NAME, LANGUAGE and CHARACTERISTICS an EXT-X-MEDIA rendition declares, as tags. */
++static GstTagList *
++tags_for_media (GstHLSMedia * media)
 +{
 +  GstTagList *tags;
 +
-+  if (!media || (!media->name && !media->lang))
-+    return;
++  if (!media || (!media->name && !media->lang && !media->characteristics
++          && !media->forced))
++    return NULL;
 +
 +  tags = gst_tag_list_new_empty ();
 +  if (media->name)
@@ -114,13 +291,104 @@
 +      gst_tag_list_add (tags, GST_TAG_MERGE_REPLACE, GST_TAG_LANGUAGE_NAME,
 +          media->lang, NULL);
 +  }
++  if (media->characteristics
++      || (media->forced && media->mtype == GST_HLS_MEDIA_TYPE_SUBTITLES)) {
++    /* FORCED=YES is the characteristic AVFoundation names
++     * AVMediaCharacteristicContainsOnlyForcedSubtitles */
++    gchar *characteristics =
++        media->forced && media->mtype == GST_HLS_MEDIA_TYPE_SUBTITLES ?
++        g_strjoin (",", media->characteristics ? media->characteristics : "",
++        "public.subtitles.forced-only", NULL) :
++        g_strdup (media->characteristics);
 +
++    gst_tag_list_add (tags, GST_TAG_MERGE_REPLACE,
++        GST_HLS_DEMUX_TAG_CHARACTERISTICS,
++        characteristics[0] == ',' ? characteristics + 1 : characteristics, NULL);
++    g_free (characteristics);
++  }
++
++  return tags;
++}
++
++/* The tags of a rendition with its own stream, so a player can label the track and match it
++ * against language preferences. They are kept on the stream and go out with every tag event it
++ * sends, including the ID3 tags of a packed audio fragment, and in the GstStream of its
++ * stream-start event. A demuxer splitting the rendition's fragments applies them over the
++ * container's own tags from the stream's "hls-rendition-tags" event, as for a rendition carried
++ * inside the variant's stream. */
++static void
++set_tags_for_media (GstAdaptiveDemuxStream * stream, GstHLSMedia * media)
++{
++  GstTagList *tags = tags_for_media (media);
++  const gchar *field;
++
++  if (!tags)
++    return;
++
++  field = rendition_tags_field (media->mtype);
++  if (field)
++    gst_adaptive_demux_stream_queue_event (stream,
++        gst_event_new_custom (GST_EVENT_CUSTOM_DOWNSTREAM_STICKY,
++            gst_structure_new ("hls-rendition-tags", field, GST_TYPE_TAG_LIST,
++                tags, NULL)));
++
++  stream->stream_type = rendition_stream_type (media->mtype);
++  gst_tag_list_replace (&stream->stream_tags, tags);
 +  gst_adaptive_demux_stream_set_tags (stream, tags);
++}
++
++/* A rendition without a URI is carried inside the variant's own stream. Its tags travel with
++ * that stream in a sticky "hls-rendition-tags" event holding one tag list per stream type, so
++ * the demuxer that splits the variant's stream applies each list to its streams of that type
++ * only, the way the successor element attaches such a rendition to the variant's track of the
++ * matching type. */
++static void
++queue_tags_for_variant_media (GstAdaptiveDemuxStream * stream,
++    GstHLSVariantStream * variant)
++{
++  static const GstHLSMediaType types[] = {
++    GST_HLS_MEDIA_TYPE_AUDIO, GST_HLS_MEDIA_TYPE_VIDEO,
++    GST_HLS_MEDIA_TYPE_SUBTITLES,
++  };
++  GstStructure *s = NULL;
++  guint i;
++
++  for (i = 0; i < G_N_ELEMENTS (types); i++) {
++    GList *l;
++
++    for (l = variant->media[types[i]]; l; l = l->next) {
++      GstHLSMedia *media = l->data;
++      GstTagList *tags;
++
++      if (media->uri != NULL)
++        continue;
++
++      tags = tags_for_media (media);
++      if (tags) {
++        const gchar *field = rendition_tags_field (types[i]);
++
++        if (!s)
++          s = gst_structure_new_empty ("hls-rendition-tags");
++        gst_structure_set (s, field, GST_TYPE_TAG_LIST, tags, NULL);
++        gst_tag_list_unref (tags);
++        if (media->is_default) {
++          gchar *default_field = g_strconcat (field, "-default", NULL);
++          gst_structure_set (s, default_field, G_TYPE_BOOLEAN, TRUE, NULL);
++          g_free (default_field);
++        }
++      }
++      break;
++    }
++  }
++
++  if (s)
++    gst_adaptive_demux_stream_queue_event (stream,
++        gst_event_new_custom (GST_EVENT_CUSTOM_DOWNSTREAM_STICKY, s));
 +}
 +
 +/* The flags a rendition's stream announces: a subtitle stream is sparse, and a rendition the
 + * playlist marks DEFAULT is the one a player should start with. */
-+static void
+ static void
 +set_flags_for_media (GstAdaptiveDemuxStream * stream, GstHLSMedia * media)
 +{
 +  if (!media)
@@ -133,10 +401,45 @@
 +    stream->stream_flags |= GST_STREAM_FLAG_SELECT;
 +}
 +
- static void
++static GstHLSDemuxStream *
  create_stream_for_playlist (GstAdaptiveDemux * demux, GstM3U8 * playlist,
      gboolean is_primary_playlist, gboolean selected)
-@@ -637,7 +681,8 @@
+ {
+@@ -500,7 +671,7 @@
+   if (!selected) {
+     /* FIXME: Later, create the stream but mark not-selected */
+     GST_LOG_OBJECT (demux, "Ignoring not-selected stream");
+-    return;
++    return NULL;
+   }
+ 
+   GST_DEBUG_OBJECT (demux,
+@@ -519,6 +690,8 @@
+ 
+   hlsdemux_stream->do_typefind = TRUE;
+   hlsdemux_stream->reset_pts = TRUE;
++
++  return hlsdemux_stream;
+ }
+ 
+ static GstHLSDemuxStream *
+@@ -626,7 +799,14 @@
+       GList *mlist = playlist->media[i];
+       while (mlist != NULL) {
+         GstHLSMedia *media = mlist->data;
+-        GstHLSMedia *old_media =
++        GstHLSMedia *old_media;
++
++        /* A rendition without a URI is carried inside the variant's stream */
++        if (media->uri == NULL) {
++          mlist = mlist->next;
++          continue;
++        }
++        old_media =
+             gst_hls_variant_find_matching_media (hlsdemux->previous_variant,
+             media);
+ 
+@@ -637,7 +817,8 @@
          if (!g_strcmp0 (media->uri, old_media->uri))
            GST_DEBUG_OBJECT (demux, "Identical stream !");
          if (media->mtype == GST_HLS_MEDIA_TYPE_AUDIO ||
@@ -146,16 +449,30 @@
            hlsstream =
                find_adaptive_stream_for_playlist (demux, old_media->playlist);
            if (!hlsstream)
-@@ -681,7 +726,18 @@
+@@ -662,7 +843,8 @@
+   gst_hls_demux_clear_all_pending_data (hlsdemux);
+ 
+   /* 1 output for the main playlist */
+-  create_stream_for_playlist (demux, playlist->m3u8, TRUE, TRUE);
++  queue_tags_for_variant_media ((GstAdaptiveDemuxStream *)
++      create_stream_for_playlist (demux, playlist->m3u8, TRUE, TRUE), playlist);
+ 
+   for (i = 0; i < GST_HLS_N_MEDIA_TYPES; ++i) {
+     GList *mlist = playlist->media[i];
+@@ -679,9 +861,20 @@
+       }
+       GST_LOG_OBJECT (demux, "media of type %s - %s, uri: %s",
            gst_hls_media_type_get_name (i), media->name, media->uri);
-       create_stream_for_playlist (demux, media->playlist, FALSE,
-           (media->mtype == GST_HLS_MEDIA_TYPE_VIDEO
+-      create_stream_for_playlist (demux, media->playlist, FALSE,
+-          (media->mtype == GST_HLS_MEDIA_TYPE_VIDEO
 -              || media->mtype == GST_HLS_MEDIA_TYPE_AUDIO));
-+              || media->mtype == GST_HLS_MEDIA_TYPE_AUDIO
-+              || media->mtype == GST_HLS_MEDIA_TYPE_SUBTITLES));
 +      {
 +        GstHLSDemuxStream *rendition_stream =
-+            find_adaptive_stream_for_playlist (demux, media->playlist);
++            create_stream_for_playlist (demux, media->playlist, FALSE,
++            (media->mtype == GST_HLS_MEDIA_TYPE_VIDEO
++              || media->mtype == GST_HLS_MEDIA_TYPE_AUDIO
++              || media->mtype == GST_HLS_MEDIA_TYPE_SUBTITLES));
++
 +        if (rendition_stream) {
 +          set_tags_for_media ((GstAdaptiveDemuxStream *) rendition_stream,
 +              media);
@@ -166,7 +483,7 @@
  
        mlist = mlist->next;
      }
-@@ -962,6 +1018,323 @@
+@@ -962,6 +1155,323 @@
    return GST_HLS_TSREADER_NONE;
  }
  
@@ -490,7 +807,7 @@
  static GstFlowReturn
  gst_hls_demux_handle_buffer (GstAdaptiveDemux * demux,
      GstAdaptiveDemuxStream * stream, GstBuffer * buffer, gboolean at_eos)
-@@ -1019,6 +1392,9 @@
+@@ -1019,6 +1529,9 @@
      hls_stream->stream_type = caps_to_reader (caps);
      gst_hlsdemux_tsreader_set_type (&hls_stream->tsreader,
          hls_stream->stream_type);
@@ -500,7 +817,7 @@
  
      gst_adaptive_demux_stream_set_caps (stream, caps);
  
-@@ -1028,6 +1404,27 @@
+@@ -1028,6 +1541,27 @@
    }
    g_assert (hls_stream->pending_typefind_buffer == NULL);
  
@@ -528,7 +845,7 @@
    // Accumulate this buffer
    if (hls_stream->pending_pcr_buffer) {
      buffer = gst_buffer_append (hls_stream->pending_pcr_buffer, buffer);
-@@ -1042,6 +1439,18 @@
+@@ -1042,6 +1576,18 @@
      return GST_FLOW_OK;
    }
  
@@ -547,3 +864,17 @@
    if (tags) {
      gst_adaptive_demux_stream_set_tags (stream, tags);
      /* run typefind again on the trimmed buffer */
+@@ -1099,6 +1645,13 @@
+         gst_hls_demux_handle_buffer (demux, stream, buf, TRUE);
+       }
+ 
++      if (hls_stream->pending_webvtt_buffer) {
++        GstBuffer *buf = hls_stream->pending_webvtt_buffer;
++        hls_stream->pending_webvtt_buffer = NULL;
++
++        ret = gst_hls_demux_handle_buffer (demux, stream, buf, TRUE);
++      }
++
+       if (hls_stream->pending_pcr_buffer) {
+         GstBuffer *buf = hls_stream->pending_pcr_buffer;
+         hls_stream->pending_pcr_buffer = NULL;

@@ -64,15 +64,13 @@
  * media dylib, and polyfill/build-polyfill.sh compiles it into libpolyfill.a for WebKit, where
  * WK_POLYFILL_REGISTERED adds the registry entries.
  *
- * 10.9's functions are reached by naming their image, with NSAddImage and NSLookupSymbolInImage --
- * the pre-dlopen dyld API, deprecated since 10.5 but present and working on 10.9. They are used
- * here because they work identically in both products: the gap archive carries no registry and no
- * dlsym override, so it has nothing to ask a provider name about.
+ * Native entry points resolve through the shared image-local symbol lookup.
  */
 
 #include <AudioUnit/AudioUnit.h>
 #include <CoreAudio/CoreAudio.h>
-#include <mach-o/dyld.h>
+#include <dlfcn.h>
+#include "../c/wk_symbols.h"
 #include <stdio.h>
 #include <syslog.h>
 #include <stdlib.h>
@@ -104,27 +102,17 @@ typedef OSStatus (*wk_audio_unit_remove_property_listener_fn)(AudioUnit, AudioUn
     wk_audio_unit_property_listener_proc, void *);
 typedef OSStatus (*wk_audio_component_instance_dispose_fn)(AudioComponentInstance);
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-
-static void *wk_symbol_in_image(const char *image, const char *symbol)
-{
-    const struct mach_header *header = NSAddImage(image, NSADDIMAGE_OPTION_RETURN_ON_ERROR);
-    if (!header)
-        return 0;
-
-    NSSymbol found = NSLookupSymbolInImage(header, symbol, NSLOOKUPSYMBOLINIMAGE_OPTION_RETURN_ON_ERROR);
-    return found ? NSAddressOfSymbol(found) : 0;
-}
-
-#pragma clang diagnostic pop
-
 /* One address each, resolved on first use and kept. */
 static void *wk_cached_symbol(void **slot, const char *image, const char *symbol)
 {
     void *address = __atomic_load_n(slot, __ATOMIC_RELAXED);
     if (!address) {
-        address = wk_symbol_in_image(image, symbol);
+        wk_image loadedImage;
+        if (!wk_find_image(image, &loadedImage)) {
+            if (!dlopen(image, RTLD_LAZY | RTLD_LOCAL) || !wk_find_image(image, &loadedImage))
+                return NULL;
+        }
+        address = wk_symbol_in_image(&loadedImage, symbol);
         __atomic_store_n(slot, address, __ATOMIC_RELAXED);
     }
     return address;

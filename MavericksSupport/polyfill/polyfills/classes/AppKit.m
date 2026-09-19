@@ -381,3 +381,436 @@ WK_PRIV_CLASS(NSServicesRolloverButtonCell) @interface NSServicesRolloverButtonC
 
 @end
 WK_PRIV_ALIAS(NSServicesRolloverButtonCell);
+
+// NSAccessibilityCustomAction (10.13+): one named, invocable action on an accessibility element, which
+// -[WebAccessibilityObjectWrapper accessibilityCustomActions] builds one of per aria-actions target.
+// The class is a value object — a name plus the handler block that runs the action — and that pair is
+// all WebKit and its test harness construct or read.
+WK_PRIV_CLASS(NSAccessibilityCustomAction) @interface NSAccessibilityCustomAction : NSObject {
+    NSString *_name;
+    BOOL (^_handler)(void);
+    id _target;
+    SEL _selector;
+}
+- (instancetype)initWithName:(NSString *)name handler:(BOOL (^)(void))handler;
+- (instancetype)initWithName:(NSString *)name target:(id)target selector:(SEL)selector;
+@property (copy) NSString *name;
+@property (copy) BOOL (^handler)(void);
+@property (assign) id target;
+@property SEL selector;
+@end
+
+@implementation NSAccessibilityCustomAction
+
+- (instancetype)initWithName:(NSString *)name handler:(BOOL (^)(void))handler
+{
+    if (!(self = [super init]))
+        return nil;
+    _name = [name copy];
+    _handler = [handler copy];
+    return self;
+}
+
+// The other way to build one: the action is performed by sending the selector to the target, and
+// -handler stays nil, which is how the two forms are told apart.
+- (instancetype)initWithName:(NSString *)name target:(id)target selector:(SEL)selector
+{
+    if (!(self = [super init]))
+        return nil;
+    _name = [name copy];
+    _target = target;
+    _selector = selector;
+    return self;
+}
+
+- (void)dealloc
+{
+    [_name release];
+    [_handler release];
+    [super dealloc];
+}
+
+- (id)target { return _target; }
+- (void)setTarget:(id)target { _target = target; }
+- (SEL)selector { return _selector; }
+- (void)setSelector:(SEL)selector { _selector = selector; }
+
+- (NSString *)name { return _name; }
+
+- (void)setName:(NSString *)name
+{
+    if (_name == name)
+        return;
+    [_name release];
+    _name = [name copy];
+}
+
+- (BOOL (^)(void))handler { return _handler; }
+
+- (void)setHandler:(BOOL (^)(void))handler
+{
+    if (_handler == handler)
+        return;
+    [_handler release];
+    _handler = [handler copy];
+}
+
+@end
+WK_PRIV_ALIAS(NSAccessibilityCustomAction);
+
+// NSPreviewRepresentingActivityItem (13.0+): an item to share, wrapped with the title and artwork the
+// modern share sheet draws above it. WebContextMenuProxyMac::createShareMenuItem wraps the page's
+// image in one for the Share submenu of a right-click.
+//
+// 10.9's NSSharingServicePicker takes any NSPasteboardWriting and has no preview area to draw the
+// title or artwork in, so forwarding the pasteboard protocol to the wrapped item gives the picker
+// exactly the item upstream means to share: measured with +[NSSharingService sharingServicesForItems:],
+// the wrapper and the bare item offer the same services.
+@class NSItemProvider;
+
+WK_PRIV_CLASS(NSPreviewRepresentingActivityItem) @interface NSPreviewRepresentingActivityItem : NSObject <NSPasteboardWriting> {
+    id _item;
+    NSString *_title;
+    NSItemProvider *_imageProvider;
+    NSItemProvider *_iconProvider;
+}
+- (instancetype)initWithItem:(id)item title:(NSString *)title image:(NSImage *)image icon:(NSImage *)icon;
+- (instancetype)initWithItem:(id)item title:(NSString *)title imageProvider:(NSItemProvider *)imageProvider iconProvider:(NSItemProvider *)iconProvider;
+- (instancetype)initWithItem:(id)item linkMetadata:(id)linkMetadata;
+@property (readonly) id item;
+@property (readonly, copy) NSString *title;
+@property (readonly) NSItemProvider *imageProvider;
+@property (readonly) NSItemProvider *iconProvider;
+@end
+
+// The artwork is carried as NSItemProviders, which is the shape the class vends it in; the image/icon
+// initializer wraps each one under the type -[NSImage TIFFRepresentation] produces.
+@interface NSItemProvider : NSObject
+- (instancetype)initWithItem:(id)item typeIdentifier:(NSString *)typeIdentifier;
+@end
+
+@implementation NSPreviewRepresentingActivityItem
+
+- (instancetype)initWithItem:(id)item title:(NSString *)title imageProvider:(NSItemProvider *)imageProvider iconProvider:(NSItemProvider *)iconProvider
+{
+    if (!(self = [super init]))
+        return nil;
+    _item = [item retain];
+    _title = [title copy];
+    _imageProvider = [imageProvider retain];
+    _iconProvider = [iconProvider retain];
+    return self;
+}
+
+- (instancetype)initWithItem:(id)item title:(NSString *)title image:(NSImage *)image icon:(NSImage *)icon
+{
+    NSItemProvider *imageProvider = image ? [[[NSItemProvider alloc] initWithItem:image typeIdentifier:@"public.tiff"] autorelease] : nil;
+    NSItemProvider *iconProvider = icon ? [[[NSItemProvider alloc] initWithItem:icon typeIdentifier:@"public.tiff"] autorelease] : nil;
+    return [self initWithItem:item title:title imageProvider:imageProvider iconProvider:iconProvider];
+}
+
+- (instancetype)initWithItem:(id)item linkMetadata:(id)linkMetadata
+{
+    return [self initWithItem:item
+                        title:[linkMetadata respondsToSelector:@selector(title)] ? [linkMetadata title] : nil
+                imageProvider:nil
+                 iconProvider:nil];
+}
+
+- (void)dealloc
+{
+    [_item release];
+    [_title release];
+    [_imageProvider release];
+    [_iconProvider release];
+    [super dealloc];
+}
+
+- (id)item { return _item; }
+- (NSString *)title { return _title; }
+- (NSItemProvider *)imageProvider { return _imageProvider; }
+- (NSItemProvider *)iconProvider { return _iconProvider; }
+
+- (NSArray *)writableTypesForPasteboard:(NSPasteboard *)pasteboard
+{
+    return [_item respondsToSelector:@selector(writableTypesForPasteboard:)] ? [_item writableTypesForPasteboard:pasteboard] : [NSArray array];
+}
+
+- (id)pasteboardPropertyListForType:(NSString *)type
+{
+    return [_item respondsToSelector:@selector(pasteboardPropertyListForType:)] ? [_item pasteboardPropertyListForType:type] : nil;
+}
+
+- (NSPasteboardWritingOptions)writingOptionsForType:(NSString *)type pasteboard:(NSPasteboard *)pasteboard
+{
+    return [_item respondsToSelector:@selector(writingOptionsForType:pasteboard:)] ? [_item writingOptionsForType:type pasteboard:pasteboard] : 0;
+}
+
+@end
+WK_PRIV_ALIAS(NSPreviewRepresentingActivityItem);
+
+// Touch Bar objects retain their configuration while the hardware is unavailable.
+// Private runtime names keep host applications' availability probes negative.
+WK_PRIV_CLASS(NSTouchBarItem) @interface NSTouchBarItem : NSObject
+@property (readonly, copy) NSString *identifier;
+@property float visibilityPriority;
+@property (retain) NSView *view;
+@property (retain) NSViewController *viewController;
+@property (copy) NSString *customizationLabel;
+- (instancetype)initWithIdentifier:(NSString *)identifier;
+- (BOOL)isVisible;
+@end
+@implementation NSTouchBarItem
+- (instancetype)initWithIdentifier:(NSString *)identifier
+{
+    if (!(self = [super init]))
+        return nil;
+    _identifier = [identifier copy];
+    _customizationLabel = [@"" copy];
+    return self;
+}
+- (BOOL)isVisible { return NO; }
+- (void)dealloc
+{
+    [_identifier release];
+    [_view release];
+    [_viewController release];
+    [_customizationLabel release];
+    [super dealloc];
+}
+@end
+WK_PRIV_ALIAS(NSTouchBarItem);
+
+@class NSTouchBar;
+@protocol WKTouchBarDelegate <NSObject>
+- (NSTouchBarItem *)touchBar:(NSTouchBar *)touchBar makeItemForIdentifier:(NSString *)identifier;
+@end
+WK_PRIV_CLASS(NSTouchBar) @interface NSTouchBar : NSObject
+@property (copy) NSString *customizationIdentifier;
+@property (copy) NSArray *customizationAllowedItemIdentifiers;
+@property (copy) NSArray *customizationRequiredItemIdentifiers;
+@property (copy) NSArray *defaultItemIdentifiers;
+@property (copy) NSString *principalItemIdentifier;
+@property (copy) NSString *escapeKeyReplacementItemIdentifier;
+@property (retain) NSTouchBarItem *escapeKeyReplacementItem;
+@property (copy) NSSet *templateItems;
+@property (weak) id<WKTouchBarDelegate> delegate;
+- (NSTouchBarItem *)itemForIdentifier:(NSString *)identifier;
+- (NSArray *)itemIdentifiers;
+- (NSArray *)items;
+- (BOOL)isVisible;
+@end
+@implementation NSTouchBar {
+    NSMutableDictionary *_resolvedItems;
+}
+- (instancetype)init
+{
+    if (!(self = [super init]))
+        return nil;
+    _customizationAllowedItemIdentifiers = [@[] copy];
+    _customizationRequiredItemIdentifiers = [@[] copy];
+    _defaultItemIdentifiers = [@[] copy];
+    _templateItems = [[NSSet alloc] init];
+    _resolvedItems = [[NSMutableDictionary alloc] init];
+    return self;
+}
+- (NSTouchBarItem *)itemForIdentifier:(NSString *)identifier
+{
+    if (!identifier)
+        return nil;
+    for (NSTouchBarItem *item in _templateItems) {
+        if ([item.identifier isEqual:identifier])
+            return item;
+    }
+    NSTouchBarItem *item = _resolvedItems[identifier];
+    if (!item && [_delegate respondsToSelector:@selector(touchBar:makeItemForIdentifier:)]) {
+        item = [_delegate touchBar:self makeItemForIdentifier:identifier];
+        if (item)
+            _resolvedItems[identifier] = item;
+    }
+    return item;
+}
+- (NSArray *)itemIdentifiers { return [[_defaultItemIdentifiers copy] autorelease]; }
+- (NSArray *)items
+{
+    NSMutableArray *items = [NSMutableArray array];
+    for (NSString *identifier in self.itemIdentifiers) {
+        NSTouchBarItem *item = [self itemForIdentifier:identifier];
+        if (item)
+            [items addObject:item];
+    }
+    return items;
+}
+- (BOOL)isVisible { return NO; }
+- (void)dealloc
+{
+    [_customizationIdentifier release];
+    [_customizationAllowedItemIdentifiers release];
+    [_customizationRequiredItemIdentifiers release];
+    [_defaultItemIdentifiers release];
+    [_principalItemIdentifier release];
+    [_escapeKeyReplacementItemIdentifier release];
+    [_escapeKeyReplacementItem release];
+    [_templateItems release];
+    [_resolvedItems release];
+    [super dealloc];
+}
+@end
+WK_PRIV_ALIAS(NSTouchBar);
+
+WK_PRIV_CLASS(NSCandidateListTouchBarItem) @interface NSCandidateListTouchBarItem : NSTouchBarItem
+@property (weak) NSView *client;
+@property (weak) id delegate;
+@property (getter=isCollapsed) BOOL collapsed;
+@property BOOL allowsCollapsing;
+@property BOOL allowsTextInputContextCandidates;
+@property (copy) NSAttributedString *(^attributedStringForCandidate)(id, NSInteger);
+@property (readonly, copy) NSArray *candidates;
+- (BOOL)isCandidateListVisible;
+- (void)updateWithInsertionPointVisibility:(BOOL)visible;
+- (void)setCandidates:(NSArray *)candidates forSelectedRange:(NSRange)range inString:(NSString *)string;
+- (void)setCandidates:(NSArray *)candidates forSelectedRange:(NSRange)range inString:(NSString *)string rect:(NSRect)rect view:(NSView *)view completionHandler:(void (^)(id))completion;
+@end
+@implementation NSCandidateListTouchBarItem {
+    NSString *_originalString;
+    NSRange _selectedRange;
+    void (^_completion)(id);
+}
+- (instancetype)initWithIdentifier:(NSString *)identifier
+{
+    if (!(self = [super initWithIdentifier:identifier]))
+        return nil;
+    _candidates = [@[] copy];
+    _allowsCollapsing = YES;
+    _allowsTextInputContextCandidates = YES;
+    return self;
+}
+- (BOOL)isCandidateListVisible { return NO; }
+- (void)updateWithInsertionPointVisibility:(BOOL)visible { (void)visible; }
+- (void)setCandidates:(NSArray *)candidates forSelectedRange:(NSRange)range inString:(NSString *)string
+{
+    NSArray *copy = [candidates copy];
+    [_candidates release];
+    _candidates = copy;
+    NSString *original = [string copy];
+    [_originalString release];
+    _originalString = original;
+    _selectedRange = range;
+}
+- (void)setCandidates:(NSArray *)candidates forSelectedRange:(NSRange)range inString:(NSString *)string rect:(NSRect)rect view:(NSView *)view completionHandler:(void (^)(id))completion
+{
+    [self setCandidates:candidates forSelectedRange:range inString:string];
+    self.client = view;
+    void (^copy)(id) = [completion copy];
+    [_completion release];
+    _completion = copy;
+    (void)rect;
+}
+- (void)dealloc
+{
+    [_candidates release];
+    [_originalString release];
+    [_completion release];
+    [_attributedStringForCandidate release];
+    [super dealloc];
+}
+@end
+WK_PRIV_ALIAS(NSCandidateListTouchBarItem);
+
+WK_PRIV_CLASS(NSCustomTouchBarItem) @interface NSCustomTouchBarItem : NSTouchBarItem @end
+@implementation NSCustomTouchBarItem @end
+WK_PRIV_ALIAS(NSCustomTouchBarItem);
+
+WK_PRIV_CLASS(NSColorPickerTouchBarItem) @interface NSColorPickerTouchBarItem : NSTouchBarItem
+@property (copy) NSColor *color;
+@property BOOL showsAlpha;
+@property (copy) NSArray *allowedColorSpaces;
+@property (retain) NSColorList *colorList;
+@property (weak) id target;
+@property SEL action;
+@property (getter=isEnabled) BOOL enabled;
+@end
+@implementation NSColorPickerTouchBarItem
+- (instancetype)initWithIdentifier:(NSString *)identifier
+{
+    if (!(self = [super initWithIdentifier:identifier]))
+        return nil;
+    _color = [[NSColor blackColor] copy];
+    _enabled = YES;
+    return self;
+}
++ (instancetype)colorPickerWithIdentifier:(NSString *)identifier { return [[[self alloc] initWithIdentifier:identifier] autorelease]; }
++ (instancetype)textColorPickerWithIdentifier:(NSString *)identifier { return [self colorPickerWithIdentifier:identifier]; }
++ (instancetype)strokeColorPickerWithIdentifier:(NSString *)identifier { return [self colorPickerWithIdentifier:identifier]; }
++ (instancetype)colorPickerWithIdentifier:(NSString *)identifier buttonImage:(NSImage *)image
+{
+    (void)image;
+    return [self colorPickerWithIdentifier:identifier];
+}
+- (void)dealloc
+{
+    [_color release];
+    [_allowedColorSpaces release];
+    [_colorList release];
+    [super dealloc];
+}
+@end
+WK_PRIV_ALIAS(NSColorPickerTouchBarItem);
+
+WK_PRIV_CLASS(NSGroupTouchBarItem) @interface NSGroupTouchBarItem : NSTouchBarItem
+@property (retain) NSTouchBar *groupTouchBar;
+@end
+@implementation NSGroupTouchBarItem
+- (instancetype)initWithIdentifier:(NSString *)identifier
+{
+    if (!(self = [super initWithIdentifier:identifier]))
+        return nil;
+    _groupTouchBar = [[NSTouchBar alloc] init];
+    return self;
+}
++ (instancetype)groupItemWithIdentifier:(NSString *)identifier items:(NSArray *)items
+{
+    NSGroupTouchBarItem *item = [[[self alloc] initWithIdentifier:identifier] autorelease];
+    item.groupTouchBar.templateItems = [NSSet setWithArray:items];
+    item.groupTouchBar.defaultItemIdentifiers = [items valueForKey:@"identifier"];
+    return item;
+}
+- (void)dealloc { [_groupTouchBar release]; [super dealloc]; }
+@end
+WK_PRIV_ALIAS(NSGroupTouchBarItem);
+
+WK_PRIV_CLASS(NSPopoverTouchBarItem) @interface NSPopoverTouchBarItem : NSTouchBarItem
+@property (retain) NSTouchBar *popoverTouchBar;
+@property (retain) NSView *collapsedRepresentation;
+@property (retain) NSImage *collapsedRepresentationImage;
+@property (copy) NSString *collapsedRepresentationLabel;
+@property (retain) NSTouchBar *pressAndHoldTouchBar;
+@property BOOL showsCloseButton;
+@end
+@implementation NSPopoverTouchBarItem
+- (void)showPopover:(id)sender { (void)sender; }
+- (void)dismissPopover:(id)sender { (void)sender; }
+- (void)dealloc
+{
+    [_popoverTouchBar release];
+    [_collapsedRepresentation release];
+    [_collapsedRepresentationImage release];
+    [_collapsedRepresentationLabel release];
+    [_pressAndHoldTouchBar release];
+    [super dealloc];
+}
+@end
+WK_PRIV_ALIAS(NSPopoverTouchBarItem);
+
+WK_PRIV_CLASS(NSTextTouchBarItemController) @interface NSTextTouchBarItemController : NSObject
+@property (retain) NSViewController *textListViewController;
+@property BOOL usesNarrowTextStyleItem;
+@end
+@implementation NSTextTouchBarItemController
+- (NSColorPickerTouchBarItem *)colorPickerItem { return nil; }
+- (NSSegmentedControl *)textStyle { return nil; }
+- (NSSegmentedControl *)textAlignments { return nil; }
+- (NSTouchBarItem *)itemForIdentifier:(NSString *)identifier { (void)identifier; return nil; }
+- (void)dealloc { [_textListViewController release]; [super dealloc]; }
+@end
+WK_PRIV_ALIAS(NSTextTouchBarItemController);

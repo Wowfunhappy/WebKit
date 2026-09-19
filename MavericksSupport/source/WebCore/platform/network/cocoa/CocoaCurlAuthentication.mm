@@ -4,6 +4,7 @@
  */
 #include "config.h"
 #include "CocoaCurlAuthentication.h"
+#include <pal/spi/cf/CFNetworkSPI.h>
 #include "HTTPParsers.h"
 #include <Foundation/Foundation.h>
 #include <wtf/text/StringBuilder.h>
@@ -16,9 +17,46 @@ long cocoaCurlAuthenticationMethod(long available)
     return available & CURLAUTH_NEGOTIATE ? CURLAUTH_NEGOTIATE : available & CURLAUTH_NTLM ? CURLAUTH_NTLM : available & CURLAUTH_DIGEST ? CURLAUTH_DIGEST : available & CURLAUTH_BASIC ? CURLAUTH_BASIC : CURLAUTH_NONE;
 }
 
+long cocoaCurlAuthenticationMethod(long available, const String& fields)
+{
+    if (long method = cocoaCurlAuthenticationMethod(available))
+        return method;
+    // A challenge is a scheme token not followed by '='; its parameters follow it, separated by commas.
+    StringView input(fields);
+    size_t offset = 0;
+    while (offset < input.length()) {
+        size_t end = offset;
+        bool quoted = false;
+        bool escaped = false;
+        for (; end < input.length(); ++end) {
+            auto c = input[end];
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (quoted && c == '\\') {
+                escaped = true;
+                continue;
+            }
+            if (c == '"')
+                quoted = !quoted;
+            if (c == ',' && !quoted)
+                break;
+        }
+        auto part = input.substring(offset, end - offset).trim([](auto c) { return c == ' ' || c == '\t'; });
+        offset = end + 1;
+        size_t tokenEnd = 0;
+        while (tokenEnd < part.length() && part[tokenEnd] != ' ' && part[tokenEnd] != '\t' && part[tokenEnd] != '=')
+            ++tokenEnd;
+        if (!part.substring(tokenEnd).trim([](auto c) { return c == ' ' || c == '\t'; }).startsWith('=') && equalLettersIgnoringASCIICase(part.left(tokenEnd), "oauth"_s))
+            return cocoaCurlOAuthAuthentication;
+    }
+    return CURLAUTH_NONE;
+}
+
 String cocoaCurlAuthenticationRealm(const String& fields, long method)
 {
-    ASCIILiteral selected = method == CURLAUTH_NEGOTIATE ? "Negotiate"_s : method == CURLAUTH_NTLM ? "NTLM"_s : method == CURLAUTH_DIGEST ? "Digest"_s : "Basic"_s;
+    ASCIILiteral selected = method == cocoaCurlOAuthAuthentication ? "OAuth"_s : method == CURLAUTH_NEGOTIATE ? "Negotiate"_s : method == CURLAUTH_NTLM ? "NTLM"_s : method == CURLAUTH_DIGEST ? "Digest"_s : "Basic"_s;
     StringView input(fields);
     auto trim = [](StringView value) { return value.trim([](auto c) { return c == ' ' || c == '\t'; }); };
     bool matching = false;
@@ -80,7 +118,7 @@ String cocoaCurlAuthenticationRealm(const String& fields, long method)
 
 ProtectionSpace cocoaCurlProtectionSpace(const URL& url, const String& proxyHost, int proxyPort, long method, const String& fields)
 {
-    NSString* nativeMethod = method == CURLAUTH_NEGOTIATE ? NSURLAuthenticationMethodNegotiate : method == CURLAUTH_NTLM ? NSURLAuthenticationMethodNTLM : method == CURLAUTH_DIGEST ? NSURLAuthenticationMethodHTTPDigest : NSURLAuthenticationMethodHTTPBasic;
+    NSString* nativeMethod = method == cocoaCurlOAuthAuthentication ? NSURLAuthenticationMethodOAuth : method == CURLAUTH_NEGOTIATE ? NSURLAuthenticationMethodNegotiate : method == CURLAUTH_NTLM ? NSURLAuthenticationMethodNTLM : method == CURLAUTH_DIGEST ? NSURLAuthenticationMethodHTTPDigest : NSURLAuthenticationMethodHTTPBasic;
     auto realm = cocoaCurlAuthenticationRealm(fields, method).createNSString();
     if (!proxyHost.isEmpty()) {
         auto space = adoptNS([[NSURLProtectionSpace alloc] initWithProxyHost:proxyHost.createNSString().get() port:proxyPort type:NSURLProtectionSpaceHTTPProxy realm:realm.get() authenticationMethod:nativeMethod]);

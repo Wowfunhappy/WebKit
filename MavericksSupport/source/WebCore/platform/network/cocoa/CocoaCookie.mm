@@ -4,6 +4,7 @@
 #import "Cookie.h"
 #import "platform/network/curl/CookieUtil.h"
 #import "PublicSuffixStore.h"
+#import "ResourceRequest.h"
 #import <algorithm>
 #import <cmath>
 #import <limits>
@@ -23,13 +24,22 @@ namespace WebCore {
 // admits only from a secure origin.
 static std::optional<Cookie> parseSetCookieField(const String& field, bool& sameSiteExplicitlyNone)
 {
-    if (field.length() >= 5000)
-        return std::nullopt;
     auto separator = field.find(';');
+    // CFNetwork reads a value that opens with a double quote through its closing quote, a ';' inside it included.
+    if (auto equals = field.find('='); equals != notFound && (separator == notFound || equals < separator)) {
+        auto valueStart = equals + 1;
+        while (valueStart < field.length() && (field[valueStart] == ' ' || field[valueStart] == '\t'))
+            ++valueStart;
+        if (valueStart < field.length() && field[valueStart] == '"') {
+            if (auto closing = field.find('"', valueStart + 1); closing != notFound)
+                separator = field.find(';', closing + 1);
+        }
+    }
     auto pair = separator == notFound ? field : field.left(separator);
     auto assignment = pair.find('=');
     Cookie cookie;
-    // A field with no '=' is a value with an empty name, which the native jar stores like any other.
+    // A field with no '=' is a value with an empty name; 10.9's NSHTTPCookie refuses an empty name,
+    // so the jar takes no such cookie.
     cookie.name = (assignment == notFound ? emptyString() : pair.left(assignment)).trim(deprecatedIsSpaceOrNewline);
     cookie.value = (assignment == notFound ? pair : pair.substring(assignment + 1)).trim(deprecatedIsSpaceOrNewline);
     cookie.session = true;
@@ -85,8 +95,9 @@ static std::optional<Cookie> parseSetCookieField(const String& field, bool& same
             cookie.path = !value.isEmpty() && value.startsWith('/') ? value : emptyString();
         else if (equalLettersIgnoringASCIICase(name, "samesite"_s) && assignmentPosition != notFound) {
             sameSiteExplicitlyNone = equalLettersIgnoringASCIICase(value, "none"_s);
+            // A value naming no policy leaves the cookie unrestricted, as NSHTTPCookie's own reading does.
             cookie.sameSite = equalLettersIgnoringASCIICase(value, "strict"_s) ? Cookie::SameSitePolicy::Strict
-                : sameSiteExplicitlyNone ? Cookie::SameSitePolicy::None : Cookie::SameSitePolicy::Lax;
+                : equalLettersIgnoringASCIICase(value, "lax"_s) ? Cookie::SameSitePolicy::Lax : Cookie::SameSitePolicy::None;
         }
     }
     return cookie;
@@ -98,15 +109,39 @@ std::optional<Cookie> parseHTTPSetCookie(const String& field, const URL& url)
         if ((character < 0x20 && character != '\t') || character == 0x7f)
             return std::nullopt;
     }
+    String parsedField = field;
+    auto pairEnd = field.find(';');
+    auto assignment = field.find('=');
+    if (assignment != notFound && (pairEnd == notFound || assignment < pairEnd)) {
+        for (unsigned index = 0; index < assignment; ++index) {
+            if (field[index] >= 0x80)
+                return std::nullopt;
+        }
+        // CFNetwork ends an unquoted value at its first C1 control octet and keeps the other Latin-1 octets
+        // (cookies/encoding/charset-expected.txt, cookiestore/encoding.https.any-expected.txt).
+        unsigned valueStart = assignment + 1;
+        while (valueStart < field.length() && (field[valueStart] == ' ' || field[valueStart] == '\t'))
+            ++valueStart;
+        if (valueStart >= field.length() || field[valueStart] != '"') {
+            unsigned valueEnd = pairEnd == notFound ? field.length() : pairEnd;
+            for (unsigned index = valueStart; index < valueEnd; ++index) {
+                if (field[index] >= 0x80 && field[index] <= 0x9f) {
+                    parsedField = pairEnd == notFound ? field.left(index) : makeString(field.left(index), field.substring(pairEnd));
+                    break;
+                }
+            }
+        }
+    }
     bool explicitNone = false;
-    auto parsed = parseSetCookieField(field, explicitNone);
+    auto parsed = parseSetCookieField(parsedField, explicitNone);
     if (!parsed)
         return std::nullopt;
     auto& cookie = *parsed;
     // RFC 6265bis section 5.6 limits the name/value pair to 4096 octets.
     if ((cookie.name.isEmpty() && cookie.value.isEmpty()) || cookie.name.utf8().length() + cookie.value.utf8().length() > 4096)
         return std::nullopt;
-    auto host = url.host().toString().convertToASCIILowercase();
+    // CFNetwork's file-cookie namespace is shared by local file URLs.
+    auto host = url.protocolIsFile() ? ".^filecookies^"_s : url.host().toString().convertToASCIILowercase();
     bool hasDomain = !cookie.domain.isEmpty();
     if (hasDomain) {
         auto domain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
@@ -140,6 +175,13 @@ std::optional<Cookie> parseHTTPSetCookie(const String& field, const URL& url)
     if (cookie.expires)
         cookie.expires = std::min(*cookie.expires, cookie.created + 400.0 * 24 * 60 * 60 * 1000);
     return parsed;
+}
+
+SameSiteInfo cookieRequestSameSiteInfo(const ResourceRequest& request)
+{
+    auto info = SameSiteInfo::create(request);
+    info.isTopSite = info.isTopSite && info.isSafeHTTPMethod;
+    return info;
 }
 
 } // namespace WebCore

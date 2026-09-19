@@ -14,6 +14,9 @@ int main(void)
         { "example", true }, { "invalid", true }, { "localhost", true },
         { "åäö", false }, { "xn--4cab6c", false },
         { "", false }, { ".", false }, { "..", false }, { "...", false }, { "....", false },
+        { "0", false }, { "1", false }, { "123", false }, { ".1", false },
+        { "4294967295", false }, { "999999999999999999999", false },
+        { "0.1", false }, { "0.0.1", false },
         { "127.0.0.1", false }, { "[::1]", false },
     };
     for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {

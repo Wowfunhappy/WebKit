@@ -12,6 +12,11 @@
 
 namespace WebCore {
 WEBCORE_EXPORT long cocoaCurlAuthenticationMethod(long available);
+// An OAuth challenge, which libcurl has no scheme for; CFNetwork puts it to the delegate as NSURLAuthenticationMethodOAuth.
+// The value lies outside libcurl's CURLAUTH_ bits.
+constexpr long cocoaCurlOAuthAuthentication = 1L << 24;
+// libcurl's method for |available|, or cocoaCurlOAuthAuthentication when it has none and |fields| offer OAuth.
+WEBCORE_EXPORT long cocoaCurlAuthenticationMethod(long available, const String& fields);
 WEBCORE_EXPORT String cocoaCurlAuthenticationRealm(const String& fields, long method);
 WEBCORE_EXPORT ProtectionSpace cocoaCurlProtectionSpace(const URL&, const String& proxyHost, int proxyPort, long method, const String& fields);
 } // namespace WebCore

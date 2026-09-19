@@ -21,7 +21,7 @@ public:
     {
         Ref probe = adoptRef(*new IdentityProbe(identity, supply));
         Ref pool = CocoaCurlConnectionPool::create();
-        CocoaCurlTransferOptions options;
+        CocoaCurlTransferOptions options(tls_protocol_version_TLSv12);
         options.request = ResourceRequest(URL { makeString("https://127.0.0.1:"_s, port, "/client-certificate"_s) });
         options.request.setTimeoutInterval(10);
         options.acceptedCertificateChain = serverChain;
@@ -41,7 +41,7 @@ public:
     void deref() const final { RefCounted::deref(); }
 private:
     IdentityProbe(SecIdentityRef identity, bool supply) : m_identity(identity), m_supply(supply) { }
-    void curlReceivedCookies(Vector<String>&&, CompletionHandler<void(std::optional<String>&&)>&& completion) final { completion(std::nullopt); }
+    void curlReceivedCookies(Vector<String>&&, const String&, const String&, CompletionHandler<void(std::optional<String>&&)>&& completion) final { completion(std::nullopt); }
     void curlReceivedResponse(CocoaCurlTransferResponse&& response, CompletionHandler<void()>&& completion) final { m_status = response.response.httpStatusCode(); completion(); }
     void curlReceivedData(const SharedBuffer& data, CompletionHandler<void()>&& completion) final { m_body = makeString(m_body, String::fromUTF8(data.span())); completion(); }
     void curlSentData(uint64_t, uint64_t) final { }
@@ -51,6 +51,12 @@ private:
         ASSERT(isMainThread());
         ++m_challenges;
         completion(m_supply ? RetainPtr<SecIdentityRef>(m_identity) : nullptr, nullptr);
+    }
+    // The platform's own evaluation of the server chain is the answer.
+    void curlRequestedServerTrust(CompletionHandler<void(bool)>&& completion) final
+    {
+        auto tls = m_connection->tlsState();
+        completion(tls && tls->accepted);
     }
     void curlCompleted(const ResourceError& error, const NetworkLoadMetrics&) final
     {

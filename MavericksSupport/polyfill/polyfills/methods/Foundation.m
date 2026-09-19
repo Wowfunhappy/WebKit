@@ -9,12 +9,15 @@
 // VALUES: prefer a SEMANTIC 10.9 equivalent (a real API that still exists and adapts) over a frozen
 // literal. A polyfill's contract is the system API's modern behavior, so it is correct at every caller.
 
+#import "wk_declared_types.h"
 #import "wk_hosts.h"
+#import "wk_cookie_storage.h"
 #import "wk_url_coding.h"
 #import "wk_polyfill.h"
 #import "wk_samesite.h"
 #import "wk_selref_scope.h"
 #import <AppKit/AppKit.h>
+#import <CommonCrypto/CommonDigest.h>
 #import <CoreServices/CoreServices.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <dlfcn.h>
@@ -24,21 +27,24 @@
 #import <limits.h>
 #import <math.h>
 #import <string.h>
+#import <strings.h>
 #import <sys/stat.h>
 #import <mach/mach.h>
 #import <Security/Security.h>
-#import <CommonCrypto/CommonDigest.h>
 #import <objc/message.h>
+#import <objc/objc-sync.h>
 #import <objc/runtime.h>
 #import <libkern/OSAtomic.h>
 #import <pthread.h>
 #import <stdatomic.h>
+#import <unicode/uloc.h>
 #import <unistd.h>
 
 // CFNetwork SPI, exported on 10.9 but not declared in any public header.
 typedef struct OpaqueCFHTTPCookieStorage *CFHTTPCookieStorageRef;
 extern CFHTTPCookieStorageRef _CFHTTPCookieStorageGetDefault(CFAllocatorRef);
 extern void CFHTTPCookieStorageSetCookieAcceptPolicy(CFHTTPCookieStorageRef, CFIndex);
+extern CFIndex CFHTTPCookieStorageGetCookieAcceptPolicy(CFHTTPCookieStorageRef);
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -80,13 +86,16 @@ WK_POLYFILL_ADD_METHODS(NSProcessInfo)
 
 // The modern native-cookie setter validates domain scope before invoking the 10.9 jar.
 // Its native API contract shares WebCore's PSL and literal-address predicates.
+static const NSHTTPCookieAcceptPolicy wk_cookieAcceptPolicyExclusivelyFromMainDocumentDomain = (NSHTTPCookieAcceptPolicy)3;
+
 static NSHTTPCookie *wk_cookieWithUsableDomain(NSHTTPCookie *cookie, NSURL *url)
 {
     NSString *domain = [cookie domain];
     if (!cookie || !domain.length)
         return cookie;
 
-    NSString *host = [url host];
+    // CFNetwork's file-cookie domain is .^filecookies^.
+    NSString *host = url.isFileURL ? @"^filecookies^" : [url host];
     if (!host.length)
         return nil;
 
@@ -98,8 +107,7 @@ static NSHTTPCookie *wk_cookieWithUsableDomain(NSHTTPCookie *cookie, NSURL *url)
     if (!bare.length)
         return nil;
 
-    // A cookie whose domain-attribute is its own host is a host-only cookie, which 5.3 keeps rather
-    // than refuses however the public-suffix rule would answer for that name.
+    // An exact match permits cookies on a public-suffix host itself.
     if ([bare caseInsensitiveCompare:host] == NSOrderedSame)
         return cookie;
 
@@ -122,14 +130,16 @@ static NSHTTPCookie *wk_cookieWithUsableDomain(NSHTTPCookie *cookie, NSURL *url)
 // partition, -cookiesForURL: is the whole answer.
 // _setCookies:forURL:mainDocumentURL:policyProperties: is -setCookies:forURL:mainDocumentURL: plus a
 // policy dictionary 10.9 cannot honour. _getCookiesForDomain: returns every unpartitioned cookie whose
-// domain attribute domain-matches the host (RFC 6265). _saveCookies: is polyfilled further down, over 10.9's
-// PRESENT argument-less -_saveCookies.
+// domain attribute domain-matches the host (RFC 6265), asked of the jar one domain at a time.
+// _saveCookies: is polyfilled further down, over 10.9's PRESENT argument-less -_saveCookies.
 // RFC 6265 5.1.3: a host-only cookie covers the host it names, a domain cookie that host and every
 // subdomain of it. Cookie domains are case-insensitive.
 static BOOL wk_cookieDomainMatchesHost(NSString *cookieDomain, NSString *host)
 {
-    if (!cookieDomain.length || !host.length)
+    if (!cookieDomain.length)
         return NO;
+    if (!host.length)
+        return [cookieDomain isEqualToString:@".^filecookies^"];
 
     NSString *bare = [cookieDomain hasPrefix:@"."] ? [cookieDomain substringFromIndex:1] : cookieDomain;
     if (!bare.length)
@@ -147,8 +157,10 @@ static BOOL wk_cookieDomainMatchesHost(NSString *cookieDomain, NSString *host)
     return [host characterAtIndex:suffix.location - 1] == '.';
 }
 
-// CFNetwork delivers in-process writes, expiry, and daemon merges through its storage observer.
-// Each CF handle owns one indexed snapshot; separate NS wrappers share handlers and subscriptions.
+// CFNetwork notifies a storage's observers of each change made through its handle, whichever image makes it.
+// Each CF handle owns one subscription; separate NS wrappers share handlers, subscribed domains and the
+// cookies last seen in those domains.
+// CFNetwork's observer context retains the handle through unsubscription.
 typedef void (*WKCookieStorageChangedProc)(CFHTTPCookieStorageRef, void *);
 extern void CFHTTPCookieStorageAddObserver(CFHTTPCookieStorageRef, CFRunLoopRef, CFStringRef, WKCookieStorageChangedProc, void *);
 extern void CFHTTPCookieStorageRemoveObserver(CFHTTPCookieStorageRef, CFRunLoopRef, CFStringRef, WKCookieStorageChangedProc, void *);
@@ -156,97 +168,145 @@ static CFHTTPCookieStorageRef wk_cfCookieStorageOf(id);
 
 @interface NSHTTPCookieStorage (WKCookieObservationStorage)
 - (instancetype)_initWithCFHTTPCookieStorage:(CFHTTPCookieStorageRef)storage;
+- (NSArray<NSHTTPCookie *> *)_getCookiesForDomain:(NSString *)domain;
 @end
 @interface NSHTTPCookie (WKCookieObservationPartition)
 - (NSString *)_storagePartition;
+- (NSURL *)OriginURL;
 @end
+
+typedef struct OpaqueCFHTTPCookie *CFHTTPCookieRef;
+typedef CFArrayRef (*wk_cookieCopyAll)(CFHTTPCookieStorageRef);
+
+@interface NSHTTPCookie (WKCFHTTPCookieBridge)
++ (NSHTTPCookie *)cookieWithCFHTTPCookie:(CFHTTPCookieRef)cookie;
+@end
+
+// The cookies stored under any of |cookieDomains|, each Domain field compared as a whole string. The jar is
+// read whole: 10.9's per-domain query, CFHTTPCookieStorageCopyCookiesMatching, is not safe while other
+// threads use the storage. Resolved with dlsym, not declared extern: the function is in 10.9's CFNetwork but
+// not in the 26.1 SDK's stub library, so a link-time reference fails to build even though the call works.
+static NSMutableArray<NSHTTPCookie *> *wk_cookiesStoredInDomains(CFHTTPCookieStorageRef storage, NSSet<NSString *> *cookieDomains)
+{
+    static wk_cookieCopyAll copyAll;
+    static bool resolved;
+    if (!resolved) {
+        copyAll = (wk_cookieCopyAll)dlsym(RTLD_DEFAULT, "CFHTTPCookieStorageCopyCookies");
+        resolved = true;
+    }
+    NSMutableArray<NSHTTPCookie *> *result = [NSMutableArray array];
+    if (!storage || !copyAll || !cookieDomains.count)
+        return result;
+    CFArrayRef stored = copyAll(storage);
+    if (!stored)
+        return result;
+    for (CFIndex i = 0, count = CFArrayGetCount(stored); i < count; ++i) {
+        NSHTTPCookie *cookie = [NSHTTPCookie cookieWithCFHTTPCookie:(CFHTTPCookieRef)CFArrayGetValueAtIndex(stored, i)];
+        NSString *domain = cookie.domain.lowercaseString;
+        if (domain && [cookieDomains containsObject:domain])
+            [result addObject:cookie];
+    }
+    CFRelease(stored);
+    return result;
+}
+
+// RFC 6265 5.1.3 admits exactly these Domain strings for a host: the host itself, and a dotted form of
+// the host and of each of its parents. 10.9 canonicalises a stored domain to lower case.
+static NSArray<NSString *> *wk_cookieDomainsMatchingHost(NSString *host)
+{
+    NSMutableArray<NSString *> *domains = [NSMutableArray arrayWithObject:host];
+    NSString *suffix = host;
+    while (suffix.length) {
+        NSString *dotted = [@"." stringByAppendingString:suffix];
+        if (![domains containsObject:dotted])
+            [domains addObject:dotted];
+        NSRange dot = [suffix rangeOfString:@"."];
+        if (dot.location == NSNotFound)
+            break;
+        suffix = [suffix substringFromIndex:dot.location + 1];
+    }
+    return domains;
+}
 
 typedef void (^WKCookiesChangedHandler)(NSArray<NSHTTPCookie *> *, NSString *);
 typedef void (^WKCookiesRemovedHandler)(NSArray<NSHTTPCookie *> *, NSString *, bool);
 
-@interface WKCookieChangeSnapshot : NSObject {
+@interface WKCookieChangeSubscription : NSObject {
 @public
     NSSet *_domains;
-    NSMutableDictionary *_snapshot;
     WKCookiesChangedHandler _changed;
     WKCookiesRemovedHandler _removed;
     dispatch_queue_t _changedQueue;
     dispatch_queue_t _removedQueue;
-    BOOL _observing;
+    CFHTTPCookieStorageRef _observedStorage;
+    NSMutableDictionary *_visible;
 }
-- (NSMutableDictionary *)snapshotOfStorage:(CFHTTPCookieStorageRef)storage;
+- (void)updateObservationOfStorage:(CFHTTPCookieStorageRef)storage rebaseline:(BOOL)rebaseline;
 - (void)storageChanged:(CFHTTPCookieStorageRef)storage;
-- (void)storage:(CFHTTPCookieStorageRef)storage didSetCookies:(NSArray<NSHTTPCookie *> *)written;
+- (void)storage:(CFHTTPCookieStorageRef)storage didChangeCookies:(NSArray<NSHTTPCookie *> *)cookies;
 - (void)storageRemovedAllCookies;
-- (void)updateObservation:(CFHTTPCookieStorageRef)storage;
 @end
-
-static void wk_cookieSnapshotChanged(CFHTTPCookieStorageRef storage, void *context)
-{
-    @autoreleasepool {
-        @synchronized ((id)storage) {
-            [(WKCookieChangeSnapshot *)context storageChanged:storage];
-        }
-    }
-}
 
 static NSArray *wk_cookieIndexKey(NSHTTPCookie *cookie)
 {
     return @[cookie.name, cookie.domain.lowercaseString, cookie.path, [cookie _storagePartition] ?: @""];
 }
 
-@implementation WKCookieChangeSnapshot
-- (NSMutableDictionary *)snapshotOfStorage:(CFHTTPCookieStorageRef)storage
+static NSArray<NSHTTPCookie *> *wk_cookiesACandidateWouldOverlay(NSHTTPCookieStorage *, NSHTTPCookie *, NSURL *);
+static NSURL *wk_cookieOriginURL(NSHTTPCookie *);
+
+static void wk_cookieSubscriptionStorageChanged(CFHTTPCookieStorageRef storage, void *context)
 {
-    NSMutableDictionary *snapshot = [NSMutableDictionary dictionary];
-    NSHTTPCookieStorage *wrapper = [[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:storage];
-    for (NSHTTPCookie *cookie in [wrapper cookies]) {
-        for (NSString *domain in _domains) {
-            if (!wk_cookieDomainMatchesHost(cookie.domain, domain))
-                continue;
-            snapshot[wk_cookieIndexKey(cookie)] = cookie;
-            break;
+    @autoreleasepool {
+        @synchronized ((id)storage) {
+            [(WKCookieChangeSubscription *)context storageChanged:storage];
         }
     }
-    [wrapper release];
-    return snapshot;
 }
-- (void)updateObservation:(CFHTTPCookieStorageRef)storage
+
+@implementation WKCookieChangeSubscription
+- (BOOL)isSubscribed
 {
-    BOOL shouldObserve = (_changed || _removed) && _domains.count;
-    if (_observing == shouldObserve)
+    return (_changed || _removed) && _domains.count > 0;
+}
+// The Domain strings the cookies of the subscribed hosts are stored under.
+- (NSSet<NSString *> *)cookieDomains
+{
+    NSMutableSet<NSString *> *cookieDomains = [NSMutableSet set];
+    for (NSString *domain in _domains)
+        [cookieDomains addObjectsFromArray:wk_cookieDomainsMatchingHost(domain.lowercaseString)];
+    return cookieDomains;
+}
+// The unexpired cookies stored under |cookieDomains|, each Domain string read by an exact match.
+- (NSMutableDictionary *)storage:(CFHTTPCookieStorageRef)storage visibleCookiesInDomains:(NSSet<NSString *> *)cookieDomains
+{
+    NSMutableDictionary *index = [NSMutableDictionary dictionary];
+    NSDate *now = [NSDate date];
+    for (NSHTTPCookie *candidate in wk_cookiesStoredInDomains(storage, cookieDomains)) {
+        NSDate *expires = candidate.expiresDate;
+        if (!expires || [expires compare:now] == NSOrderedDescending)
+            index[wk_cookieIndexKey(candidate)] = candidate;
+    }
+    return index;
+}
+- (void)updateObservationOfStorage:(CFHTTPCookieStorageRef)storage rebaseline:(BOOL)rebaseline
+{
+    if (![self isSubscribed]) {
+        if (_observedStorage)
+            CFHTTPCookieStorageRemoveObserver(_observedStorage, CFRunLoopGetMain(), kCFRunLoopCommonModes, wk_cookieSubscriptionStorageChanged, self);
+        _observedStorage = NULL;
+        [_visible release];
+        _visible = nil;
         return;
-    _observing = shouldObserve;
-    if (_observing) {
-        _snapshot = [[self snapshotOfStorage:storage] retain];
-        CFHTTPCookieStorageAddObserver(storage, CFRunLoopGetMain(), kCFRunLoopCommonModes, wk_cookieSnapshotChanged, self);
-    } else {
-        CFHTTPCookieStorageRemoveObserver(storage, CFRunLoopGetMain(), kCFRunLoopCommonModes, wk_cookieSnapshotChanged, self);
-        [_snapshot release];
-        _snapshot = nil;
     }
-}
-- (void)storageChanged:(CFHTTPCookieStorageRef)storage
-{
-    NSMutableDictionary *current = [self snapshotOfStorage:storage];
-    NSMutableArray *added = [NSMutableArray array];
-    NSMutableArray *removed = [NSMutableArray array];
-    for (NSArray *key in current) {
-        NSHTTPCookie *cookie = current[key];
-        NSHTTPCookie *old = _snapshot[key];
-        if (!old || ![cookie.properties isEqual:old.properties])
-            [added addObject:cookie];
+    if (_observedStorage && !rebaseline)
+        return;
+    [_visible release];
+    _visible = [[self storage:storage visibleCookiesInDomains:[self cookieDomains]] retain];
+    if (!_observedStorage) {
+        _observedStorage = storage;
+        CFHTTPCookieStorageAddObserver(storage, CFRunLoopGetMain(), kCFRunLoopCommonModes, wk_cookieSubscriptionStorageChanged, self);
     }
-    for (NSArray *key in _snapshot) {
-        NSHTTPCookie *old = _snapshot[key];
-        NSHTTPCookie *cookie = current[key];
-        // A visible cookie overwritten by HttpOnly leaves the script-visible cookie set.
-        if (!cookie || (!old.HTTPOnly && cookie.HTTPOnly))
-            [removed addObject:old];
-    }
-    [_snapshot release];
-    _snapshot = [current retain];
-    [self deliverAdded:added removed:removed];
 }
 - (void)deliverAdded:(NSArray *)added removed:(NSArray *)removed
 {
@@ -274,80 +334,88 @@ static NSArray *wk_cookieIndexKey(NSHTTPCookie *cookie)
         }
     }
 }
-// -setCookies:forURL: adds and overwrites; a cookie leaves the jar through -deleteCookie: or expiry.
-// So the cookies stored for that URL carry every change this mutation can have made, and the whole
-// jar is not walked.
-// The cookies handed to -setCookies:forURL: are the only ones this mutation can have changed, so each
-// is looked up afterwards at its own domain and path: a Set-Cookie whose expiry has passed removes a
-// cookie, and one whose Path does not match the response URL is still stored under that Path.
-// A clear that takes the whole jar reaches the handler as the storage's own remove-all, which is how
-// a subscriber learns that cookies it never held are gone.
-- (void)storageRemovedAllCookies
+// Delivers what differs between the storage and the cookies last seen under |cookieDomains|, and records
+// the storage as seen, so each change is delivered once whichever of its paths reads it first.
+- (void)storage:(CFHTTPCookieStorageRef)storage refreshCookieDomains:(NSSet<NSString *> *)cookieDomains
 {
-    if (!_observing)
-        return;
-    [_snapshot removeAllObjects];
-    WKCookiesRemovedHandler removedHandler = _removed;
-    if (removedHandler)
-        dispatch_async(_removedQueue, ^{ removedHandler(@[], nil, true); });
+    NSDictionary *current = [self storage:storage visibleCookiesInDomains:cookieDomains];
+    NSMutableArray *added = [NSMutableArray array];
+    NSMutableArray *removed = [NSMutableArray array];
+    for (NSArray *key in current) {
+        NSHTTPCookie *now = current[key];
+        NSHTTPCookie *old = _visible[key];
+        if (!old || ![now.properties isEqual:old.properties])
+            [added addObject:now];
+        // A visible cookie overwritten by HttpOnly leaves the script-visible cookie set.
+        if (old && !old.HTTPOnly && now.HTTPOnly)
+            [removed addObject:old];
+        _visible[key] = now;
+    }
+    for (NSArray *key in _visible.allKeys) {
+        if ([cookieDomains containsObject:key[1]] && !current[key]) {
+            [removed addObject:_visible[key]];
+            [_visible removeObjectForKey:key];
+        }
+    }
+    [self deliverAdded:added removed:removed];
 }
-
-- (void)storage:(CFHTTPCookieStorageRef)storage didSetCookies:(NSArray<NSHTTPCookie *> *)written
+- (void)storageChanged:(CFHTTPCookieStorageRef)storage
 {
-    if (!_observing || !written.count)
+    if (_observedStorage && [self isSubscribed])
+        [self storage:storage refreshCookieDomains:[self cookieDomains]];
+}
+// A mutation made through this layer is delivered at the mutation, as CFNetwork's own storage delivers it
+// before a response continues; each mutated cookie is read at its own URL.
+- (void)storage:(CFHTTPCookieStorageRef)storage didChangeCookies:(NSArray<NSHTTPCookie *> *)cookies
+{
+    if (!_observedStorage || ![self isSubscribed])
         return;
+    NSSet<NSString *> *subscribed = [self cookieDomains];
     NSHTTPCookieStorage *wrapper = [[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:storage];
     NSMutableArray *added = [NSMutableArray array];
     NSMutableArray *removed = [NSMutableArray array];
-    NSMutableDictionary *storedByScope = [NSMutableDictionary dictionary];
-    for (NSHTTPCookie *cookie in written) {
-        BOOL subscribed = NO;
-        for (NSString *domain in _domains) {
-            if (wk_cookieDomainMatchesHost(cookie.domain, domain)) {
-                subscribed = YES;
+    for (NSHTTPCookie *cookie in cookies) {
+        NSString *domain = cookie.domain.lowercaseString;
+        if (!domain || ![subscribed containsObject:domain])
+            continue;
+        NSArray *key = wk_cookieIndexKey(cookie);
+        NSHTTPCookie *now = nil;
+        for (NSHTTPCookie *candidate in wk_cookiesACandidateWouldOverlay(wrapper, cookie, wk_cookieOriginURL(cookie))) {
+            if ([wk_cookieIndexKey(candidate) isEqualToArray:key]) {
+                now = candidate;
                 break;
             }
         }
-        if (!subscribed)
-            continue;
-        NSString *host = [cookie.domain hasPrefix:@"."] ? [cookie.domain substringFromIndex:1] : cookie.domain;
-        NSString *path = cookie.path.length ? cookie.path : @"/";
-        NSString *scope = [NSString stringWithFormat:@"%@%@", host, path];
-        NSDictionary *stored = storedByScope[scope];
-        if (!stored) {
-            NSMutableDictionary *index = [NSMutableDictionary dictionary];
-            // https so a Secure cookie is included; the URL carries the cookie's own path, so it path-matches.
-            NSURL *scopeURL = [NSURL URLWithString:[NSString stringWithFormat:@"https://%@%@", host, path]];
-            NSArray *jar = scopeURL ? [wrapper cookiesForURL:scopeURL] : [wrapper _getCookiesForDomain:cookie.domain];
-            for (NSHTTPCookie *candidate in jar)
-                index[wk_cookieIndexKey(candidate)] = candidate;
-            stored = index;
-            storedByScope[scope] = index;
-        }
-        NSArray *key = wk_cookieIndexKey(cookie);
-        NSHTTPCookie *now = stored[key];
-        NSHTTPCookie *old = _snapshot[key];
+        NSHTTPCookie *old = _visible[key];
         if (now) {
             if (!old || ![now.properties isEqual:old.properties])
                 [added addObject:now];
-            // A visible cookie overwritten by HttpOnly leaves the script-visible cookie set.
             if (old && !old.HTTPOnly && now.HTTPOnly)
                 [removed addObject:old];
-            _snapshot[key] = now;
+            _visible[key] = now;
         } else if (old) {
             [removed addObject:old];
-            [_snapshot removeObjectForKey:key];
+            [_visible removeObjectForKey:key];
         }
     }
     [wrapper release];
     [self deliverAdded:added removed:removed];
 }
+// A clear that takes the whole jar reaches the handler as the storage's own remove-all, which is how
+// a subscriber learns that cookies it never held are gone.
+- (void)storageRemovedAllCookies
+{
+    if (![self isSubscribed])
+        return;
+    [_visible removeAllObjects];
+    WKCookiesRemovedHandler removedHandler = _removed;
+    if (removedHandler)
+        dispatch_async(_removedQueue, ^{ removedHandler(@[], nil, true); });
+}
 - (void)dealloc
 {
-    // The owning CF storage tears down its observers with the handle. Explicit unsubscription
-    // removes the observer in updateObservation while the handle is live.
     [_domains release];
-    [_snapshot release];
+    [_visible release];
     [_changed release];
     [_removed release];
     if (_changedQueue)
@@ -358,79 +426,105 @@ static NSArray *wk_cookieIndexKey(NSHTTPCookie *cookie)
 }
 @end
 
-static const void *const wk_cookieSnapshotKey = &wk_cookieSnapshotKey;
-static WKCookieChangeSnapshot *wk_cookieSnapshot(CFHTTPCookieStorageRef storage)
+static const void *const wk_cookieSubscriptionKey = &wk_cookieSubscriptionKey;
+static WKCookieChangeSubscription *wk_cookieSubscription(CFHTTPCookieStorageRef storage)
 {
-    WKCookieChangeSnapshot *snapshot = objc_getAssociatedObject((id)storage, wk_cookieSnapshotKey);
-    if (!snapshot) {
-        snapshot = [[[WKCookieChangeSnapshot alloc] init] autorelease];
-        objc_setAssociatedObject((id)storage, wk_cookieSnapshotKey, snapshot, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    WKCookieChangeSubscription *subscription = objc_getAssociatedObject((id)storage, wk_cookieSubscriptionKey);
+    if (!subscription) {
+        subscription = [[[WKCookieChangeSubscription alloc] init] autorelease];
+        objc_setAssociatedObject((id)storage, wk_cookieSubscriptionKey, subscription, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
-    return snapshot;
+    return subscription;
 }
-// The snapshot a storage already has, or nil: a mutation on a storage nobody observes creates none.
-static WKCookieChangeSnapshot *wk_existingCookieSnapshot(CFHTTPCookieStorageRef storage)
+// The subscription a storage already has, or nil: a mutation on a storage nobody observes creates none.
+static WKCookieChangeSubscription *wk_existingCookieSubscription(CFHTTPCookieStorageRef storage)
 {
-    return objc_getAssociatedObject((id)storage, wk_cookieSnapshotKey);
+    return objc_getAssociatedObject((id)storage, wk_cookieSubscriptionKey);
 }
 
+// The NetworkProcess publishes the UI process's cookie jar through the shared-store SPI.
+// Both the rewritten Objective-C accessor and the CF default-store shim use this override.
+static NSHTTPCookieStorage *wk_sharedCookieStorageOverride;
+
+// The CF and Objective-C default-store accessors share the process's published jar.
+CFHTTPCookieStorageRef wk_sharedCookieStorage(void)
+{
+    @synchronized ([NSHTTPCookieStorage class]) {
+        NSHTTPCookieStorage *storage = [[wk_sharedCookieStorageOverride retain] autorelease];
+        return wk_cfCookieStorageOf(storage);
+    }
+}
+
+static NSHTTPCookieStorage *wk_nativeSharedCookieStorage(void)
+{
+    id storageClass = [NSHTTPCookieStorage class];
+    struct wk_original getter = wk_original_of(storageClass, @selector(sharedHTTPCookieStorage));
+    return ((NSHTTPCookieStorage *(*)(id, SEL))getter.imp)(storageClass, getter.sel);
+}
+static void wk_registerCookieNotifications(NSHTTPCookieStorage *);
+
 WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
++ (void)_setSharedHTTPCookieStorage:(NSHTTPCookieStorage *)storage
+{
+    @synchronized ([NSHTTPCookieStorage class]) {
+        if (wk_sharedCookieStorageOverride == storage)
+            return;
+        [wk_sharedCookieStorageOverride release];
+        wk_sharedCookieStorageOverride = [storage retain];
+        NSHTTPCookieStorage *nativeShared = wk_nativeSharedCookieStorage();
+        if (storage != nativeShared)
+            wk_registerCookieNotifications(storage);
+    }
+}
 - (void)_setCookiesChangedHandler:(WKCookiesChangedHandler)handler onQueue:(dispatch_queue_t)queue
 {
     CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(self);
     @synchronized ((id)storage) {
-        WKCookieChangeSnapshot *snapshot = wk_cookieSnapshot(storage);
+        WKCookieChangeSubscription *subscription = wk_cookieSubscription(storage);
         WKCookiesChangedHandler copy = [handler copy];
         if (queue)
             dispatch_retain(queue);
-        [snapshot->_changed release];
-        if (snapshot->_changedQueue)
-            dispatch_release(snapshot->_changedQueue);
-        snapshot->_changed = copy;
-        snapshot->_changedQueue = queue;
-        [snapshot updateObservation:storage];
+        [subscription->_changed release];
+        if (subscription->_changedQueue)
+            dispatch_release(subscription->_changedQueue);
+        subscription->_changed = copy;
+        subscription->_changedQueue = queue;
+        [subscription updateObservationOfStorage:storage rebaseline:NO];
     }
 }
 - (void)_setCookiesRemovedHandler:(WKCookiesRemovedHandler)handler onQueue:(dispatch_queue_t)queue
 {
     CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(self);
     @synchronized ((id)storage) {
-        WKCookieChangeSnapshot *snapshot = wk_cookieSnapshot(storage);
+        WKCookieChangeSubscription *subscription = wk_cookieSubscription(storage);
         WKCookiesRemovedHandler copy = [handler copy];
         if (queue)
             dispatch_retain(queue);
-        [snapshot->_removed release];
-        if (snapshot->_removedQueue)
-            dispatch_release(snapshot->_removedQueue);
-        snapshot->_removed = copy;
-        snapshot->_removedQueue = queue;
-        [snapshot updateObservation:storage];
+        [subscription->_removed release];
+        if (subscription->_removedQueue)
+            dispatch_release(subscription->_removedQueue);
+        subscription->_removed = copy;
+        subscription->_removedQueue = queue;
+        [subscription updateObservationOfStorage:storage rebaseline:NO];
     }
 }
 - (void)_setSubscribedDomainsForCookieChanges:(NSSet<NSString *> *)domains
 {
     CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(self);
     @synchronized ((id)storage) {
-        WKCookieChangeSnapshot *snapshot = wk_cookieSnapshot(storage);
-        if ([snapshot->_domains isEqual:domains])
+        WKCookieChangeSubscription *subscription = wk_cookieSubscription(storage);
+        if ([subscription->_domains isEqual:domains])
             return;
-        // Deliver pending mutations to existing subscribers before changing the observed set.
-        if (snapshot->_observing)
-            [snapshot storageChanged:storage];
         NSSet *copy = [domains copy];
-        [snapshot->_domains release];
-        snapshot->_domains = copy;
-        [snapshot updateObservation:storage];
-        if (snapshot->_observing) {
-            [snapshot->_snapshot release];
-            snapshot->_snapshot = [[snapshot snapshotOfStorage:storage] retain];
-        }
+        [subscription->_domains release];
+        subscription->_domains = copy;
+        [subscription updateObservationOfStorage:storage rebaseline:YES];
     }
 }
 @end
 
-// Internal notifications carry the exact NS wrapper that CookieStorageObserver registered.
-// The Internal object's token retains the CF handle and unregisters before releasing that handle.
+// Notifications carry the registered NS wrapper. Its token retains the CF handle
+// and unregisters before releasing that handle.
 @interface WKCookieNotificationRegistration : NSObject {
 @public
     CFHTTPCookieStorageRef _storage;
@@ -465,16 +559,21 @@ static void wk_postCookiesChangedNotification(CFHTTPCookieStorageRef storage, vo
 @end
 
 static const void *const wk_cookieNotificationKey = &wk_cookieNotificationKey;
-WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSHTTPCookieStorageInternal")
-- (void)registerForPostingNotificationsWithContext:(NSHTTPCookieStorage *)context
+static void wk_registerCookieNotifications(NSHTTPCookieStorage *context)
 {
-    @synchronized (self) {
-        if (!objc_getAssociatedObject(self, wk_cookieNotificationKey)) {
+    @synchronized (context) {
+        if (context && !objc_getAssociatedObject(context, wk_cookieNotificationKey)) {
             WKCookieNotificationRegistration *registration = [[WKCookieNotificationRegistration alloc] initWithContext:context];
-            objc_setAssociatedObject(self, wk_cookieNotificationKey, registration, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(context, wk_cookieNotificationKey, registration, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             [registration release];
         }
     }
+}
+
+WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSHTTPCookieStorageInternal")
+- (void)registerForPostingNotificationsWithContext:(NSHTTPCookieStorage *)context
+{
+    wk_registerCookieNotifications(context);
 }
 @end
 
@@ -643,11 +742,12 @@ static BOOL wk_pathCovers(NSString *stored, NSString *candidate)
     return [stored hasSuffix:@"/"] || (candidate.length > stored.length && [candidate characterAtIndex:stored.length] == '/');
 }
 
-// The records this write could overlay: HTTPS, so Secure records are included, at the candidate's own path.
+// The records this write could overlay, including Secure records, at the candidate's own path.
 static NSArray<NSHTTPCookie *> *wk_cookiesACandidateWouldOverlay(NSHTTPCookieStorage *storage, NSHTTPCookie *candidate, NSURL *url)
 {
     NSURLComponents *components = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
-    components.scheme = @"https";
+    if (!url.isFileURL)
+        components.scheme = @"https";
     components.path = candidate.path.length ? candidate.path : @"/";
     NSURL *lookupURL = components.URL;
     return lookupURL ? [storage cookiesForURL:lookupURL] : @[];
@@ -691,6 +791,26 @@ static NSArray<NSHTTPCookie *> *wk_cookiesWithStorageIntegrity(NSHTTPCookieStora
     return accepted;
 }
 
+static NSURL *wk_cookieOriginURL(NSHTTPCookie *cookie)
+{
+    if ([cookie.domain isEqualToString:@".^filecookies^"])
+        return [NSURL fileURLWithPath:cookie.path.length ? cookie.path : @"/"];
+    return [cookie OriginURL];
+}
+
+// Public cookie mutations preserve the stored HTTPOnly attribute.
+static BOOL wk_publicCookieMayReplaceStoredCookie(NSHTTPCookieStorage *storage, NSHTTPCookie *candidate)
+{
+    if (candidate.isHTTPOnly)
+        return YES;
+    NSArray *key = wk_cookieIndexKey(candidate);
+    for (NSHTTPCookie *stored in wk_cookiesACandidateWouldOverlay(storage, candidate, wk_cookieOriginURL(candidate))) {
+        if (stored.isHTTPOnly && [wk_cookieIndexKey(stored) isEqualToArray:key])
+            return NO;
+    }
+    return YES;
+}
+
 // A script may neither set an HttpOnly cookie nor overwrite a record that carries it.
 static NSArray<NSHTTPCookie *> *wk_cookiesAScriptMaySet(NSHTTPCookieStorage *storage, NSArray<NSHTTPCookie *> *cookies, NSURL *url)
 {
@@ -712,7 +832,11 @@ static NSArray<NSHTTPCookie *> *wk_cookiesAScriptMaySet(NSHTTPCookieStorage *sto
 WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
 - (void)_getCookiesForURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL partition:(NSString *)partition policyProperties:(NSDictionary *)policyProperties completionHandler:(void (^)(NSArray<NSHTTPCookie *> *))completionHandler
 {
-    (void)mainDocumentURL; (void)partition;
+    (void)partition;
+    NSHTTPCookieAcceptPolicy policy = self.cookieAcceptPolicy;
+    if (policy == wk_cookieAcceptPolicyExclusivelyFromMainDocumentDomain && mainDocumentURL
+        && wk_hostsHaveDifferentRegistrableDomains((CFURLRef)url, (CFURLRef)mainDocumentURL))
+        return completionHandler(@[]);
     NSArray<NSHTTPCookie *> *cookies = [self cookiesForURL:url];
 
     // policyProperties carries this read's SameSite context. 10.13+ CFNetwork withholds a Strict or Lax
@@ -746,12 +870,9 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
 }
 - (NSArray<NSHTTPCookie *> *)_getCookiesForDomain:(NSString *)domain
 {
-    NSMutableArray<NSHTTPCookie *> *result = [NSMutableArray array];
-    for (NSHTTPCookie *cookie in [self cookies]) {
-        if (wk_cookieDomainMatchesHost([cookie domain], domain))
-            [result addObject:cookie];
-    }
-    return result;
+    if (!domain.length)
+        return [NSMutableArray array];
+    return wk_cookiesStoredInDomains(wk_cfCookieStorageOf(self), [NSSet setWithArray:wk_cookieDomainsMatchingHost(domain.lowercaseString)]);
 }
 
 @end
@@ -770,20 +891,71 @@ static void wk_discardExpiredCookies(NSHTTPCookieStorage *storage, NSArray<NSHTT
     }
 }
 
+// The whole jar answers expired records too.
+static BOOL wk_holdsUnexpiredCookie(NSArray<NSHTTPCookie *> *cookies)
+{
+    NSDate *now = [NSDate date];
+    for (NSHTTPCookie *cookie in cookies) {
+        NSDate *expires = [cookie expiresDate];
+        if (!expires || [expires compare:now] == NSOrderedDescending)
+            return YES;
+    }
+    return NO;
+}
+
+static BOOL wk_storageHasUnexpiredDomainCookie(NSHTTPCookieStorage *storage, NSURL *url)
+{
+    if (!wk_cookieStorageHasRecordsForURL(wk_cfCookieStorageOf(storage), (CFURLRef)url))
+        return NO;
+    NSURLComponents *secureURL = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:YES];
+    secureURL.scheme = @"https";
+    if (wk_holdsUnexpiredCookie([storage cookiesForURL:secureURL.URL]))
+        return YES;
+    // The acceptance policy counts unexpired cookies even when their Path excludes this URL.
+    return wk_holdsUnexpiredCookie([storage _getCookiesForDomain:url.host]);
+}
+
 // The public setter and the policy SPI share PSL acceptance at the native jar boundary.
 WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
++ (NSHTTPCookieStorage *)sharedHTTPCookieStorage
+{
+    @synchronized ([NSHTTPCookieStorage class]) {
+        if (wk_sharedCookieStorageOverride)
+            return [[wk_sharedCookieStorageOverride retain] autorelease];
+    }
+    return WK_ORIGINAL_METHOD(NSHTTPCookieStorage *, ());
+}
 - (void)setCookie:(NSHTTPCookie *)cookie
 {
+    NSURL *url = wk_cookieOriginURL(cookie);
+    if (!wk_cookieWithUsableDomain(cookie, url) || !wk_publicCookieMayReplaceStoredCookie(self, cookie))
+        return;
+    NSArray<NSHTTPCookie *> *usable = wk_cookiesWithStorageIntegrity(self, @[cookie], url);
+    if (!usable.count)
+        return;
+    cookie = usable[0];
+    CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(self);
     WK_ORIGINAL_METHOD(void, (NSHTTPCookie *), cookie);
     wk_discardExpiredCookies(self, @[cookie]);
-    CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(self);
     @synchronized ((id)storage) {
-        [wk_existingCookieSnapshot(storage) storage:storage didSetCookies:@[cookie]];
+        [wk_existingCookieSubscription(storage) storage:storage didChangeCookies:@[cookie]];
+    }
+}
+
+- (void)deleteCookie:(NSHTTPCookie *)cookie
+{
+    if (!wk_publicCookieMayReplaceStoredCookie(self, cookie))
+        return;
+    CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(self);
+    WK_ORIGINAL_METHOD(void, (NSHTTPCookie *), cookie);
+    @synchronized ((id)storage) {
+        [wk_existingCookieSubscription(storage) storage:storage didChangeCookies:@[cookie]];
     }
 }
 
 - (void)setCookies:(NSArray<NSHTTPCookie *> *)cookies forURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL
 {
+    NSHTTPCookieAcceptPolicy policy = self.cookieAcceptPolicy;
     // WebCore HTTP, document.cookie and Cookie Store API mutations share this native jar boundary.
     NSMutableArray<NSHTTPCookie *> *usable = [NSMutableArray arrayWithCapacity:cookies.count];
     for (NSHTTPCookie *cookie in cookies) {
@@ -791,20 +963,18 @@ WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
             [usable addObject:cookie];
     }
     // The native main-document policy consults a 2013 PSL. Apply its registrable-domain
-    // boundary with the current PSL, retaining its existing-cookie exception.
-    if (self.cookieAcceptPolicy == NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain && mainDocumentURL
+    // boundary with the current PSL, retaining its existing-cookie exception: an unexpired stored cookie
+    // whose domain domain-matches the host, whatever its path or Secure flag.
+    if ((policy == NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain || policy == wk_cookieAcceptPolicyExclusivelyFromMainDocumentDomain) && mainDocumentURL
         && wk_hostsHaveDifferentRegistrableDomains((__bridge CFURLRef)url, (__bridge CFURLRef)mainDocumentURL)
-        && ![[self cookiesForURL:url] count])
+        && (policy == wk_cookieAcceptPolicyExclusivelyFromMainDocumentDomain || !wk_storageHasUnexpiredDomainCookie(self, url)))
         return;
     usable = (NSMutableArray *)wk_cookiesWithStorageIntegrity(self, usable, url);
+    CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(self);
     WK_ORIGINAL_METHOD(void, (NSArray *, NSURL *, NSURL *), usable, url, mainDocumentURL);
     wk_discardExpiredCookies(self, usable);
-    // The change handlers are enqueued at the mutation, as CFNetwork's own storage enqueues them
-    // before a response continues; the run-loop observer that follows finds the snapshot current.
-    CFHTTPCookieStorageRef storage = wk_cfCookieStorageOf(self);
     @synchronized ((id)storage) {
-        WKCookieChangeSnapshot *snapshot = wk_existingCookieSnapshot(storage);
-        [snapshot storage:storage didSetCookies:usable];
+        [wk_existingCookieSubscription(storage) storage:storage didChangeCookies:usable];
     }
 }
 @end
@@ -906,6 +1076,19 @@ WK_POLYFILL_ADD_METHODS(NSURLConnection)
 // (NSURLIsAliasFileKey, which also covers symlinks) comes back unchanged, and symlinks — which carry no
 // bookmark data — resolve to their destination.
 WK_POLYFILL_ADD_METHODS(NSURL)
++ (NSURL *)fileURLWithPath:(NSString *)path isDirectory:(BOOL)isDirectory relativeToURL:(NSURL *)baseURL
+{
+    return [self fileURLWithFileSystemRepresentation:path.fileSystemRepresentation isDirectory:isDirectory relativeToURL:baseURL];
+}
++ (NSURL *)fileURLWithPath:(NSString *)path relativeToURL:(NSURL *)baseURL
+{
+    // The native byte-path constructor supplies base resolution and filesystem escaping.
+    BOOL isDirectory = [path hasSuffix:@"/"];
+    NSURL *url = [self fileURLWithFileSystemRepresentation:path.fileSystemRepresentation isDirectory:isDirectory relativeToURL:baseURL];
+    if (!isDirectory && [[NSFileManager defaultManager] fileExistsAtPath:url.path isDirectory:&isDirectory] && isDirectory)
+        return [self fileURLWithFileSystemRepresentation:path.fileSystemRepresentation isDirectory:YES relativeToURL:baseURL];
+    return url;
+}
 - (NSString *)_lp_simplifiedDisplayString
 {
     NSString *host = [self host];
@@ -1224,6 +1407,13 @@ WK_POLYFILL_ADD_METHODS(NSKeyedUnarchiver)
 {
     return wk_unarchivedObjectOfClasses(cls ? [NSSet setWithObject:cls] : nil, data, error);
 }
+// The strict-secure sibling (Foundation SPI) differs only in the decoding mode it opts into, and 10.9
+// has no such mode to opt into — the same reason -_enableStrictSecureDecodingMode is a no-op here. The
+// decode runs under the secure-coding rules 10.9 does implement, restricted to the caller's class list.
++ (id)_strictlyUnarchivedObjectOfClasses:(NSSet<Class> *)classes fromData:(NSData *)data error:(NSError **)error
+{
+    return wk_unarchivedObjectOfClasses(classes, data, error);
+}
 @end
 
 static char kWKKeyedArchiverDataKey;
@@ -1330,6 +1520,94 @@ WK_POLYFILL_ADD_METHODS(NSHTTPURLResponse)
         if ([key isKindOfClass:[NSString class]] && [key caseInsensitiveCompare:field] == NSOrderedSame)
             return [headers objectForKey:key];
     return nil;
+}
+@end
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSURLResponse suggestedFilename] reads Content-Disposition as UTF-8 when its bytes form UTF-8 and as
+// ISO-8859-1 otherwise, the reading ResourceResponseSoup and ResourceResponseCurl give the same header.
+// A header reaches Foundation with one character per byte, and 10.9's CFURLResponseCopySuggestedFilename
+// takes those characters as they stand, so a byte-per-character field that is valid UTF-8 is named from a
+// response carrying its UTF-8 reading.
+@interface NSURLResponse (WKSuggestedFilename)
+- (CFTypeRef)_CFURLResponse;
+- (void)_setMIMEType:(NSString *)MIMEType;
+@end
+
+WK_SYSTEM_FN("CFNetwork", CFStringRef, CFURLResponseCopySuggestedFilename, (CFTypeRef));
+
+static NSString *wk_contentDispositionReadAsUTF8(NSString *field)
+{
+    NSUInteger length = field.length;
+    NSMutableData *bytes = [NSMutableData dataWithLength:length];
+    uint8_t *byte = (uint8_t *)bytes.mutableBytes;
+    BOOL hasNonASCII = NO;
+    for (NSUInteger i = 0; i < length; ++i) {
+        unichar character = [field characterAtIndex:i];
+        if (character > 0xFF)
+            return nil;
+        hasNonASCII |= character >= 0x80;
+        byte[i] = (uint8_t)character;
+    }
+    if (!hasNonASCII)
+        return nil;
+    return [[[NSString alloc] initWithData:bytes encoding:NSUTF8StringEncoding] autorelease];
+}
+
+WK_POLYFILL_REPLACE_METHODS(NSURLResponse)
+- (NSString *)suggestedFilename
+{
+    if (![self isKindOfClass:[NSHTTPURLResponse class]])
+        return WK_ORIGINAL_METHOD(NSString *, ());
+    NSHTTPURLResponse *response = (NSHTTPURLResponse *)self;
+    NSDictionary *headers = [response allHeaderFields];
+    NSString *key = nil;
+    for (NSString *candidate in headers) {
+        if ([candidate isKindOfClass:[NSString class]] && [candidate caseInsensitiveCompare:@"Content-Disposition"] == NSOrderedSame) {
+            key = candidate;
+            break;
+        }
+    }
+    id field = key ? [headers objectForKey:key] : nil;
+    NSString *reading = [field isKindOfClass:[NSString class]] ? wk_contentDispositionReadAsUTF8(field) : nil;
+    if (!reading)
+        return WK_ORIGINAL_METHOD(NSString *, ());
+
+    NSMutableDictionary *fields = [[headers mutableCopy] autorelease];
+    [fields setObject:reading forKey:key];
+    NSHTTPURLResponse *readResponse = [[[NSHTTPURLResponse alloc] initWithURL:[response URL] statusCode:[response statusCode] HTTPVersion:@"HTTP/1.1" headerFields:fields] autorelease];
+    [readResponse _setMIMEType:[response MIMEType]];
+    CFStringRef filename = WK_SYSTEM(CFURLResponseCopySuggestedFilename)([readResponse _CFURLResponse]);
+    return filename ? [(NSString *)filename autorelease] : nil;
+}
+@end
+
+// -[NSURLResponse MIMEType] of a file URL's response names the declared type its filename extension
+// names: c/CFNetwork.c's CFURLResponseGetMIMEType, which Foundation's own call does not reach. A response
+// built through the initializer, or retyped through -_setMIMEType:, keeps the MIME type it was given, and
+// the mark on its CFURLResponse makes both readers keep it.
+WK_POLYFILL_REPLACE_METHODS(NSURLResponse)
+- (NSString *)MIMEType
+{
+    CFTypeRef response = [self _CFURLResponse];
+    CFStringRef derived = response ? wkDerivedDeclaredMIMEType(response, (CFURLRef)[self URL]) : NULL;
+    if (derived)
+        return (NSString *)derived;
+    return WK_ORIGINAL_METHOD(NSString *, ());
+}
+
+- (instancetype)initWithURL:(NSURL *)URL MIMEType:(NSString *)MIMEType expectedContentLength:(NSInteger)length textEncodingName:(NSString *)name
+{
+    self = WK_ORIGINAL_METHOD(id, (NSURL *, NSString *, NSInteger, NSString *), URL, MIMEType, length, name);
+    if (self)
+        wkMarkGivenMIMEType([self _CFURLResponse]);
+    return self;
+}
+
+- (void)_setMIMEType:(NSString *)MIMEType
+{
+    wkMarkGivenMIMEType([self _CFURLResponse]);
+    WK_ORIGINAL_METHOD(void, (NSString *), MIMEType);
 }
 @end
 
@@ -1472,6 +1750,53 @@ WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSURLSessionConfiguration", "__NSCFURLSess
 - (id)_alternativeServicesStorage { return nil; }
 @end
 
+// -TLSMinimumSupportedProtocolVersion is the tls_protocol_version_t spelling of the SSLProtocol
+// TLSMinimumSupportedProtocol 10.9's configuration stores, so both accessors share that one value and a
+// copied configuration carries it. The codepoints are the protocol's wire version numbers.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#pragma clang diagnostic ignored "-Wunguarded-availability"
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
+static tls_protocol_version_t wk_tlsProtocolVersionForSSLProtocol(SSLProtocol protocol)
+{
+    switch (protocol) {
+    case kSSLProtocol3: return (tls_protocol_version_t)0x0300;
+    case kTLSProtocol1: return tls_protocol_version_TLSv10;
+    case kTLSProtocol11: return tls_protocol_version_TLSv11;
+    case kTLSProtocol12: return tls_protocol_version_TLSv12;
+    case kTLSProtocol13: return tls_protocol_version_TLSv13;
+    case kDTLSProtocol1: return tls_protocol_version_DTLSv10;
+    case kDTLSProtocol12: return tls_protocol_version_DTLSv12;
+    default: return (tls_protocol_version_t)0;
+    }
+}
+
+static SSLProtocol wk_sslProtocolForTLSProtocolVersion(tls_protocol_version_t version)
+{
+    switch ((uint16_t)version) {
+    case 0x0300: return kSSLProtocol3;
+    case tls_protocol_version_TLSv10: return kTLSProtocol1;
+    case tls_protocol_version_TLSv11: return kTLSProtocol11;
+    case tls_protocol_version_TLSv12: return kTLSProtocol12;
+    case tls_protocol_version_TLSv13: return kTLSProtocol13;
+    case tls_protocol_version_DTLSv10: return kDTLSProtocol1;
+    case tls_protocol_version_DTLSv12: return kDTLSProtocol12;
+    default: return kSSLProtocolUnknown;
+    }
+}
+
+WK_POLYFILL_ADD_METHODS_ON(NSURLSessionConfiguration, "NSURLSessionConfiguration", "__NSCFURLSessionConfiguration")
+- (tls_protocol_version_t)TLSMinimumSupportedProtocolVersion
+{
+    return wk_tlsProtocolVersionForSSLProtocol(self.TLSMinimumSupportedProtocol);
+}
+- (void)setTLSMinimumSupportedProtocolVersion:(tls_protocol_version_t)version
+{
+    self.TLSMinimumSupportedProtocol = wk_sslProtocolForTLSProtocolVersion(version);
+}
+@end
+#pragma clang diagnostic pop
+
 // NSMutableURLRequest.
 WK_POLYFILL_ADD_METHODS(NSMutableURLRequest)
 - (void)_setUseEnhancedPrivacyMode:(BOOL)value { (void)value; }
@@ -1548,56 +1873,75 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
 @end
 
 WK_POLYFILL_REPLACE_METHODS(NSHTTPCookieStorage)
-// -setCookieAcceptPolicy: leaves the CF storage as it was, while the getter -- and every other reader --
-// takes the policy from the CF storage, so on 10.9 the setter has no effect anybody can observe. The
-// rest of the class covers the CF storage directly (-setCookie: and -deleteCookie: call
-// CFHTTPCookieStorageSetCookie and CFHTTPCookieStorageDeleteCookie), so writing through is the shape of
-// the class.
-//
-// What 10.9's own implementation does instead is stamp com.apple.WebFoundation's NSHTTPAcceptCookies --
-// a setting every CFNetwork client in the user's account reads -- and it does that for ANY receiver,
-// including a private in-memory jar (measured: setting Never on a jar from -_initWithIdentifier:private:
-// leaves NSHTTPAcceptCookies=never behind). A policy chosen for one storage is not an account-wide
-// choice, so the original runs only for the storage that IS the process's own jar.
+// Preserve CF's exclusive main-document policy, which the native NS enum cannot represent.
+// Account-wide preference writes belong only to the native default jar.
+- (NSHTTPCookieAcceptPolicy)cookieAcceptPolicy
+{
+    return (NSHTTPCookieAcceptPolicy)CFHTTPCookieStorageGetCookieAcceptPolicy(wk_cfCookieStorageOf(self));
+}
+
 - (void)setCookieAcceptPolicy:(NSHTTPCookieAcceptPolicy)policy
 {
     CFHTTPCookieStorageRef store = wk_cfCookieStorageOf(self);
-    if (store == _CFHTTPCookieStorageGetDefault(kCFAllocatorDefault))
+    if (store == wk_cfCookieStorageOf(wk_nativeSharedCookieStorage()))
         WK_ORIGINAL_METHOD(void, (NSHTTPCookieAcceptPolicy), policy);
     if (store)
         CFHTTPCookieStorageSetCookieAcceptPolicy(store, (CFIndex)policy);
 }
 @end
 
-// The cookies of |cookies| in the order RFC 6265bis 5.5 sends them, which is a stable sort by path
-// length: a cookie 10.9 ordered by name among equal-length paths keeps that place, because the creation
-// time the RFC breaks those ties by is whole seconds here. Answers |cookies| itself when it already
-// reads that way, which is the common case and costs one scan and no allocation.
+// RFC 6265bis 5.5 sends the longer cookie-path first. Among equal paths the jar's own order stands, and
+// the slot a cookie arrived in settles every tie, so the sort is stable.
+struct wk_cookieSendSlot {
+    NSHTTPCookie *cookie;
+    CFStringRef path;
+    NSUInteger arrival;
+};
+
+static int wk_compareCookieSendSlots(const void *a, const void *b)
+{
+    const struct wk_cookieSendSlot *first = (const struct wk_cookieSendSlot *)a;
+    const struct wk_cookieSendSlot *second = (const struct wk_cookieSendSlot *)b;
+    if (wk_cookiePathSortsFirst(first->path, second->path))
+        return -1;
+    if (wk_cookiePathSortsFirst(second->path, first->path))
+        return 1;
+    return first->arrival < second->arrival ? -1 : 1;
+}
+
+// Answers |cookies| itself when it already reads that way, so the common case costs one scan.
 static NSArray<NSHTTPCookie *> *wk_cookiesInSendOrder(NSArray<NSHTTPCookie *> *cookies)
 {
     NSUInteger count = cookies.count;
+    if (count < 2)
+        return cookies;
+    // A URL's cookies are few; the heap is for the jar that holds more than a page ever sends.
+    struct wk_cookieSendSlot inlineSlots[32];
+    struct wk_cookieSendSlot *slots = count <= (sizeof(inlineSlots) / sizeof(inlineSlots[0]))
+        ? inlineSlots : (struct wk_cookieSendSlot *)malloc(count * sizeof(inlineSlots[0]));
+    if (!slots)
+        return cookies;
+    for (NSUInteger i = 0; i < count; ++i) {
+        NSHTTPCookie *cookie = cookies[i];
+        slots[i].cookie = cookie;
+        slots[i].path = (CFStringRef)cookie.path;
+        slots[i].arrival = i;
+    }
+
     bool ordered = true;
     for (NSUInteger i = 1; i < count && ordered; ++i)
-        ordered = !wk_cookiePathSortsFirst((CFStringRef)cookies[i].path, (CFStringRef)cookies[i - 1].path);
-    if (ordered)
-        return cookies;
-
-    NSMutableArray<NSNumber *> *slots = [NSMutableArray arrayWithCapacity:count];
-    for (NSUInteger i = 0; i < count; ++i)
-        [slots addObject:@(i)];
-    // The slot decides every tie, so the sort is stable however the sort itself is implemented.
-    [slots sortUsingComparator:^NSComparisonResult(NSNumber *a, NSNumber *b) {
-        NSUInteger first = a.unsignedIntegerValue, second = b.unsignedIntegerValue;
-        if (wk_cookiePathSortsFirst((CFStringRef)cookies[first].path, (CFStringRef)cookies[second].path))
-            return NSOrderedAscending;
-        if (wk_cookiePathSortsFirst((CFStringRef)cookies[second].path, (CFStringRef)cookies[first].path))
-            return NSOrderedDescending;
-        return first < second ? NSOrderedAscending : NSOrderedDescending;
-    }];
-    NSMutableArray<NSHTTPCookie *> *sorted = [NSMutableArray arrayWithCapacity:count];
-    for (NSNumber *slot in slots)
-        [sorted addObject:cookies[slot.unsignedIntegerValue]];
-    return sorted;
+        ordered = wk_compareCookieSendSlots(&slots[i - 1], &slots[i]) < 0;
+    NSArray<NSHTTPCookie *> *result = cookies;
+    if (!ordered) {
+        qsort(slots, count, sizeof(slots[0]), wk_compareCookieSendSlots);
+        NSMutableArray<NSHTTPCookie *> *sorted = [NSMutableArray arrayWithCapacity:count];
+        for (NSUInteger i = 0; i < count; ++i)
+            [sorted addObject:slots[i].cookie];
+        result = sorted;
+    }
+    if (slots != inlineSlots)
+        free(slots);
+    return result;
 }
 
 // RFC 6265 5.1.4 holds a cookie to a request-path on a path-segment boundary; 10.9 tests only that the
@@ -1698,248 +2042,61 @@ static NSURLRequest *wk_requestCarryingStorageCookieAcceptPolicy(id session, NSU
 // ---------------------------------------------------------------------------------------------------
 // +[NSURLSession _strictTrustEvaluate:queue:completionHandler:] (10.10+).
 //
-// Evaluates a server-trust challenge off the calling thread and reports the result as an OSStatus, so a
-// client can decide the challenge itself instead of leaving it to CFNetwork's default handling. 10.9 has
-// everything that needs: the challenge carries the SecTrustRef, and SecTrustEvaluate is the same
-// evaluation the system performs. So this runs it, rather than answering "cannot evaluate", which for a
-// trust decision would be the one wrong answer to give.
-//
-// `queue:` is the COMPLETION queue, the same convention as SecTrustEvaluateAsyncWithError -- it is not
-// where the evaluation runs. That distinction is the whole point of the SPI: callers pass the queue they
-// are already on (NetworkSessionCocoa passes the network process's main queue from a delegate callback
-// that runs there), so evaluating on it would block the caller for the duration. On 10.9 that duration is
-// ~250ms per chain and never cached, so doing it on the caller's queue would serialise every certificate
-// check in the process onto one thread -- the defect this SPI is used to avoid.
-//
-// So the evaluation runs on a private pool and only the completion hops to the caller's queue. The pool is
-// bounded because 10.9's Security framework does evaluate chains in parallel, but throughput saturates at
-// the core count and degrades past it: 28 evaluations took 7.34s at width 1, 2.41s at 4 (this host's core
-// count), 2.63s at 8 and 3.03s at 12. An unbounded queue would also let one page's connections spawn a
-// thread each.
-//
-// noErr means trusted, which is how the caller reads it. kSecTrustResultProceed is an explicit user/admin
-// trust decision and kSecTrustResultUnspecified is "valid chain, no explicit decision"; every other
-// result (recoverable failure, fatal failure, deny, invalid setup) is not trusted, and errSecNotTrusted
-// is what the modern SPI reports for those.
-//
-// RESULT CACHE. The real _strictTrustEvaluate on 10.10+ is backed by trustd, which answers a repeat
-// evaluation of the same certificate from its result cache; that is why modern CFNetwork can afford to
-// re-ask the trust question on every connection. 10.9 has no trustd, so without a cache this polyfill
-// runs a full CDSA evaluation -- RSA chain verification, keychain issuer lookups, a CRL/ocspd round
-// trip, all behind Security's one global CSSM mutex -- once PER CONNECTION. Measured on this host
-// (arstechnica.com, one load): 95 of 107 SecTrustEvaluate calls in the network process came from this
-// function, ~2 per distinct host, because a page opens several connections to each host and every ad and
-// analytics origin (doubleclick, google-analytics, facebook, amazon-adsystem, ...) recurs on nearly
-// every page. Under CPU contention those evaluations both starve for cores and convoy on the CSSM mutex,
-// which is the same lock CFNetwork's socket thread needs to move bytes -- so page loads stall. Caching
-// the result here, exactly as trustd does underneath the real SPI, collapses the per-connection
-// redundancy within a page and, because the cache persists, makes the ubiquitous third-party origins a
-// hit on every page after the first -- which is the steady-state a trustd-backed browser runs in.
-//
-// This caches this function's OWN evaluations; it does not interpose SecTrustEvaluate. The key is the
-// whole readable question -- leaf certificate DER, every policy's properties (which bind the hostname),
-// the custom anchors, the network-fetch flag and the verify date -- all of them evaluation-free reads on
-// 10.9. Identical question, identical answer, up to the freshness the TTL bounds. Only a clean verdict
-// (Proceed/Unspecified) is stored: a failure re-evaluates at full price every time, so a revoked or
-// expired chain is never served from memory, and a good chain that just goes bad is caught on its next
-// connection rather than the next page. The TTL (10 minutes) is far tighter than 10.9's real revocation
-// freshness, whose CRL cache under /var/db/crls persists for days. On a hit the SecTrustRef is left
-// unevaluated; the sole caller (NetworkSessionCocoa) reads only the reported OSStatus, and any later
-// consumer that wants the built chain triggers Security's own evaluation lazily at full price.
-enum { WK_TRUST_CACHE_SLOTS = 512 };
-static const CFAbsoluteTime kWKTrustCacheTTL = 600.0;
-
-struct wk_trust_cache_slot {
-    uint8_t key[CC_SHA256_DIGEST_LENGTH];
-    CFAbsoluteTime expires;
-    bool used;
-};
-static struct wk_trust_cache_slot wk_trust_cache[WK_TRUST_CACHE_SLOTS];
-static pthread_mutex_t wk_trust_cache_lock = PTHREAD_MUTEX_INITIALIZER;
-
-static int wk_trust_policy_key_compare(const void *a, const void *b)
-{
-    return (int)CFStringCompare(*(CFStringRef *)a, *(CFStringRef *)b, 0);
+// Evaluates server trust on the shared worker pool and delivers the result on the caller's queue.
+// Proceed and Unspecified are accepted; all other results report errSecNotTrusted.
+@interface WKTrustEvaluationQueue : NSObject {
+    dispatch_queue_t _stateQueue;
+    NSMutableArray *_pending;
+    NSUInteger _active;
+    NSUInteger _width;
 }
+- (void)addOperationWithBlock:(void (^)(void))operation;
+@end
 
-// Fold one CoreFoundation value into the digest by its CONTENT, never by CFCopyDescription: on 10.9
-// -[CFString description] is "<CFString 0x7fa1... [0x...]>{contents = ...}", i.e. it embeds the object's
-// pointer address, which differs for every freshly-allocated instance -- so a policy's value strings,
-// which SecPolicyCopyProperties mints anew per connection, would hash differently each time even though
-// the string is identical. (That defect made the cache never hit.) A per-type tag keeps values of
-// different types from colliding. An unhandled type returns false, which makes the whole key fail and
-// the trust evaluate uncached -- the safe direction.
-static bool wk_trust_hash_cf(CC_SHA256_CTX *ctx, CFTypeRef value)
+@implementation WKTrustEvaluationQueue
+- (instancetype)init
 {
-    if (!value)
-        return false;
-    CFTypeID type = CFGetTypeID(value);
-    if (type == CFStringGetTypeID()) {
-        CFDataRef utf8 = CFStringCreateExternalRepresentation(NULL, (CFStringRef)value, kCFStringEncodingUTF8, '?');
-        if (!utf8)
-            return false;
-        char tag = 'S';
-        CFIndex len = CFDataGetLength(utf8);
-        CC_SHA256_Update(ctx, &tag, 1);
-        CC_SHA256_Update(ctx, &len, sizeof(len));
-        CC_SHA256_Update(ctx, CFDataGetBytePtr(utf8), (CC_LONG)len);
-        CFRelease(utf8);
-        return true;
-    }
-    if (type == CFBooleanGetTypeID()) {
-        char tag = 'B';
-        uint8_t v = CFBooleanGetValue((CFBooleanRef)value) ? 1 : 0;
-        CC_SHA256_Update(ctx, &tag, 1);
-        CC_SHA256_Update(ctx, &v, 1);
-        return true;
-    }
-    if (type == CFNumberGetTypeID()) {
-        char tag = 'N';
-        double v = 0;
-        CFNumberGetValue((CFNumberRef)value, kCFNumberDoubleType, &v);
-        CC_SHA256_Update(ctx, &tag, 1);
-        CC_SHA256_Update(ctx, &v, sizeof(v));
-        return true;
-    }
-    if (type == CFDataGetTypeID()) {
-        char tag = 'D';
-        CFIndex len = CFDataGetLength((CFDataRef)value);
-        CC_SHA256_Update(ctx, &tag, 1);
-        CC_SHA256_Update(ctx, &len, sizeof(len));
-        CC_SHA256_Update(ctx, CFDataGetBytePtr((CFDataRef)value), (CC_LONG)len);
-        return true;
-    }
-    return false;
+    if (!(self = [super init]))
+        return nil;
+    _stateQueue = dispatch_queue_create("com.apple.WebKit.polyfill.trust-evaluation.state", DISPATCH_QUEUE_SERIAL);
+    _pending = [[NSMutableArray alloc] init];
+    _width = [NSProcessInfo processInfo].activeProcessorCount;
+    return self;
 }
-
-// Fold a policy's properties (name/oid/hostname/client flags) into the digest, key order normalised so
-// the hash is stable regardless of dictionary iteration order.
-static bool wk_trust_hash_policy(CC_SHA256_CTX *ctx, SecPolicyRef policy)
+- (void)startPendingOperations
 {
-    CFDictionaryRef properties = SecPolicyCopyProperties(policy);
-    if (!properties)
-        return false;
-    bool ok = true;
-    CFIndex count = CFDictionaryGetCount(properties);
-    CC_SHA256_Update(ctx, &count, sizeof(count));
-    if (count) {
-        const void **keys = (const void **)calloc((size_t)count, sizeof(*keys));
-        if (keys) {
-            CFDictionaryGetKeysAndValues(properties, keys, NULL);
-            qsort(keys, (size_t)count, sizeof(*keys), wk_trust_policy_key_compare);
-            for (CFIndex i = 0; ok && i < count; ++i)
-                ok = wk_trust_hash_cf(ctx, keys[i])
-                    && wk_trust_hash_cf(ctx, CFDictionaryGetValue(properties, keys[i]));
-            free(keys);
-        } else
-            ok = false;
+    while (_active < _width && _pending.count) {
+        NSBlockOperation *operation = [[_pending objectAtIndex:0] retain];
+        [_pending removeObjectAtIndex:0];
+        ++_active;
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            [operation start];
+            dispatch_async(_stateQueue, ^{
+                --_active;
+                [self startPendingOperations];
+            });
+        });
+        [operation release];
     }
-    CFRelease(properties);
-    return ok;
 }
-
-// Assemble the readable trust question into a SHA-256 key. Returns false (evaluate uncached) if any
-// component cannot be read -- the failure mode is always "evaluate for real".
-static bool wk_trust_cache_key(SecTrustRef trust, uint8_t out[CC_SHA256_DIGEST_LENGTH])
+- (void)addOperationWithBlock:(void (^)(void))operation
 {
-    CC_SHA256_CTX ctx;
-    CC_SHA256_Init(&ctx);
-
-    SecCertificateRef leaf = SecTrustGetCertificateAtIndex(trust, 0);
-    if (!leaf)
-        return false;
-    CFDataRef leafDER = SecCertificateCopyData(leaf);
-    if (!leafDER)
-        return false;
-    CFIndex leafLen = CFDataGetLength(leafDER);
-    CC_SHA256_Update(&ctx, &leafLen, sizeof(leafLen));
-    CC_SHA256_Update(&ctx, CFDataGetBytePtr(leafDER), (CC_LONG)leafLen);
-    CFRelease(leafDER);
-
-    CFArrayRef policies = NULL;
-    if (SecTrustCopyPolicies(trust, &policies) != errSecSuccess || !policies)
-        return false;
-    bool ok = true;
-    CFIndex policyCount = CFArrayGetCount(policies);
-    CC_SHA256_Update(&ctx, &policyCount, sizeof(policyCount));
-    for (CFIndex i = 0; ok && i < policyCount; ++i)
-        ok = wk_trust_hash_policy(&ctx, (SecPolicyRef)CFArrayGetValueAtIndex(policies, i));
-    CFRelease(policies);
-    if (!ok)
-        return false;
-
-    CFArrayRef anchors = NULL;
-    if (SecTrustCopyCustomAnchorCertificates(trust, &anchors) != errSecSuccess)
-        return false;
-    CFIndex anchorCount = anchors ? CFArrayGetCount(anchors) : -1; // NULL (system anchors) != empty array
-    CC_SHA256_Update(&ctx, &anchorCount, sizeof(anchorCount));
-    for (CFIndex i = 0; ok && anchors && i < anchorCount; ++i) {
-        CFDataRef anchorDER = SecCertificateCopyData((SecCertificateRef)CFArrayGetValueAtIndex(anchors, i));
-        if (anchorDER) {
-            CFIndex len = CFDataGetLength(anchorDER);
-            CC_SHA256_Update(&ctx, &len, sizeof(len));
-            CC_SHA256_Update(&ctx, CFDataGetBytePtr(anchorDER), (CC_LONG)len);
-            CFRelease(anchorDER);
-        } else
-            ok = false;
-    }
-    if (anchors)
-        CFRelease(anchors);
-    if (!ok)
-        return false;
-
-    Boolean fetchAllowed = false;
-    if (SecTrustGetNetworkFetchAllowed(trust, &fetchAllowed) != errSecSuccess)
-        return false;
-    CC_SHA256_Update(&ctx, &fetchAllowed, sizeof(fetchAllowed));
-    CFAbsoluteTime verifyTime = SecTrustGetVerifyTime(trust); // 0 when unset, i.e. "now"
-    CC_SHA256_Update(&ctx, &verifyTime, sizeof(verifyTime));
-
-    CC_SHA256_Final(out, &ctx);
-    return true;
+    NSBlockOperation *pending = [NSBlockOperation blockOperationWithBlock:operation];
+    dispatch_async(_stateQueue, ^{
+        [_pending addObject:pending];
+        [self startPendingOperations];
+    });
 }
+@end
 
-static bool wk_trust_cache_lookup(const uint8_t key[CC_SHA256_DIGEST_LENGTH])
+static WKTrustEvaluationQueue *wk_trustEvaluationQueue(void)
 {
-    unsigned slot = ((unsigned)key[0] | ((unsigned)key[1] << 8)) % WK_TRUST_CACHE_SLOTS;
-    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    pthread_mutex_lock(&wk_trust_cache_lock);
-    struct wk_trust_cache_slot *entry = &wk_trust_cache[slot];
-    bool hit = entry->used && entry->expires > now && !memcmp(entry->key, key, CC_SHA256_DIGEST_LENGTH);
-    pthread_mutex_unlock(&wk_trust_cache_lock);
-    return hit;
-}
-
-static void wk_trust_cache_store(const uint8_t key[CC_SHA256_DIGEST_LENGTH])
-{
-    unsigned slot = ((unsigned)key[0] | ((unsigned)key[1] << 8)) % WK_TRUST_CACHE_SLOTS;
-    pthread_mutex_lock(&wk_trust_cache_lock);
-    struct wk_trust_cache_slot *entry = &wk_trust_cache[slot];
-    memcpy(entry->key, key, CC_SHA256_DIGEST_LENGTH);
-    entry->expires = CFAbsoluteTimeGetCurrent() + kWKTrustCacheTTL;
-    entry->used = true;
-    pthread_mutex_unlock(&wk_trust_cache_lock);
-}
-
-static dispatch_queue_t wk_trustEvaluationQueue(void)
-{
-    static dispatch_queue_t *queues;
-    static unsigned queueCount;
+    static WKTrustEvaluationQueue *queue;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        long cores = sysconf(_SC_NPROCESSORS_ONLN);
-        if (cores < 2)
-            cores = 2;
-        else if (cores > 8)
-            cores = 8;
-        queueCount = (unsigned)cores;
-        queues = (dispatch_queue_t *)calloc(queueCount, sizeof(*queues));
-        for (unsigned i = 0; i < queueCount; ++i)
-            queues[i] = dispatch_queue_create("com.apple.WebKit.polyfill.trust-evaluation", DISPATCH_QUEUE_SERIAL);
+        queue = [[WKTrustEvaluationQueue alloc] init];
     });
-    // Callers are not promised to be on one thread, so the rotation counter is atomic.
-    static _Atomic(unsigned) next;
-    return queues[atomic_fetch_add(&next, 1u) % queueCount];
+    return queue;
 }
 
 WK_POLYFILL_ADD_METHODS(NSURLSession)
@@ -1953,38 +2110,19 @@ WK_POLYFILL_ADD_METHODS(NSURLSession)
     dispatch_queue_t completionQueue = queue ?: dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
     dispatch_retain(completionQueue);
 
-    // Build the cache key on the caller's queue: it is only evaluation-free reads plus a hash, orders of
-    // magnitude cheaper than the evaluation this can avoid, so it does not meaningfully load that queue.
-    // A hit answers without ever touching the bounded evaluation pool -- which matters most under load,
-    // when that pool is saturated and a cache hit must not have to wait behind real evaluations for a slot.
-    struct { uint8_t bytes[CC_SHA256_DIGEST_LENGTH]; bool valid; } cacheKey;
-    cacheKey.valid = trust && wk_trust_cache_key(trust, cacheKey.bytes);
-    if (cacheKey.valid && wk_trust_cache_lookup(cacheKey.bytes)) {
-        dispatch_async(completionQueue, ^{
-            completionHandler(challenge, noErr);
-            if (trust)
-                CFRelease(trust);
-            dispatch_release(completionQueue);
-        });
-        return;
-    }
-
-    dispatch_async(wk_trustEvaluationQueue(), ^{
+    [wk_trustEvaluationQueue() addOperationWithBlock:^{
         OSStatus status = errSecNotTrusted;
         SecTrustResultType trustResult = kSecTrustResultInvalid;
         if (trust && SecTrustEvaluate(trust, &trustResult) == errSecSuccess
-            && (trustResult == kSecTrustResultProceed || trustResult == kSecTrustResultUnspecified)) {
+            && (trustResult == kSecTrustResultProceed || trustResult == kSecTrustResultUnspecified))
             status = noErr;
-            if (cacheKey.valid)
-                wk_trust_cache_store(cacheKey.bytes); // only clean verdicts are remembered
-        }
         dispatch_async(completionQueue, ^{
             completionHandler(challenge, status);
             if (trust)
                 CFRelease(trust);
             dispatch_release(completionQueue);
         });
-    });
+    }];
 }
 @end
 
@@ -2032,7 +2170,22 @@ static CFDictionaryRef wk_storageSessionProperties(BOOL isPrivate, bool *outFail
 void wk_cookieStorageDidRemoveAllCookies(CFHTTPCookieStorageRef storage)
 {
     @synchronized ((id)storage) {
-        [wk_existingCookieSnapshot(storage) storageRemovedAllCookies];
+        [wk_existingCookieSubscription(storage) storageRemovedAllCookies];
+    }
+}
+
+// CFHTTPCookieStorageDeleteCookie (polyfills/c/CFNetwork.c) removes a cookie through here, so its
+// subscribers hear of the removal as they do of -deleteCookie:.
+void wk_cookieStorageDeleteCookie(CFHTTPCookieStorageRef storage, CFHTTPCookieRef cf, void (*deleteCookie)(CFHTTPCookieStorageRef, CFHTTPCookieRef))
+{
+    @autoreleasepool {
+        NSHTTPCookie *cookie = storage && cf ? [NSHTTPCookie cookieWithCFHTTPCookie:cf] : nil;
+        deleteCookie(storage, cf);
+        if (!cookie)
+            return;
+        @synchronized ((id)storage) {
+            [wk_existingCookieSubscription(storage) storage:storage didChangeCookies:@[cookie]];
+        }
     }
 }
 
@@ -2132,26 +2285,6 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookieStorage)
     return result;
 }
 
-// +[NSHTTPCookieStorage _setSharedHTTPCookieStorage:] (10.10+): point the process at a cookie jar of its
-// own. 10.9 has no way to replace the process's cookie store, and -- measured on this host -- it does not
-// need one, because the storage WebKit passes here is already a HANDLE ON THAT STORE:
-//
-//   NetworkProcess::setSharedHTTPCookieStorage installs cookieStorageFromIdentifyingData(...), and the
-//   identifying data 10.9 produces is an archive naming "com.apple.CFNetwork.defaultStorageSession".
-//   Restoring it yields a different CFHTTPCookieStorageRef POINTER but the same store: same cookie count
-//   (2148 == 2148), and a cookie set through the restored handle is immediately visible through
-//   +sharedHTTPCookieStorage. Two handles, one jar.
-//
-// So accepting and discarding leaves every consumer -- WebKit's cookie API and the NSURLSession that
-// performs the loads -- on that one jar. The rejected alternative was to keep an override that
-// +sharedHTTPCookieStorage returned: because the selref rewrite only reaches WebKit-marked images, that
-// would have redirected WebKit's reads while CFNetwork's own internal default went untouched, i.e. an
-// illusion of a swap that is correct only for callers the rewrite happens to cover. No override is kept
-// and +sharedHTTPCookieStorage is left alone, so there is exactly one jar and no way for the two to drift.
-+ (void)_setSharedHTTPCookieStorage:(id)storage
-{
-    (void)storage;
-}
 @end
 
 // -[NSURLCredentialStorage _initWithIdentifier:private:] (10.13+), the same contract one layer over:
@@ -2825,7 +2958,7 @@ WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSURLSessionTask", "__NSCFURLSessionTask")
 // available language sharing that subtag follows it, in availableLanguages order.
 static NSString *wk_primaryLanguageSubtag(NSString *languageTag)
 {
-    if (![languageTag isKindOfClass:[NSString class]] || !languageTag.length)
+    if (!languageTag.length)
         return nil;
     // Canonicalize (e.g. iw->he, EN-us->en-US) then take the primary subtag before the first "-"/"_".
     NSString *canonical = [NSLocale canonicalLanguageIdentifierFromString:languageTag];
@@ -2835,6 +2968,7 @@ static NSString *wk_primaryLanguageSubtag(NSString *languageTag)
     NSString *code = (sep.location == NSNotFound) ? canonical : [canonical substringToIndex:sep.location];
     return code.lowercaseString;
 }
+
 WK_POLYFILL_ADD_METHODS(NSLocale)
 + (NSArray<NSString *> *)matchedLanguagesFromAvailableLanguages:(NSArray<NSString *> *)availableLanguages forPreferredLanguages:(NSArray<NSString *> *)preferredLanguages
 {
@@ -2858,6 +2992,107 @@ WK_POLYFILL_ADD_METHODS(NSLocale)
         }
     }
     return matched;
+}
+@end
+
+// ---------------------------------------------------------------------------------------------------
+// +[NSLocale minimizedLanguagesFromLanguages:] (10.15+). WTF::canMinimizeLanguages
+// (Source/WTF/wtf/cocoa/LanguageCocoa.mm) gates httpStyleLanguageCode (Source/WTF/wtf/cf/LanguageCF.cpp)
+// on it: with it, navigator.language and Accept-Language are canonicalized locale tags; without it that
+// function takes the CFBundle Script Manager round-trip its own FIXME calls "very wrong", which has no
+// code for a locale the Script Manager never had and answers es-XL for es-MX and zh-TW for zh-HK.
+//
+// The contract is a locale one, so it holds for any caller: each tag is reduced to the coarsest form
+// that still names the same locale -- its CLDR likely-subtags expansion, written as
+// language[-Script][-REGION] with a script CLDR would have inferred left off -- and the list keeps its
+// order with duplicates removed. That is what shrinks the fingerprinting surface of a preferred-language
+// list: a long tail of spellings ("zh-Hant-HK", "zh-HK", "zh_Hant_hk") collapses onto the locale CLDR
+// actually distinguishes, and a tag that already is one is returned unchanged.
+//
+// Extensions, variants and keywords are not part of that locale and do not survive, which is the point:
+// "en-US-u-ca-japanese" and "en-US" are one language to a content negotiator.
+static NSString *wk_minimizedLanguageTag(NSString *languageTag)
+{
+    char requested[ULOC_FULLNAME_CAPACITY];
+    if (![languageTag getCString:requested maxLength:sizeof(requested) encoding:NSASCIIStringEncoding])
+        return languageTag;
+    for (char *p = requested; *p; ++p) {
+        if (*p == '-')
+            *p = '_';
+    }
+
+    // A tag that names no language names no locale: likely subtags would answer for "und", which is
+    // the root's stand-in and not this caller's language.
+    UErrorCode status = U_ZERO_ERROR;
+    char requestedLanguage[ULOC_LANG_CAPACITY];
+    uloc_getLanguage(requested, requestedLanguage, sizeof(requestedLanguage), &status);
+    if (U_FAILURE(status) || !requestedLanguage[0] || !strcmp(requestedLanguage, "und"))
+        return languageTag;
+
+    status = U_ZERO_ERROR;
+    char maximized[ULOC_FULLNAME_CAPACITY];
+    uloc_addLikelySubtags(requested, maximized, sizeof(maximized), &status);
+    if (U_FAILURE(status))
+        return languageTag;
+
+    char language[ULOC_LANG_CAPACITY] = { 0 };
+    char script[ULOC_SCRIPT_CAPACITY] = { 0 };
+    char region[ULOC_COUNTRY_CAPACITY] = { 0 };
+    status = U_ZERO_ERROR;
+    uloc_getLanguage(maximized, language, sizeof(language), &status);
+    if (U_FAILURE(status) || !language[0])
+        return languageTag;
+    status = U_ZERO_ERROR;
+    uloc_getScript(maximized, script, sizeof(script), &status);
+    if (U_FAILURE(status))
+        script[0] = 0;
+    status = U_ZERO_ERROR;
+    uloc_getCountry(maximized, region, sizeof(region), &status);
+    if (U_FAILURE(status))
+        region[0] = 0;
+
+    // The script stays only when the language and region do not already imply it -- sr-Latn-RS is
+    // Serbian in a script CLDR would not have guessed, sr-Cyrl-RS is the guess itself.
+    bool scriptIsImplied = true;
+    if (script[0]) {
+        char candidate[ULOC_FULLNAME_CAPACITY];
+        if (region[0])
+            snprintf(candidate, sizeof(candidate), "%s_%s", language, region);
+        else
+            snprintf(candidate, sizeof(candidate), "%s", language);
+        status = U_ZERO_ERROR;
+        char candidateMaximized[ULOC_FULLNAME_CAPACITY];
+        uloc_addLikelySubtags(candidate, candidateMaximized, sizeof(candidateMaximized), &status);
+        char candidateScript[ULOC_SCRIPT_CAPACITY] = { 0 };
+        if (U_SUCCESS(status)) {
+            status = U_ZERO_ERROR;
+            uloc_getScript(candidateMaximized, candidateScript, sizeof(candidateScript), &status);
+            if (U_FAILURE(status))
+                candidateScript[0] = 0;
+        }
+        scriptIsImplied = !strcmp(script, candidateScript);
+    }
+
+    NSMutableString *tag = [NSMutableString stringWithUTF8String:language];
+    if (script[0] && !scriptIsImplied)
+        [tag appendFormat:@"-%s", script];
+    if (region[0])
+        [tag appendFormat:@"-%s", region];
+    return tag;
+}
+
+WK_POLYFILL_ADD_METHODS(NSLocale)
++ (NSArray<NSString *> *)minimizedLanguagesFromLanguages:(NSArray<NSString *> *)languages
+{
+    NSMutableArray<NSString *> *minimized = [NSMutableArray arrayWithCapacity:languages.count];
+    for (NSString *language in languages) {
+        if (!language.length)
+            continue;
+        NSString *tag = wk_minimizedLanguageTag(language);
+        if (![minimized containsObject:tag])
+            [minimized addObject:tag];
+    }
+    return minimized;
 }
 @end
 
@@ -3079,6 +3314,24 @@ static NSURLRequest *wk_urlSession_requestForURL(id session, NSURL *url)
                         timeoutInterval:[configuration timeoutIntervalForRequest]];
 }
 
+// A session's invalidation is requested once. 10.9's -invalidateAndCancel and -finishTasksAndInvalidate
+// each queue their work for every call, while __NSCFLocalSessionBridge ignores a repeated request only
+// until it has finished the first; the latch carries that contract past the bridge's own. The key is a
+// registered selector, so every image carrying this layer reads the same latch, and objc_sync_enter on
+// the session is the lock they share.
+static BOOL wk_urlSession_claimInvalidation(id session)
+{
+    static const void *key;
+    if (!key)
+        key = (const void *)sel_registerName("wk_urlSessionInvalidationRequested");
+    objc_sync_enter(session);
+    BOOL first = !objc_getAssociatedObject(session, key);
+    if (first)
+        objc_setAssociatedObject(session, key, (id)kCFBooleanTrue, OBJC_ASSOCIATION_ASSIGN);
+    objc_sync_exit(session);
+    return first;
+}
+
 // Installed on the public class AND on the concrete one: NSURLSession is a class cluster whose
 // __NSCFURLSession is NOT a subclass of NSURLSession (measured: __NSCFURLSession -> NSObject), so a
 // method installed only on the public class reaches no instance.
@@ -3089,6 +3342,16 @@ static NSURLRequest *wk_urlSession_requestForURL(id session, NSURL *url)
 // it and hand it on. -downloadTaskWithResumeData: takes no request and cannot be stamped: a task resumed
 // from data answers to the session configuration's policy, which is the one gap in this coverage.
 WK_POLYFILL_REPLACE_METHODS_ON(NSURLSession, "NSURLSession", "__NSCFURLSession")
+- (void)invalidateAndCancel
+{
+    if (wk_urlSession_claimInvalidation(self))
+        WK_ORIGINAL_METHOD(void, ());
+}
+- (void)finishTasksAndInvalidate
+{
+    if (wk_urlSession_claimInvalidation(self))
+        WK_ORIGINAL_METHOD(void, ());
+}
 - (NSURLSessionDataTask *)dataTaskWithRequest:(NSURLRequest *)request
 {
     request = wk_requestCarryingStorageCookieAcceptPolicy(self, request);
@@ -3171,5 +3434,81 @@ WK_POLYFILL_ADD_METHODS(NSURL)
         return nil;
     return CFBridgingRelease(CFURLCreateWithBytes(kCFAllocatorDefault, (const UInt8 *)data.bytes,
         (CFIndex)data.length, kCFStringEncodingUTF8, (__bridge CFURLRef)baseURL));
+}
+@end
+
+// NSURLFileTypeMappings (private; 10.9 has it) is what MIMETypeRegistry asks for extension <-> MIME type.
+// It reads LaunchServices, which declares no HEIF type on this OS, so those types are answered from the
+// declarations -[UTType ...] carries (wk_declared_types.h), as modern Foundation does.
+WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "NSURLFileTypeMappings")
+- (NSString *)MIMETypeForExtension:(NSString *)extension
+{
+    const WKDeclaredType *declared = extension ? wkDeclaredTypeForFilenameExtension((__bridge CFStringRef)extension) : NULL;
+    if (declared)
+        return (__bridge NSString *)declared->mimeType;
+    return WK_ORIGINAL_METHOD(NSString *, (NSString *), extension);
+}
+- (NSString *)preferredExtensionForMIMEType:(NSString *)type
+{
+    const WKDeclaredType *declared = type ? wkDeclaredTypeForMIMEType((__bridge CFStringRef)type) : NULL;
+    if (declared)
+        return (__bridge NSString *)declared->filenameExtension;
+    return WK_ORIGINAL_METHOD(NSString *, (NSString *), type);
+}
+- (NSArray *)extensionsForMIMEType:(NSString *)type
+{
+    const WKDeclaredType *declared = type ? wkDeclaredTypeForMIMEType((__bridge CFStringRef)type) : NULL;
+    if (declared)
+        return [NSArray arrayWithObject:(__bridge NSString *)declared->filenameExtension];
+    return WK_ORIGINAL_METHOD(NSArray *, (NSString *), type);
+}
+@end
+
+// ---------------------------------------------------------------------------------------------------
+// NSURLCache keys an entry by its request's URL and partition. Mavericks hashes only sampled characters of
+// that key, so long URLs differing outside the samples share one entry and evict each other; modern
+// NSURLCache keeps every distinct URL and partition apart. Each lookup, store and removal names its entry
+// by a partition that digests the whole fragment-free URL and the request's own partition.
+extern const CFStringRef _kCFURLCachePartitionKey;
+
+static NSURLRequest *wk_urlCacheEntryRequest(NSURLRequest *request)
+{
+    NSString *spec = request.URL.absoluteString;
+    if (!spec)
+        return request;
+    NSRange fragment = [spec rangeOfString:@"#"];
+    if (fragment.location != NSNotFound)
+        spec = [spec substringToIndex:fragment.location];
+    NSString *partition = [NSURLProtocol propertyForKey:(__bridge NSString *)_kCFURLCachePartitionKey inRequest:request];
+    CC_SHA256_CTX context;
+    CC_SHA256_Init(&context);
+    const char *url = spec.UTF8String;
+    CC_SHA256_Update(&context, url, (CC_LONG)strlen(url) + 1);
+    if ([partition isKindOfClass:[NSString class]]) {
+        const char *name = partition.UTF8String;
+        CC_SHA256_Update(&context, name, (CC_LONG)strlen(name));
+    }
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256_Final(digest, &context);
+    char hex[CC_SHA256_DIGEST_LENGTH * 2 + 1];
+    for (unsigned i = 0; i < CC_SHA256_DIGEST_LENGTH; ++i)
+        snprintf(hex + i * 2, 3, "%02x", digest[i]);
+    NSMutableURLRequest *entryRequest = [[request mutableCopy] autorelease];
+    [NSURLProtocol setProperty:[NSString stringWithUTF8String:hex] forKey:(__bridge NSString *)_kCFURLCachePartitionKey inRequest:entryRequest];
+    return entryRequest;
+}
+
+WK_POLYFILL_REPLACE_METHODS(NSURLCache)
+- (NSCachedURLResponse *)cachedResponseForRequest:(NSURLRequest *)request
+{
+    return WK_ORIGINAL_METHOD(NSCachedURLResponse *, (NSURLRequest *), request ? wk_urlCacheEntryRequest(request) : request);
+}
+- (void)storeCachedResponse:(NSCachedURLResponse *)cachedResponse forRequest:(NSURLRequest *)request
+{
+    WK_ORIGINAL_METHOD(void, (NSCachedURLResponse *, NSURLRequest *), cachedResponse, request ? wk_urlCacheEntryRequest(request) : request);
+}
+- (void)removeCachedResponseForRequest:(NSURLRequest *)request
+{
+    WK_ORIGINAL_METHOD(void, (NSURLRequest *), request ? wk_urlCacheEntryRequest(request) : request);
 }
 @end

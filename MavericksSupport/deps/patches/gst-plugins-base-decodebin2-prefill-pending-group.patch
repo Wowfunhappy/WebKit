@@ -7,44 +7,66 @@
 # low-percentage buffering messages follows every variant switch, and an
 # application that follows the buffering contract pauses playback on them.
 #
-# This extends the buffering-mode arm of decodebin_set_queue_size_full to every
-# queue of a buffering pipeline, so a pending group's queue takes the same limits
-# as the posting one and fills across the drain interval. The two special cases
-# the play-time arm carried for buffering pipelines become unreachable.
+# A group that is not its chain's active group now takes the buffering limits when
+# its queue moves to playing mode. The active group's non-posting queues keep the
+# play-time limits, which in a buffering pipeline bound neither time nor bytes.
 #
 # Applied by build_deps with patch -p1.
+
 --- a/gst/playback/gstdecodebin2.c
 +++ b/gst/playback/gstdecodebin2.c
-@@ -3820,9 +3820,11 @@
+@@ -296,7 +296,7 @@
+     GstCaps * caps, GstDecodeBin * decode_bin);
  
-   GST_DEBUG_OBJECT (multiqueue, "use buffering %d", use_buffering);
+ static void decodebin_set_queue_size (GstDecodeBin * dbin,
+-    GstElement * multiqueue, gboolean preroll, gboolean seekable);
++    GstDecodeGroup * group, gboolean preroll, gboolean seekable);
+ static void decodebin_set_queue_size_full (GstDecodeBin * dbin,
+     GstElement * multiqueue, gboolean use_buffering, gboolean preroll,
+     gboolean seekable);
+@@ -3150,7 +3150,7 @@
+    * we can probably set its buffering state to playing now */
+   GST_DEBUG_OBJECT (group->dbin, "Setting group %p multiqueue to "
+       "'playing' buffering mode", group);
+-  decodebin_set_queue_size (group->dbin, group->multiqueue, FALSE,
++  decodebin_set_queue_size (group->dbin, group, FALSE,
+       (group->parent ? group->parent->seekable : TRUE));
+   CHAIN_MUTEX_UNLOCK (chain);
  
--  if (preroll || use_buffering) {
-+  if (preroll || use_buffering || dbin->use_buffering) {
-     /* takes queue limits, initially we only queue up up to the max bytes limit,
--     * with a default of 2MB. we use the same values for buffering mode. */
-+     * with a default of 2MB. we use the same values for buffering mode, and
-+     * for every queue of a buffering pipeline: a pending group's queue holds
-+     * everything that group will play until the active group has drained. */
-     if (preroll || (max_bytes = dbin->max_size_bytes) == 0)
-       max_bytes = AUTO_PREROLL_SIZE_BYTES;
-     if (preroll || (max_buffers = dbin->max_size_buffers) == 0)
-@@ -3837,16 +3839,11 @@
-   } else {
-     /* update runtime limits. At runtime, we try to keep the amount of buffers
-      * in the queues as low as possible (but at least 5 buffers). */
--    if (dbin->use_buffering)
--      max_bytes = 0;
--    else if ((max_bytes = dbin->max_size_bytes) == 0)
-+    if ((max_bytes = dbin->max_size_bytes) == 0)
-       max_bytes = AUTO_PLAY_SIZE_BYTES;
-     if ((max_buffers = dbin->max_size_buffers) == 0)
-       max_buffers = AUTO_PLAY_SIZE_BUFFERS;
--    /* this is a multiqueue with disabled buffering, don't limit max_time */
--    if (dbin->use_buffering)
--      max_time = 0;
--    else if ((max_time = dbin->max_size_time) == 0)
-+    if ((max_time = dbin->max_size_time) == 0)
-       max_time = AUTO_PLAY_SIZE_TIME;
-   }
+@@ -3599,7 +3599,7 @@
+    * we can probably set its buffering state to playing now */
+   GST_DEBUG_OBJECT (group->dbin, "Setting group %p multiqueue to "
+       "'playing' buffering mode", group);
+-  decodebin_set_queue_size (group->dbin, group->multiqueue, FALSE,
++  decodebin_set_queue_size (group->dbin, group, FALSE,
+       (group->parent ? group->parent->seekable : TRUE));
  
+   /* FIXME: We should make sure that everything gets exposed now
+@@ -3797,16 +3797,23 @@
+ }
+ 
+ static void
+-decodebin_set_queue_size (GstDecodeBin * dbin, GstElement * multiqueue,
++decodebin_set_queue_size (GstDecodeBin * dbin, GstDecodeGroup * group,
+     gboolean preroll, gboolean seekable)
+ {
+   gboolean use_buffering;
+ 
+   /* get the current config from the multiqueue */
+-  g_object_get (multiqueue, "use-buffering", &use_buffering, NULL);
++  g_object_get (group->multiqueue, "use-buffering", &use_buffering, NULL);
+ 
+-  decodebin_set_queue_size_full (dbin, multiqueue, use_buffering, preroll,
+-      seekable);
++  /* A pending group of a buffering pipeline takes the buffering limits: its
++   * queue holds everything the group will play until the active group has
++   * drained, and buffering is reset onto it when the switch completes. */
++  if (dbin->use_buffering && group->parent
++      && group->parent->active_group != group)
++    use_buffering = TRUE;
++
++  decodebin_set_queue_size_full (dbin, group->multiqueue, use_buffering,
++      preroll, seekable);
+ }
+ 
+ /* configure queue sizes, this depends on the buffering method and if we are

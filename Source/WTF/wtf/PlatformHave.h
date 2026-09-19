@@ -408,8 +408,7 @@
 #define HAVE_NS_ACTIVITY 1
 #endif
 
-// MAVERICKS_BACKPORT: NSTouchBar is macOS 10.12.2+; gate it off on 10.9.
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101202
+#if PLATFORM(MAC)
 #define HAVE_TOUCH_BAR 1
 #endif
 
@@ -550,8 +549,7 @@
 #define HAVE_DEVICE_MANAGEMENT 1
 #endif
 
-// MAVERICKS_BACKPORT: AVPlayer resourceConservationLevelWhilePaused is macOS 12+; gate the Mac case off on 10.9.
-#if PLATFORM(COCOA) && !PLATFORM(MACCATALYST) && !(PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 120000)
+#if PLATFORM(COCOA) && !PLATFORM(MACCATALYST)
 #define HAVE_AVPLAYER_RESOURCE_CONSERVATION_LEVEL 1
 #endif
 
@@ -571,8 +569,7 @@
 #define HAVE_OS_SIGNPOST 1
 #endif
 
-// MAVERICKS_BACKPORT: AVPlayer videoRangeOverride is macOS 11+; gate it off on 10.9.
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
+#if PLATFORM(MAC)
 #define HAVE_AVPLAYER_VIDEORANGEOVERRIDE 1
 #endif
 
@@ -594,8 +591,7 @@
 #define HAVE_WIDE_GAMECONTROLLER_SUPPORT 1
 #endif
 
-// #if PLATFORM(MAC)
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101700 // MAVERICKS_BACKPORT: +[GCController supportsHIDDevice:] is absent on 10.9.
+#if PLATFORM(MAC)
 #define HAVE_GCCONTROLLER_HID_DEVICE_CHECK 1
 #endif
 
@@ -1194,8 +1190,7 @@
 #define HAVE_APFS_CACHEDELETE_PURGEABLE 1
 #endif
 
-// MAVERICKS_BACKPORT: AVCaptureDevice.minimumFocusDistance is macOS 14+; gate the Mac case off on 10.9.
-#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000) || PLATFORM(IOS_FAMILY)
+#if PLATFORM(MAC) || PLATFORM(IOS_FAMILY)
 #define HAVE_AVCAPTUREDEVICE_MINFOCUSLENGTH 1
 #endif
 
@@ -1378,11 +1373,7 @@
 #define HAVE_JPEGXL 1
 #endif
 
-// MAVERICKS_BACKPORT: HAVE(HEIC) says the platform's CGImageSource decodes HEIC, added in macOS
-// 10.13, so it stays off at a 10.9 deploy target. Nothing else here decodes a still HEIF item
-// either, so the image Accept header must not advertise it: content-negotiating CDNs would serve
-// HEIC no decoder reads. HEIF image SEQUENCES are separate; see HAVE(HEIF_IMAGE_SEQUENCE).
-#if PLATFORM(COCOA) && (!PLATFORM(MAC) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300)
+#if PLATFORM(COCOA)
 #define HAVE_HEIC 1
 #endif
 
@@ -1393,13 +1384,6 @@
     || (PLATFORM(VISION) && __VISION_OS_VERSION_MIN_REQUIRED >= 20000))
 #define HAVE_CTFONTMANAGER_CREATEMEMORYSAFEFONTDESCRIPTORFROMDATA 1
 #endif
-
-// MAVERICKS_BACKPORT: the polyfill layer implements CTFontManagerCreateMemorySafeFontDescriptorFromData
-// and FPFontCreateMemorySafeFontsFromData on the OpenType Sanitiser (polyfill/polyfills/c/CoreText.c),
-// so a downloadable font is parsed by a memory-safe parser on this deployment target as well.
-#if PLATFORM(MAC) && !defined(HAVE_CTFONTMANAGER_CREATEMEMORYSAFEFONTDESCRIPTORFROMDATA)
-#define HAVE_CTFONTMANAGER_CREATEMEMORYSAFEFONTDESCRIPTORFROMDATA 1
-#endif // MAVERICKS_BACKPORT: closes the guard above.
 
 #if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000)
 #define HAVE_NSWINDOW_SNAPSHOT_READINESS_HANDLER 1

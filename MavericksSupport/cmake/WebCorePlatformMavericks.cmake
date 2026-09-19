@@ -111,7 +111,8 @@ endmacro()
 if (USE_GSTREAMER)
     include(platform/GStreamer.cmake)
 
-    # com.widevine.alpha, served by Google's own Chromium-API CDM. Upstream WebKit has no Widevine key
+    # Port-owned ClearKey decryption and com.widevine.alpha, served by Google's Chromium-API CDM.
+    # Upstream WebKit has no Widevine key
     # system at all, so the whole subsystem is this port's -- the CDM and its proxy, the decryptor and
     # video-decoder GStreamer elements, the module host, and the runtime installation of Google's
     # module (WebKitLegacy installs it in its own process; WebKit's UIProcess installs it and hands the
@@ -120,6 +121,8 @@ if (USE_GSTREAMER)
     set(MAVERICKS_WIDEVINE_DIR "${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/eme")
     list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES "${MAVERICKS_WIDEVINE_DIR}")
     list(APPEND WebCore_SOURCES
+        ${MAVERICKS_WIDEVINE_DIR}/CDMProxyClearKey.cpp
+        ${MAVERICKS_WIDEVINE_DIR}/WebKitClearKeyDecryptorGStreamer.cpp
         ${MAVERICKS_WIDEVINE_DIR}/CDMProxyWidevine.cpp
         ${MAVERICKS_WIDEVINE_DIR}/CDMWidevine.cpp
         ${MAVERICKS_WIDEVINE_DIR}/WebKitWidevineDecryptorGStreamer.cpp
@@ -431,9 +434,6 @@ set(MAVERICKS_ADDED_GSTREAMER_SOURCES
     "platform/glib/ApplicationGLib.cpp"
     "platform/glib/SharedBufferGlib.cpp"
     "platform/graphics/gstreamer/ImageGStreamerCG.cpp"
-    # the restored ClearKey CDMProxy and decryptor element (removed upstream in 4694d7d).
-    "platform/graphics/gstreamer/eme/CDMProxyClearKey.cpp"
-    "platform/graphics/gstreamer/eme/WebKitClearKeyDecryptorGStreamer.cpp"
 )
 
 set(MAVERICKS_WITHHELD_WEBCORE_SOURCES "")
@@ -450,10 +450,8 @@ set(MAVERICKS_ADDED_WEBCORE_SOURCES
 )
 
 MAVERICKS_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES "Sources.txt" MAVERICKS_WITHHELD_WEBCORE_SOURCES MAVERICKS_ADDED_WEBCORE_SOURCES)
-# the WebCore sources this backport wrote itself, kept with the rest of the 10.9
-# glue -- ${MAVERICKS_SUPPORT}/source mirrors the Source/ path each one plugs into. The GStreamer pair
-# video layer follows the same USE_GSTREAMER condition as the list it sits beside. Sources that ride
-# in a unified bundle stay in Source/, where their list position decides which files share a bundle.
+# Port-owned translation units mirror their WebCore paths under MavericksSupport/source.
+# GStreamer Cocoa glue follows USE_GSTREAMER below; unified sources stay in Source/.
 list(APPEND WebCore_SOURCES
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/cocoa/MavericksBackportWebCoreGlue.mm
     # Decodes the gzip bodies 10.9 CFNetwork withholds; see the file for the rule it reproduces.
@@ -472,14 +470,20 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${MAVERICKS_SUPPORT}/source/WebCore/platform/mediarecorder"
 )
 list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
+    platform/AbortableTaskQueue.h
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CFNetworkSuppressedGzipDecoder.h
 )
 if (USE_GSTREAMER)
     list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES "${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer")
     list(APPEND WebCore_SOURCES
-        ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/VideoLayerGStreamerCocoa.mm
+        ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/AdaptiveStreamGStreamer.cpp
+        ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/GStreamerImageDecoderStream.cpp
+        ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/HLSTimedMetadataGStreamer.mm
+        ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/ID3v2FrameParser.cpp
+        ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/GStreamerHLSTrack.cpp
         ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/VideoFrameGStreamerCocoa.mm
         ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/GStreamerPackagingMavericks.cpp
+        ${MAVERICKS_SUPPORT}/source/WebCore/platform/audio/gstreamer/GStreamerAudioDataCocoa.mm
     )
 endif ()
 
@@ -497,6 +501,7 @@ list(APPEND WebCore_SOURCES
     "${WEBCORE_DIR}/platform/image-decoders/jpeg/JPEGImageDecoder.cpp"
     "${WEBCORE_DIR}/platform/image-decoders/png/PNGImageDecoder.cpp"
     "${MAVERICKS_SUPPORT}/source/WebCore/platform/image-decoders/tiff/TIFFImageDecoder.cpp"
+    "${MAVERICKS_SUPPORT}/source/WebCore/platform/image-decoders/heif/HEIFImageDecoder.cpp"
 )
 list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/platform/image-decoders/bmp"
@@ -505,12 +510,15 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/platform/image-decoders/jpeg"
     "${WEBCORE_DIR}/platform/image-decoders/png"
     "${MAVERICKS_SUPPORT}/source/WebCore/platform/image-decoders/tiff"
+    "${MAVERICKS_SUPPORT}/source/WebCore/platform/image-decoders/heif"
 )
 list(APPEND WebCore_LIBRARIES
     "${MAVERICKS_DEPS}/lib/libpng16.a"
     # libtiff reads JPEG-compressed TIFFs through libjpeg, so libjpeg follows it on the link line.
     "${MAVERICKS_DEPS}/lib/libtiff.a"
     "${MAVERICKS_DEPS}/lib/libjpeg.a"
+    # libheif decodes HEVC through the libavcodec and libavutil dylibs WebCore links below.
+    "${MAVERICKS_DEPS}/lib/libheif.a"
 )
 
 MAVERICKS_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES "SourcesCocoa.txt" MAVERICKS_WITHHELD_COCOA_SOURCES MAVERICKS_ADDED_COCOA_SOURCES)
@@ -541,6 +549,11 @@ list(APPEND WebCore_IDL_FILES
     # (ManagedMediaSourceNeedsAirPlay defaults true on Mac), so a ManagedMediaSource never leaves
     # "closed" and every player that prefers it -- dash.js 5 among them -- stalls before addSourceBuffer.
     Modules/remoteplayback/HTMLMediaElement+RemotePlayback.idl
+
+    # the Login Status API partial interface (navigator.setStatus / navigator.isLoggedIn).
+    # DerivedSources.make lists it and CMakeLists.txt does not, so the CMake port compiles
+    # page/NavigatorLoginStatus.cpp and IsLoggedIn.idl with no binding that reaches them.
+    page/Navigator+LoginStatus.idl
 )
 
 # definitions upstream compiles only from WebCore.xcodeproj and never added to a CMake

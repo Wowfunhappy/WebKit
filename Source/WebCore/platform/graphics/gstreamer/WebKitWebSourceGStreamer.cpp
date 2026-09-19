@@ -105,6 +105,10 @@ struct WebKitWebSrcPrivate {
         // signal handler in MediaPlayerPrivateGStreamer.
         RefPtr<WebCore::PlatformMediaResourceLoader> loader;
 
+        // MAVERICKS_BACKPORT: the player an element obtaining its loader through that GstContext query reports its
+        // responses to, see MediaPlayerPrivateGStreamer::adaptiveDemuxSourceReceivedResponse().
+        ThreadSafeWeakPtr<WebCore::MediaPlayerPrivateGStreamer> responseObserver;
+
         // MediaPlayer referrer cached value. The corresponding method has to be called from the
         // main thread, so the value needs to be cached before use in non-main thread.
         String referrer;
@@ -382,6 +386,12 @@ static void webKitWebSrcSetContext(GstElement* element, GstContext* context)
         const GValue* value = gst_structure_get_value(gst_context_get_structure(context), "loader");
         DataMutexLocker members { priv->dataMutex };
         members->loader = reinterpret_cast<WebCore::PlatformMediaResourceLoader*>(g_value_get_pointer(value));
+        // MAVERICKS_BACKPORT: the context owns the weak observer before any source receives it.
+        if (const GValue* playerValue = gst_structure_get_value(gst_context_get_structure(context), "player")) {
+            auto* bytes = static_cast<GBytes*>(g_value_get_boxed(playerValue));
+            members->responseObserver = *static_cast<const ThreadSafeWeakPtr<WebCore::MediaPlayerPrivateGStreamer>*>(g_bytes_get_data(bytes, nullptr));
+        } else
+            members->responseObserver = nullptr;
     }
     GST_ELEMENT_CLASS(webkit_web_src_parent_class)->set_context(element, context);
 }
@@ -1044,6 +1054,8 @@ void CachedResourceStreamingClient::responseReceived(PlatformMediaResource&, con
 
     members->didPassAccessControlCheck = members->resource->didPassAccessControlCheck();
     members->origins.add(SecurityOrigin::create(response.url()));
+    if (RefPtr observer = members->responseObserver.get()) // MAVERICKS_BACKPORT: see responseObserver.
+        observer->adaptiveDemuxSourceReceivedResponse(SecurityOrigin::create(response.url()), members->didPassAccessControlCheck);
 
     auto responseURI = response.url().string().utf8();
     if (priv->originalURI != responseURI)
@@ -1153,6 +1165,8 @@ void CachedResourceStreamingClient::redirectReceived(PlatformMediaResource&, Res
     }
     DataMutexLocker members { src->priv->dataMutex };
     members->origins.add(SecurityOrigin::create(response.url()));
+    if (RefPtr observer = members->responseObserver.get()) // MAVERICKS_BACKPORT: see responseObserver.
+        observer->adaptiveDemuxSourceReceivedResponse(SecurityOrigin::create(response.url()), std::nullopt);
     completionHandler(WTF::move(request));
 }
 

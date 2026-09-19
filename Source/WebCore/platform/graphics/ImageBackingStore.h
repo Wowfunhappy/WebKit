@@ -56,6 +56,9 @@ public:
     }
 
     PlatformImagePtr image() const;
+#if USE(CG) // MAVERICKS_BACKPORT: native images can retain a decoder's four-component color model.
+    PlatformImagePtr image(CGColorSpaceRef, CGBitmapInfo, const CGFloat* decode) const;
+#endif
 
     bool setSize(const IntSize& size)
     {

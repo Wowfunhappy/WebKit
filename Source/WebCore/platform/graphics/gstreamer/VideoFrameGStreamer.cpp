@@ -163,6 +163,12 @@ VideoFrameGStreamer::Info VideoFrameGStreamer::infoFromCaps(const GRefPtr<GstCap
 // MAVERICKS_BACKPORT: file-local helpers used by VideoFrameGStreamer::* (outside the COCOA guard); kept compiled.
 static RefPtr<ImageGStreamer> convertSampleToImage(const GRefPtr<GstSample>& sample, const GstVideoInfo& videoInfo)
 {
+// MAVERICKS_BACKPORT: the CoreGraphics ImageGStreamer (ImageGStreamerCG.cpp) takes the decoded sample
+// as it is and converts it the way every Cocoa VideoFrame is converted, through VideoToolbox.
+#if PLATFORM(COCOA)
+    UNUSED_PARAM(videoInfo);
+    return ImageGStreamer::create(GRefPtr<GstSample>(sample));
+#else
     // These caps must match the internal format of a cairo surface with CAIRO_FORMAT_ARGB32,
     // so we don't need to perform color conversions when painting the video frame.
 #if G_BYTE_ORDER == G_LITTLE_ENDIAN
@@ -176,6 +182,7 @@ static RefPtr<ImageGStreamer> convertSampleToImage(const GRefPtr<GstSample>& sam
         return nullptr;
 
     return ImageGStreamer::create(WTF::move(convertedSample));
+#endif // MAVERICKS_BACKPORT: closes the Cocoa conversion branch above.
 }
 static inline void setBufferFields(GstBuffer* buffer, const MediaTime& presentationTime, double frameRate)
 {
@@ -309,6 +316,8 @@ RefPtr<VideoFrame> VideoFrame::fromNativeImage(NativeImage& image)
 #endif
 }
 
+#endif // MAVERICKS_BACKPORT: Cocoa supplies the native-image and pixel-buffer factories.
+
 static void copyToGstBufferPlane(std::span<uint8_t> destination, const GstVideoInfo& info, size_t planeIndex, std::span<const uint8_t> source, size_t height, uint32_t bytesPerRowSource)
 {
     WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN; // GLib port
@@ -326,6 +335,7 @@ static void copyToGstBufferPlane(std::span<uint8_t> destination, const GstVideoI
     }
 }
 
+#if !PLATFORM(COCOA) // MAVERICKS_BACKPORT: Cocoa supplies the NV12, packed RGB and I420 factories.
 RefPtr<VideoFrame> VideoFrame::createNV12(std::span<const uint8_t> span, size_t width, size_t height, const ComputedPlaneLayout& planeY, const ComputedPlaneLayout& planeUV, PlatformVideoColorSpace&& colorSpace)
 {
     ensureVideoFrameDebugCategoryInitialized();
@@ -406,6 +416,15 @@ RefPtr<VideoFrame> VideoFrame::createI420(std::span<const uint8_t> span, size_t 
 
 RefPtr<VideoFrame> VideoFrame::createI420A(std::span<const uint8_t> span, size_t width, size_t height, const ComputedPlaneLayout& planeY, const ComputedPlaneLayout& planeU, const ComputedPlaneLayout& planeV, const ComputedPlaneLayout& planeA, PlatformVideoColorSpace&& colorSpace)
 {
+    // MAVERICKS_BACKPORT: The shared factory delegates to GStreamer plane storage.
+    return VideoFrameGStreamer::createI420A(span, width, height, planeY, planeU, planeV, planeA, WTF::move(colorSpace));
+}
+#endif // MAVERICKS_BACKPORT: The GStreamer I420A backend is available on Cocoa.
+
+// MAVERICKS_BACKPORT: Both platform factories use this GStreamer I420A backend.
+// RefPtr<VideoFrame> VideoFrame::createI420A(std::span<const uint8_t> span, size_t width, size_t height, const ComputedPlaneLayout& planeY, const ComputedPlaneLayout& planeU, const ComputedPlaneLayout& planeV, const ComputedPlaneLayout& planeA, PlatformVideoColorSpace&& colorSpace)
+RefPtr<VideoFrame> VideoFrameGStreamer::createI420A(std::span<const uint8_t> span, size_t width, size_t height, const ComputedPlaneLayout& planeY, const ComputedPlaneLayout& planeU, const ComputedPlaneLayout& planeV, const ComputedPlaneLayout& planeA, PlatformVideoColorSpace&& colorSpace)
+{
     GstVideoInfo info;
     gst_video_info_set_format(&info, GST_VIDEO_FORMAT_A420, width, height);
     fillVideoInfoColorimetryFromColorSpace(&info, colorSpace);
@@ -432,7 +451,8 @@ RefPtr<VideoFrame> VideoFrame::createI420A(std::span<const uint8_t> span, size_t
     return VideoFrameGStreamer::create(WTF::move(sample), { { static_cast<int>(width), static_cast<int>(height) }, { { info } } }, WTF::move(colorSpace));
 }
 
-/* MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note just below the block.
+// MAVERICKS_BACKPORT: Timestamp helpers have file scope alongside the platform factories.
+/*
 static inline void setBufferFields(GstBuffer* buffer, const MediaTime& presentationTime, double frameRate)
 {
     GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_LIVE);
@@ -445,17 +465,14 @@ static MediaTime presentationTimeFromSample(const GRefPtr<GstSample>& sample)
     auto buffer = gst_sample_get_buffer(sample.get());
     if (!GST_IS_BUFFER(buffer))
         return MediaTime::invalidTime();
-MAVERICKS_BACKPORT */
 
-// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
-//     if (GST_BUFFER_PTS_IS_VALID(buffer))
-//         return fromGstClockTime(GST_BUFFER_PTS(buffer));
-//
-//     return MediaTime::invalidTime();
-// }
-// (end MAVERICKS_BACKPORT restored block)
+    if (GST_BUFFER_PTS_IS_VALID(buffer))
+        return fromGstClockTime(GST_BUFFER_PTS(buffer));
 
-#endif // !PLATFORM(COCOA) MAVERICKS_BACKPORT
+    return MediaTime::invalidTime();
+}
+*/ // MAVERICKS_BACKPORT: Timestamp helper definitions have file scope.
+
 Ref<VideoFrameGStreamer> VideoFrameGStreamer::create(GRefPtr<GstSample>&& sample, const CreateOptions& options, PlatformVideoColorSpace&& colorSpace)
 {
     CreateOptions newOptions = options;
@@ -646,7 +663,7 @@ void VideoFrameGStreamer::setMetadataAndContentHint(std::optional<VideoFrameTime
     gst_sample_set_buffer(m_sample.get(), modifiedBuffer.get());
 }
 
-#if !PLATFORM(COCOA) // MAVERICKS_BACKPORT: Cocoa VideoFrameCV provides the shared VideoFrame:: factories; VideoFrameGStreamer::* (GStreamer media player) stays compiled. copyPlane is inside because VideoFrame::copyTo below is its only caller.
+// MAVERICKS_BACKPORT: GStreamer frames expose their plane-copy backend on Cocoa.
 static void copyPlane(std::span<uint8_t>& destination, const std::span<uint8_t>& source, uint64_t sourceStride, const ComputedPlaneLayout& spanPlaneLayout)
 {
     uint64_t sourceOffset = spanPlaneLayout.sourceTop * sourceStride;
@@ -669,11 +686,15 @@ static void copyPlane(std::span<uint8_t>& destination, const std::span<uint8_t>&
     }
 }
 
-void VideoFrame::copyTo(std::span<uint8_t> destination, VideoPixelFormat pixelFormat, Vector<ComputedPlaneLayout>&& computedPlaneLayout, CompletionHandler<void(std::optional<Vector<PlaneLayout>>&&)>&& callback)
+// MAVERICKS_BACKPORT: The GStreamer backend copies its native planes directly.
+// void VideoFrame::copyTo(std::span<uint8_t> destination, VideoPixelFormat pixelFormat, Vector<ComputedPlaneLayout>&& computedPlaneLayout, CompletionHandler<void(std::optional<Vector<PlaneLayout>>&&)>&& callback)
+void VideoFrameGStreamer::copyTo(std::span<uint8_t> destination, VideoPixelFormat pixelFormat, Vector<ComputedPlaneLayout>&& computedPlaneLayout, CompletionHandler<void(std::optional<Vector<PlaneLayout>>&&)>&& callback)
 {
     ensureVideoFrameDebugCategoryInitialized();
     GstVideoInfo inputInfo;
-    auto sample = downcast<VideoFrameGStreamer>(*this).sample();
+    // MAVERICKS_BACKPORT: This backend method receives a GStreamer frame directly.
+    // auto sample = downcast<VideoFrameGStreamer>(*this).sample();
+    auto sample = this->sample();
     auto* inputBuffer = gst_sample_get_buffer(sample);
     auto* inputCaps = gst_sample_get_caps(sample);
     gst_video_info_from_caps(&inputInfo, inputCaps);
@@ -772,6 +793,12 @@ void VideoFrame::copyTo(std::span<uint8_t> destination, VideoPixelFormat pixelFo
     callback({ });
 }
 
+#if !PLATFORM(COCOA) // MAVERICKS_BACKPORT: Cocoa dispatches copies according to frame storage.
+void VideoFrame::copyTo(std::span<uint8_t> destination, VideoPixelFormat pixelFormat, Vector<ComputedPlaneLayout>&& computedPlaneLayout, CompletionHandler<void(std::optional<Vector<PlaneLayout>>&&)>&& callback)
+{
+    downcast<VideoFrameGStreamer>(*this).copyTo(destination, pixelFormat, WTF::move(computedPlaneLayout), WTF::move(callback));
+}
+
 RefPtr<NativeImage> VideoFrame::copyNativeImage() const
 {
     ensureVideoFrameDebugCategoryInitialized();
@@ -784,22 +811,6 @@ RefPtr<NativeImage> VideoFrame::copyNativeImage() const
 }
 
 #endif // !PLATFORM(COCOA) MAVERICKS_BACKPORT
-
-#if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: On the Cocoa+GStreamer hybrid build the shared VideoFrame::copyNativeImage()
-// linked from VideoFrameCV assumes a CVPixelBuffer backing and returns null for a GStreamer-backed
-// frame (the <video> picture stays blank). Convert the decoded GstSample to a CGImage via
-// ImageGStreamerCG instead, mirroring the non-Cocoa implementation above.
-RefPtr<NativeImage> VideoFrameGStreamer::copyNativeImage() const
-{
-    ensureVideoFrameDebugCategoryInitialized();
-    GST_CAT_DEBUG(GST_CAT_PERFORMANCE, "Copying native image (Cocoa/CG)");
-    auto image = convertSampleToImage(sample(), info());
-    if (!image)
-        return nullptr;
-    return NativeImage::create(image->image());
-}
-#endif // PLATFORM(COCOA)
 
 GRefPtr<GstSample> VideoFrameGStreamer::resizedSample(const IntSize& destinationSize)
 {

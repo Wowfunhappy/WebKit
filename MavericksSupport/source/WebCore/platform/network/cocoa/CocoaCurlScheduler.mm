@@ -29,14 +29,15 @@ struct CocoaCurlScheduler::Socket {
     }
 };
 
-Ref<CocoaCurlScheduler> CocoaCurlScheduler::create()
+Ref<CocoaCurlScheduler> CocoaCurlScheduler::create(EmptyHandler&& emptyHandler)
 {
-    return adoptRef(*new CocoaCurlScheduler);
+    return adoptRef(*new CocoaCurlScheduler(WTF::move(emptyHandler)));
 }
 
-CocoaCurlScheduler::CocoaCurlScheduler()
+CocoaCurlScheduler::CocoaCurlScheduler(EmptyHandler&& emptyHandler)
     : m_runLoop(RunLoop::currentSingleton())
     , m_timer(m_runLoop.get(), "CocoaCurlScheduler timer"_s, this, &CocoaCurlScheduler::timeout)
+    , m_emptyHandler(WTF::move(emptyHandler))
 {
     ASSERT(m_runLoop->isCurrent());
     // libcurl global state lives for the process; multi handles and sockets live for the session.
@@ -70,6 +71,17 @@ CocoaCurlScheduler::~CocoaCurlScheduler()
     m_sockets.clear();
 }
 
+void CocoaCurlScheduler::deref() const
+{
+    ASSERT(m_runLoop->isCurrent());
+    if (derefBase()) {
+        delete this;
+        return;
+    }
+    if (hasOneRef())
+        const_cast<CocoaCurlScheduler*>(this)->notifyIfEmpty();
+}
+
 bool CocoaCurlScheduler::add(CocoaCurlSchedulerClient& task)
 {
     ASSERT(m_runLoop->isCurrent());
@@ -90,6 +102,7 @@ void CocoaCurlScheduler::remove(CURL* easy)
         return;
     curl_multi_remove_handle(m_multi, easy);
     m_tasks.remove(easy);
+    notifyIfEmpty();
 }
 
 void CocoaCurlScheduler::unpause(CocoaCurlSchedulerClient& task)
@@ -139,7 +152,7 @@ bool CocoaCurlScheduler::updateSocket(curl_socket_t descriptor, int action)
         socket->scheduler = this;
         socket->descriptor = descriptor;
         CFSocketContext context { 0, socket.get(), nullptr, nullptr, nullptr };
-        socket->socket = adoptCF(CFSocketCreateWithNative(nullptr, descriptor, kCFSocketReadCallBack | kCFSocketWriteCallBack, ready, &context));
+        socket->socket = adoptCF(CFSocketCreateWithNative(nullptr, descriptor, kCFSocketReadCallBack | kCFSocketWriteCallBack | kCFSocketConnectCallBack, ready, &context));
         if (!socket->socket)
             return false;
         CFSocketSetSocketFlags(socket->socket.get(), CFSocketGetSocketFlags(socket->socket.get()) & ~(kCFSocketCloseOnInvalidate | kCFSocketAutomaticallyReenableReadCallBack | kCFSocketAutomaticallyReenableWriteCallBack));
@@ -153,9 +166,11 @@ bool CocoaCurlScheduler::updateSocket(curl_socket_t descriptor, int action)
     socket.events = 0;
     if (action == CURL_POLL_IN || action == CURL_POLL_INOUT)
         socket.events |= kCFSocketReadCallBack;
+    // A descriptor whose connect() is still outstanding reports as kCFSocketConnectCallBack;
+    // kCFSocketWriteCallBack starts once the connection stands. CURL_POLL_OUT spans both.
     if (action == CURL_POLL_OUT || action == CURL_POLL_INOUT)
-        socket.events |= kCFSocketWriteCallBack;
-    CFSocketDisableCallBacks(socket.socket.get(), kCFSocketReadCallBack | kCFSocketWriteCallBack);
+        socket.events |= kCFSocketWriteCallBack | kCFSocketConnectCallBack;
+    CFSocketDisableCallBacks(socket.socket.get(), kCFSocketReadCallBack | kCFSocketWriteCallBack | kCFSocketConnectCallBack);
     CFSocketEnableCallBacks(socket.socket.get(), socket.events);
     return true;
 }
@@ -169,7 +184,7 @@ void CocoaCurlScheduler::ready(CFSocketRef nativeSocket, CFSocketCallBackType ev
     int action = 0;
     if (events & kCFSocketReadCallBack)
         action |= CURL_CSELECT_IN;
-    if (events & kCFSocketWriteCallBack)
+    if (events & (kCFSocketWriteCallBack | kCFSocketConnectCallBack))
         action |= CURL_CSELECT_OUT;
     scheduler->perform(descriptor, action);
     // perform may remove or replace the watch; never re-arm an old descriptor after fd reuse.
@@ -203,6 +218,19 @@ void CocoaCurlScheduler::perform(curl_socket_t descriptor, int events)
         return;
     }
     drain();
+    notifyIfEmpty();
+}
+
+void CocoaCurlScheduler::notifyIfEmpty()
+{
+    if (!hasOneRef() || m_invalidated || !m_multi || !m_tasks.isEmpty() || !m_sockets.isEmpty() || !m_emptyHandler)
+        return;
+    curl_off_t connectionCount = -1;
+    if (curl_multi_get_offt(m_multi, CURLMINFO_CONNECTIONS, &connectionCount) != CURLM_OK || connectionCount)
+        return;
+    Ref protectedThis { *this };
+    auto emptyHandler = std::exchange(m_emptyHandler, nullptr);
+    emptyHandler(*this);
 }
 
 void CocoaCurlScheduler::drain()

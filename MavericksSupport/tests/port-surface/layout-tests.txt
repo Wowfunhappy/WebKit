@@ -72,6 +72,9 @@ imported/w3c/web-platform-tests/IndexedDB
 imported/w3c/web-platform-tests/storage
 imported/w3c/web-platform-tests/FileAPI
 
+# Browsing context isolation: the stable-process COOP compatibility path
+imported/w3c/web-platform-tests/html/cross-origin-opener-policy
+
 # Workers and service workers: the process model
 fast/workers
 imported/w3c/web-platform-tests/workers

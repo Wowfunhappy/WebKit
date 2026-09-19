@@ -6,10 +6,12 @@
 #include <objc/runtime.h>
 #include <stdbool.h>
 
-WK_POLYFILL_CONST("ApplicationServices", CFStringRef, kAXInterfaceDifferentiateWithoutColorKey, CFSTR("kAXInterfaceDifferentiateWithoutColorKey"));
-WK_POLYFILL_CONST("ApplicationServices", CFStringRef, kAXInterfaceIncreaseContrastKey, CFSTR("kAXInterfaceIncreaseContrastKey"));
-WK_POLYFILL_CONST("ApplicationServices", CFStringRef, kAXInterfaceReduceMotionKey, CFSTR("kAXInterfaceReduceMotionKey"));
-WK_POLYFILL_CONST("ApplicationServices", CFStringRef, kAXSAccessibilityPreferenceDomain, CFSTR("kAXSAccessibilityPreferenceDomain"));
+WK_POLYFILL_CONST("ApplicationServices", CFStringRef, kAXInterfaceDifferentiateWithoutColorKey, CFSTR("differentiateWithoutColor"));
+WK_POLYFILL_CONST("ApplicationServices", CFStringRef, kAXInterfaceIncreaseContrastKey, CFSTR("increaseContrast"));
+WK_POLYFILL_CONST("ApplicationServices", CFStringRef, kAXInterfaceReduceMotionKey, CFSTR("reduceMotion"));
+WK_POLYFILL_CONST("ApplicationServices", CFStringRef, kAXSAccessibilityPreferenceDomain, CFSTR("com.apple.Accessibility"));
+// A rendezvous name for CFNotificationCenter observers (FontCacheCoreText, WebProcessPoolCocoa). Nothing
+// on 10.9 posts it, so the name only has to be unique.
 WK_POLYFILL_CONST("ApplicationServices", CFStringRef, kAXSEnhanceTextLegibilityChangedNotification, CFSTR("kAXSEnhanceTextLegibilityChangedNotification"));
 
 // ---------------------------------------------------------------------------------------------------
@@ -74,9 +76,9 @@ WK_POLYFILL_ABSENT("ApplicationServices", void, _AXSetClientIdentificationOverri
 // The secondary-accessibility-thread SPI, absent from 10.9's HIServices and named as a direct extern by
 // the isolated tree (ENABLE(ACCESSIBILITY_ISOLATED_TREE) is on, matching PlatformEnableCocoa.h's Mac
 // value). 10.9 has no secondary accessibility thread: AXObjectCache::initializeAXThreadIfNeeded only
-// asks for one when libAccessibility's _AXSIsolatedTreeMode reports SecondaryThread, and that soft link
-// resolves through a dylib this OS does not ship, so accessibility requests all arrive on the main
-// thread. Both answers state exactly that.
+// asks for one when libAccessibility's _AXSIsolatedTreeMode reports SecondaryThread, and that symbol
+// resolves nowhere on this OS, so accessibility requests all arrive on the main thread. Both answers
+// state exactly that.
 WK_POLYFILL_ABSENT("ApplicationServices", bool, _AXUIElementRequestServicedBySecondaryAXThread, (void))
 {
     return false;
@@ -91,8 +93,8 @@ WK_POLYFILL_ABSENT("ApplicationServices", int, _AXUIElementUseSecondaryAXThread,
 // libAccessibility's isolated-tree mode setter, named as a direct extern by WebKitTestRunner's
 // accessibility controller under the same ENABLE(ACCESSIBILITY_ISOLATED_TREE). 10.9 ships no
 // libAccessibility, so there is no mode to record: the reader beside it, _AXSIsolatedTreeMode, is
-// soft-linked through that absent dylib and reports unavailable, which is what keeps every isolated
-// tree from being built here.
+// soft-linked and this layer registers no such symbol, so canLoad reports it unavailable, which is
+// what keeps every isolated tree from being built here.
 WK_POLYFILL_ABSENT("/usr/lib/libAccessibility.dylib", void, _AXSSetIsolatedTreeMode, (int32_t mode))
 {
     (void)mode;

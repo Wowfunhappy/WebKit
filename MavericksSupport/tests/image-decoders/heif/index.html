@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>HEIF decoder</title>
+<style>
+  body { font: 13px -apple-system, "Helvetica Neue", sans-serif; margin: 20px; }
+  #verdict { font-size: 20px; font-weight: 600; padding: 8px 12px; border-radius: 4px; display: inline-block; }
+  .pass { background: #dff5df; color: #14532d; }
+  .fail { background: #fde2e2; color: #7f1d1d; }
+  table { border-collapse: collapse; margin-top: 16px; }
+  th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; vertical-align: top; }
+  td.bad { background: #fde2e2; }
+  .thumb { width: 96px; border: 1px solid #ccc; }
+  #photo img { max-width: 100%; border: 1px solid #ccc; }
+</style>
+<h1>HEIF decoder</h1>
+<p>HEIFImageDecoder on the HEIC files LayoutTests carries: a single coded item, and a 2000x800 grid
+of tiles with a transformative property. Each row checks the decoded size and samples the centre pixel
+through a canvas: the first file is CSS <code>green</code>, rgb(0,128,0) within HEVC's rounding, and
+the second a bright green, rgb(0,254,0). Add <code>?photo=&lt;url&gt;</code> to also show a
+photograph -- an iPhone HEIC is a grid with an ICC profile -- and judge its orientation and colour by
+eye.</p>
+<div id="verdict">running…</div>
+<table id="results"><thead><tr><th>file</th><th>image</th><th>size</th><th>centre pixel</th><th></th></tr></thead><tbody></tbody></table>
+<div id="photo"></div>
+
+<script>
+const cases = [
+    { url: "/LayoutTests/http/tests/misc/resources/green-400x400.heic", width: 400, height: 400, green: 128 },
+    { url: "/LayoutTests/fast/images/resources/green-2000x800.heic", width: 2000, height: 800, green: 254 },
+];
+
+function isGreen(pixel, green)
+{
+    return pixel[0] <= 2 && Math.abs(pixel[1] - green) <= 2 && pixel[2] <= 2 && pixel[3] === 255;
+}
+
+function check(testCase)
+{
+    return new Promise(resolve => {
+        const image = new Image();
+        image.onload = () => {
+            const canvas = document.createElement("canvas");
+            canvas.width = image.naturalWidth;
+            canvas.height = image.naturalHeight;
+            const context = canvas.getContext("2d");
+            context.drawImage(image, 0, 0);
+            const pixel = Array.from(context.getImageData(canvas.width >> 1, canvas.height >> 1, 1, 1).data);
+            resolve({ image, size: `${image.naturalWidth}x${image.naturalHeight}`, pixel,
+                ok: image.naturalWidth === testCase.width && image.naturalHeight === testCase.height && isGreen(pixel, testCase.green) });
+        };
+        image.onerror = () => resolve({ image, size: "error", pixel: [], ok: false });
+        image.src = testCase.url;
+    });
+}
+
+(async () => {
+    let allPassed = true;
+    for (const testCase of cases) {
+        const result = await check(testCase);
+        allPassed = allPassed && result.ok;
+        const row = document.querySelector("#results tbody").insertRow();
+        row.insertCell().textContent = testCase.url.split("/").pop();
+        result.image.className = "thumb";
+        row.insertCell().appendChild(result.image);
+        const size = row.insertCell();
+        size.textContent = result.size;
+        const pixel = row.insertCell();
+        pixel.textContent = result.pixel.join(",");
+        row.insertCell().textContent = result.ok ? "PASS" : "FAIL";
+        if (!result.ok)
+            size.className = pixel.className = "bad";
+    }
+    const verdict = document.getElementById("verdict");
+    verdict.textContent = allPassed ? "PASS" : "FAIL";
+    verdict.className = allPassed ? "pass" : "fail";
+    document.title = `HEIF decoder: ${verdict.textContent}`;
+
+    const photo = new URLSearchParams(location.search).get("photo");
+    if (photo) {
+        const image = new Image();
+        image.onload = () => document.getElementById("photo").insertAdjacentHTML("afterbegin", `<p>photo: ${image.naturalWidth}x${image.naturalHeight}</p>`);
+        image.onerror = () => document.getElementById("photo").insertAdjacentHTML("afterbegin", "<p>photo: failed to decode</p>");
+        image.src = photo;
+        document.getElementById("photo").appendChild(image);
+    }
+})();
+</script>

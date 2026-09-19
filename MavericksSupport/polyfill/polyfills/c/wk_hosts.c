@@ -41,13 +41,17 @@ static bool wk_nameIsTopLevelDomain(CFStringRef domain)
         abort();
     if (error != PSL_SUCCESS)
         return false;
-    // The PSL's implicit "*" rule makes an unlisted top-level label a public suffix. CFNetwork applies it
-    // to an ASCII label and not to a Unicode one, and an A-label answers as its Unicode form does.
+    // The implicit wildcard covers unlisted ASCII DNS labels, excluding numeric address
+    // components. Unicode and A-label suffixes require explicit PSL rules.
     const char *topLabel = strrchr(normalized, '.');
     topLabel = topLabel ? topLabel + 1 : normalized;
     bool starRuleApplies = strncmp(topLabel, "xn--", 4);
-    for (const char *c = topLabel; *c && starRuleApplies; ++c)
+    bool hasNonDigit = false;
+    for (const char *c = topLabel; *c && starRuleApplies; ++c) {
         starRuleApplies = !(*c & 0x80);
+        hasNonDigit |= *c < '0' || *c > '9';
+    }
+    starRuleApplies &= hasNonDigit;
     bool result = psl_is_public_suffix2(psl_builtin(), normalized,
         starRuleApplies ? PSL_TYPE_ANY : PSL_TYPE_ANY | PSL_TYPE_NO_STAR_RULE);
     psl_free_string(normalized);

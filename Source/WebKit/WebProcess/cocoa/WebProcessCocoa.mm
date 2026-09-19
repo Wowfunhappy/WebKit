@@ -1533,19 +1533,7 @@ void WebProcess::updatePageScreenProperties()
     }
 
     bool allPagesAreOnHDRScreens = std::ranges::all_of(m_pageMap.values(), [](auto& page) {
-        // MAVERICKS_BACKPORT: upstream writes `page && ...`, which does not compile here because
-        // WTF::Ref has no operator bool; ptrAllowingHashTableEmptyValue() is WTF's spelling for
-        // reading a Ref that may be a hash-table slot's empty value. (Ref::ptr() is RETURNS_NONNULL,
-        // so a check written against it would be optimised away.)
-        //
-        // The check is load-bearing, not defensive. WebProcess::createWebPage inserts with
-        // m_pageMap.ensure(), which creates the entry BEFORE the lambda constructs its value, and
-        // WebPage's constructor calls this function -- so an entry whose Ref is still empty is
-        // visible right here. window.open() reaches it, which is what WebProcess.cpp:1146 means by
-        // the page being created "both in the synchronous handler and through the normal way".
-        // Without the check, page->localMainFrameView() dereferences null and the WebContent process
-        // dies while creating the popup.
-        return page.ptrAllowingHashTableEmptyValue() && screenSupportsHighDynamicRange(page->localMainFrameView());
+        return page && screenSupportsHighDynamicRange(page->localMainFrameView());
     });
     setShouldOverrideScreenSupportsHighDynamicRange(true, allPagesAreOnHDRScreens);
 #endif

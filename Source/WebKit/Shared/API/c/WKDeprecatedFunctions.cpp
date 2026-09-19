@@ -44,8 +44,14 @@ void WKContextSetUsesNetworkProcess(WKContextRef, bool)
 {
 }
 
-void WKContextSetProcessModel(WKContextRef, WKProcessModel)
+// MAVERICKS_BACKPORT: Safari 7 picks its process model through this. The shared secondary process, which a
+// context created with WKContextCreate starts in, is single-WebProcess mode.
+// void WKContextSetProcessModel(WKContextRef, WKProcessModel)
+// {
+// }
+void WKContextSetProcessModel(WKContextRef context, WKProcessModel processModel)
 {
+    WKContextSetUsesSingleWebProcess(context, processModel == kWKProcessModelSharedSecondaryProcess); // MAVERICKS_BACKPORT: the mapping described above.
 }
 
 void WKPreferencesSetQTKitEnabled(WKPreferencesRef, bool)

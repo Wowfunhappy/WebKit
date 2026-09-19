@@ -22,28 +22,39 @@ CocoaCurlConnectionPool::CocoaCurlConnectionPool()
 }
 CocoaCurlConnectionPool::~CocoaCurlConnectionPool()
 {
-    // All jobs hold the pool alive. Its last release therefore observes the worker's final scheduler ownership.
-    m_worker->dispatch([scheduler = WTF::move(m_scheduler), worker = m_worker]() mutable {
-        scheduler = nullptr;
+    // The worker releases the remaining schedulers before stopping its run loop.
+    m_worker->dispatch([schedulers = WTF::move(m_schedulers), worker = m_worker]() mutable {
+        schedulers.clear();
         worker->stop();
     });
 }
-CocoaCurlScheduler& CocoaCurlConnectionPool::scheduler()
+CocoaCurlScheduler& CocoaCurlConnectionPool::scheduler(const String& partition, Loader loader)
 {
     ASSERT(m_worker->isCurrent());
-    if (!m_scheduler) {
-        m_scheduler = CocoaCurlScheduler::create();
+    SchedulerKey key { partition.isNull() ? emptyString() : partition, loader == Loader::Synchronous };
+    return m_schedulers.ensure(key, [this, key = SchedulerKey { key.first.isolatedCopy(), key.second }] {
+        Ref scheduler = CocoaCurlScheduler::create([weakThis = ThreadSafeWeakPtr { *this }, key = SchedulerKey { key.first.isolatedCopy(), key.second }](CocoaCurlScheduler& scheduler) {
+            if (RefPtr pool = weakThis.get())
+                pool->removeScheduler(key, scheduler);
+        });
         if (m_invalidated)
-            m_scheduler->invalidate();
-    }
-    return *m_scheduler;
+            scheduler->invalidate();
+        return scheduler;
+    }).iterator->value;
+}
+void CocoaCurlConnectionPool::removeScheduler(const SchedulerKey& key, CocoaCurlScheduler& scheduler)
+{
+    ASSERT(m_worker->isCurrent());
+    auto iterator = m_schedulers.find(key);
+    if (iterator != m_schedulers.end() && iterator->value.ptr() == &scheduler)
+        m_schedulers.remove(iterator);
 }
 void CocoaCurlConnectionPool::invalidate()
 {
     m_worker->dispatch([pool = Ref { *this }] {
         pool->m_invalidated = true;
-        if (pool->m_scheduler)
-            pool->m_scheduler->invalidate();
+        for (auto& scheduler : pool->m_schedulers.values())
+            scheduler->invalidate();
     });
 }
 Ref<CocoaCurlConnection> CocoaCurlConnection::create(CocoaCurlConnectionPool& pool, CocoaCurlTransferClient& client, CocoaCurlTransferOptions&& options, SynchronousLoaderMessageQueue* queue, ClientDispatcher&& dispatcher)
@@ -79,8 +90,10 @@ void CocoaCurlConnection::start()
     options.proxyCredentialHost = options.proxyCredentialHost.isolatedCopy();
     options.proxyUser = options.proxyUser.isolatedCopy();
     options.proxyPassword = options.proxyPassword.isolatedCopy();
+    options.connectionPartition = options.connectionPartition.isolatedCopy();
     m_pool->runLoop().dispatch([connection = Ref { *this }, options = WTF::move(options), deferred = m_deferred]() mutable {
-        connection->m_transfer = CocoaCurlTransfer::create(connection->m_pool->scheduler(), connection.get(), WTF::move(options));
+        auto& scheduler = connection->m_pool->scheduler(options.connectionPartition, connection->m_messageQueue ? CocoaCurlConnectionPool::Loader::Synchronous : CocoaCurlConnectionPool::Loader::Asynchronous);
+        connection->m_transfer = CocoaCurlTransfer::create(scheduler, connection.get(), WTF::move(options));
         connection->m_transfer->setDefersLoading(deferred);
         connection->m_transfer->start();
     });
@@ -100,6 +113,8 @@ void CocoaCurlConnection::cancel()
             std::exchange(connection->m_cookieContinuation, nullptr)(std::nullopt);
         if (connection->m_identityContinuation)
             std::exchange(connection->m_identityContinuation, nullptr)(nullptr, nullptr);
+        for (auto& trustContinuation : std::exchange(connection->m_trustContinuations, { }))
+            trustContinuation(false);
         connection->m_transfer = nullptr;
     });
 }
@@ -165,15 +180,17 @@ std::shared_ptr<CocoaCurlTLSState> CocoaCurlConnection::copyTLSState()
     state->peerChain = original->peerChain;
     state->evaluated = original->evaluated;
     state->accepted = original->accepted;
+    state->negotiatedProtocol = original->negotiatedProtocol;
+    state->negotiatedCipher = original->negotiatedCipher;
     return state;
 }
 // the cookie owner runs on its client queue; its continuation remains on the transport worker.
-void CocoaCurlConnection::curlReceivedCookies(Vector<String>&& fields, CompletionHandler<void(std::optional<String>&&)>&& completion)
+void CocoaCurlConnection::curlReceivedCookies(Vector<String>&& fields, const String& remoteAddress, const String& canonicalName, CompletionHandler<void(std::optional<String>&&)>&& completion)
 {
     ASSERT(!m_cookieContinuation);
     m_cookieContinuation = WTF::move(completion);
     auto cookies = fields.map([](const String& field) { return field.isolatedCopy(); });
-    dispatchToClient([connection = Ref { *this }, cookies = WTF::move(cookies)]() mutable {
+    dispatchToClient([connection = Ref { *this }, cookies = WTF::move(cookies), remoteAddress = remoteAddress.isolatedCopy(), canonicalName = canonicalName.isolatedCopy()]() mutable {
         if (connection->m_cancelled)
             return;
         RefPtr client = connection->m_client;
@@ -181,7 +198,7 @@ void CocoaCurlConnection::curlReceivedCookies(Vector<String>&& fields, Completio
             connection->cancel();
             return;
         }
-        client->curlReceivedCookies(WTF::move(cookies), [connection](std::optional<String>&& cookie) {
+        client->curlReceivedCookies(WTF::move(cookies), remoteAddress, canonicalName, [connection](std::optional<String>&& cookie) {
             connection->m_pool->runLoop().dispatch([connection, cookie = cookie ? std::optional { cookie->isolatedCopy() } : std::nullopt]() mutable {
                 if (connection->m_cookieContinuation)
                     std::exchange(connection->m_cookieContinuation, nullptr)(WTF::move(cookie));
@@ -194,12 +211,12 @@ void CocoaCurlConnection::curlReceivedResponse(CocoaCurlTransferResponse&& respo
     ASSERT(!m_continuation);
     m_continuation = WTF::move(completion);
     auto data = response.response.crossThreadData();
-    dispatchToClient([connection = Ref { *this }, data = WTF::move(data), proxy = response.proxyHost.isolatedCopy(), port = response.proxyPort, authentication = response.authentication, proxyAuthentication = response.proxyAuthentication, metrics = response.metrics.isolatedCopy(), tls = copyTLSState()]() mutable {
+    dispatchToClient([connection = Ref { *this }, data = WTF::move(data), contentType = response.contentType.isolatedCopy(), canonicalName = response.canonicalName.isolatedCopy(), proxy = response.proxyHost.isolatedCopy(), port = response.proxyPort, authentication = response.authentication, proxyAuthentication = response.proxyAuthentication, metrics = response.metrics.isolatedCopy(), tls = copyTLSState()]() mutable {
         if (connection->m_cancelled)
             return;
         connection->m_tls = WTF::move(tls);
         if (RefPtr client = connection->m_client)
-            client->curlReceivedResponse({ ResourceResponse::fromCrossThreadData(WTF::move(data)), WTF::move(proxy), port, authentication, proxyAuthentication, WTF::move(metrics) }, [connection] { connection->acknowledge(); });
+            client->curlReceivedResponse({ ResourceResponse::fromCrossThreadData(WTF::move(data)), WTF::move(proxy), port, authentication, proxyAuthentication, WTF::move(metrics), WTF::move(contentType), WTF::move(canonicalName) }, [connection] { connection->acknowledge(); });
         else
             connection->cancel();
     });
@@ -247,6 +264,26 @@ void CocoaCurlConnection::curlRequestedIdentity(CFArrayRef authorities, Completi
                 connection->m_pool->runLoop().dispatch([connection, identity = WTF::move(identity), chain = WTF::move(chain)]() mutable {
                     if (connection->m_identityContinuation)
                         std::exchange(connection->m_identityContinuation, nullptr)(WTF::move(identity), WTF::move(chain));
+                });
+            });
+        } else
+            connection->cancel();
+    });
+}
+void CocoaCurlConnection::curlRequestedServerTrust(CompletionHandler<void(bool)>&& completion)
+{
+    m_trustContinuations.append(WTF::move(completion));
+    if (m_trustContinuations.size() > 1)
+        return;
+    dispatchToClient([connection = Ref { *this }, tls = copyTLSState()]() mutable {
+        if (connection->m_cancelled)
+            return;
+        connection->m_tls = WTF::move(tls);
+        if (RefPtr client = connection->m_client) {
+            client->curlRequestedServerTrust([connection](bool accepted) {
+                connection->m_pool->runLoop().dispatch([connection, accepted] {
+                    for (auto& trustContinuation : std::exchange(connection->m_trustContinuations, { }))
+                        trustContinuation(accepted);
                 });
             });
         } else
@@ -304,7 +341,7 @@ bool restoreCocoaDownloadRequestInformation(ResourceRequest& request, id informa
         return false;
     for (id name in headers) {
         id value = [headers objectForKey:name];
-        if (![name isKindOfClass:[NSString class]] || ![value isKindOfClass:[NSString class]] || !isValidHTTPToken(String((NSString*)name)) || !isValidHTTPHeaderValue(String((NSString*)value)))
+        if (![name isKindOfClass:[NSString class]] || ![value isKindOfClass:[NSString class]] || !isValidHTTPToken(String((NSString*)name)) || !isValidCocoaCurlRequestHeaderValue(String((NSString*)value)))
             return false;
         request.setHTTPHeaderField(String((NSString*)name), String((NSString*)value));
     }

@@ -33,6 +33,8 @@ using namespace WebCore;
 
 struct VideoFrameMetadataPrivate {
     std::optional<VideoFrameTimeMetadata> videoSampleMetadata;
+    // MAVERICKS_BACKPORT: Original WebCodecs timing includes signed timestamps and an explicitly absent duration.
+    std::optional<std::pair<int64_t, std::optional<uint64_t>>> webCodecsTiming;
     VideoFrame::Rotation rotation { VideoFrame::Rotation::None };
     bool isMirrored { false };
     VideoFrameContentHint contentHint { VideoFrameContentHint::None };
@@ -99,6 +101,8 @@ const GstMetaInfo* videoFrameMetadataGetInfo()
                 auto frameMeta = VIDEO_FRAME_METADATA_CAST(meta);
                 auto copyMeta = VIDEO_FRAME_METADATA_CAST(gst_buffer_add_meta(buffer, videoFrameMetadataGetInfo(), nullptr));
                 copyMeta->priv->videoSampleMetadata = frameMeta->priv->videoSampleMetadata;
+                // MAVERICKS_BACKPORT: Encoding and parsing copy the timing of the corresponding input frame.
+                copyMeta->priv->webCodecsTiming = frameMeta->priv->webCodecsTiming;
                 copyMeta->priv->rotation = frameMeta->priv->rotation;
                 copyMeta->priv->isMirrored = frameMeta->priv->isMirrored;
                 copyMeta->priv->contentHint = frameMeta->priv->contentHint;
@@ -146,6 +150,22 @@ GRefPtr<GstBuffer> webkitGstBufferSetVideoFrameMetadata(GRefPtr<GstBuffer>&& buf
     IGNORE_WARNINGS_END;
     webkitGstBufferAddVideoFrameMetadata(modifiedBuffer.get(), metadata, rotation, isMirrored, hint);
     return modifiedBuffer;
+}
+
+// MAVERICKS_BACKPORT: The existing video metadata transport preserves per-frame timing across asynchronous encoding.
+GRefPtr<GstBuffer> webkitGstBufferSetWebCodecsTiming(GRefPtr<GstBuffer>&& buffer, int64_t timestamp, std::optional<uint64_t> duration)
+{
+    auto writableBuffer = adoptGRef(gst_buffer_make_writable(buffer.leakRef()));
+    auto [modifiedBuffer, meta] = ensureVideoFrameMetadata(WTF::move(writableBuffer));
+    meta->priv->webCodecsTiming = std::make_pair(timestamp, duration);
+    return WTF::move(modifiedBuffer);
+}
+
+std::pair<int64_t, std::optional<uint64_t>> webkitGstBufferGetWebCodecsTiming(GstBuffer* buffer)
+{
+    auto* meta = getInternalVideoFrameMetadata(buffer);
+    RELEASE_ASSERT(meta && meta->priv->webCodecsTiming);
+    return *meta->priv->webCodecsTiming;
 }
 
 void webkitGstTraceProcessingTimeForElement(GstElement* element)

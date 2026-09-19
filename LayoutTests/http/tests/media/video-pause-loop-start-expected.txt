@@ -1,0 +1,9 @@
+
+Pausing a looping HTTP video at startup remains paused after preroll.
+
+EXPECTED (video.paused == 'true') OK
+EXPECTED (video.paused == 'true') OK
+The paused playback position stays fixed OK
+EXPECTED (video.paused == 'false') OK
+END OF TEST
+

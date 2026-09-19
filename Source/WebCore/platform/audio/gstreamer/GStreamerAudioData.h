@@ -25,10 +25,30 @@
 
 #include "GRefPtrGStreamer.h"
 #include "PlatformAudioData.h"
+// MAVERICKS_BACKPORT: MediaTime is the presentation time the CoreAudio bridge below stamps.
+#include <wtf/MediaTime.h>
 
 #include <gst/audio/audio.h>
 
 namespace WebCore {
+
+#if PLATFORM(COCOA)
+class AudioStreamDescription;
+// MAVERICKS_BACKPORT: this build captures through the Cocoa audio units, whose samples arrive as a
+// WebAudioBufferList, and renders MediaStreams through GStreamerMediaStreamSource, which takes a
+// GstSample. MavericksSupport/source/WebCore/platform/audio/gstreamer/GStreamerAudioDataCocoa.mm
+// converts one into the other. The caps describe the capture format rather than the buffer, so the
+// converter keeps them across calls and rebuilds them only when the format changes: it runs on the
+// CoreAudio render thread, once per buffer.
+struct WebAudioBufferListCaps {
+    GstAudioFormat format { GST_AUDIO_FORMAT_UNKNOWN };
+    int rate { 0 };
+    int channels { 0 };
+    GstAudioInfo info { };
+    GRefPtr<GstCaps> caps;
+};
+GRefPtr<GstSample> gstSampleFromWebAudioBufferList(const PlatformAudioData&, const AudioStreamDescription&, size_t sampleCount, const MediaTime& presentationTime, WebAudioBufferListCaps&);
+#endif // MAVERICKS_BACKPORT: closes the CoreAudio bridge declaration above.
 
 class GStreamerAudioData final : public PlatformAudioData {
 public:

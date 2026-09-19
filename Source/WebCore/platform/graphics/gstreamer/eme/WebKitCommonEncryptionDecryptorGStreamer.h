@@ -28,6 +28,7 @@
 #include <gst/base/gstbasetransform.h>
 #include <gst/gst.h>
 #include <wtf/RefPtr.h>
+#include <wtf/ScopedLambda.h> // MAVERICKS_BACKPORT: see webKitMediaCommonEncryptionDecryptTakeDecryptingProxy().
 #include <wtf/WeakPtr.h>
 
 G_BEGIN_DECLS
@@ -67,5 +68,9 @@ G_END_DECLS
 // This function returns a C++ type. It's internal to the decryptors so it is safe to move it here to avoid the C++ return warning because of the C only linkage
 // area.
 WeakPtr<WebCore::CDMProxyDecryptionClient> webKitMediaCommonEncryptionDecryptGetCDMProxyDecryptionClient(WebKitMediaCommonEncryptionDecrypt*);
+
+// MAVERICKS_BACKPORT: a decryptor's decrypt() takes its copy of the proxy inside |takeProxy|, which runs
+// under this element's lock and records the proxy it answers as the one a flush or a stop aborts.
+void webKitMediaCommonEncryptionDecryptTakeDecryptingProxy(WebKitMediaCommonEncryptionDecrypt*, const ScopedLambda<RefPtr<WebCore::CDMProxy>()>& takeProxy);
 
 #endif // ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)

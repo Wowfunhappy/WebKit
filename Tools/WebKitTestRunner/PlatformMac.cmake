@@ -81,16 +81,12 @@ list(APPEND WebKitTestRunner_SOURCES
     ${WebKitTestRunner_DIR}/cocoa/TestRunnerWKWebView.mm
     ${WebKitTestRunner_DIR}/cocoa/TestWebsiteDataStoreDelegate.mm
     ${WebKitTestRunner_DIR}/cocoa/UIScriptControllerCocoa.mm
-    # MAVERICKS_BACKPORT: cocoa sources that define symbols the WebKitTestRunner executable references
-    # (EventSenderProxyCocoa::mouseButtonsCurrentlyDown, TestInvocation::dumpPixelsAndCompareWithExpected,
-    # WebNotificationProvider::simulateWebNotificationClick..., setCrashReportApplicationSpecificInformationToURL)
-    # but which were missing from the Mac source list (Apple builds them via Xcode).
-    # WKTextExtractionTestingHelpers.mm is intentionally omitted: it depends on the Swift-only _WKTextExtraction
-    # classes that this build cannot compile (see UIScriptControllerCocoa.mm's WTR_WK_TEXT_EXTRACTION_AVAILABLE).
+    # MAVERICKS_BACKPORT: Cocoa implementations shared with the Xcode test runner target.
     ${WebKitTestRunner_DIR}/cocoa/EventSenderProxyCocoa.mm
     ${WebKitTestRunner_DIR}/cocoa/TestInvocationCocoa.mm
     ${WebKitTestRunner_DIR}/cocoa/WebNotificationProviderCocoa.mm
     ${WebKitTestRunner_DIR}/cocoa/CrashReporterInfo.mm
+    ${WebKitTestRunner_DIR}/cocoa/WKTextExtractionTestingHelpers.mm
 
     ${WebKitTestRunner_DIR}/mac/EventSenderProxy.mm
     ${WebKitTestRunner_DIR}/mac/PlatformWebViewMac.mm

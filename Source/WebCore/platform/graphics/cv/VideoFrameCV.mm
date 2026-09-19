@@ -43,6 +43,11 @@
 #include <wtf/StdLibExtras.h>
 #include <wtf/text/ParsingUtilities.h>
 
+// MAVERICKS_BACKPORT: GStreamer supplies I420A storage and copies for its frames.
+#if USE(GSTREAMER)
+#include "VideoFrameGStreamer.h"
+#endif
+
 #if USE(LIBWEBRTC)
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 
@@ -223,7 +228,11 @@ RefPtr<VideoFrame> VideoFrame::createI420(std::span<const uint8_t> buffer, size_
 
 RefPtr<VideoFrame> VideoFrame::createI420A(std::span<const uint8_t> buffer, size_t width, size_t height, const ComputedPlaneLayout& layoutY, const ComputedPlaneLayout& layoutU, const ComputedPlaneLayout& layoutV, const ComputedPlaneLayout& layoutA, PlatformVideoColorSpace&& colorSpace)
 {
-#if USE(LIBWEBRTC)
+// MAVERICKS_BACKPORT: I420A uses GStreamer's four-plane A420 storage on Cocoa.
+// #if USE(LIBWEBRTC)
+#if USE(GSTREAMER)
+    return VideoFrameGStreamer::createI420A(buffer, width, height, layoutY, layoutU, layoutV, layoutA, WTF::move(colorSpace));
+#elif USE(LIBWEBRTC)
     size_t offsetLayoutU = layoutY.sourceLeftBytes + layoutY.sourceWidthBytes * height;
     size_t offsetLayoutV = offsetLayoutU + layoutU.sourceLeftBytes + layoutU.sourceWidthBytes * ((height + 1) / 2);
     size_t offsetLayoutA = offsetLayoutV + layoutV.sourceLeftBytes + layoutV.sourceWidthBytes * ((height + 1) / 2);
@@ -430,6 +439,13 @@ static Vector<PlaneLayout> copyI420OrI420A(std::span<uint8_t> span, const Comput
 
 void VideoFrame::copyTo(std::span<uint8_t> span, VideoPixelFormat format, Vector<ComputedPlaneLayout>&& computedPlaneLayout, CompletionHandler<void(std::optional<Vector<PlaneLayout>>&&)>&& callback)
 {
+    // MAVERICKS_BACKPORT: GStreamer frames copy from their native plane storage.
+#if USE(GSTREAMER)
+    if (auto* frame = dynamicDowncast<VideoFrameGStreamer>(*this)) {
+        frame->copyTo(span, format, WTF::move(computedPlaneLayout), WTF::move(callback));
+        return;
+    }
+#endif
     // FIXME: We should get the pixel buffer and copy the bytes asynchronously.
     if (format == VideoPixelFormat::NV12) {
         callback(copyNV12(span, computedPlaneLayout[0], computedPlaneLayout[1], protect(this->pixelBuffer()).get()));

@@ -1,0 +1,94 @@
+# gst_vtenc_drain_encoder waits until the output loop has taken every queued frame, or has
+# paused itself after a downstream error, before it pauses the output task; a flush drain
+# resumes a loop that stopped on an error only after that loop has finished pausing.
+# See patches/README.md.
+--- a/sys/applemedia/vtenc.h	2026-09-12 18:36:34.000000000 -0400
++++ b/sys/applemedia/vtenc.h	2026-09-12 18:36:34.000000000 -0400
+@@ -110,7 +110,8 @@
+   CFDictionaryRef keyframe_props;
+ 
+   GstVecDeque * output_queue;
+-  /* Protects output_queue, is_flushing, is_draining and pause_task */
++  /* Protects output_queue, is_flushing, is_draining, pause_task and
++   * output_stopped */
+   GMutex queue_mutex;
+   GCond queue_cond;
+ 
+@@ -124,6 +125,9 @@
+   gboolean is_flushing;
+   gboolean is_draining;
+   gboolean pause_task;
++  /* Set once the output loop has paused itself after a downstream error, and
++   * cleared before the loop is resumed */
++  gboolean output_stopped;
+ 
+   /* If we get an EncoderMalfunctionErr or similar, we restart the session
+    * before the next encode call */
+--- a/sys/applemedia/vtenc.c	2026-09-12 18:36:34.000000000 -0400
++++ b/sys/applemedia/vtenc.c	2026-09-12 18:36:34.000000000 -0400
+@@ -747,7 +747,7 @@
+ {
+   g_mutex_lock (&self->queue_mutex);
+   self->pause_task = TRUE;
+-  g_cond_signal (&self->queue_cond);
++  g_cond_broadcast (&self->queue_cond);
+   g_mutex_unlock (&self->queue_mutex);
+ 
+   gst_pad_pause_task (GST_VIDEO_ENCODER_SRC_PAD (self));
+@@ -783,6 +783,12 @@
+   }
+ 
+   g_mutex_lock (&self->queue_mutex);
++  /* downstream_ret is written under the stream lock held here, so a loop that
++   * reported an error has left it and pauses itself before output_stopped is
++   * set. Waiting for that keeps its pause from landing after the resume below. */
++  while (self->downstream_ret != GST_FLOW_OK && !self->output_stopped)
++    g_cond_wait (&self->queue_cond, &self->queue_mutex);
++  self->output_stopped = FALSE;
+   if (flush) {
+     GST_DEBUG_OBJECT (self, "setting flushing flag");
+     self->is_flushing = TRUE;
+@@ -826,6 +832,14 @@
+     g_mutex_unlock (&self->queue_mutex);
+   }
+ 
++  /* A paused task runs no further iteration, so the drain waits until the loop
++   * has taken every queued frame or has stopped. */
++  g_mutex_lock (&self->queue_mutex);
++  while (!gst_vec_deque_is_empty (self->output_queue) && !self->pause_task
++      && !self->output_stopped)
++    g_cond_wait (&self->queue_cond, &self->queue_mutex);
++  g_mutex_unlock (&self->queue_mutex);
++
+   /* This will only pause after all frames are out because is_flushing/is_draining=TRUE */
+   gst_vtenc_pause_output_loop (self);
+   GST_VIDEO_ENCODER_STREAM_LOCK (self);
+@@ -859,6 +873,7 @@
+ 
+   self->is_flushing = FALSE;
+   self->is_draining = FALSE;
++  self->output_stopped = FALSE;
+   self->downstream_ret = GST_FLOW_OK;
+   g_atomic_int_set (&self->require_restart, FALSE);
+   g_atomic_int_set (&self->require_reconfigure, FALSE);
+@@ -2536,7 +2551,7 @@
+   }
+ 
+   while ((outframe = gst_vec_deque_pop_head (self->output_queue))) {
+-    g_cond_signal (&self->queue_cond);
++    g_cond_broadcast (&self->queue_cond);
+     g_mutex_unlock (&self->queue_mutex);
+ 
+     /* Keep the stream lock -> queue lock order */
+@@ -2611,6 +2626,11 @@
+     GST_DEBUG_OBJECT (self, "pausing output task because of downstream: %s",
+         gst_flow_get_name (ret));
+     gst_pad_pause_task (GST_VIDEO_ENCODER_SRC_PAD (self));
++
++    g_mutex_lock (&self->queue_mutex);
++    self->output_stopped = TRUE;
++    g_cond_broadcast (&self->queue_cond);
++    g_mutex_unlock (&self->queue_mutex);
+   }
+ }
+ 

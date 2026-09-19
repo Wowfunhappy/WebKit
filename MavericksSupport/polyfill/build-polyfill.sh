@@ -12,15 +12,10 @@
 #   mechanism/          wk_polyfill_runtime.o -> libpolyfill.a; wk_selref_scope.o -> libpolyfill_methods.a;
 #                       wk_image_marker.o -> libwk_marker.a (force-loaded into every WebKit framework)
 set -euo pipefail
-POLY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"          # polyfill
-REPO="$(cd "$POLY/../.." && pwd)"
-TC="${MAVERICKS_CLANG:-$REPO/MavericksSupport/toolchain/build/clang}"
-SDK="${MAVERICKS_SDK:-$(dirname "$REPO")/MacOSX26.1.sdk}"
-CLANG="$TC/bin/clang"; CLANGXX="$TC/bin/clang++"; AR="$TC/bin/llvm-ar"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/polyfill-env.sh"
 . "$REPO/MavericksSupport/scripts/cctools.sh"; NM="$CCTOOLS/nm"
 . "$REPO/MavericksSupport/scripts/host-headers.sh"
-PF="$POLY/polyfills"; MECH="$POLY/mechanism"; OUT="$POLY/build"
-TMECH="$POLY/tests/mechanism"; TBEHAV="$POLY/tests/behaviour"; TGATES="$POLY/tests/gates"
+TMECH="$POLY/tests/mechanism"; TGATES="$POLY/tests/gates"
 OBJ="$(mktemp -d "${TMPDIR:-/tmp}/polybuild.XXXXXX")"; trap 'rm -rf "$OBJ"' EXIT
 mkdir -p "$OUT" "$OBJ"/{c,shared,methods,classes,webkit,jsc,cdm,mech,tests}
 
@@ -45,26 +40,6 @@ cc_wait() {
     [ "$CC_RC" = 0 ] || { echo "### a compile failed (see the diagnostics above)" >&2; exit 1; }
 }
 
-# --- flag sets ---------------------------------------------------------------------------------
-# --no-default-config: the clang wrapper's cfg carries WebKit's link set; these are pure object code.
-# -Wall -Wextra: the diagnostic set WebKit's own build uses, so a defect here surfaces the way one in
-# Source/ does.
-# -Werror=unguarded-availability{,-new}: the layer compiles against a modern SDK and runs on 10.9, so an
-# unguarded reference to anything newer is the layer's characteristic defect -- an unrecognized selector
-# or an undefined reference the first time that line runs. -Wall -Wextra do not catch it: only
-# -unguarded-availability-new is on by default and its floor is 10.13, leaving 10.10-10.12 -- where most
-# of what this layer supplies lives -- unwatched. A reference the layer itself provides is suppressed at
-# the site that makes it, so the check reads as a claim about that line.
-WARN='-Wall -Wextra -Wno-unused-command-line-argument -Werror=unguarded-availability -Werror=unguarded-availability-new'
-INC="-I$MECH"                                        # so a polyfill can #include "wk_polyfill.h"
-HOST="--no-default-config -mmacosx-version-min=10.9 -O2 $WARN"                       # the 10.9 host headers
-MODERN="--no-default-config -isysroot $SDK -mmacosx-version-min=10.9 -O2 -Wno-deprecated-declarations $WARN"
-# HIDDEN: libpolyfill.a is force-loaded into WebKit's binaries, so its definitions only ever need to
-# satisfy references within the image that pulled them in. Keeping them out of the export tables confines
-# the layer to WebKit -- nothing else in the process can bind to a polyfill by accident -- and lets a
-# polyfill reach the system implementation through a process-wide dlsym without finding itself.
-HIDDEN='-fvisibility=hidden'
-
 # --- compile -----------------------------------------------------------------------------------
 echo "### compiling polyfills/c (every WebKit image)"
 # -I deps/build/include: libcompression.c decodes Brotli through the vendored codec headers, and
@@ -88,16 +63,12 @@ for f in "$PF"/shared/*.c; do
     cc_queue "$CLANG" -c $SHAREDCF $HIDDEN -DWK_POLYFILL_REGISTERED $INC -o "$OBJ/shared/$(basename "${f%.c}").o" "$f"
 done
 
-# BLOCKCF: a polyfill block is a subclass nothing instantiates, so an initializer it replaces has no
-# designated-initializer chain of its own to keep.
-BLOCKCF='-Wno-objc-designated-initializers'
 # -I polyfills/c: a method block and a C function of the same framework share a helper header there
 # (README: "A helper two files need goes in a header in c/"). Both archives are force-loaded into
 # WebCore, so the definition is in the image the reference is.
-MINC="$INC -I$PF/c"
 echo "### compiling polyfills/methods (WebCore)"
 for f in "$PF"/methods/*.m; do
-    cc_queue "$CLANG" -c $MODERN $BLOCKCF $MINC -DWK_POLYFILL_UNIT="$(basename "${f%.m}")" -o "$OBJ/methods/$(basename "${f%.m}").o" "$f"
+    cc_queue "$CLANG" -c $MODERN $BLOCKCF $(methods_unitinc "$f") -DWK_POLYFILL_UNIT="$(basename "${f%.m}")" -o "$OBJ/methods/$(basename "${f%.m}").o" "$f"
 done
 
 echo "### compiling polyfills/classes (one shared definition each)"
@@ -108,7 +79,7 @@ echo "### compiling polyfills/classes (one shared definition each)"
 # respond to" -- carries no flag of its own. Promoting the whole set is what makes it stop the build;
 # these units compile with no warnings today, so it costs nothing.
 for f in "$PF"/classes/*.m; do
-    cc_queue "$CLANG" -c $HOST -Werror $INC -o "$OBJ/classes/$(basename "${f%.m}").o" "$f"
+    cc_queue "$CLANG" -c $HOST -fobjc-weak -Werror $INC -o "$OBJ/classes/$(basename "${f%.m}").o" "$f"
 done
 
 echo "### compiling polyfills/webkit (WebKit.framework only)"
@@ -194,7 +165,7 @@ for f in "$PF"/methods/*.m; do
     # 10.9 headers, so the modern SDK's own declarations do not collide with the stubs it defines.
     # -Wno-everything first: this pass asks one question, and the renaming leaves sends through a
     # receiver other than self unresolved, which is noise here and is checked by the real compile.
-    cc_queue "$CLANG" -fsyntax-only $MODERN $BLOCKCF $MINC $GATEONLY \
+    cc_queue "$CLANG" -fsyntax-only $MODERN $BLOCKCF $(methods_unitinc "$f") $GATEONLY \
         -DWK_POLYFILL_UNIT="$(basename "${f%.m}")" -I"$(dirname "$f")" "$copy"
 done
 cc_wait
@@ -255,8 +226,9 @@ if [ -n "$leaked" ]; then
     echo "$leaked" >&2
     exit 1
 fi
-# Force-loading turns two definitions of one symbol into a hard link error; catch them here.
-dupes=$($NM -g "$OUT/libpolyfill.a" 2>/dev/null | awk '$2 ~ /^[TDSB]$/ { print $3 }' | sort | uniq -d)
+# Force-loading rejects duplicate strong definitions. Mach-O weak definitions (including C++ template
+# instantiations) coalesce; nm -m preserves the weak attribute that its single-letter format omits.
+dupes=$($NM -m "$OUT/libpolyfill.a" | awk '/^[[:xdigit:]]+ \(/ && / external / && !/ weak / { print $NF }' | sort | uniq -d)
 if [ -n "$dupes" ]; then
     echo "ERROR: libpolyfill.a defines these symbols more than once; force_load makes that a link failure:" >&2
     echo "$dupes" | sed 's/^/  /' >&2
@@ -330,112 +302,6 @@ WK_POLYFILL_SIBLING="$T/wk_polyfill_sibling.dylib" "$T/wk_polyfill_test"
 "$CLANG" $MODERN $INC -fno-objc-arc -DWK_POLYFILL_UNIT=test -o "$T/wk_selref_replace_super" "$TMECH/wk_selref_replace_super.m" "$MECH/wk_selref_scope.m" \
     "$T/wk_selref_replace_super_fixture.dylib" -framework Foundation -lobjc
 "$T/wk_selref_replace_super"
-# The contentInsets mechanism (methods/scrollview-inset-tile.h): a re-classed scroll view keeps working, and
-# applies its insets exactly once, with KVO's isa-swizzle stacked on the dynamic subclass.
-"$CLANG" $MODERN $INC -fno-objc-arc -I"$PF/methods" -o "$T/scrollview_insets" "$TBEHAV/AppKit-scrollview-insets.m" \
-    -framework AppKit -framework Foundation -lobjc
-"$T/scrollview_insets"
-# The suggested-colors strip (methods/color-popover-top-bar.h): the strip lands in the popover wired to the
-# controller, fits its swatches, and the popover makes room for it without disturbing the nib's own views.
-"$CLANG" $MODERN $INC -fno-objc-arc -I"$PF/methods" -o "$T/color_popover_top_bar" "$TBEHAV/AppKit-color-popover-top-bar.m" \
-    -framework AppKit -framework Foundation -lobjc
-"$T/color_popover_top_bar"
-# Probes that link the SHIPPED archive (without -force_load, so only the members they reach are pulled)
-# and call the polyfilled symbols exactly as WebKit will.
-# libots/libwoff2dec/brotli: the CoreText polyfill's memory-safe font parser, which a probe pulls in
-# with the rest of CoreText.c.
-PROBE_LIBS="$OUT/libpolyfill.a $REPO/MavericksSupport/deps/build/lib/libots.a $REPO/MavericksSupport/deps/build/lib/libwoff2dec.a $REPO/MavericksSupport/deps/build/lib/libbrotlidec.a $REPO/MavericksSupport/deps/build/lib/libbrotlicommon.a $REPO/MavericksSupport/deps/build/lib/libpng16.a $REPO/MavericksSupport/deps/build/lib/libtiff.a $REPO/MavericksSupport/deps/build/lib/libjpeg.a $REPO/MavericksSupport/deps/build/lib/libpsl.5.dylib -Wl,-rpath,$REPO/MavericksSupport/deps/build/lib -framework Foundation -framework CoreFoundation -framework Security -framework CoreMedia -lsqlite3 -lbsm -lsandbox -lobjc -lz"
-"$CLANG" $MODERN $INC -fno-objc-arc -o "$T/dispatch_activate" "$TBEHAV/libSystem-dispatch.m" $PROBE_LIBS
-"$T/dispatch_activate"
-"$CLANG" $MODERN $INC -fno-objc-arc -o "$T/sectask_identity" "$TBEHAV/Security-sectask.m" $PROBE_LIBS
-"$T/sectask_identity"
-"$CLANG" $MODERN $INC -Wno-deprecated-declarations -o "$T/trust_serialize" "$TBEHAV/Security-trust-serialize.c" $PROBE_LIBS
-"$T/trust_serialize"
-"$CLANG" $MODERN $INC -o "$T/timebase" "$TBEHAV/libSystem-timebase.c" $PROBE_LIBS
-"$T/timebase"
-"$CLANG" $MODERN $INC -o "$T/memory_entry_data_addr" "$TBEHAV/mach-memory-entry-data-addr.c" $PROBE_LIBS
-"$T/memory_entry_data_addr"
-"$CLANG" $MODERN $INC -o "$T/task_vm_info" "$TBEHAV/libSystem-task-vm-info.c" $PROBE_LIBS
-"$T/task_vm_info"
-"$CLANG" $MODERN $INC -Wno-unguarded-availability-new -o "$T/unfair_lock" "$TBEHAV/libSystem-unfair-lock.c" $PROBE_LIBS
-"$T/unfair_lock"
-"$CLANG" $MODERN $INC -Wno-four-char-constants -o "$T/stroke_line_segments" "$TBEHAV/CoreGraphics-stroke-line-segments.c" $PROBE_LIBS -framework CoreGraphics -framework IOSurface
-"$T/stroke_line_segments"
-# Two images, each with its own copy of the archive's client-identification pair, plus the program that loads both.
-"$CLANG" $MODERN $INC -dynamiclib -DWK_PROBE_SIDE_A -o "$T/ax_client_side_a.dylib" "$TBEHAV/ApplicationServices-client-identification.c" $PROBE_LIBS
-"$CLANG" $MODERN $INC -dynamiclib -DWK_PROBE_SIDE_B -o "$T/ax_client_side_b.dylib" "$TBEHAV/ApplicationServices-client-identification.c" $PROBE_LIBS
-"$CLANG" $MODERN $INC -o "$T/ax_client_identification" "$TBEHAV/ApplicationServices-client-identification.c"
-"$T/ax_client_identification" "$T/ax_client_side_a.dylib" "$T/ax_client_side_b.dylib"
-# Native cookie metadata and read policy; HTTP Set-Cookie parsing is WebCore's.
-# The cookie blocks install their private selectors on NSHTTPCookie here, which is how the constructors
-# this layer replaces can be driven from a program of our own: Foundation.o carries them and
-# wk_selref_scope.o installs them. Those two objects rather than the whole method archive, because the
-# archive's other blocks extend classes owned by PDFKit and QuartzCore, and linking those reaches
-# JavaScriptCore through the Quartz umbrella -- the installed frameworks' copy of this layer, which
-# would claim the CFNetwork slots this test exercises and leave it measuring that copy instead.
-# libpolyfill.a ahead of the frameworks, so the layer's own absent-on-10.9 constants satisfy the
-# objects' references the way force_load does inside a shipped framework.
-"$CLANG" $MODERN $INC -fno-objc-arc -o "$T/samesite" "$TBEHAV/CFNetwork-samesite.m" \
-    "$OBJ/methods/Foundation.o" "$OBJ/mech/wk_selref_scope.o" \
-    -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
-    -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
-    $PROBE_LIBS
-"$T/samesite"
-# The property-list coders behind HAVE(WK_SECURE_CODING_NSURLPROTECTIONSPACE) / NSURLCREDENTIAL, linked
-# the same way: the bodies in Foundation.o, installed by wk_selref_scope.o.
-"$CLANG" $MODERN $INC -fno-objc-arc -o "$T/secure_coding" "$TBEHAV/Foundation-secure-coding.m" \
-    "$OBJ/methods/Foundation.o" "$OBJ/mech/wk_selref_scope.o" \
-    -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
-    -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
-    $PROBE_LIBS
-"$T/secure_coding"
-# +[NSURL URLWithDataRepresentation:relativeToURL:], the same way.
-"$CLANG" $MODERN $INC -fno-objc-arc -o "$T/url_data_representation" "$TBEHAV/Foundation-url-data-representation.m" \
-    "$OBJ/methods/Foundation.o" "$OBJ/mech/wk_selref_scope.o" \
-    -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
-    -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
-    $PROBE_LIBS
-"$T/url_data_representation"
-# The AVAssetReader drain, driven through an asynchronous delegate and one that declines.
-"$CLANG" $MODERN $INC -fno-objc-arc -o "$T/avf_resource_loader_drain" "$TBEHAV/AVFoundation-resource-loader-drain.m" \
-    "$OBJ/methods/AVFoundation.o" "$OBJ/mech/wk_selref_scope.o" \
-    -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
-    -framework AVFoundation -framework CoreMedia -framework AppKit -framework Foundation \
-    -framework CoreServices -Wl,-rpath,"$OUT" "$OUT/libpolyfill_classes.dylib" $PROBE_LIBS
-"$T/avf_resource_loader_drain"
-# The constant-bytes-per-packet input shim inside the AudioConverterFillComplexBuffer replacement.
-"$CLANG" $MODERN $INC -o "$T/constant_packet_input" "$TBEHAV/AudioToolbox-constant-packet-input.c" \
-    $PROBE_LIBS -framework AudioToolbox -framework AudioUnit
-"$T/constant_packet_input"
-# The AudioConverterReset that follows a kAudioCodecPropertyDelayMode set in the same replacement set.
-"$CLANG" $MODERN $INC -o "$T/delay_mode_excess_input" "$TBEHAV/AudioToolbox-delay-mode-excess-input.c" \
-    $PROBE_LIBS -framework AudioToolbox -framework AudioUnit
-"$T/delay_mode_excess_input"
-# -lc++: realizing a font reaches the variable-font instancer, which is C++.
-"$CLANG" $MODERN $INC -o "$T/optical_size" "$TBEHAV/CoreText-optical-size.c" $PROBE_LIBS \
-    -framework CoreText -framework CoreGraphics -lc++
-"$T/optical_size"
-"$CLANG" $MODERN $INC -o "$T/face_selection" "$TBEHAV/CoreText-face-selection.c" $PROBE_LIBS \
-    -framework CoreText -framework CoreGraphics -lc++
-"$T/face_selection"
-"$CLANG" $MODERN $INC -o "$T/font_provenance" "$TBEHAV/CoreText-font-provenance.c" $PROBE_LIBS \
-    -framework CoreText -framework CoreGraphics -lc++
-"$T/font_provenance"
-"$CLANG" $MODERN $INC -o "$T/feature_clear" "$TBEHAV/CoreText-feature-clear.c" $PROBE_LIBS \
-    -framework CoreText -framework CoreGraphics -lc++
-"$T/feature_clear"
-"$CLANG" $MODERN $INC -o "$T/descriptor_options" "$TBEHAV/CoreText-descriptor-options.c" $PROBE_LIBS \
-    -framework CoreText -framework CoreGraphics -lc++
-"$T/descriptor_options"
-"$CLANG" $MODERN $INC -o "$T/sbix_bitmap_placement" "$TBEHAV/CoreText-sbix-bitmap-placement.c" $PROBE_LIBS \
-    -framework CoreText -framework CoreGraphics -framework ImageIO -lc++
-"$T/sbix_bitmap_placement"
-# The 10.9 host headers, not the modern SDK's: AudioUnit* live in AudioUnit.framework here and in
-# AudioToolbox from 10.10 on, so only these headers put the probe's references where this OS has them.
-"$CLANG" $HOST -Wno-deprecated-declarations $INC -o "$T/audiounit_max_frames" "$TBEHAV/AudioUnit-max-frames.c" \
-    $PROBE_LIBS -framework AudioUnit -framework CoreAudio
-"$T/audiounit_max_frames"
-
 # --- shadow gates ------------------------------------------------------------------------------
 # Every polyfill's body runs unconditionally: force_load makes our definition win, the selref rewrite sends
 # WebKit's `foo` to `wk_foo`, and there is no runtime forwarding to 10.9. So a polyfill written for a symbol,
@@ -489,8 +355,10 @@ OBJC_LIBS="$SYSTEM_LIBS
 # -- on this machine the installed backport, carrying the force-loaded layer, whose exports would then look
 # like 10.9's -- and its transitive closure adds categories that flip other rows' answers (ISSupport adds
 # -[NSString containsString:]). So it joins a SECOND presence pass in a separate process whose answers are
-# used ONLY for rows the first pass could not load the class for.
-PROBE_ONLY_LIBS="/System/Library/PrivateFrameworks/DataDetectors.framework/DataDetectors"
+# used ONLY for rows the first pass could not load the class for. That pass also loads GameController, which
+# owns GCController.
+PROBE_ONLY_LIBS="/System/Library/PrivateFrameworks/DataDetectors.framework/DataDetectors
+/System/Library/Frameworks/GameController.framework/GameController"
 
 # What the layer defines: strong (T/D/S/B) globals of every product force-loaded into a WebKit binary.
 for lib in libpolyfill.a libpolyfill_methods.a libpolyfill_classes.dylib libwtf_compat.a libwk_marker.a libpolyfill_webkit.a; do
@@ -671,6 +539,9 @@ echo "  shadow gates: clean -- $(wc -l < "$W/names" | tr -d ' ') defined symbols
 echo "    $(wc -l < "$W/present_names" | tr -d ' ') present on 10.9, each declared WK_POLYFILL_REPLACES"
 echo "    $(wc -l < "$W/selregistry.tsv" | tr -d ' ') ObjC method polyfills, each landing on a class; $(awk -F'\t' '$4 == "PRESENT"' "$W/selon109" | wc -l | tr -d ' ') present on 10.9, each in a WK_POLYFILL_REPLACE_METHODS block"
 echo "    $(wc -l < "$W/clson109" | tr -d ' ') ObjC class polyfills, none of which 10.9 has"
+
+echo "### native compatibility behaviour probes"
+bash "$POLY/tests/run-behaviour-tests.sh"
 
 echo "### done -> $OUT"
 ls -la "$OUT"

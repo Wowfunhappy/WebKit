@@ -5901,18 +5901,7 @@ void WebPageProxy::continueNavigationInNewProcess(API::Navigation& navigation, W
 
     Ref process = provisionalPage->process();
 
-    // MAVERICKS_BACKPORT: register unconditionally, not just when needsCookieAccessAddedInNetworkProcess()
-    // says so. That flag is set in exactly one place (ProvisionalPageProxy::initializeWebPage, under
-    // siteIsolationEnabled()), and this port does not enable site isolation -- so on every process swap
-    // here the provisional page's NEW process began its load with no allowed first party registered.
-    // NetworkProcess::allowsFirstPartyForCookies answers Terminate, not merely Disallow, for an
-    // unregistered NON-EMPTY registrable domain, so MESSAGE_CHECK killed that process mid-navigation and
-    // the client sat forever with no didFailProvisionalLoad. An IP-address or loopback first party has an
-    // EMPTY registrable domain and takes the harmless Disallow branch, which is why localhost loaded and
-    // every real host hung (QuickLook web previews of a remote .webloc). Registering the domain for the
-    // process that is about to load it is what every other path already does.
-    // if (provisionalPage->needsCookieAccessAddedInNetworkProcess()) {
-    {
+    if (provisionalPage->needsCookieAccessAddedInNetworkProcess()) {
         continuation = [
             networkProcess = protect(Ref { websiteDataStore() }->networkProcess()),
             continuation = WTF::move(continuation),

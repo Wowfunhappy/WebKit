@@ -57,7 +57,8 @@ NetworkTaskCocoa::NetworkTaskCocoa(NetworkSession& session)
 {
 }
 
-static bool shouldCapCookieExpiryForThirdPartyIPAddress(const WebCore::IPAddress& remote, const WebCore::IPAddress& firstParty)
+// static bool shouldCapCookieExpiryForThirdPartyIPAddress(const WebCore::IPAddress& remote, const WebCore::IPAddress& firstParty)
+bool NetworkTaskCocoa::shouldCapCookieExpiryForThirdPartyIPAddress(const WebCore::IPAddress& remote, const WebCore::IPAddress& firstParty) // MAVERICKS_BACKPORT: a public static member; see the header.
 {
     auto matchingLength = remote.matchingNetMaskLength(firstParty);
     if (remote.isIPv4())
@@ -94,6 +95,20 @@ WebCore::RegistrableDomain NetworkTaskCocoa::lastCNAMEDomain(String cname)
     if (cname.endsWith('.'))
         cname = cname.left(cname.length() - 1);
     return WebCore::RegistrableDomain::uncheckedCreateFromHost(cname);
+}
+
+// MAVERICKS_BACKPORT: setCookieTransformForFirstPartyRequest's quirk, a public static member for the curl data task.
+bool NetworkTaskCocoa::needsThirdPartyIPAddressQuirk(const URL& requestURL, const String& firstPartyRegistrableDomainName)
+{
+    // We only apply this quirk if we're already on Google or youtube.com;
+    // otherwise, we would've already bailed at the top of this method, due to
+    // the request being third party.
+    auto hostName = requestURL.host();
+    if (hostName == "accounts.google.com"_s)
+        return true;
+
+    return (firstPartyRegistrableDomainName.startsWith("google."_s) || firstPartyRegistrableDomainName == "youtube.com"_s)
+        && hostName == makeString("consent."_s, firstPartyRegistrableDomainName);
 }
 
 static RetainPtr<NSArray<NSHTTPCookie *>> cookiesByCappingExpiry(NSArray<NSHTTPCookie *> *cookies, Seconds ageCap)
@@ -232,6 +247,8 @@ void NetworkTaskCocoa::setCookieTransformForFirstPartyRequest(const WebCore::Res
             if (!remoteAddress)
                 return cookiesSetInResponse;
 
+            // MAVERICKS_BACKPORT: NetworkTaskCocoa::needsThirdPartyIPAddressQuirk, a public static member, answers below.
+            /*
             auto needsThirdPartyIPAddressQuirk = [] (const URL& requestURL, const String& firstPartyRegistrableDomainName) {
                 // We only apply this quirk if we're already on Google or youtube.com;
                 // otherwise, we would've already bailed at the top of this method, due to
@@ -243,6 +260,7 @@ void NetworkTaskCocoa::setCookieTransformForFirstPartyRequest(const WebCore::Res
                 return (firstPartyRegistrableDomainName.startsWith("google."_s) || firstPartyRegistrableDomainName == "youtube.com"_s)
                     && hostName == makeString("consent."_s, firstPartyRegistrableDomainName);
             };
+            */ // MAVERICKS_BACKPORT: closes the commented-out upstream lambda above.
 
             if (shouldCapCookieExpiryForThirdPartyIPAddress(*remoteAddress, *firstPartyAddress) && !needsThirdPartyIPAddressQuirk(requestURL, firstPartyRegistrableDomainName)) {
                 RetainPtr cappedCookies = cookiesByCappingExpiry(cookiesSetInResponse, ageCapForCNAMECloakedCookies);

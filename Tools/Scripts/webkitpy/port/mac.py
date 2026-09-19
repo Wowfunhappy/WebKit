@@ -72,20 +72,26 @@ class MacPort(DarwinPort):
             return 'arm64'
         return result
 
+    def _path_to_apache(self):
+        if self._version == 'mavericks':
+            return self.path_from_webkit_base('MavericksSupport', 'deps', 'build', 'bin', 'httpd')
+        return super(MacPort, self)._path_to_apache()
+
     # FIXME: This is a work-around for Rosetta, remove once <https://bugs.webkit.org/show_bug.cgi?id=213761> is resolved
     def expectations_dict(self, device_type=None):
         result = super(MacPort, self).expectations_dict(device_type=device_type)
-        # MAVERICKS_BACKPORT: platform/mac-wk1/TestExpectations opens by skipping every top-level suite,
-        # because Apple's bots no longer run DumpRenderTree. The Mavericks port runs both drivers, so on
-        # its WebKit1 port those suite-wide lines are dropped and the file's per-test lines, together with
-        # the generic and platform/mac skips they would otherwise mask, decide what runs.
+        # MAVERICKS_BACKPORT: platform/mac-wk1/TestExpectations opens with a block skipping every top-level
+        # suite, because Apple's bots do not run DumpRenderTree on Mac. This port does, so its WebKit1 port
+        # reads that file with the block's lines blanked; every later line, and its line number, is kept.
         if self._version == 'mavericks' and self.is_webkitlegacy():
-            wk1_expectations = self._webkit_baseline_path('mac-wk1')
-            wk1_expectations = self._filesystem.join(wk1_expectations, 'TestExpectations')
+            wk1_expectations = self._filesystem.join(self._webkit_baseline_path('mac-wk1'), 'TestExpectations')
             if wk1_expectations in result:
-                result[wk1_expectations] = '\n'.join(
-                    line for line in result[wk1_expectations].split('\n')
-                    if not re.match(r'^[^\s/#\[]+ \[ Skip \]\s*$', line))
+                lines = result[wk1_expectations].split('\n')
+                if '# Skip all tests on Mac wk1' in lines:
+                    start = lines.index('# Skip all tests on Mac wk1')
+                    end = lines.index('', start) if '' in lines[start:] else len(lines)
+                    lines[start:end] = [''] * (end - start)
+                    result[wk1_expectations] = '\n'.join(lines)
         if self.architecture() == 'x86_64' and self.host.platform.architecture() == 'arm64':
             rosetta_expectations = self._filesystem.join(self.layout_tests_dir(), 'platform', 'mac', 'TestExpectationsRosetta')
             if self._filesystem.exists(rosetta_expectations):

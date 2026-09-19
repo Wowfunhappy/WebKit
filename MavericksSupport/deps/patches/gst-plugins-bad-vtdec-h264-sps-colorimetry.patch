@@ -1,0 +1,94 @@
+# Populate unspecified H.264 output colorimetry from the SPS VUI.
+
+--- a/sys/applemedia/vtdec.c
++++ b/sys/applemedia/vtdec.c
+@@ -201,6 +201,8 @@
+     CMTime duration);
+ static gboolean compute_h264_decode_picture_buffer_size (GstVtdec * vtdec,
+     GstBuffer * codec_data, int *length);
++static void gst_vtdec_h264_colorimetry_from_codec_data (GstVtdec * vtdec,
++    GstBuffer * codec_data, GstVideoColorimetry * colorimetry);
+ static gboolean compute_hevc_decode_picture_buffer_size (GstVtdec * vtdec,
+     GstBuffer * codec_data, int *length);
+ static gboolean gst_vtdec_compute_dpb_size (GstVtdec * vtdec,
+@@ -612,6 +614,7 @@
+ {
+   GstVideoCodecState *output_state = NULL;
+   GstCaps *peercaps = NULL, *caps = NULL, *templcaps = NULL, *prevcaps = NULL;
++  GstStructure *input_structure;
+   GstVideoFormat format = GST_VIDEO_FORMAT_UNKNOWN;
+   GstVtdec *vtdec;
+   OSStatus err = noErr;
+@@ -694,6 +697,12 @@
+   output_state = gst_video_decoder_set_output_state (GST_VIDEO_DECODER (vtdec),
+       format, vtdec->video_info.width, vtdec->video_info.height,
+       vtdec->input_state);
++  input_structure = gst_caps_get_structure (vtdec->input_state->caps, 0);
++  if (gst_structure_has_name (input_structure, "video/x-h264")
++      && vtdec->input_state->codec_data
++      && !gst_structure_has_field (input_structure, "colorimetry"))
++    gst_vtdec_h264_colorimetry_from_codec_data (vtdec,
++        vtdec->input_state->codec_data, &output_state->info.colorimetry);
+   output_state->caps = gst_video_info_to_caps (&output_state->info);
+   if (features) {
+     gst_caps_set_features (output_state->caps, 0, features);
+@@ -1979,6 +1988,59 @@
+   return ret;
+ }
+ 
++static void
++gst_vtdec_h264_colorimetry_from_codec_data (GstVtdec * vtdec,
++    GstBuffer * codec_data, GstVideoColorimetry * colorimetry)
++{
++  GstH264DecoderConfigRecord *config = NULL;
++  guint i;
++
++  if (!parse_h264_decoder_config_record (vtdec, codec_data, &config))
++    return;
++
++  for (i = 0; i < config->sps->len; i++) {
++    GstH264NalUnit *nalu = &g_array_index (config->sps, GstH264NalUnit, i);
++    GstH264SPS sps;
++    GstH264VUIParams *vui;
++    GstH264ParserResult result;
++
++    if (nalu->type != GST_H264_NAL_SPS)
++      continue;
++
++    result = gst_h264_parse_sps (nalu, &sps);
++    if (result != GST_H264_PARSER_OK) {
++      GST_WARNING_OBJECT (vtdec, "Failed to parse SPS, result %d", result);
++      gst_h264_decoder_config_record_free (config);
++      return;
++    }
++
++    vui = &sps.vui_parameters;
++    if (sps.vui_parameters_present_flag &&
++        vui->video_signal_type_present_flag &&
++        vui->colour_description_present_flag) {
++      GstVideoColorimetry ci = { 0, };
++      gchar *colorimetry_string;
++
++      ci.matrix = gst_video_color_matrix_from_iso (vui->matrix_coefficients);
++      ci.transfer =
++          gst_video_transfer_function_from_iso (vui->transfer_characteristics);
++      ci.primaries = gst_video_color_primaries_from_iso (vui->colour_primaries);
++      if (ci.matrix != GST_VIDEO_COLOR_MATRIX_UNKNOWN &&
++          ci.transfer != GST_VIDEO_TRANSFER_UNKNOWN &&
++          ci.primaries != GST_VIDEO_COLOR_PRIMARIES_UNKNOWN)
++        ci.range = vui->video_full_range_flag ? GST_VIDEO_COLOR_RANGE_0_255 :
++            GST_VIDEO_COLOR_RANGE_16_235;
++      colorimetry_string = gst_video_colorimetry_to_string (&ci);
++      if (colorimetry_string)
++        *colorimetry = ci;
++      g_free (colorimetry_string);
++    }
++    gst_h264_sps_clear (&sps);
++  }
++
++  gst_h264_decoder_config_record_free (config);
++}
++
+ static gboolean
+ get_h264_dpb_size_from_sps (GstVtdec * vtdec, GstH264NalUnit * nalu,
+     gint * dpb_size)

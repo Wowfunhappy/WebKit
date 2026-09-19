@@ -5,6 +5,8 @@
 #import "wk_selref_scope.h"
 #import <Foundation/Foundation.h>
 
+#include "wk_set_cookie_string.h"
+
 extern CFTypeRef WebCoreCookieCreateFromHTTPResponseField(CFStringRef, CFURLRef) CF_RETURNS_RETAINED;
 
 WK_POLYFILL_ADD_METHODS(NSHTTPCookie)
@@ -14,6 +16,11 @@ WK_POLYFILL_ADD_METHODS(NSHTTPCookie)
     (void)partition;
     if (!field.length || !url)
         return nil;
-    return [(NSHTTPCookie *)WebCoreCookieCreateFromHTTPResponseField((CFStringRef)field, (CFURLRef)url) autorelease];
+    // The SPI answers the first cookie of a string that holds several, divided as 10.9's parser divides them.
+    CFRange first = wk_setCookieStringFirstCookieRange((CFStringRef)field);
+    if (first.location == kCFNotFound)
+        return nil;
+    NSString *cookie = [field substringWithRange:NSMakeRange((NSUInteger)first.location, (NSUInteger)first.length)];
+    return [(NSHTTPCookie *)WebCoreCookieCreateFromHTTPResponseField((CFStringRef)cookie, (CFURLRef)url) autorelease];
 }
 @end

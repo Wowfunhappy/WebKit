@@ -33,6 +33,10 @@ void webkitGstBufferAddVideoFrameMetadata(GstBuffer*, std::optional<WebCore::Vid
 // Makes the buffer writable before modifying it.
 [[nodiscard]] GRefPtr<GstBuffer> webkitGstBufferSetVideoFrameMetadata(GRefPtr<GstBuffer>&&, std::optional<WebCore::VideoFrameTimeMetadata>, WebCore::VideoFrame::Rotation = WebCore::VideoFrame::Rotation::None, bool isMirrored = false, WebCore::VideoFrameContentHint = WebCore::VideoFrameContentHint::None);
 
+// MAVERICKS_BACKPORT: WebCodecs timing travels with each frame through GStreamer's video metadata copies.
+[[nodiscard]] GRefPtr<GstBuffer> webkitGstBufferSetWebCodecsTiming(GRefPtr<GstBuffer>&&, int64_t timestamp, std::optional<uint64_t> duration);
+std::pair<int64_t, std::optional<uint64_t>> webkitGstBufferGetWebCodecsTiming(GstBuffer*);
+
 void webkitGstTraceProcessingTimeForElement(GstElement*);
 WebCore::VideoFrameMetadata webkitGstBufferGetVideoFrameMetadata(GstBuffer*);
 std::pair<WebCore::VideoFrame::Rotation, bool> webkitGstBufferGetVideoRotation(GstBuffer*);

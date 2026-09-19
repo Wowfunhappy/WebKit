@@ -64,6 +64,9 @@ and install prefix, and that build's own ccache.
 2. **Install Apple's Command Line Tools** (`xcode-select --install`). The toolchain's C tools, the
    third-party deps build and the polyfill layer all target 10.9's own libc, so they compile against
    the host headers in `/usr/include`, which the Command Line Tools install and Xcode.app does not.
+   Also install **Xcode 6.2** at `/Applications/Xcode.app` (or put its working `ibtool` on `PATH`).
+   Its Interface Builder compiler builds `WebAuthenticationPanel.nib`; bootstrap checks that
+   `ibtool` runs before starting the toolchain and dependency builds.
 
 3. **Bootstrap** (once): `bash MavericksSupport/bootstrap.sh` — unpacks the in-tree clang and builds
    python3/ruby/nasm/ninja/cmake/ccache/git into `toolchain/build/`, applies the SDK patches, builds the
@@ -92,7 +95,12 @@ parts of this port that differ from Apple's: the 10.9 frameworks, the polyfills,
 dependencies and the process model. `run-layout-tests.sh --wk1|--wk2 --port-surface` runs its
 layout tests (`layout-tests.txt`; expectations in `LayoutTests/platform/mac-mavericks-wk1` and
 `-wk2`), and `run-api-tests.sh --port-surface` its API tests (`api-tests.txt`, which also carries
-their expectations). Every failure in it is a backport defect until its cause is recorded there.
+their expectations). Selection follows feature relevance, runtime, and maintainer scope decisions,
+uniformly across passing and failing tests. The runner skips documented failures and flakiness
+in applicable TestExpectations; explicitly naming a test does not override those exclusions.
+Tests whose upstream text baselines contain FAIL lines remain selected. Each exclusion records
+its evidence; port-specific defects require fixes. Accessibility is outside the suite's scope.
+Every executed test must pass.
 
 ## `polyfill/build/` contents
 

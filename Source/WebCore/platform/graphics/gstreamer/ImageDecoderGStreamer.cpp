@@ -128,7 +128,9 @@ ImageDecoderGStreamer::ImageDecoderGStreamer(FragmentedSharedBuffer& data, const
         auto identityHarness = GStreamerElementHarness::create(GRefPtr<GstElement>(gst_element_factory_make("identity", nullptr)), [](auto&, const auto&) { });
         GST_DEBUG_OBJECT(pad.get(), "Caps on parser source pad: %" GST_PTR_FORMAT, caps.get());
         if (!caps || !doCapsHaveType(caps.get(), "video"_s)) {
-            GST_WARNING_OBJECT(m_decoderHarness->element(), "Ignoring non-video track");
+            // MAVERICKS_BACKPORT: An audio pad can arrive before a video decoder exists.
+            // GST_WARNING_OBJECT(m_decoderHarness->element(), "Ignoring non-video track");
+            GST_WARNING_OBJECT(m_parserHarness->element(), "Ignoring non-video track");
             return identityHarness;
         }
 
@@ -239,16 +241,7 @@ EncodedDataStatus ImageDecoderGStreamer::encodedDataStatus() const
     if (m_error)
         return EncodedDataStatus::Error;
 
-    // MAVERICKS_BACKPORT(upstreamable): webkit.org/b/211995. Complete is read as "frameCount() is final"
-    // -- ImageFrameAnimator snapshots it at construction and BitmapImageSource holds that animator for
-    // the image's life -- and m_eos does not say that. It carries the end-of-stream event the previous
-    // pushEncodedData's decoder reset() queued, so it is true only on the call after frames were
-    // decoded and false on every later one: the third setData CachedImage makes (one for
-    // didReceiveData, one for didFinishLoading) leaves Complete unreachable, and the second reaches it
-    // while more data may still arrive. ImageDecoderAVFObjC answers Complete from decoded samples and
-    // fills its sample map only once allDataReceived, so this asks for both.
-    // if (m_eos)
-    if (m_isAllDataReceived && m_sampleData.size())
+    if (m_eos)
         return EncodedDataStatus::Complete;
     if (m_size)
         return EncodedDataStatus::SizeAvailable;
@@ -297,15 +290,14 @@ PlatformImagePtr ImageDecoderGStreamer::createFrameImageAtIndex(size_t index, Su
     return nullptr;
 }
 
-// MAVERICKS_BACKPORT(upstreamable): the flag is named and recorded, the way
-// ImageDecoderAVFObjC::setData records it; see encodedDataStatus().
+// MAVERICKS_BACKPORT: Forward the ImageDecoder end-of-input contract to the streaming adapter.
 // void ImageDecoderGStreamer::setData(const FragmentedSharedBuffer& data, bool)
+// {
+//     pushEncodedData(data);
+// }
 void ImageDecoderGStreamer::setData(const FragmentedSharedBuffer& data, bool allDataReceived)
 {
-    // MAVERICKS_BACKPORT(upstreamable): recorded here, read by encodedDataStatus().
-    if (allDataReceived)
-        m_isAllDataReceived = true;
-    pushEncodedData(data);
+    pushEncodedData(data, allDataReceived); // MAVERICKS_BACKPORT: preserve the end-of-input flag.
 }
 
 void ImageDecoderGStreamer::clearFrameBufferCache(size_t index)
@@ -341,6 +333,7 @@ void ImageDecoderGStreamer::storeDecodedSample(GRefPtr<GstSample>&& sample)
     m_sampleData.addSample(ImageDecoderGStreamerSample::create(WTF::move(sample), *m_size));
 }
 
+/* MAVERICKS_BACKPORT: GStreamerImageDecoderStream appends only new bytes and drains at network EOF.
 void ImageDecoderGStreamer::pushEncodedData(const FragmentedSharedBuffer& sharedBuffer)
 {
     auto data = sharedBuffer.makeContiguous();
@@ -389,6 +382,17 @@ void ImageDecoderGStreamer::pushEncodedData(const FragmentedSharedBuffer& shared
     }
 
     m_decoderHarness->reset();
+}
+*/ // MAVERICKS_BACKPORT: streaming input implementation is in GStreamerImageDecoderStream.
+void ImageDecoderGStreamer::pushEncodedData(const FragmentedSharedBuffer& data, bool allDataReceived)
+{
+    auto status = m_encodedStream.append(data, allDataReceived, *m_parserHarness, m_decoderHarness);
+    m_eos = status == GStreamerImageDecoderStream::Status::Complete;
+    m_error = status == GStreamerImageDecoderStream::Status::Error || (m_eos && m_sampleData.empty());
+    callOnMainThreadAndWait([&] {
+        if (m_encodedDataStatusChangedCallback)
+            m_encodedDataStatusChangedCallback(encodedDataStatus());
+    });
 }
 
 #undef GST_CAT_DEFAULT

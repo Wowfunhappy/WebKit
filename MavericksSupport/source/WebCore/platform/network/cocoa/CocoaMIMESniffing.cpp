@@ -5,20 +5,20 @@
 #include "config.h"
 #include "CocoaMIMESniffing.h"
 
+#include "HTTPParsers.h"
 #include "MIMESniffer.h"
 #include "MIMETypeRegistry.h"
-#include "ParsedContentType.h"
 #include <wtf/ASCIICType.h>
 #include <wtf/StdLibExtras.h>
 
 namespace WebCore {
 namespace MIMESniffer {
 
-// https://mimesniff.spec.whatwg.org/ sections 6.1, 6.4 and 7.
+// https://mimesniff.spec.whatwg.org/ sections 6.1, 6.4 and 7. The supplied type is the Content-Type
+// essence as CFNetwork reports it, an unparseable one such as "text/" included.
 static String suppliedHTTPMIMEType(const String& contentType)
 {
-    auto parsed = ParsedContentType::create(contentType);
-    return parsed ? parsed->mimeType().convertToASCIILowercase() : emptyString();
+    return extractMIMETypeFromMediaType(contentType).convertToASCIILowercase();
 }
 
 static bool unknownHTTPMIMEType(const String& type)
@@ -32,14 +32,25 @@ static bool checkForMislabeledBinary(const String& contentType)
         || contentType == "text/plain; charset=iso-8859-1"_s || contentType == "text/plain; charset=UTF-8"_s;
 }
 
-bool needsHTTPContentSniffing(const String& contentType, bool noSniff)
+static bool needsHTTPContentSniffing(const String& contentType, bool noSniff)
 {
+    if (noSniff)
+        return false;
     auto type = suppliedHTTPMIMEType(contentType);
     if (unknownHTTPMIMEType(type))
         return true;
-    if (noSniff || type == "text/html"_s || type == "text/xml"_s || type == "application/xml"_s || type.endsWith("+xml"_s))
+    if (type == "text/html"_s || type == "text/xml"_s || type == "application/xml"_s || type.endsWith("+xml"_s))
         return false;
     return checkForMislabeledBinary(contentType) || type.startsWith("image/"_s) || type.startsWith("audio/"_s) || type.startsWith("video/"_s) || type == "application/ogg"_s;
+}
+
+// No type or an unknown one, text/html, text/plain, text/xml, application/xml, and the image types CFNetwork
+// recognizes by signature. The response's X-Content-Type-Options does not release it.
+bool holdsResponseForSniffing(const String& contentType)
+{
+    auto type = suppliedHTTPMIMEType(contentType);
+    return unknownHTTPMIMEType(type) || type == "text/html"_s || type == "text/plain"_s || type == "text/xml"_s || type == "application/xml"_s
+        || type == "image/png"_s || type == "image/gif"_s || type == "image/jpeg"_s || type == "image/bmp"_s || type == "image/vnd.microsoft.icon"_s;
 }
 
 template<size_t N> static bool beginsWithBytes(std::span<const uint8_t> bytes, const char (&prefix)[N])
@@ -81,8 +92,17 @@ String computeHTTPMIMEType(std::span<const uint8_t> bytes, const String& content
     if (!unknownHTTPMIMEType(supplied)) {
         if (!needsHTTPContentSniffing(contentType, noSniff))
             return supplied;
-        if (checkForMislabeledBinary(contentType))
-            return distinguishTextFromBinary(bytes);
+        if (checkForMislabeledBinary(contentType)) {
+            auto type = distinguishTextFromBinary(bytes);
+            if (type == "text/plain"_s)
+                return type;
+            // CFNetwork names a binary resource labeled text/plain by its image or media signature.
+            if (auto image = sniffHTTPImage(bytes); !image.isEmpty())
+                return image;
+            if (auto media = getMIMETypeFromContent(bytes); !media.isEmpty())
+                return media;
+            return type;
+        }
         if (supplied.startsWith("image/"_s) && MIMETypeRegistry::isSupportedImageMIMEType(supplied)) {
             auto image = sniffHTTPImage(bytes);
             if (!image.isEmpty())

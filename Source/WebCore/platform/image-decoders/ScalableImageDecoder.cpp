@@ -43,6 +43,11 @@
 #if USE(TIFF)
 #include "TIFFImageDecoder.h"
 #endif // MAVERICKS_BACKPORT: closes the USE(TIFF) guard above.
+// MAVERICKS_BACKPORT: HEIF has no upstream ScalableImageDecoder; upstream Cocoa decodes it in
+// ImageIO. This port carries one (MavericksSupport/source, on libheif).
+#if USE(HEIF)
+#include "HEIFImageDecoder.h"
+#endif // MAVERICKS_BACKPORT: closes the USE(HEIF) guard above.
 #if USE(AVIF)
 #include "AVIFImageDecoder.h"
 #endif
@@ -54,6 +59,11 @@
 #include "ImageDecoderCG.h"
 #include <ImageIO/ImageIO.h>
 #endif
+
+// MAVERICKS_BACKPORT: the Lockdown Mode check in ScalableImageDecoder::create below.
+#if PLATFORM(MAC) && ENABLE(LOCKDOWN_MODE_API)
+#include <pal/cocoa/LockdownModeCocoa.h>
+#endif // MAVERICKS_BACKPORT: closes the Lockdown Mode include guard above.
 
 #include <algorithm>
 #include <cmath>
@@ -167,6 +177,17 @@ RefPtr<ScalableImageDecoder> ScalableImageDecoder::create(FragmentedSharedBuffer
 
     std::span contentsSpan { contents };
 
+// MAVERICKS_BACKPORT: Lockdown Mode limits images to the formats UTIRegistry's
+// lockdownSupportedImageTypes() lists -- WebP, JPEG, PNG and GIF. Upstream Cocoa enforces that list
+// in ImageDecoderCG::encodedDataStatus() through isSupportedImageType(); the decoders this port
+// builds are the ones below, so the same list is enforced where they are chosen.
+#if PLATFORM(MAC) && ENABLE(LOCKDOWN_MODE_API)
+    if (PAL::isLockdownModeEnabledForCurrentProcess()
+        && !matchesWebPSignature(contentsSpan) && !matchesJPEGSignature(contentsSpan)
+        && !matchesPNGSignature(contentsSpan) && !matchesGIFSignature(contentsSpan))
+        return nullptr;
+#endif // MAVERICKS_BACKPORT: closes the Lockdown Mode check above.
+
 // MAVERICKS_BACKPORT: each `!PLATFORM(COCOA)` in this file reads `|| PLATFORM(MAC)`. This port
 // decodes every image format in WebCore rather than in 10.9's ImageIO, so the Mac build takes the
 // same byte-signature dispatch as the ports that have no CGImageSource at all.
@@ -195,6 +216,14 @@ RefPtr<ScalableImageDecoder> ScalableImageDecoder::create(FragmentedSharedBuffer
     if (matchesTIFFSignature(contentsSpan))
         return TIFFImageDecoder::create(alphaOption, gammaAndColorProfileOption);
 #endif // MAVERICKS_BACKPORT: closes the USE(TIFF) guard above.
+
+// MAVERICKS_BACKPORT: this port's HEIF decoder; see the include above. Ahead of the AVIF check,
+// which matches any ISO base media file; HEIFImageDecoder answers only for HEIF brands without an
+// AVIF one.
+#if USE(HEIF)
+    if (HEIFImageDecoder::matchesSignature(data))
+        return HEIFImageDecoder::create(alphaOption, gammaAndColorProfileOption);
+#endif // MAVERICKS_BACKPORT: closes the USE(HEIF) guard above.
 
 #if USE(AVIF)
     if (matchesAVIFSignature(contentsSpan, data))
@@ -267,7 +296,31 @@ PlatformImagePtr ScalableImageDecoder::createFrameImageAtIndex(size_t index, Sub
 
     // Return the buffer contents as a native image. For some ports, the data
     // is already in a native container, and this just increments its refcount.
+#if USE(CG) // MAVERICKS_BACKPORT: match ImageDecoderCG by retaining the source profile until the image is drawn.
+    return createNativeImage(*buffer);
+#else
     return buffer->backingStore()->image();
+#endif // MAVERICKS_BACKPORT: closes native image construction.
 }
+
+#if USE(CG) // MAVERICKS_BACKPORT: RGB profiles describe the decoder's unconverted RGB backing-store samples.
+PlatformImagePtr ScalableImageDecoder::createNativeImage(const ScalableImageDecoderFrame& frame) const
+{
+    auto image = frame.backingStore()->image();
+    if (image && m_embeddedRGBColorSpace)
+        return adoptCF(CGImageCreateCopyWithColorSpace(image.get(), m_embeddedRGBColorSpace.get()));
+    return image;
+}
+
+void ScalableImageDecoder::setEmbeddedRGBColorProfile(std::span<const uint8_t> profile)
+{
+    auto data = adoptCF(CFDataCreate(kCFAllocatorDefault, profile.data(), profile.size()));
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    auto colorSpace = adoptCF(CGColorSpaceCreateWithICCProfile(data.get()));
+ALLOW_DEPRECATED_DECLARATIONS_END
+    if (colorSpace && CGColorSpaceGetModel(colorSpace.get()) == kCGColorSpaceModelRGB)
+        m_embeddedRGBColorSpace = std::move(colorSpace);
+}
+#endif // MAVERICKS_BACKPORT: closes native RGB profile retention.
 
 }

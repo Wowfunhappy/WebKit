@@ -1,0 +1,22 @@
+# CURLOPT_PIPEWAIT holds a transfer pending while an in-flight connection's
+# multiplexing capability is unknown. When an asynchronous connection resolves
+# as single-use, multistate_connecting leaves the pending transfer serialized
+# behind the active transfer even though it can open a separate connection.
+# Connection completion settles the PIPEWAIT decision for both multiplexed and
+# single-use candidates, so it schedules pending handles in either case.
+# Applied by build_deps with patch -p1.
+
+--- a/lib/multi.c
++++ b/lib/multi.c
+@@ -2532,9 +2532,8 @@
+   if(!Curl_xfer_recv_is_paused(data)) {
+     *result = Curl_conn_connect(data, FIRSTSOCKET, FALSE, &connected);
+     if(connected && !*result) {
+-      if(!data->conn->bits.reuse &&
+-         Curl_conn_is_multiplex(data->conn, FIRSTSOCKET)) {
+-        /* new connection, can multiplex, wake pending handles */
++      if(!data->conn->bits.reuse) {
++        /* A connected candidate resolves PIPEWAIT's multiplexing decision. */
+         multi_schedule_pending(data->multi);
+       }
+       multistate(data, MSTATE_PROTOCONNECT);

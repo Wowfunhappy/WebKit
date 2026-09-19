@@ -6,7 +6,8 @@
 
 // libcurl calls its progress callback only once a connection stands (lib/multi.c reaches
 // Curl_pgrsUpdateX under Curl_conn_is_connected), so what interrupts a connect, a proxy tunnel or a
-// handshake is the descriptor itself: shutting it down wakes curl's poll at once. Name resolution
+// handshake is the descriptor itself: closing its read side wakes curl -- at once wherever it is
+// waiting on bytes, and within one of its own polls while a connect is outstanding. Name resolution
 // runs before any descriptor exists, and is bounded by CURLOPT_CONNECTTIMEOUT instead. curl opens and
 // closes its sockets through the callbacks below, and closes them when the handle is cleaned up --
 // which happens after the object that opened the connection is gone, so the descriptor and the
@@ -64,12 +65,16 @@ static inline curl_socket_t cocoaCurlSocketGateOpen(void *gateData, curlsocktype
     if (descriptor == CURL_SOCKET_BAD)
         return CURL_SOCKET_BAD;
     pthread_mutex_lock(&gate->lock);
-    gate->descriptor = descriptor;
     cancelled = gate->cancelled;
+    if (!cancelled)
+        gate->descriptor = descriptor;
     pthread_mutex_unlock(&gate->lock);
-    // A cancel that landed between the two is answered here, so no connect outlives it.
-    if (cancelled)
-        shutdown(descriptor, SHUT_RDWR);
+    // A cancel that arrived before this socket did is answered by opening none: curl fails the
+    // connect, and the address is never reached.
+    if (cancelled) {
+        close(descriptor);
+        return CURL_SOCKET_BAD;
+    }
     return descriptor;
 }
 
@@ -90,8 +95,10 @@ static inline void cocoaCurlSocketGateCancel(CocoaCurlSocketGate *gate)
 {
     pthread_mutex_lock(&gate->lock);
     gate->cancelled = 1;
+    // The read side is what curl waits on, and it is the half a cancel can close whatever state the
+    // connection has reached. The peer learns of the end from curl's own close of the descriptor.
     if (gate->descriptor != CURL_SOCKET_BAD)
-        shutdown(gate->descriptor, SHUT_RDWR);
+        shutdown(gate->descriptor, SHUT_RD);
     pthread_mutex_unlock(&gate->lock);
 }
 

@@ -1,0 +1,128 @@
+# An HLS variant stream can carry a rendition its master playlist declares without a URI: the
+# audio of the variant is then the EXT-X-MEDIA rendition of that type, with its NAME and
+# LANGUAGE. hlsdemux sends those in a sticky "hls-rendition-tags" event holding one tag list per
+# stream type, because a tag event has no notion of type and tsdemux spreads an upstream stream
+# tag list over every elementary stream of the program. The patch keeps the event and merges the
+# list for each elementary stream's type (audio, video, subpicture as text) into the tags of the
+# streams it creates from then on, replacing the transport stream's own values, as the successor
+# element attaches such a rendition to the variant's track of the matching type. The event is
+# cleared with the demuxer's global tags on reset.
+#
+# Each elementary stream's stream-start also takes GST_STREAM_FLAG_SELECT and
+# GST_STREAM_FLAG_UNSELECT from the upstream stream-start, as qtdemux does, so a selection made for
+# the stream the transport stream arrives on reaches its streams; and a "<type>-default" field in
+# the rendition-tags event selects the elementary stream of that type. The flags go on the event
+# and on the stream's GstStream.
+#
+# Applied by build_deps with patch -p1.
+--- a/gst/mpegtsdemux/tsdemux.h
++++ b/gst/mpegtsdemux/tsdemux.h
+@@ -92,6 +92,10 @@
+   /* global taglist */
+   GstTagList *global_tags;
+ 
++  /* The "hls-rendition-tags" an adaptive demuxer sends for renditions carried inside this
++   * transport stream: one tag list per stream type, merged into the streams of that type. */
++  GstStructure *rendition_tags;
++
+   /* Full stream duration */
+   GstClockTime duration;
+ 
+--- a/gst/mpegtsdemux/tsdemux.c
++++ b/gst/mpegtsdemux/tsdemux.c
+@@ -470,6 +470,7 @@
+     gst_tag_list_unref (demux->global_tags);
+     demux->global_tags = NULL;
+   }
++  gst_clear_structure (&demux->rendition_tags);
+ 
+   if (demux->previous_program) {
+     mpegts_base_deactivate_and_free_program (base, demux->previous_program);
+@@ -1085,6 +1086,12 @@
+     /* tags are stored to be used after if there are no streams yet,
+      * so we should never reject */
+     early_ret = TRUE;
++  } else if (GST_EVENT_TYPE (event) == GST_EVENT_CUSTOM_DOWNSTREAM_STICKY &&
++      gst_event_has_name (event, "hls-rendition-tags")) {
++    /* Stored for the streams created from now on, see gst_ts_demux_create_pad_for_stream */
++    gst_clear_structure (&demux->rendition_tags);
++    demux->rendition_tags = gst_structure_copy (gst_event_get_structure (event));
++    early_ret = TRUE;
+   }
+ 
+   if (G_UNLIKELY (demux->program == NULL)) {
+@@ -2141,6 +2148,7 @@
+   if (template && name && caps) {
+     GstEvent *event;
+     const gchar *stream_id;
++    GstStreamFlags stream_flags;
+ 
+     GST_LOG_OBJECT (demux,
+         "stream:%p creating pad with name %s and caps %" GST_PTR_FORMAT,
+@@ -2150,25 +2158,43 @@
+     gst_pad_use_fixed_caps (pad);
+     stream_id = gst_stream_get_stream_id (bstream->stream_object);
+ 
++    stream_flags = GST_STREAM_FLAG_NONE;
+     event = gst_pad_get_sticky_event (base->sinkpad, GST_EVENT_STREAM_START, 0);
+     if (event) {
++      GstStreamFlags upstream_flags = GST_STREAM_FLAG_NONE;
++
+       if (gst_event_parse_group_id (event, &demux->group_id))
+         demux->have_group_id = TRUE;
+       else
+         demux->have_group_id = FALSE;
++      /* The selection upstream decided for the stream this transport stream carries */
++      gst_event_parse_stream_flags (event, &upstream_flags);
++      stream_flags |=
++          upstream_flags & (GST_STREAM_FLAG_SELECT | GST_STREAM_FLAG_UNSELECT);
+       gst_event_unref (event);
+     } else if (!demux->have_group_id) {
+       demux->have_group_id = TRUE;
+       demux->group_id = gst_util_group_id_next ();
+     }
++    if (demux->rendition_tags) {
++      /* A DEFAULT rendition carried inside this transport stream */
++      const gchar *type_field = is_audio ? "audio-default" : is_video ?
++          "video-default" : is_subpicture ? "text-default" : NULL;
++      gboolean is_default = FALSE;
++
++      if (type_field && gst_structure_get_boolean (demux->rendition_tags,
++              type_field, &is_default) && is_default)
++        stream_flags |= GST_STREAM_FLAG_SELECT;
++    }
+     event = gst_event_new_stream_start (stream_id);
+     gst_event_set_stream (event, bstream->stream_object);
+     if (demux->have_group_id)
+       gst_event_set_group_id (event, demux->group_id);
+-    if (sparse) {
+-      gst_event_set_stream_flags (event, GST_STREAM_FLAG_SPARSE);
+-      gst_stream_set_stream_flags (bstream->stream_object,
+-          GST_STREAM_FLAG_SPARSE);
++    if (sparse)
++      stream_flags |= GST_STREAM_FLAG_SPARSE;
++    if (stream_flags != GST_STREAM_FLAG_NONE) {
++      gst_event_set_stream_flags (event, stream_flags);
++      gst_stream_set_stream_flags (bstream->stream_object, stream_flags);
+     }
+     stream->sparse = sparse;
+     gst_stream_set_caps (bstream->stream_object, caps);
+@@ -2176,6 +2202,18 @@
+       stream->taglist = gst_tag_list_new_empty ();
+     gst_pb_utils_add_codec_description_to_tag_list (stream->taglist, NULL,
+         caps);
++    if (demux->rendition_tags) {
++      const gchar *type_field = is_audio ? "audio" : is_video ? "video" :
++          is_subpicture ? "text" : NULL;
++      GstTagList *rendition_tags = NULL;
++
++      if (type_field && gst_structure_get (demux->rendition_tags, type_field,
++              GST_TYPE_TAG_LIST, &rendition_tags, NULL)) {
++        gst_tag_list_insert (stream->taglist, rendition_tags,
++            GST_TAG_MERGE_REPLACE);
++        gst_tag_list_unref (rendition_tags);
++      }
++    }
+     gst_stream_set_tags (bstream->stream_object, stream->taglist);
+ 
+     gst_pad_push_event (pad, event);

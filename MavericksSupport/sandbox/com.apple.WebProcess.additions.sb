@@ -86,3 +86,9 @@
 ;; getUserMedia permission prompt, which those ports rely on for the same reason. The audio mach-lookups
 ;; (com.apple.audio.coreaudiod, com.apple.audio.audiohald) are in the base profile ungated.
 (allow device-microphone)
+
+;; The OS package receipts that tell the fonts this system shipped from ones a user installed. Modern
+;; CoreText answers kCTFontUserInstalledAttribute from its own font registry; on this OS the polyfill reads
+;; the receipts the first time a page asks for system fonts only.
+(allow file-read* (literal "/private/var/db/receipts"))
+(allow file-read* (regex #"^/private/var/db/receipts/com\.apple\.pkg\.[^/]+\.bom$"))

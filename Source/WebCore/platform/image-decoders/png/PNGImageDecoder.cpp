@@ -377,6 +377,17 @@ void PNGImageDecoder::headerAvailable()
     if (colorType == PNG_COLOR_TYPE_GRAY || colorType == PNG_COLOR_TYPE_GRAY_ALPHA)
         png_set_gray_to_rgb(png);
 
+#if USE(CG) // MAVERICKS_BACKPORT: an embedded RGB profile controls transfer and gamut conversion, including subsequent APNG frames.
+    if (!m_ignoreGammaAndColorProfile) {
+        char* title;
+        unsigned char* profile;
+        png_uint_32 length;
+        int compression;
+        if (png_get_iCCP(png, info, &title, &compression, &profile, &length))
+            setEmbeddedRGBColorProfile(unsafeMakeSpan(profile, length));
+    }
+    if (!m_embeddedRGBColorSpace) {
+#endif
     // Deal with gamma and keep it under our control.
     double gamma;
     if (!m_ignoreGammaAndColorProfile && png_get_gAMA(png, info, &gamma)) {
@@ -388,8 +399,12 @@ void PNGImageDecoder::headerAvailable()
         m_gamma = static_cast<int>(gamma * 100000);
     } else
         png_set_gamma(png, cDefaultGamma, cInverseGamma);
+#if USE(CG) // MAVERICKS_BACKPORT: closes the unprofiled PNG gamma path.
+    }
+#endif
 
-#if USE(LCMS)
+// #if USE(LCMS)
+#if USE(LCMS) && !USE(CG) // MAVERICKS_BACKPORT: CoreGraphics consumes the original RGB profile and premultiplied samples.
     if (!m_ignoreGammaAndColorProfile) {
         char* iccProfileTitle;
         unsigned char* iccProfileData;

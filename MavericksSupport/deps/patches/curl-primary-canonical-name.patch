@@ -1,0 +1,198 @@
+--- a/include/curl/curl.h
++++ b/include/curl/curl.h
+@@ -3027,7 +3027,8 @@
+   CURLINFO_HTTPAUTH_USED    = CURLINFO_LONG + 69,
+   CURLINFO_PROXYAUTH_USED   = CURLINFO_LONG + 70,
+   CURLINFO_SIZE_DELIVERED   = CURLINFO_OFF_T + 71,
+-  CURLINFO_LASTONE          = 71
++  CURLINFO_PRIMARY_CANONICAL_NAME = CURLINFO_STRING + 72,
++  CURLINFO_LASTONE          = 72
+ } CURLINFO;
+ 
+ /* CURLINFO_RESPONSE_CODE is the new name for the option previously known as
+--- a/lib/vdns/asyn-thrdd.c
++++ b/lib/vdns/asyn-thrdd.c
+@@ -398,6 +398,8 @@
+   hints.ai_flags = AI_ADDRCONFIG;
+ #endif
+ 
++  hints.ai_flags |= AI_CANONNAME;
++
+   curl_msnprintf(service, sizeof(service), "%u", item->port);
+ #ifdef AI_NUMERICSERV
+   hints.ai_flags |= AI_NUMERICSERV;
+--- a/lib/vdns/hostip6.c
++++ b/lib/vdns/hostip6.c
+@@ -103,6 +103,7 @@
+     sbufptr = sbuf;
+   }
+ 
++  hints.ai_flags |= AI_CANONNAME;
+   error = Curl_getaddrinfo_ex(hostname, sbufptr, &hints, &res);
+   if(error) {
+     infof(data, "getaddrinfo(3) failed for %s:%d", hostname, port);
+--- a/lib/urldata.h
++++ b/lib/urldata.h
+@@ -407,6 +407,7 @@
+                       time was unretrievable. */
+   curl_off_t request_size; /* the amount of bytes sent in the request(s) */
+   curl_off_t numconnects; /* how many new connections libcurl created */
++  char *primary_canonical_name; /* canonical name of the connected origin */
+   char *contenttype; /* the content type of the object */
+   char *wouldredirect; /* URL this would have been redirected to if asked to */
+   curl_off_t retry_after; /* info from Retry-After: header */
+--- a/lib/getinfo.c
++++ b/lib/getinfo.c
+@@ -61,6 +61,7 @@
+   info->httpauthpicked = 0;
+   info->numconnects = 0;
+ 
++  curlx_safefree(info->primary_canonical_name);
+   curlx_safefree(info->contenttype);
+   curlx_safefree(info->wouldredirect);
+ 
+@@ -138,6 +139,9 @@
+     /* Return the referrer header for this request, or NULL if unset */
+     *param_charp = Curl_bufref_ptr(&data->state.referer);
+     break;
++  case CURLINFO_PRIMARY_CANONICAL_NAME:
++    *param_charp = data->info.primary_canonical_name;
++    break;
+   case CURLINFO_PRIMARY_IP:
+     /* Return the ip address of the most recent (primary) connection */
+     *param_charp = data->info.primary.remote_ip;
+--- a/lib/url.c
++++ b/lib/url.c
+@@ -265,6 +265,7 @@
+   Curl_http_auth_cleanup_digest(data);
+ #endif
+   curlx_safefree(data->state.most_recent_ftp_entrypath);
++  curlx_safefree(data->info.primary_canonical_name);
+   curlx_safefree(data->info.contenttype);
+   curlx_safefree(data->info.wouldredirect);
+ 
+--- a/lib/cf-socket.c
++++ b/lib/cf-socket.c
+@@ -66,6 +66,7 @@
+ #include "if2ip.h"
+ #include "cfilters.h"
+ #include "cf-socket.h"
++#include "vdns/cf-dns.h"
+ #include "connect.h"
+ #include "curl_addrinfo.h"
+ #include "select.h"
+@@ -967,6 +968,7 @@
+ 
+ struct cf_socket_ctx {
+   struct Curl_peer *peer;
++  char *canonical_name;
+   struct Curl_sockaddr_ex addr;      /* address to connect to */
+   curl_socket_t sock;                /* current attempt socket */
+   struct ip_quadruple ip;            /* The IP quadruple 2x(addr+port) */
+@@ -994,6 +996,7 @@
+ };
+ 
+ static CURLcode cf_socket_ctx_init(struct cf_socket_ctx *ctx,
++                                   struct Curl_easy *data,
+                                    struct Curl_peer *peer,
+                                    struct Curl_sockaddr_ex *addr,
+                                    uint8_t transport)
+@@ -1003,6 +1006,20 @@
+   ctx->sock = CURL_SOCKET_BAD;
+   ctx->transport = transport;
+   ctx->addr = *addr;
++
++  if(!peer->unix_socket) {
++    const struct Curl_addrinfo *ai;
++    ai = Curl_conn_dns_get_ai(data, peer, FIRSTSOCKET, AF_INET, 0);
++#ifdef USE_IPV6
++    if(!ai || !ai->ai_canonname)
++      ai = Curl_conn_dns_get_ai(data, peer, FIRSTSOCKET, AF_INET6, 0);
++#endif
++    if(ai && ai->ai_canonname) {
++      ctx->canonical_name = curlx_strdup(ai->ai_canonname);
++      if(!ctx->canonical_name)
++        return CURLE_OUT_OF_MEMORY;
++    }
++  }
+ 
+ #ifdef DEBUGBUILD
+   {
+@@ -1040,6 +1057,7 @@
+ {
+   if(ctx) {
+     Curl_peer_unlink(&ctx->peer);
++    curlx_free(ctx->canonical_name);
+     curlx_free(ctx);
+   }
+ }
+@@ -1688,14 +1706,24 @@
+   return result;
+ }
+ 
+-static void cf_socket_update_data(struct Curl_cfilter *cf,
+-                                  struct Curl_easy *data)
+-{
+-  /* Update the IP info held in the transfer, if we have that. */
++static CURLcode cf_socket_update_data(struct Curl_cfilter *cf,
++                                      struct Curl_easy *data)
++{
+   if(cf->connected && (cf->sockindex == FIRSTSOCKET)) {
+     struct cf_socket_ctx *ctx = cf->ctx;
++    char *canonical_name = NULL;
++    /* A proxy or a coalesced origin has no local resolution for this URL. */
++    if(ctx->canonical_name && data->state.origin &&
++       Curl_peer_same_destination(ctx->peer, data->state.origin)) {
++      canonical_name = curlx_strdup(ctx->canonical_name);
++      if(!canonical_name)
++        return CURLE_OUT_OF_MEMORY;
++    }
++    curlx_free(data->info.primary_canonical_name);
++    data->info.primary_canonical_name = canonical_name;
+     data->info.primary = ctx->ip;
+   }
++  return CURLE_OK;
+ }
+ 
+ static void cf_socket_active(struct Curl_cfilter *cf, struct Curl_easy *data)
+@@ -1723,11 +1751,9 @@
+   switch(event) {
+   case CF_CTRL_CONN_INFO_UPDATE:
+     cf_socket_active(cf, data);
+-    cf_socket_update_data(cf, data);
+-    break;
++    return cf_socket_update_data(cf, data);
+   case CF_CTRL_DATA_SETUP:
+-    cf_socket_update_data(cf, data);
+-    break;
++    return cf_socket_update_data(cf, data);
+   case CF_CTRL_FORGET_SOCKET:
+     ctx->sock = CURL_SOCKET_BAD;
+     break;
+@@ -1891,7 +1917,7 @@
+     goto out;
+   }
+ 
+-  result = cf_socket_ctx_init(ctx, peer, addr, transport_peer);
++  result = cf_socket_ctx_init(ctx, data, peer, addr, transport_peer);
+   if(result)
+     goto out;
+ 
+@@ -2102,7 +2128,7 @@
+     goto out;
+   }
+ 
+-  result = cf_socket_ctx_init(ctx, peer, addr, transport_peer);
++  result = cf_socket_ctx_init(ctx, data, peer, addr, transport_peer);
+   if(result)
+     goto out;
+ 
+@@ -2162,7 +2188,7 @@
+     goto out;
+   }
+ 
+-  result = cf_socket_ctx_init(ctx, peer, addr, transport_peer);
++  result = cf_socket_ctx_init(ctx, data, peer, addr, transport_peer);
+   if(result)
+     goto out;
+ 

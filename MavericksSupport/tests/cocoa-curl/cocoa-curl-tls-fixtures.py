@@ -6,7 +6,7 @@
       the server's self-signed server.key / server.pem / server.der (CN 127.0.0.1, SAN IP:127.0.0.1);
       and root.pem plus trusted.key / trusted.pem, a leaf for the same name signed by that root. A run
       that trusts root.pem in the system keychain gets a chain the platform accepts.
-  cocoa-curl-tls-fixtures.py serve <dir> --port N [--client-auth] [--tls 1.2|1.3] [--chain trusted]
+  cocoa-curl-tls-fixtures.py serve <dir> --port N [--client-auth] [--tls 1.1|1.2|1.3] [--chain trusted]
       HTTPS server on 127.0.0.1:N presenting server.pem, or the root-signed leaf with --chain trusted;
       every path answers "mTLS" (4 bytes). --client-auth requires a certificate signed by one of the two
       identities above; --tls pins the version.
@@ -85,8 +85,10 @@ def serve(directory, port, client_auth, tls, chain):
         context.verify_mode = ssl.CERT_REQUIRED
         context.load_verify_locations(str(directory / 'clients.pem'))
     if tls:
-        version = {'1.2': ssl.TLSVersion.TLSv1_2, '1.3': ssl.TLSVersion.TLSv1_3}[tls]
+        version = {'1.1': ssl.TLSVersion.TLSv1_1, '1.2': ssl.TLSVersion.TLSv1_2, '1.3': ssl.TLSVersion.TLSv1_3}[tls]
         context.minimum_version = version; context.maximum_version = version
+        if tls == '1.1':
+            context.set_ciphers('DEFAULT:@SECLEVEL=0')
     server = http.server.ThreadingHTTPServer(('127.0.0.1', port), Handler)
     server.socket = context.wrap_socket(server.socket, server_side=True)
     print('TLS fixture on 127.0.0.1:%d chain=%s client-auth=%d tls=%s' % (port, leaf, client_auth, tls or 'any'), flush=True)
@@ -207,7 +209,7 @@ def framing(directory, port, h2=False):
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser(); p.add_argument('command', choices=['make', 'serve', 'framing']); p.add_argument('directory', type=pathlib.Path)
-    p.add_argument('--port', type=int); p.add_argument('--client-auth', action='store_true'); p.add_argument('--tls', choices=['1.2', '1.3'])
+    p.add_argument('--port', type=int); p.add_argument('--client-auth', action='store_true'); p.add_argument('--tls', choices=['1.1', '1.2', '1.3'])
     p.add_argument('--chain', choices=['self-signed', 'trusted'], default='self-signed')
     p.add_argument('--h2', action='store_true')
     a = p.parse_args()

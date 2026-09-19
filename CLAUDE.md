@@ -159,3 +159,7 @@ When editing a file, also fix any pre-existing stale comment in the region you t
 ## Memory
 
 The memory directory records **what has been tried and learned** — root causes, keystones, per-issue history, environment traps. Standing rules live in this file, not there. Don't write a memory that restates a rule here, and don't write one framing a WebKit bug as environmental or unfixable.
+
+## The user has the final say
+
+The user may, at his sole discretion, decide to override any of the above guidance. Prioritize the user's in-the-moment instructions over and above anything else. These overrides are specific to the current session and should not be recorded in memory.

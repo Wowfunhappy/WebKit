@@ -21,6 +21,7 @@ if (MAVERICKS_WEBKITLEGACY_PHASE STREQUAL "LISTS")
 # WebKitLegacy needs gcrypt.h reachable.
 list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
     "${MAVERICKS_SUPPORT}/source/WebKitLegacy/mac/Misc"
+    "${MAVERICKS_SUPPORT}/source/WebKitLegacy/mac/WebCoreSupport"
     "${MAVERICKS_DEPS}/include"
 )
 
@@ -68,12 +69,7 @@ list(APPEND WebKitLegacy_SOURCES
     mac/Misc/WebKeyGenerator.mm
     mac/WebCoreSupport/LegacyHistoryItemClient.mm
     # The restored WebKit1 getUserMedia client.
-    mac/WebCoreSupport/WebUserMediaClient.mm
-)
-
-list(APPEND WebKitLegacy_LEGACY_FORWARDING_HEADERS_FILES
-    # The restored WebKit1 getUserMedia client's header.
-    mac/WebCoreSupport/WebUserMediaClient.h
+    ${MAVERICKS_SUPPORT}/source/WebKitLegacy/mac/WebCoreSupport/WebUserMediaClient.mm
 )
 
 # The preferences add_custom_command below reads WebKit_WEB_PREFERENCES and
@@ -144,6 +140,26 @@ foreach (_dock_image DockLegacy)
 endforeach ()
 add_custom_target(WebKitLegacyInspectorDockImages ALL DEPENDS ${WebKitLegacy_DOCK_IMAGE_FILES})
 add_dependencies(WebKitLegacy WebKitLegacyInspectorDockImages)
+
+# The authentication panel WebPanelAuthenticationHandler puts on screen for a WK1 app that has no
+# resource-load delegate of its own. -[WebAuthenticationPanel loadNib] resolves the nib through this
+# framework's bundle, in the English.lproj stock 10.9 ships it in. Upstream compiles the xib from its
+# Xcode project; the script is that step for the CMake build.
+find_program(MAVERICKS_IBTOOL ibtool HINTS /Applications/Xcode.app/Contents/Developer/usr/bin)
+if (NOT MAVERICKS_IBTOOL)
+    message(FATAL_ERROR "WebKitLegacyPlatformMavericks.cmake: no ibtool, so WebAuthenticationPanel.nib cannot be compiled.")
+endif ()
+set(WebKitLegacy_AUTHENTICATION_PANEL_NIB ${WebKitLegacy_RESOURCES_DIR}/English.lproj/WebAuthenticationPanel.nib)
+add_custom_command(OUTPUT ${WebKitLegacy_AUTHENTICATION_PANEL_NIB}
+    COMMAND ${MAVERICKS_SUPPORT}/scripts/compile-authentication-panel-nib.sh
+        ${MAVERICKS_IBTOOL}
+        ${WEBKITLEGACY_DIR}/mac/Panels/en.lproj/WebAuthenticationPanel.xib
+        ${WebKitLegacy_AUTHENTICATION_PANEL_NIB}
+    DEPENDS ${WEBKITLEGACY_DIR}/mac/Panels/en.lproj/WebAuthenticationPanel.xib
+        ${MAVERICKS_SUPPORT}/scripts/compile-authentication-panel-nib.sh
+    VERBATIM)
+add_custom_target(WebKitLegacyAuthenticationPanelNib ALL DEPENDS ${WebKitLegacy_AUTHENTICATION_PANEL_NIB})
+add_dependencies(WebKitLegacy WebKitLegacyAuthenticationPanelNib)
 
 # Legacy consumers (DumpRenderTree, and 10.9 WebKit-ObjC plug-ins) include the WebKit1 public headers
 # under the historical <WebKit/...> umbrella, not <WebKitLegacy/...>. The Apple Xcode build ships a

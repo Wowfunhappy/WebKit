@@ -113,6 +113,7 @@ void InbandWebVTTTextTrack::newRegionsParsed()
 
 void InbandWebVTTTextTrack::newStyleSheetsParsed()
 {
+    m_styleSheets = parser().takeStyleSheets(); // MAVERICKS_BACKPORT: keeps the STYLE blocks of an in-band WebVTT stream, as InbandGenericTextTrack does.
 }
 
 void InbandWebVTTTextTrack::fileFailedToParse()

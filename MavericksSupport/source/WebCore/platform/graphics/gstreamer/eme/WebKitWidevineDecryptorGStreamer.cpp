@@ -9,12 +9,16 @@
 #include "GStreamerCommon.h"
 #include "GStreamerEMEUtilities.h"
 #include "WidevineMediaTypes.h"
+#include <wtf/Lock.h>
 #include <wtf/glib/WTFGType.h>
 
 using namespace WebCore;
 
 struct WebKitMediaWidevineDecryptPrivate {
-    RefPtr<CDMProxyWidevine> cdmProxy;
+    // cdmProxyAttached() writes the proxy under the common decryptor's lock, and decrypt() runs with
+    // that lock released, so the proxy has a lock of its own, taken after the common decryptor's.
+    Lock lock;
+    RefPtr<CDMProxyWidevine> cdmProxy WTF_GUARDED_BY_LOCK(lock);
 };
 
 static ASCIILiteral protectionSystemId(WebKitMediaCommonEncryptionDecrypt*);
@@ -101,6 +105,16 @@ static ASCIILiteral protectionSystemId(WebKitMediaCommonEncryptionDecrypt*)
 static bool cdmProxyAttached(WebKitMediaCommonEncryptionDecrypt* self, const RefPtr<CDMProxy>& cdmProxy)
 {
     WebKitMediaWidevineDecryptPrivate* priv = WEBKIT_MEDIA_WV_DECRYPT(self)->priv;
+    Locker locker { priv->lock };
+
+    // The drm-cdm-proxy context carries whichever CDM the page created, and the ClearKey decryptor
+    // reads the same context, so a proxy of another key system is refused rather than cast.
+    if (cdmProxy && !GStreamerEMEUtilities::isWidevineKeySystem(cdmProxy->keySystem())) {
+        GST_DEBUG_OBJECT(self, "ignoring a %s CDM proxy", cdmProxy->keySystem().utf8().data());
+        priv->cdmProxy = nullptr;
+        return false;
+    }
+
     priv->cdmProxy = static_cast<CDMProxyWidevine*>(cdmProxy.get());
     return priv->cdmProxy;
 }
@@ -129,6 +143,19 @@ static void readEncryptionScheme(GstBuffer* buffer, cdm::EncryptionScheme& schem
 static bool decrypt(WebKitMediaCommonEncryptionDecrypt* self, GstBuffer* ivBuffer, GstBuffer* keyIDBuffer, GstBuffer* buffer, unsigned subsampleCount, GstBuffer* subsamplesBuffer)
 {
     WebKitMediaWidevineDecryptPrivate* priv = WEBKIT_MEDIA_WV_DECRYPT(self)->priv;
+
+    // setContext() can replace or refuse the proxy while this runs, so this decrypts through its own
+    // reference, taken where the common decryptor records it as the proxy a flush or a stop aborts.
+    RefPtr<CDMProxyWidevine> cdmProxy;
+    webKitMediaCommonEncryptionDecryptTakeDecryptingProxy(self, scopedLambda<RefPtr<CDMProxy>()>([&] {
+        Locker locker { priv->lock };
+        cdmProxy = priv->cdmProxy;
+        return RefPtr<CDMProxy> { cdmProxy };
+    }));
+    if (!cdmProxy) {
+        GST_ERROR_OBJECT(self, "no Widevine CDM proxy attached");
+        return false;
+    }
 
     if (!ivBuffer || !keyIDBuffer || !buffer) {
         GST_ERROR_OBJECT(self, "invalid decrypt() parameter");
@@ -177,7 +204,7 @@ static bool decrypt(WebKitMediaCommonEncryptionDecrypt* self, GstBuffer* ivBuffe
     readEncryptionScheme(buffer, context.encryptionScheme, context.pattern);
     context.cdmProxyDecryptionClient = webKitMediaCommonEncryptionDecryptGetCDMProxyDecryptionClient(self);
 
-    return priv->cdmProxy->decrypt(context);
+    return cdmProxy->decrypt(context);
 }
 
 #undef GST_CAT_DEFAULT

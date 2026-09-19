@@ -55,7 +55,7 @@
 // distinction decides how (class_addMethod vs class_replaceMethod), how the alias pass treats the
 // class's subclasses, and what the shadow gate in build-polyfill.sh requires: an ADD whose method 10.9
 // turns out to implement fails the build, so verify absence on-host rather than declaring one blindly.
-enum { WK_METHODS_ADD = 0, WK_METHODS_REPLACE = 1 };
+enum { WK_METHODS_ADD = 0, WK_METHODS_REPLACE = 1, WK_METHODS_ADD_LAYER_PROPERTIES = 2 };
 
 // One block. Emitted into __DATA,__wk_methods and read by the patcher from every WebKit image at load,
 // and by the shadow gate out of the built archive. The placeholder is named rather than referenced so
@@ -99,6 +99,10 @@ struct wk_methods_entry {
 // The same, installed on the classes named by string; SUPER is the typing superclass only.
 #define WK_POLYFILL_ADD_METHODS_ON(SUPER, ...) WK_POLYFILL_METHODS_(SUPER, WK_METHODS_ADD, __VA_ARGS__)
 #define WK_POLYFILL_REPLACE_METHODS_ON(SUPER, ...) WK_POLYFILL_METHODS_(SUPER, WK_METHODS_REPLACE, __VA_ARGS__)
+
+// Readonly CALayer properties. Native CALayer KVC resolves the property metadata's scoped getter,
+// including when Foundation reads values for KVO notifications.
+#define WK_POLYFILL_ADD_LAYER_PROPERTIES_ON(SUPER, ...) WK_POLYFILL_METHODS_(SUPER, WK_METHODS_ADD_LAYER_PROPERTIES, __VA_ARGS__)
 
 // THE CALL-THROUGH FOR A REPLACE BODY: the implementation this body stands in for, with the public
 // selector it expects as _cmd. Derived from the body's class and the receiver's chain; see

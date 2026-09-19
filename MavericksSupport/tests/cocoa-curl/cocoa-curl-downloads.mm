@@ -2,6 +2,9 @@
 #import <Foundation/Foundation.h>
 #import <WebKitLegacy/WebDownload.h>
 #import <WebCore/NetworkStorageSession.h>
+#import <WebCore/CocoaCurlTransfer.h>
+#import <WebCore/ResourceRequest.h>
+#import <pal/SessionID.h>
 #import <wtf/MainThread.h>
 #import <wtf/ProcessPrivilege.h>
 #include <cstdio>
@@ -31,11 +34,18 @@ static void check(bool result, const char *message)
     BOOL finished;
     BOOL receivedResponse;
     BOOL authenticating;
+    NSUInteger redirects;
 }
 @end
 @implementation DownloadTest
 - (void)dealloc { [path release]; [resume release]; [super dealloc]; }
 - (void)download:(NSURLDownload *)download didReceiveResponse:(NSURLResponse *)response { receivedResponse = YES; }
+- (NSURLRequest *)download:(NSURLDownload *)download willSendRequest:(NSURLRequest *)request redirectResponse:(NSURLResponse *)response
+{
+    if (response)
+        ++redirects;
+    return request;
+}
 - (void)download:(NSURLDownload *)download willResumeWithResponse:(NSURLResponse *)response fromByte:(long long)offset { resumedAt = offset; receivedResponse = YES; }
 - (void)download:(NSURLDownload *)download decideDestinationWithSuggestedFilename:(NSString *)filename
 {
@@ -73,6 +83,42 @@ static void checkBody(NSString *path)
     check(correct, "download file matches every byte of the 2 MiB representation");
 }
 
+static void checkCachedRedirect()
+{
+    WebCore::NetworkStorageSession storage(PAL::SessionID::defaultSessionID(), nullptr, nullptr);
+    NSString *base = [@"http://127.0.0.1:18981/cache/download-" stringByAppendingString:[[NSUUID UUID] UUIDString]];
+    NSURLRequest *redirect = [NSURLRequest requestWithURL:[NSURL URLWithString:base] cachePolicy:NSURLRequestReturnCacheDataDontLoad timeoutInterval:10];
+    NSURLRequest *target = [NSURLRequest requestWithURL:[NSURL URLWithString:[base stringByAppendingString:@"-target"]] cachePolicy:NSURLRequestReturnCacheDataDontLoad timeoutInterval:10];
+    NSData *body = [@"cached download" dataUsingEncoding:NSUTF8StringEncoding];
+    NSHTTPURLResponse *redirectResponse = [[NSHTTPURLResponse alloc] initWithURL:redirect.URL statusCode:307 HTTPVersion:@"HTTP/1.1" headerFields:@{ @"Location": target.URL.absoluteString }];
+    NSHTTPURLResponse *targetResponse = [[NSHTTPURLResponse alloc] initWithURL:target.URL statusCode:200 HTTPVersion:@"HTTP/1.1" headerFields:@{ @"Content-Type": @"text/plain", @"Content-Length": @"15" }];
+    NSCachedURLResponse *redirectEntry = [[NSCachedURLResponse alloc] initWithResponse:redirectResponse data:[NSData data]];
+    NSCachedURLResponse *targetEntry = [[NSCachedURLResponse alloc] initWithResponse:targetResponse data:body];
+    WebCore::ResourceRequest redirectRequest(redirect);
+    WebCore::ResourceRequest targetRequest(target);
+    WebCore::storeCocoaCurlCachedResponse(&storage, redirectEntry, redirectRequest);
+    WebCore::storeCocoaCurlCachedResponse(&storage, targetEntry, targetRequest);
+    check(WebCore::lookUpCocoaCurlCachedResponse(&storage, redirectRequest).answer == WebCore::CocoaCurlCacheAnswer::UseCached,
+        "cached redirect fixture is available");
+    check(WebCore::lookUpCocoaCurlCachedResponse(&storage, targetRequest).answer == WebCore::CocoaCurlCacheAnswer::UseCached,
+        "cached redirect target fixture is available");
+    DownloadTest *test = [DownloadTest new];
+    test->path = [@"/private/tmp/curl-legacy-download-tests/cached-redirect" retain];
+    WebDownload *download = [[WebDownload alloc] initWithRequest:redirect delegate:test];
+    if (!test->finished && !test->errorCode)
+        CFRunLoopRun();
+    check(test->finished && !test->errorCode && test->redirects == 1, "cached redirect follows download delegate policy");
+    check([[NSData dataWithContentsOfFile:test->path] isEqualToData:body], "cached redirect saves the target body");
+    [download release];
+    [test release];
+    WebCore::removeCocoaCurlCachedResponse(&storage, redirectRequest);
+    WebCore::removeCocoaCurlCachedResponse(&storage, targetRequest);
+    [redirectEntry release];
+    [targetEntry release];
+    [redirectResponse release];
+    [targetResponse release];
+}
+
 int main()
 {
     @autoreleasepool {
@@ -80,6 +126,7 @@ int main()
         WTF::initializeMainThread();
         setProcessPrivileges({ ProcessPrivilege::CanAccessRawCookies, ProcessPrivilege::CanAccessCredentials });
         WebCore::NetworkStorageSession::permitProcessToUseCookieAPI(true);
+        checkCachedRedirect();
         for (NSString *name in @[@"file", @"ignore-range", @"invalid-range", @"changed-etag", @"compressed-range", @"short-range", @"basic"]) {
             printf("CASE %s\n", name.UTF8String);
             DownloadTest *first = [DownloadTest new];

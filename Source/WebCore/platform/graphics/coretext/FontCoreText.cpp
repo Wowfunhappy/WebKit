@@ -1009,13 +1009,7 @@ std::optional<Ref<Font>> Font::fromIPCData(IPCFontData&& data)
         },
         [] (CustomFontCreationData&& creationData) -> std::optional<Ref<Font>> {
             Ref fontFaceData = SharedBuffer::create(WTF::move(creationData.fontFaceData));
-#if HAVE(CTFONTMANAGER_CREATEMEMORYSAFEFONTDESCRIPTORFROMDATA)
-            // MAVERICKS_BACKPORT: these bytes reach this process over IPC from a web content process,
-            // so they are page bytes and take the memory-safe parser a downloadable font takes.
-            RefPtr<FontCustomPlatformData> customPlatformData = FontCustomPlatformData::createMemorySafe(fontFaceData, creationData.itemInCollection);
-#else
             RefPtr<FontCustomPlatformData> customPlatformData = FontCustomPlatformData::create(fontFaceData, creationData.itemInCollection);
-#endif // MAVERICKS_BACKPORT: closes the guard above.
             if (!customPlatformData)
                 return std::nullopt;
 

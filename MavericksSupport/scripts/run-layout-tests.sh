@@ -47,37 +47,68 @@ fi
 # "CoreAnimation: failed to create OpenGL context" until 10.9's WindowServer hits its null-texture
 # compositor race and takes the login session down. So reap stale build-tree test processes before
 # starting AND on every exit (both drivers, whichever port), and refuse more than 2 parallel workers.
+#
+# The test servers are reaped with them. layout_test_runner.py starts the http and wpt servers only
+# when nothing already answers on their first port (is_http_server_running / is_wpt_server_running),
+# so a server left behind by an interrupted run is adopted by every run after it -- carrying that
+# run's wedged connections, saturated accept queues and expired state into results that read as
+# product regressions. `wpt serve` spreads one server per port over multiprocessing children whose
+# argv names neither the port nor the script, so the family is matched by our toolchain interpreter
+# and the spawn entry point; the lock above is what makes that safe, since it means no run of ours
+# owns a python3 of its own while this runs.
+# With no argument this reaps machine-wide, which is correct only while holding the lock, when by
+# definition no other run of ours is alive. `own` restricts it to this run's own process group, for
+# the exit path: a wrapper that is killed while another run legitimately holds the lock would
+# otherwise SIGKILL that run's driver and servers out from under it.
 reap_test_orphans() {
+    local scope=""
+    if [ "${1-}" = own ]; then
+        local pgid
+        pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
+        [ -n "$pgid" ] || return 0
+        scope="-g $pgid"
+    fi
     # Anchored at argv[0]: an unanchored pattern also matches helpers that merely carry a driver's
     # path in their arguments, and reaping one of those kills another run's setup step.
-    pkill -9 -f "^$ROOT/WebKitBuild/Release/bin/DumpRenderTree" 2>/dev/null
-    pkill -9 -f "^$ROOT/WebKitBuild/Release/bin/WebKitTestRunner" 2>/dev/null
-    pkill -9 -f "WebKitBuild/Release/.*com\.apple\.WebKit\.(WebContent|Networking)" 2>/dev/null
+    pkill -9 $scope -f "^$ROOT/WebKitBuild/Release/bin/DumpRenderTree" 2>/dev/null
+    pkill -9 $scope -f "^$ROOT/WebKitBuild/Release/bin/WebKitTestRunner" 2>/dev/null
+    pkill -9 $scope -f "WebKitBuild/Release/.*com\.apple\.WebKit\.(WebContent|Networking)" 2>/dev/null
+    pkill -9 $scope -f "^$ROOT/MavericksSupport/toolchain/build/python3/bin/python3 -c from multiprocessing\.spawn" 2>/dev/null
+    # A forked webkitpy worker keeps the runner's own argv, and with it the inherited DNS socket.
+    pkill -9 $scope -f "^$ROOT/MavericksSupport/toolchain/build/python3/bin/python3 $ROOT/Tools/Scripts/run-webkit-tests" 2>/dev/null
+    pkill -9 $scope -f "^$ROOT/MavericksSupport/toolchain/build/python3/bin/python3 .*/wpt\.py serve" 2>/dev/null
+    pkill -9 $scope -f "^$ROOT/MavericksSupport/toolchain/build/python3/bin/python3 .*pywebsocket3/standalone\.py" 2>/dev/null
+    pkill -9 $scope -f "^$ROOT/MavericksSupport/deps/build/bin/httpd" 2>/dev/null
+    # Apache's CGI helpers outlive it, and the ones that sleep on a request hold a worker slot.
+    pkill -9 $scope -f "^/.*/Python $ROOT/LayoutTests/.*\.py" 2>/dev/null
     return 0
 }
 
 # One run at a time: the reap above kills every driver on the machine, the http/wpt servers own fixed
 # ports, and the results directory is shared, so a second invocation waits for the first to finish.
 # The lock is a directory (bash 3.2 has no flock) holding the owner's pid, and is stale once that pid
-# is gone.
+# is gone; ps answers that for a root-owned run started under sudo as well as for our own.
 LOCK="$ROOT/WebKitBuild/Release/bin/.run-layout-tests.lock"
 until mkdir "$LOCK" 2>/dev/null; do
     owner=$(cat "$LOCK/pid" 2>/dev/null)
-    if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
-        rm -rf "$LOCK"
-        continue
+    if [ -n "$owner" ] && ! ps -p "$owner" >/dev/null 2>&1; then
+        if rm -rf "$LOCK" 2>/dev/null; then
+            continue
+        fi
+        echo "stale lock owned by pid $owner cannot be removed (try: sudo rm -rf $LOCK)" >&2
+    else
+        echo "waiting: another run-layout-tests.sh (pid ${owner:-?}) is running" >&2
     fi
-    echo "waiting: another run-layout-tests.sh (pid ${owner:-?}) is running" >&2
     sleep 15
 done
 echo $$ > "$LOCK/pid"
 cleanup() {
-    reap_test_orphans
+    reap_test_orphans own
     rm -rf "$LOCK"
 }
 reap_test_orphans
 trap cleanup EXIT INT TERM
-WORKERS="--child-processes=2"
+WORKERS="--child-processes=1"
 ARGS=()
 for arg in "$@"; do
     case "$arg" in
@@ -89,7 +120,10 @@ for arg in "$@"; do
             fi
             WORKERS=""; ARGS+=("$arg");;
         --port-surface)
-            ARGS+=("--test-list=$ROOT/MavericksSupport/tests/port-surface/layout-tests.txt");;
+            ARGS+=("--test-list=$ROOT/MavericksSupport/tests/port-surface/layout-tests.txt"
+                "--ignore-tests=http/tests/inspector"
+                "--ignore-tests=http/tests/site-isolation/inspector"
+                "--ignore-tests=http/tests/websocket/tests/hybi/inspector");;
         *) ARGS+=("$arg");;
     esac
 done
@@ -103,13 +137,15 @@ fi
 
 # --- Run ------------------------------------------------------------------------------------------
 
+export WEBKIT_HTTP_SERVER_CONF_PATH="$ROOT/MavericksSupport/deps/build/httpd.conf"
+
 # The drivers link Quartz, which transitively loads the SYSTEM (installed-backport) WebKit stack. Left
 # alone dyld makes a second image of every framework the build tree also provides -- two JavaScriptCore,
 # two WebCore, two of the private GStreamer runtime -- and two GObject type systems answer GST_TYPE_CAPS
 # differently, so pad templates come back with null caps and the first caps intersection dereferences one.
 #
-# run-webkit-tests puts --root on DYLD_FRAMEWORK_PATH, and this port builds its frameworks into lib/ while
-# --root names bin/ (which holds only WebInspectorUI.framework), so dyld has nothing to substitute. Naming
+# run-webkit-tests puts --root on DYLD_FRAMEWORK_PATH, and --root names bin/, where CMake puts executables;
+# the frameworks are built into lib/, so bin/ alone gives dyld nothing to substitute. Naming
 # lib/ here gives it the substitution: exactly one image of each framework loads, and the driver appends
 # its own --root path after ours.
 export DYLD_FRAMEWORK_PATH="$ROOT/WebKitBuild/Release/lib${DYLD_FRAMEWORK_PATH:+:$DYLD_FRAMEWORK_PATH}"
@@ -117,7 +153,9 @@ export __XPC_DYLD_FRAMEWORK_PATH="$DYLD_FRAMEWORK_PATH"
 
 # No exec: the runner must stay our child so the EXIT trap can reap orphans even
 # when this wrapper is interrupted.
+# Every selected test gets one attempt, and every test any expectation file records as failing or
+# flaky is skipped, explicitly selected tests included.
 "$ROOT/MavericksSupport/toolchain/build/python3/bin/python3" "$ROOT/Tools/Scripts/run-webkit-tests" \
     "$PORT_FLAG" --no-build --no-new-test-results --release --root="$ROOT/WebKitBuild/Release/bin" \
-    $WORKERS "$@"
+    $WORKERS "$@" --skip-failing-tests --skipped=always --no-retry-failures
 exit $?

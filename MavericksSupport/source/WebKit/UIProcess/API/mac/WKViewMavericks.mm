@@ -32,6 +32,7 @@
 #import "WebPageGroup.h"
 #import "WebPageProxy.h"
 #import "WebPreferences.h"
+#import "WebPreferencesKeys.h"
 #import "WebProcessPool.h"
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 // LOG_ERROR, used by the spelling/substitutions panel actions below.
@@ -251,6 +252,11 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     // CORS/CORP rules (a message document's x-webdoc:// origin can never satisfy them).
     if (WTF::MacApplication::isAppleMail() && configuration->corsDisablingPatterns().isEmpty())
         configuration->setCORSDisablingPatterns({ "*://*/*"_s });
+
+    // The Network process reads the pool's process model through ephemeral page preferences.
+    Ref preferences = configuration->preferences();
+    preferences->setBoolValueForKey(WebKit::WebPreferencesKey::usesSingleWebProcessKey(), processPool.get().usesSingleWebProcess(), true);
+    preferences->setBoolValueForKey(WebKit::WebPreferencesKey::processSwapOnCrossSiteNavigationEnabledKey(), processPool.get().configuration().processSwapsOnNavigation(), true);
 
     // allocate the per-view state holding the page proxy and page client.
     _wkState = new WKViewState;

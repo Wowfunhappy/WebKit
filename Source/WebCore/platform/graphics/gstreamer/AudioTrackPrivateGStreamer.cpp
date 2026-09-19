@@ -28,6 +28,7 @@
 #if ENABLE(VIDEO) && USE(GSTREAMER)
 
 #include "AudioTrackPrivateGStreamer.h"
+#include "GStreamerHLSTrack.h" // MAVERICKS_BACKPORT: HLS rendition metadata.
 
 #include "GStreamerCommon.h"
 #include "MediaPlayerPrivateGStreamer.h"
@@ -76,10 +77,15 @@ AudioTrackPrivateGStreamer::AudioTrackPrivateGStreamer(ThreadSafeWeakPtr<MediaPl
 void AudioTrackPrivateGStreamer::capsChanged(TrackID streamId, GRefPtr<GstCaps>&& caps)
 {
     ASSERT(isMainThread());
+    // MAVERICKS_BACKPORT: the decoder probe's codec stands in for caps that name no codec, such as a playbin pad's raw
+    // caps. It is the first codec that decoder saw, so caps naming a codec are the newer description.
+    bool capsNameCodec = caps && !GMallocString::unsafeAdoptFromUTF8(gst_codec_utils_caps_get_mime_codec(caps.get())).isEmpty();
     updateConfigurationFromCaps(WTF::move(caps));
 
     RefPtr player = m_data->m_player.get();
     if (!player)
+        return;
+    if (capsNameCodec) // MAVERICKS_BACKPORT: see capsNameCodec above.
         return;
 
     auto codec = player->codecForStreamId(streamId);
@@ -152,10 +158,13 @@ void AudioTrackPrivateGStreamer::updateConfigurationFromCaps(GRefPtr<GstCaps>&& 
 
 AudioTrackPrivate::Kind AudioTrackPrivateGStreamer::kind() const
 {
+    /* MAVERICKS_BACKPORT: HLS characteristics and legacy pad flags are interpreted in the port adapter.
     if (m_data->m_stream && gst_stream_get_stream_flags(m_data->m_stream.get()) & GST_STREAM_FLAG_SELECT)
         return AudioTrackPrivate::Kind::Main;
 
     return AudioTrackPrivate::kind();
+    */ // MAVERICKS_BACKPORT: HLS track adapter.
+    return hlsAudioTrackKind(m_data->m_stream, pad(), AudioTrackPrivate::kind());
 }
 
 void AudioTrackPrivateGStreamer::setEnabled(bool enabled)

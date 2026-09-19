@@ -122,7 +122,9 @@ IntSize BitmapImageDescriptor::sourceSize(ImageOrientation orientation) const
 {
     IntSize size;
 
-#if !USE(CG)
+// MAVERICKS_BACKPORT: Mac ScalableImageDecoder exposes metadata before decoded frames, matching ImageDecoder.cpp.
+// #if !USE(CG)
+#if !USE(CG) || PLATFORM(MAC)
     // It's possible that we have decoded the metadata, but not frame contents yet. In that case ImageDecoder claims to
     // have the size available, but the frame cache is empty. Return the decoder size without caching in such case.
     RefPtr decoder = m_source->decoderIfExists();

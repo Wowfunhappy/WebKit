@@ -1,20 +1,136 @@
 --- a/lib/http.c
 +++ b/lib/http.c
-@@ -4327,11 +4327,12 @@
+@@ -3858,7 +3858,6 @@
+ CURLcode Curl_verify_header(struct Curl_easy *data,
+                             const char *hd, size_t hdlen)
+ {
+-  struct SingleRequest *k = &data->req;
+   const char *ptr = memchr(hd, 0x00, hdlen);
+   if(ptr) {
+     /* this is bad, bail out */
+@@ -3873,23 +3872,19 @@
+       return CURLE_WEIRD_SERVER_REPLY;
+     }
+   }
+-  if(k->headerline < 2)
+-    /* the first "header" is the status-line and it has no colon */
+-    return CURLE_OK;
+-  if(((hd[0] == ' ') || (hd[0] == '\t')) && k->headerline > 2)
+-    /* line folding, cannot happen on line 2 */
+-    ;
+-  else {
+-    ptr = memchr(hd, ':', hdlen);
+-    if(!ptr) {
+-      /* this is bad, bail out */
+-      failf(data, "Header without colon");
+-      return CURLE_WEIRD_SERVER_REPLY;
+-    }
+-  }
+   return CURLE_OK;
+ }
+ 
++/* A field line carries a colon (RFC 9112 section 5). A line that starts with a
++   blank continues the field line before it, where the caller allows folding.
++   Anything else is not part of the field section. */
++bool Curl_header_is_field_line(const char *hd, size_t hdlen, bool folds)
++{
++  if(folds && ISBLANK(*hd))
++    return TRUE;
++  return !!memchr(hd, ':', hdlen);
++}
++
+ CURLcode Curl_bump_headersize(struct Curl_easy *data,
+                               size_t delta,
+                               bool connect_only)
+@@ -4156,7 +4151,7 @@
+       infof(data, "Lying server, not serving HTTP/2");
+   }
+ 
+-  if(k->httpcode < 200 && last_hd) {
++  if(k->httpcode >= 100 && k->httpcode < 200 && last_hd) {
+     /* Intermediate responses might trigger processing of more responses,
+      * write the last header to the client before proceeding. */
+     result = http_write_header(data, last_hd, last_hd_len);
+@@ -4165,17 +4160,12 @@
+       goto out;
+   }
+ 
+-  if(k->httpcode < 100) {
+-    failf(data, "Unsupported response code in HTTP response");
+-    result = CURLE_UNSUPPORTED_PROTOCOL;
+-    goto out;
+-  }
+-  else if(k->httpcode < 200) {
++  if(k->httpcode >= 100 && k->httpcode < 200) {
+     result = http_on_1xx_response(data, buf, blen, pconsumed, &conn_changed);
+     goto out;
+   }
+ 
+-  /* k->httpcode >= 200, final response */
++  /* Only 1xx is informational; every other status closes the response. */
+   k->header = FALSE;
+   if(conn->bits.upgrade_in_progress) {
+     /* Asked for protocol upgrade, but it was not selected */
+@@ -4327,12 +4317,21 @@
              if(ISBLANK(p[2])) {
                k->httpversion = (unsigned char)(10 + (p[1] - '0'));
                p += 3;
 -              if(ISDIGIT(p[0]) && ISDIGIT(p[1]) && ISDIGIT(p[2])) {
-+              if(ISDIGIT(p[0]) && ISDIGIT(p[1]) && ISDIGIT(p[2]) &&
-+                 (ISBLANK(p[3]) || p[3] == '\r' || p[3] == '\n')) {
-                 k->httpcode = ((p[0] - '0') * 100) + ((p[1] - '0') * 10) +
-                   (p[2] - '0');
-                 /* RFC 9112 requires a single space following the status code,
+-                k->httpcode = ((p[0] - '0') * 100) + ((p[1] - '0') * 10) +
+-                  (p[2] - '0');
+-                /* RFC 9112 requires a single space following the status code,
 -                   but the browsers do not so let's not insist */
-+                   but an empty reason phrase may omit it. Extra digits are not a reason phrase */
-                 fine_statusline = TRUE;
+-                fine_statusline = TRUE;
++              {
++                int ndigits = 0;
++                int statuscode = 0;
++                while(ndigits < 3 && ISDIGIT(p[ndigits])) {
++                  statuscode = (statuscode * 10) + (p[ndigits] - '0');
++                  ndigits++;
++                }
++                /* RFC 9112 status-code: one to three digits, closed by the
++                   space before the reason phrase or by the end of the line.
++                   A fourth digit is not a reason phrase. */
++                if(ndigits && (ISBLANK(p[ndigits]) || p[ndigits] == '\r' ||
++                               p[ndigits] == '\n')) {
++                  k->httpcode = statuscode;
++                  fine_statusline = TRUE;
++                }
                }
              }
+           }
+@@ -4409,6 +4408,12 @@
+   if(result)
+     return result;
+ 
++  if(!(writetype & CLIENTWRITE_STATUS) &&
++     !Curl_header_is_field_line(hd, hdlen, k->headerline > 2))
++    /* Not a field line. Drop it and go on with the message; it still counts
++       against the header budget. */
++    return Curl_bump_headersize(data, hdlen, FALSE);
++
+   result = http_header(data, hd, hdlen);
+   if(result)
+     return result;
+--- a/lib/http.h
++++ b/lib/http.h
+@@ -106,11 +106,14 @@
+                                  const char *hd, size_t hdlen,
+                                  bool is_eos);
+ 
+-/* check a received header line for forbidden bytes/format, the same checks
+-   applied to regular response headers */
++/* check a received header line for forbidden bytes, the same checks applied to
++   regular response headers */
+ CURLcode Curl_verify_header(struct Curl_easy *data,
+                             const char *hd, size_t hdlen);
+ 
++/* tell whether a verified header line belongs to the field section */
++bool Curl_header_is_field_line(const char *hd, size_t hdlen, bool folds);
++
+ /* These functions are in http.c */
+ CURLcode Curl_http_input_auth(struct Curl_easy *data, bool proxy,
+                               const char *auth);
 --- a/lib/http_chunks.c
 +++ b/lib/http_chunks.c
 @@ -105,6 +105,76 @@
@@ -94,16 +210,15 @@
  static CURLcode httpchunk_readwrite(struct Curl_easy *data,
                                      struct Curl_chunker *ch,
                                      struct Curl_cwriter *cw_next,
-@@ -170,8 +240,28 @@
+@@ -170,10 +240,30 @@
            ch->last_code = CHUNKE_ILLEGAL_HEX;
            return CURLE_RECV_ERROR;
          }
 -        ch->state = CHUNK_LF; /* now wait for the CRLF */
--      }
 +        ch->state = CHUNK_EXT; /* optional extensions, then CRLF */
-+      }
-+      break;
-+
+       }
+       break;
+ 
 +    case CHUNK_EXT:
 +    case CHUNK_EXT_NAME_START:
 +    case CHUNK_EXT_NAME:
@@ -122,22 +237,34 @@
 +      buf++;
 +      blen--;
 +      (*pconsumed)++;
-       break;
- 
-     case CHUNK_LF:
-@@ -186,6 +276,12 @@
-           CURL_TRC_WRITE(data, "http_chunked, chunk start of %"
-                          FMT_OFF_T " bytes", ch->datasize);
-         }
-+      }
++      break;
 +
+     case CHUNK_LF:
+       /* waiting for the LF after a chunk size */
+       if(*buf == 0x0a) {
+@@ -188,6 +278,12 @@
+         }
+       }
+ 
 +      else {
 +        ch->state = CHUNK_FAILED;
 +        ch->last_code = CHUNKE_BAD_CHUNK;
 +        return CURLE_RECV_ERROR;
-       }
- 
++      }
++
        buf++;
+       blen--;
+       (*pconsumed)++;
+@@ -268,7 +364,8 @@
+             return result;
+           }
+ 
+-          if(!data->set.http_te_skip) {
++          if(Curl_header_is_field_line(tr, trlen, TRUE) &&
++             !data->set.http_te_skip) {
+             int hd_type = CLIENTWRITE_HEADER | CLIENTWRITE_TRAILER;
+             if(ch->in_connect)
+               hd_type |= CLIENTWRITE_CONNECT;
 --- a/lib/http_chunks.h
 +++ b/lib/http_chunks.h
 @@ -40,10 +40,21 @@
@@ -164,3 +291,23 @@
    CHUNK_LF,
  
    /* We eat the amount of data specified. When done, we move on to the
+--- a/lib/cf-h1-proxy.c
++++ b/lib/cf-h1-proxy.c
+@@ -482,6 +482,17 @@
+   if(result)
+     return result;
+ 
++  if((ts->headerlines > 1) && !ISNEWLINE(*linep) &&
++     !Curl_header_is_field_line(linep, line_len, ts->headerlines > 2)) {
++    /* Not a field line. Drop it and go on with the tunnel response; it still
++       counts against the header budget, and the buffer takes the next line. */
++    result = Curl_bump_headersize(data, line_len, TRUE);
++    if(result)
++      return result;
++    curlx_dyn_reset(&ts->rcvbuf);
++    return result;
++  }
++
+   /* send the header to the callback */
+   writetype = CLIENTWRITE_HEADER | CLIENTWRITE_CONNECT |
+     (ts->headerlines == 1 ? CLIENTWRITE_STATUS : 0);

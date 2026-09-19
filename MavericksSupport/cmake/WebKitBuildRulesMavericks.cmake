@@ -63,9 +63,23 @@ macro(_MAVERICKS_STAMP_DRIVER_IDENTITY _target)
     endif ()
 endmacro()
 
+# WebKitTestRunner's Xcode project compiles its Objective-C with CLANG_ENABLE_OBJC_WEAK
+# (Tools/WebKitTestRunner/Configurations/Base.xcconfig). TestController::platformDestroy calls
+# nw_resolver_config_unpublish, which NetworkResolverMavericks.mm supplies on 10.9.
+macro(_MAVERICKS_WEBKITTESTRUNNER_SETTINGS _target)
+    if ("${_target}" STREQUAL "WebKitTestRunner" OR "${_target}" STREQUAL "TestRunnerInjectedBundle")
+        target_compile_options(${_target} PRIVATE $<$<COMPILE_LANGUAGE:OBJC,OBJCXX>:-fobjc-weak>)
+    endif ()
+    if ("${_target}" STREQUAL "WebKitTestRunner")
+        target_sources(${_target} PRIVATE
+            ${CMAKE_SOURCE_DIR}/MavericksSupport/source/Tools/WebKitTestRunner/cocoa/NetworkResolverMavericks.mm)
+    endif ()
+endmacro()
+
 macro(_MAVERICKS_APPLY_TARGET_POLICY _target)
     _MAVERICKS_LINK_POLYFILL_CLASSES(${_target})
     _MAVERICKS_STAMP_DRIVER_IDENTITY(${_target})
+    _MAVERICKS_WEBKITTESTRUNNER_SETTINGS(${_target})
     foreach (_mavShipped WebProcess NetworkProcess GPUProcess
                          DumpRenderTree WebKitTestRunner TestRunnerInjectedBundle
                          TestWTF TestWebCore TestWebKit TestWebKitLegacy)
@@ -154,10 +168,15 @@ macro(_WEBKIT_FORCE_LOAD_POLYFILL _target)
             "${MAVERICKS_DEPS}/lib/libpng16.a"
             "${MAVERICKS_DEPS}/lib/libtiff.a"
             "${MAVERICKS_DEPS}/lib/libjpeg.a"
+            # ICU's character break iterator, which the CoreFoundation and CoreText polyfills segment grapheme
+            # clusters with.
+            "${MAVERICKS_DEPS}/lib/libicuuc.a"
             # libpng's and libtiff's own inflate and CRC. WebCore already reaches the system zlib
             # through its other dependencies; JavaScriptCore and the XPC services do not.
             "z"
-            "${MAVERICKS_DEPS}/lib/libpsl.5.dylib")
+            "${MAVERICKS_DEPS}/lib/libpsl.5.dylib"
+            # BoringSSL's point decoding, which the CommonCrypto EC import polyfill validates with.
+            "${MAVERICKS_DEPS}/lib/libcrypto.dylib")
         get_target_property(_wkPolyfillTargetType ${_target} TYPE)
         if (_wkPolyfillTargetType STREQUAL "EXECUTABLE")
             target_link_libraries(${_target} PRIVATE

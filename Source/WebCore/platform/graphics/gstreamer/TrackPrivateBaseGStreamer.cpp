@@ -28,6 +28,7 @@
 #if ENABLE(VIDEO) && USE(GSTREAMER)
 
 #include "TrackPrivateBaseGStreamer.h"
+#include "GStreamerHLSTrack.h" // MAVERICKS_BACKPORT: HLS rendition metadata.
 
 #include "GStreamerCommon.h"
 #include "TrackPrivateBase.h"
@@ -92,23 +93,17 @@ static std::optional<String> getTag(GstTagList* tags, ASCIILiteral tagName)
 
 static std::optional<String> getLanguageCode(GstTagList* tags)
 {
-    // MAVERICKS_BACKPORT: a track's language is the tag as given when GStreamer cannot map it to
-    // ISO 639-1, and GST_TAG_LANGUAGE_NAME is read when there is no language code. The adaptive
-    // demuxers put a manifest's raw RFC 5646 tag ("en-US") in that tag whenever it is not an ISO 639
-    // code (hlsdemux2, dashdemux2 and legacy dashdemux all split on gst_tag_check_language_code),
-    // and gst_tag_get_language_code_iso_639_1 answers null for such a tag. AudioTrack.language and
-    // TextTrack.language are defined to expose that BCP 47 tag.
+    // MAVERICKS_BACKPORT: preserve manifest BCP 47 language tags through the HLS adapter.
+    /*
     auto language = getTag(tags, ASCIILiteral::fromLiteralUnsafe(GST_TAG_LANGUAGE_CODE));
-    if (!language) { // MAVERICKS_BACKPORT: a language carried as a name, see above.
-        // return std::nullopt;
-        return getTag(tags, ASCIILiteral::fromLiteralUnsafe(GST_TAG_LANGUAGE_NAME));
-    }
+    if (!language)
+        return std::nullopt;
 
     auto convertedLanguage = CStringView::unsafeFromUTF8(gst_tag_get_language_code_iso_639_1(language->utf8().data()));
-    if (convertedLanguage.isNull()) // MAVERICKS_BACKPORT: an unmappable language stays as given, see above.
-        return language;
     GST_DEBUG("Converted track's language code to %s.", convertedLanguage.utf8());
     return String(convertedLanguage.span());
+    */ // MAVERICKS_BACKPORT: HLS language adapter.
+    return hlsTrackLanguage(tags);
 }
 
 TrackDataHolder::TrackDataHolder(TrackPrivateBaseGStreamer& track)
@@ -358,7 +353,9 @@ void TrackDataHolder::tagsChanged()
                 GstTagList* tagsFromEvent = nullptr;
                 gst_event_parse_tag(tagEvent.get(), &tagsFromEvent);
                 tags = adoptGRef(gst_tag_list_copy(tagsFromEvent));
-                auto language = getTag(tags.get(), ASCIILiteral::fromLiteralUnsafe(GST_TAG_LANGUAGE_CODE));
+                // MAVERICKS_BACKPORT: preserve rendition tags using either supported language field when later global tags arrive.
+                // auto language = getTag(tags.get(), ASCIILiteral::fromLiteralUnsafe(GST_TAG_LANGUAGE_CODE));
+                auto language = getLanguageCode(tags.get());
                 if (language)
                     break;
             }
@@ -366,6 +363,10 @@ void TrackDataHolder::tagsChanged()
         } while (tagEvent);
     } else if (m_stream)
         tags = adoptGRef(gst_stream_get_tags(m_stream.get()));
+
+    // MAVERICKS_BACKPORT: stream-start metadata precedes pad tag events for HLS renditions.
+    if (!tags)
+        tags = hlsTrackTags(m_bestUpstreamPad);
 
     if (!tags)
         tags = adoptGRef(gst_tag_list_new_empty());
@@ -427,8 +428,12 @@ void TrackDataHolder::streamIdChanged()
 
     String gstStreamId = byteCast<Latin1Character>(unsafeSpan(gst_pad_get_stream_id(m_pad.get())));
     auto streamId = parseStreamId(gstStreamId);
-    if (!streamId)
+    // MAVERICKS_BACKPORT: the string names a text track's samples when it carries no numeric part (see
+    // TextSinkGStreamer.cpp), so it is recorded whether or not it parses.
+    if (!streamId) {
+        m_gstStreamId = gstStreamId;
         return;
+    } // MAVERICKS_BACKPORT: closes the block above.
 
     ASSERT(isMainThread());
     m_gstStreamId = gstStreamId;

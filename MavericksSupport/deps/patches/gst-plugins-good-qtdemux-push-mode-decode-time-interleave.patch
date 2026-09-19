@@ -1,0 +1,359 @@
+# In pull mode qtdemux sends the stream whose next sample decodes earliest, so
+# its output is interleaved by time whatever the storage order. In push mode it
+# sends samples in the order their bytes arrive, and a fragment may store each
+# stream's samples as one run: legacy hlsdemux delivers fMP4 HLS segments with
+# all of a segment's video before its audio. decodebin's buffering multiqueue
+# then stops the demuxer 5 s into the run and the other stream's sink starves
+# until playback drains it.
+#
+# With an upstream delivering timed fragments and more than one non-sparse
+# stream, push-mode fragmented qtdemux holds the samples it takes and sends them
+# in decode-time order. A held sample goes out once no other non-sparse stream
+# can still provide an earlier one in the fragment it was taken from: that
+# stream's next parsed sample, or the end of the samples parsed for it, is not
+# before the held sample. The next timed fragment upstream delivers completes
+# the previous one. Everything held is sent at upstream EOS, before a new TIME
+# segment, at stream-start, at a real discont and before a second moov, and is
+# dropped on reset.
+#
+# Applied by build_deps with patch -p1, after
+# gst-plugins-good-qtdemux-push-mode-segment-seek.patch.
+
+--- a/gst/isomp4/qtdemux.h
++++ b/gst/isomp4/qtdemux.h
+@@ -287,6 +287,12 @@
+   gint64 push_seek_start;
+   gint64 push_seek_stop;
+ 
++  /* PUSH-BASED fragmented, TIME upstream: samples taken from the adapter and
++   * not pushed yet, in decode-time order */
++  GQueue held_samples;
++  /* UPSTREAM TIME: counts the timestamped fragment starts upstream delivered */
++  guint fragment_serial;
++
+ #if 0
+   /* gst index support */
+   GstIndex *element_index;
+@@ -384,6 +390,9 @@
+ {
+   GstPad *pad;
+ 
++  /* samples of this stream in demux->held_samples */
++  guint n_held_samples;
++
+   GstQTDemux *demux;
+   gchar *stream_id;
+ 
+--- a/gst/isomp4/qtdemux.c
++++ b/gst/isomp4/qtdemux.c
+@@ -271,6 +271,9 @@
+ static GstFlowReturn qtdemux_add_fragmented_samples (GstQTDemux * qtdemux);
+ 
+ static void gst_qtdemux_check_send_pending_segment (GstQTDemux * demux);
++static GstFlowReturn gst_qtdemux_release_held_samples (GstQTDemux * demux,
++    gboolean all);
++static void gst_qtdemux_drop_held_samples (GstQTDemux * demux);
+ 
+ static GstStaticPadTemplate gst_qtdemux_sink_template =
+     GST_STATIC_PAD_TEMPLATE ("sink",
+@@ -2140,6 +2143,7 @@
+   }
+   qtdemux->offset = 0;
+   gst_adapter_clear (qtdemux->adapter);
++  gst_qtdemux_drop_held_samples (qtdemux);
+   gst_segment_init (&qtdemux->segment, GST_FORMAT_TIME);
+   qtdemux->need_segment = TRUE;
+ 
+@@ -2359,6 +2363,7 @@
+         /* push all data on the adapter before starting this
+          * new segment */
+         gst_qtdemux_process_adapter (demux, TRUE);
++        gst_qtdemux_release_held_samples (demux, TRUE);
+       } else {
+         GST_DEBUG_OBJECT (demux, "unsupported segment format, ignoring");
+         goto exit;
+@@ -2460,6 +2465,7 @@
+           if (gst_qtdemux_process_adapter (demux, TRUE) != GST_FLOW_OK) {
+             res = FALSE;
+           }
++          gst_qtdemux_release_held_samples (demux, TRUE);
+ 
+           /* a push-mode segment seek ends here, in stream time, as it does
+            * in the pull loop */
+@@ -2550,6 +2556,7 @@
+ 
+       /* Drain all the buffers */
+       gst_qtdemux_process_adapter (demux, TRUE);
++      gst_qtdemux_release_held_samples (demux, TRUE);
+       gst_qtdemux_reset (demux, FALSE);
+       /* We expect new moov box after new stream-start event */
+       if (demux->exposed) {
+@@ -6166,7 +6173,7 @@
+         continue;
+     }
+ 
+-    if (stream->sent_eos)
++    if (stream->sent_eos || stream->n_held_samples)
+       continue;
+ 
+     /* only act if some gap */
+@@ -7245,6 +7252,181 @@
+   return ret;
+ }
+ 
++typedef struct
++{
++  QtDemuxStream *stream;
++  GstBuffer *buffer;
++  guint64 dts, pts, duration;
++  gboolean round_up_duration;
++  gboolean keyframe;
++  guint64 byte_position;
++  GstClockTime time;
++  guint fragment_serial;
++} QtDemuxHeldSample;
++
++static gboolean
++qtdemux_stream_is_interleaved (QtDemuxStream * stream)
++{
++  return stream->pad && stream->stsd_entries && !CUR_STREAM (stream)->sparse;
++}
++
++/* Push mode sends a fragment's samples in the order their bytes arrive, and a
++ * fragment may store each stream's samples as one run. With an upstream
++ * delivering timed fragments and more than one non-sparse stream, samples are
++ * held and sent in decode-time order, as the pull loop sends them. */
++static gboolean
++gst_qtdemux_holds_samples (GstQTDemux * demux)
++{
++  guint i, interleaved = 0;
++
++  if (demux->pullbased || !demux->fragmented || !demux->upstream_format_is_time
++      || demux->variant == VARIANT_MSE_BYTESTREAM || demux->segment.rate < 0)
++    return FALSE;
++
++  for (i = 0; i < QTDEMUX_N_STREAMS (demux); i++) {
++    if (qtdemux_stream_is_interleaved (QTDEMUX_NTH_STREAM (demux, i)))
++      interleaved++;
++  }
++  return interleaved > 1;
++}
++
++static void
++qtdemux_held_sample_free (QtDemuxHeldSample * held)
++{
++  if (held->buffer)
++    gst_buffer_unref (held->buffer);
++  held->stream->n_held_samples--;
++  gst_qtdemux_stream_unref (held->stream);
++  g_free (held);
++}
++
++/* keeps samples of equal time in the order they were held */
++static gint
++qtdemux_held_sample_compare (gconstpointer queued, gconstpointer added,
++    gpointer user_data)
++{
++  const QtDemuxHeldSample *a = queued, *b = added;
++
++  return a->time <= b->time ? -1 : 1;
++}
++
++static void
++gst_qtdemux_hold_sample (GstQTDemux * demux, QtDemuxStream * stream,
++    GstBuffer * buffer, guint64 dts, guint64 pts, guint64 duration,
++    gboolean round_up_duration, gboolean keyframe, guint64 byte_position)
++{
++  QtDemuxHeldSample *held = g_new0 (QtDemuxHeldSample, 1);
++
++  held->stream = gst_qtdemux_stream_ref (stream);
++  held->buffer = buffer;
++  held->dts = dts;
++  held->pts = pts;
++  held->duration = duration;
++  held->round_up_duration = round_up_duration;
++  held->keyframe = keyframe;
++  held->byte_position = byte_position;
++  held->time = QTSTREAMTIME_TO_GSTTIME (stream, dts);
++  held->fragment_serial = demux->fragment_serial;
++  stream->n_held_samples++;
++  g_queue_insert_sorted (&demux->held_samples, held,
++      qtdemux_held_sample_compare, NULL);
++}
++
++/* TRUE while another non-sparse stream can still provide a sample that decodes
++ * before @held within the fragment @held was taken from. A track's samples come
++ * in decode order and each run continues where the previous one ended, so a
++ * stream judged by its next parsed sample, or by the end of the samples parsed
++ * for it, has nothing earlier to come once that point is not before @held.
++ * Once upstream delivers the next timed fragment, the fragment @held came from
++ * is complete: a stream whose data in it did not reach @held has a gap there,
++ * and @held is sent. */
++static gboolean
++qtdemux_held_sample_waits (GstQTDemux * demux, QtDemuxHeldSample * held)
++{
++  gint i;
++
++  if (held->fragment_serial != demux->fragment_serial)
++    return FALSE;
++
++  for (i = 0; i < QTDEMUX_N_STREAMS (demux); i++) {
++    QtDemuxStream *stream = QTDEMUX_NTH_STREAM (demux, i);
++    QtDemuxSample *sample;
++    guint32 next;
++
++    if (stream == held->stream || !qtdemux_stream_is_interleaved (stream)
++        || stream->sent_eos || STREAM_IS_EOS (stream))
++      continue;
++    /* its earliest held sample is at or after @held in the queue */
++    if (stream->n_held_samples)
++      continue;
++
++    /* a stream whose sample table a new [moof] replaced starts at its first
++     * sample, which sample_index records as -1 */
++    next = stream->sample_index == G_MAXUINT32 ? 0 : stream->sample_index;
++    if (next < stream->n_samples) {
++      sample = &stream->samples[next];
++      if (QTSTREAMTIME_TO_GSTTIME (stream, sample->timestamp) < held->time)
++        return TRUE;
++      continue;
++    }
++
++    if (stream->n_samples) {
++      sample = &stream->samples[stream->n_samples - 1];
++      if (QTSTREAMTIME_TO_GSTTIME (stream,
++              sample->timestamp + sample->duration) >= held->time)
++        continue;
++    }
++
++    return TRUE;
++  }
++
++  return FALSE;
++}
++
++/* Sends held samples that nothing can precede any more, or all of them. */
++static GstFlowReturn
++gst_qtdemux_release_held_samples (GstQTDemux * demux, gboolean all)
++{
++  GstFlowReturn ret = GST_FLOW_OK;
++  QtDemuxHeldSample *held;
++
++  while ((held = g_queue_peek_head (&demux->held_samples))) {
++    GstFlowReturn flow;
++    GstBuffer *buffer;
++
++    if (!all && qtdemux_held_sample_waits (demux, held))
++      break;
++
++    g_queue_pop_head (&demux->held_samples);
++    buffer = held->buffer;
++    held->buffer = NULL;
++    flow = gst_qtdemux_decorate_and_push_buffer (demux, held->stream, buffer,
++        held->dts, held->pts, held->duration, held->round_up_duration,
++        held->keyframe, held->dts, held->byte_position);
++    GST_OBJECT_LOCK (demux);
++    flow = gst_qtdemux_combine_flows (demux, held->stream, flow);
++    GST_OBJECT_UNLOCK (demux);
++    qtdemux_held_sample_free (held);
++
++    if (flow != GST_FLOW_OK) {
++      ret = flow;
++      if (flow != GST_FLOW_NOT_LINKED)
++        break;
++    }
++  }
++
++  return ret;
++}
++
++static void
++gst_qtdemux_drop_held_samples (GstQTDemux * demux)
++{
++  QtDemuxHeldSample *held;
++
++  while ((held = g_queue_pop_head (&demux->held_samples)))
++    qtdemux_held_sample_free (held);
++}
++
+ static const QtDemuxRandomAccessEntry *
+ gst_qtdemux_stream_seek_fragment (GstQTDemux * qtdemux, QtDemuxStream * stream,
+     GstClockTime pos, gboolean after)
+@@ -8318,6 +8500,7 @@
+       }
+       if (!is_gap_input) {
+         GST_DEBUG_OBJECT (demux, "Resetting, actual DISCONT");
++        gst_qtdemux_release_held_samples (demux, TRUE);
+         /* Reset state if it's a real discont */
+         demux->neededbytes = 16;
+         demux->state = QTDEMUX_STATE_INITIAL;
+@@ -8507,6 +8690,7 @@
+             if (demux->got_moov && demux->fragmented) {
+               GST_DEBUG_OBJECT (demux,
+                   "Got a second moov, clean up data from old one");
++              gst_qtdemux_release_held_samples (demux, TRUE);
+               if (demux->moov_node_compressed) {
+                 g_node_destroy (demux->moov_node_compressed);
+                 if (demux->moov_node)
+@@ -8582,6 +8766,8 @@
+                 || prev_offset > demux->fragment_start_offset) {
+               demux->fragment_start_offset = prev_offset;
+               demux->fragment_start = prev_pts;
++              if (GST_CLOCK_TIME_IS_VALID (prev_pts))
++                demux->fragment_serial++;
+               GST_DEBUG_OBJECT (demux,
+                   "New fragment start found at: %" G_GUINT64_FORMAT " : %"
+                   GST_TIME_FORMAT, demux->fragment_start_offset,
+@@ -8629,6 +8815,10 @@
+               goto done;
+             }
+ 
++            /* a new fragment completes the previous one, and this [moof]
++             * tells where its streams' next samples fall */
++            ret = gst_qtdemux_release_held_samples (demux, FALSE);
++
+             /* in MSS we need to expose the pads after the first moof as we won't get a moov */
+             if (demux->variant == VARIANT_MSS_FRAGMENTED && !demux->exposed) {
+               QTDEMUX_EXPOSE_LOCK (demux);
+@@ -8772,6 +8962,7 @@
+         guint64 dts, pts, duration;
+         gboolean round_up_duration = FALSE;
+         gboolean keyframe;
++        gboolean held = FALSE;
+         gint i;
+ 
+         GST_DEBUG_OBJECT (demux,
+@@ -8933,15 +9124,26 @@
+             /* FIXME: should either be an assert or a plain check */
+             g_return_val_if_fail (outbuf != NULL, GST_FLOW_ERROR);
+ 
+-            ret = gst_qtdemux_decorate_and_push_buffer (demux, stream, outbuf,
+-                dts, pts, duration, round_up_duration, keyframe, dts,
+-                demux->offset);
++            if (gst_qtdemux_holds_samples (demux)) {
++              gst_qtdemux_hold_sample (demux, stream, outbuf, dts, pts,
++                  duration, round_up_duration, keyframe, demux->offset);
++              held = TRUE;
++            } else {
++              ret = gst_qtdemux_decorate_and_push_buffer (demux, stream,
++                  outbuf, dts, pts, duration, round_up_duration, keyframe, dts,
++                  demux->offset);
++            }
+           }
+ 
+-          /* combine flows */
+-          GST_OBJECT_LOCK (demux);
+-          ret = gst_qtdemux_combine_flows (demux, stream, ret);
+-          GST_OBJECT_UNLOCK (demux);
++          if (held) {
++            /* each released sample's flow is combined as it is pushed */
++            ret = gst_qtdemux_release_held_samples (demux, FALSE);
++          } else {
++            /* combine flows */
++            GST_OBJECT_LOCK (demux);
++            ret = gst_qtdemux_combine_flows (demux, stream, ret);
++            GST_OBJECT_UNLOCK (demux);
++          }
+         } else {
+           /* skip this data, stream is EOS */
+           gst_adapter_flush (demux->adapter, demux->neededbytes);

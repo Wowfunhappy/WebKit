@@ -1,0 +1,370 @@
+# hlsdemux ignores EXT-X-DATERANGE, so a player sees none of the timed metadata a media playlist
+# declares with it. The patch parses the tag in the media playlist (RFC 8216bis 4.4.5.1): ID,
+# CLASS, START-DATE, END-DATE, DURATION, PLANNED-DURATION, END-ON-NEXT and the X- client
+# attributes. ID and START-DATE are required, and a later tag with the same ID replaces a range.
+#
+# A range's duration is its DURATION; otherwise END-DATE minus START-DATE; otherwise, with
+# END-ON-NEXT=YES, the distance to the next range of the same CLASS. PLANNED-DURATION alone leaves
+# the end unknown. Its start in stream time is START-DATE relative to the EXT-X-PROGRAM-DATE-TIME
+# of the last fragment dated at or before it, plus that fragment's stream position; without any
+# program date-time the range starts at the beginning of the stream.
+#
+# After each media playlist load or update the element posts an "hls-date-ranges" element message
+# whose "ranges" array holds one "date-range" structure per range: "id", "class", "start" and
+# "duration" (GST_CLOCK_TIME_NONE while the end is unknown) in stream time, and the "attributes".
+#
+# Applied by build_deps with patch -p1.
+--- a/ext/hls/m3u8.h
++++ b/ext/hls/m3u8.h
+@@ -50,6 +50,21 @@
+    value is three fragments */
+ #define GST_M3U8_LIVE_MIN_FRAGMENT_DISTANCE 3
+ 
++typedef struct _GstM3U8DateRange GstM3U8DateRange;
++
++/* An EXT-X-DATERANGE tag of a media playlist */
++struct _GstM3U8DateRange
++{
++  gchar *id;
++  gchar *class_name;
++  GstDateTime *start_date;
++  GstDateTime *end_date;
++  GstClockTime duration;          /* DURATION, or GST_CLOCK_TIME_NONE */
++  GstClockTime planned_duration;  /* PLANNED-DURATION, or GST_CLOCK_TIME_NONE */
++  gboolean end_on_next;
++  GstStructure *attributes;       /* the X- client attributes, as strings */
++};
++
+ struct _GstM3U8
+ {
+   gchar *uri;                   /* actually downloaded URI */
+@@ -76,6 +91,7 @@
+   GstClockTime last_file_end;         /* timecode of the end of the last fragment in the current media playlist */
+   GstClockTime duration;              /* cached total duration */
+   gint discont_sequence;              /* currently expected EXT-X-DISCONTINUITY-SEQUENCE */
++  GList *date_ranges;                 /* GstM3U8DateRange, in playlist order */
+ 
+   /*< private > */
+   gchar *last_data;
+@@ -86,6 +102,8 @@
+ 
+ GstM3U8 *          gst_m3u8_ref   (GstM3U8 * m3u8);
+ 
++GstStructure *     gst_m3u8_get_date_ranges (GstM3U8 * m3u8);
++
+ void               gst_m3u8_unref (GstM3U8 * m3u8);
+ 
+ 
+--- a/ext/hls/m3u8.c
++++ b/ext/hls/m3u8.c
+@@ -96,6 +96,22 @@
+   return m3u8;
+ }
+ 
++static GstM3U8DateRange *gst_m3u8_date_range_parse (gchar * data);
++
++static void
++gst_m3u8_date_range_free (GstM3U8DateRange * range)
++{
++  g_free (range->id);
++  g_free (range->class_name);
++  if (range->start_date)
++    gst_date_time_unref (range->start_date);
++  if (range->end_date)
++    gst_date_time_unref (range->end_date);
++  if (range->attributes)
++    gst_structure_free (range->attributes);
++  g_free (range);
++}
++
+ void
+ gst_m3u8_unref (GstM3U8 * self)
+ {
+@@ -108,6 +124,8 @@
+ 
+     g_list_foreach (self->files, (GFunc) gst_m3u8_media_file_unref, NULL);
+     g_list_free (self->files);
++    g_list_free_full (self->date_ranges,
++        (GDestroyNotify) gst_m3u8_date_range_free);
+ 
+     g_free (self->last_data);
+     g_mutex_clear (&self->lock);
+@@ -488,6 +506,7 @@
+ {
+   gint val;
+   GstDateTime *program_dt = NULL;
++  GList *date_ranges = NULL;
+   GstClockTime duration;
+   gchar *title, *end;
+   gboolean discontinuity = FALSE;
+@@ -663,6 +682,11 @@
+         }
+       } else if (g_str_has_prefix (data_ext_x, "ALLOW-CACHE:")) {
+         self->allowcache = g_ascii_strcasecmp (data + 19, "YES") == 0;
++      } else if (g_str_has_prefix (data_ext_x, "DATERANGE:")) {
++        GstM3U8DateRange *range = gst_m3u8_date_range_parse (data + 17);
++
++        if (range)
++          date_ranges = g_list_append (date_ranges, range);
+       } else if (g_str_has_prefix (data_ext_x, "KEY:")) {
+         gchar *v, *a;
+ 
+@@ -780,6 +804,23 @@
+   g_free (current_key);
+   current_key = NULL;
+ 
++  /* A range keeps its ID across playlist reloads: a later tag with the same ID replaces it */
++  while (date_ranges) {
++    GstM3U8DateRange *range = date_ranges->data;
++    GList *walk;
++
++    date_ranges = g_list_delete_link (date_ranges, date_ranges);
++    for (walk = self->date_ranges; walk; walk = walk->next) {
++      GstM3U8DateRange *existing = walk->data;
++      if (g_str_equal (existing->id, range->id)) {
++        gst_m3u8_date_range_free (existing);
++        self->date_ranges = g_list_delete_link (self->date_ranges, walk);
++        break;
++      }
++    }
++    self->date_ranges = g_list_append (self->date_ranges, range);
++  }
++
+   if (program_dt) {
+     gst_date_time_unref (program_dt);
+     program_dt = NULL;
+@@ -1356,6 +1397,68 @@
+   return g_strndup (start + 1, (gsize) (end - (start + 1)));
+ }
+ 
++/* Parses the attribute list of an EXT-X-DATERANGE tag (RFC 8216bis 4.4.5.1). ID and START-DATE are
++ * required. */
++static GstM3U8DateRange *
++gst_m3u8_date_range_parse (gchar * data)
++{
++  GstM3U8DateRange *range = g_new0 (GstM3U8DateRange, 1);
++  gchar *a, *v;
++
++  range->duration = GST_CLOCK_TIME_NONE;
++  range->planned_duration = GST_CLOCK_TIME_NONE;
++  range->attributes = gst_structure_new_empty ("attributes");
++
++  while (data && parse_attributes (&data, &a, &v)) {
++    if (g_str_equal (a, "ID")) {
++      g_free (range->id);
++      range->id = gst_m3u8_unquote (v);
++    } else if (g_str_equal (a, "CLASS")) {
++      g_free (range->class_name);
++      range->class_name = gst_m3u8_unquote (v);
++    } else if (g_str_equal (a, "START-DATE") || g_str_equal (a, "END-DATE")) {
++      gchar *date_string = gst_m3u8_unquote (v);
++      GstDateTime *date = gst_date_time_new_from_iso8601_string (date_string);
++      GstDateTime **target = g_str_equal (a, "START-DATE") ?
++          &range->start_date : &range->end_date;
++
++      g_free (date_string);
++      if (*target)
++        gst_date_time_unref (*target);
++      *target = date;
++    } else if (g_str_equal (a, "DURATION")
++        || g_str_equal (a, "PLANNED-DURATION")) {
++      gdouble seconds = g_ascii_strtod (v, NULL);
++
++      if (seconds >= 0 && seconds < (gdouble) (G_MAXUINT64 / GST_SECOND)) {
++        GstClockTime value = (GstClockTime) (seconds * GST_SECOND);
++        if (g_str_equal (a, "DURATION"))
++          range->duration = value;
++        else
++          range->planned_duration = value;
++      }
++    } else if (g_str_equal (a, "END-ON-NEXT")) {
++      range->end_on_next = g_ascii_strcasecmp (v, "YES") == 0;
++    } else if (g_str_has_prefix (a, "X-")) {
++      gchar *value = gst_m3u8_unquote (v);
++      gst_structure_set (range->attributes, a, G_TYPE_STRING, value, NULL);
++      g_free (value);
++    }
++  }
++
++  if (!range->id || !range->start_date
++      || !gst_date_time_has_second (range->start_date)) {
++    GST_WARNING ("EXT-X-DATERANGE without a valid ID and START-DATE");
++    gst_m3u8_date_range_free (range);
++    return NULL;
++  }
++  if (range->end_date && !gst_date_time_has_second (range->end_date)) {
++    gst_date_time_unref (range->end_date);
++    range->end_date = NULL;
++  }
++  return range;
++}
++
+ static GstHLSMedia *
+ gst_m3u8_parse_media (gchar * desc, const gchar * base_uri)
+ {
+@@ -1898,3 +2001,115 @@
+ 
+   return find_variant_stream_by_uri (playlist->variants, current_variant->uri);
+ }
++
++/* Microseconds from @from to @to */
++static gboolean
++date_difference (GstDateTime * to, GstDateTime * from, GTimeSpan * difference)
++{
++  GDateTime *to_date = gst_date_time_to_g_date_time (to);
++  GDateTime *from_date = gst_date_time_to_g_date_time (from);
++  gboolean result = to_date && from_date;
++
++  if (result)
++    *difference = g_date_time_difference (to_date, from_date);
++  if (to_date)
++    g_date_time_unref (to_date);
++  if (from_date)
++    g_date_time_unref (from_date);
++  return result;
++}
++
++/**
++ * gst_m3u8_get_date_ranges:
++ *
++ * Describes the EXT-X-DATERANGE tags of the media playlist as an "hls-date-ranges" structure whose
++ * "ranges" array holds one "date-range" structure per tag: "id", "start" and "duration" in stream
++ * time (GST_CLOCK_TIME_NONE for a range that has no end yet), and its X- client "attributes". A
++ * range's stream time is its START-DATE relative to the EXT-X-PROGRAM-DATE-TIME of the fragments;
++ * without a program date-time it starts at the beginning of the stream.
++ *
++ * Returns: (transfer full) (nullable): the structure, or %NULL without any range
++ */
++GstStructure *
++gst_m3u8_get_date_ranges (GstM3U8 * self)
++{
++  GstClockTime anchor_position = GST_CLOCK_TIME_NONE, position;
++  GstDateTime *anchor_date = NULL;
++  GValue ranges = G_VALUE_INIT;
++  GstStructure *result;
++  GList *walk;
++
++  GST_M3U8_LOCK (self);
++  if (!self->date_ranges) {
++    GST_M3U8_UNLOCK (self);
++    return NULL;
++  }
++
++  g_value_init (&ranges, GST_TYPE_ARRAY);
++  for (walk = self->date_ranges; walk; walk = walk->next) {
++    GstM3U8DateRange *range = walk->data;
++    GstClockTime start = 0, duration = GST_CLOCK_TIME_NONE;
++    GTimeSpan difference;
++    GstStructure *entry;
++    GValue value = G_VALUE_INIT;
++    GList *file;
++
++    /* The last fragment with a program date-time at or before the range's start */
++    anchor_date = NULL;
++    anchor_position = GST_CLOCK_TIME_NONE;
++    position = GST_CLOCK_TIME_IS_VALID (self->first_file_start) ?
++        self->first_file_start : 0;
++    for (file = self->files; file; file = file->next) {
++      GstM3U8MediaFile *media_file = file->data;
++
++      if (media_file->program_dt) {
++        if (!anchor_date || (date_difference (range->start_date,
++                    media_file->program_dt, &difference) && difference >= 0)) {
++          anchor_date = media_file->program_dt;
++          anchor_position = position;
++        }
++      }
++      position += media_file->duration;
++    }
++    if (anchor_date && date_difference (range->start_date, anchor_date,
++            &difference)) {
++      gint64 stream_start = (gint64) anchor_position + difference * GST_USECOND;
++      start = stream_start > 0 ? (GstClockTime) stream_start : 0;
++    }
++
++    if (GST_CLOCK_TIME_IS_VALID (range->duration)) {
++      duration = range->duration;
++    } else if (range->end_date && date_difference (range->end_date,
++            range->start_date, &difference) && difference >= 0) {
++      duration = difference * GST_USECOND;
++    } else if (range->end_on_next) {
++      GList *later;
++      GTimeSpan nearest = G_MAXINT64;
++
++      for (later = self->date_ranges; later; later = later->next) {
++        GstM3U8DateRange *other = later->data;
++        if (other != range && !g_strcmp0 (other->class_name, range->class_name)
++            && date_difference (other->start_date, range->start_date,
++                &difference) && difference > 0 && difference < nearest)
++          nearest = difference;
++      }
++      if (nearest != G_MAXINT64)
++        duration = nearest * GST_USECOND;
++    }
++
++    entry = gst_structure_new ("date-range", "id", G_TYPE_STRING, range->id,
++        "start", G_TYPE_UINT64, start, "duration", G_TYPE_UINT64, duration,
++        "attributes", GST_TYPE_STRUCTURE, range->attributes, NULL);
++    if (range->class_name)
++      gst_structure_set (entry, "class", G_TYPE_STRING, range->class_name,
++          NULL);
++    g_value_init (&value, GST_TYPE_STRUCTURE);
++    g_value_take_boxed (&value, entry);
++    gst_value_array_append_and_take_value (&ranges, &value);
++  }
++  GST_M3U8_UNLOCK (self);
++
++  result = gst_structure_new_empty ("hls-date-ranges");
++  gst_structure_take_value (result, "ranges", &ranges);
++  return result;
++}
+--- a/ext/hls/gsthlsdemux.c
++++ b/ext/hls/gsthlsdemux.c
+@@ -85,6 +85,8 @@
+  * the API-lock holder */
+ static GstHLSPlaylistUpdateResult gst_hls_demux_update_playlist (GstHLSDemux *
+     demux, gboolean update, GstAdaptiveDemuxStream * stream, GError ** err);
++static void gst_hls_demux_post_date_ranges (GstHLSDemux * demux,
++    GstM3U8 * m3u8);
+ static gboolean gst_hls_demux_download_cancelled (GstHLSDemux * demux,
+     GstAdaptiveDemuxStream * stream);
+ static gboolean gst_hls_demux_download_was_cancelled (const GError * err);
+@@ -1085,6 +1087,7 @@
+     gst_hls_demux_set_current_variant (hlsdemux, variant);      // FIXME: inline?
+     if (!hlsdemux->master->is_simple)
+       gst_hls_demux_resync_playlist (hlsdemux, variant->m3u8, FALSE);
++    gst_hls_demux_post_date_ranges (hlsdemux, variant->m3u8);
+   }
+   GST_M3U8_CLIENT_UNLOCK (self);
+ 
+@@ -2474,6 +2477,17 @@
+  * whose target is current). When the media playlist is gone, refetches the
+  * variant playlist and switches to the variant in it that stands for the
+  * current one, once that one's playlist is loaded. */
++/* Posts the EXT-X-DATERANGE tags of a media playlist, see gst_m3u8_get_date_ranges() */
++static void
++gst_hls_demux_post_date_ranges (GstHLSDemux * demux, GstM3U8 * m3u8)
++{
++  GstStructure *date_ranges = gst_m3u8_get_date_ranges (m3u8);
++
++  if (date_ranges)
++    gst_element_post_message (GST_ELEMENT_CAST (demux),
++        gst_message_new_element (GST_OBJECT_CAST (demux), date_ranges));
++}
++
+ static GstHLSPlaylistUpdateResult
+ gst_hls_demux_update_playlist (GstHLSDemux * demux, gboolean update,
+     GstAdaptiveDemuxStream * stream, GError ** err)
+@@ -2559,9 +2573,10 @@
+   }
+ 
+   if (res == GST_HLS_PLAYLIST_UPDATED) {
+-    if (demux->current_variant == variant)
++    if (demux->current_variant == variant) {
+       gst_hls_demux_resync_playlist (demux, variant->m3u8, update);
+-    else {
++      gst_hls_demux_post_date_ranges (demux, variant->m3u8);
++    } else {
+       GST_DEBUG_OBJECT (demux, "Variant switched while its playlist loaded");
+       res = GST_HLS_PLAYLIST_SKIPPED;
+     }

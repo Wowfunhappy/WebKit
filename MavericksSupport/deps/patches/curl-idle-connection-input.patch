@@ -1,0 +1,16 @@
+--- a/lib/conncache.c
++++ b/lib/conncache.c
+@@ -951,7 +951,12 @@
+   DEBUGASSERT(!data->conn);
+   if(!CONN_INUSE(conn) && cpool_conn_maxage(data, conn, pnow)) /* too old? */
+     return FALSE;
+-  if(curlx_ptimediff_ms(pnow, &conn->lastchecked) < 1000)
++  /* An idle connection that is not multiplexed is polled for input on every
++   * reuse, so bytes a server wrote past its last response (a body longer than
++   * its Content-Length) retire the connection instead of being read as the
++   * next response. */
++  if(curlx_ptimediff_ms(pnow, &conn->lastchecked) < 1000 &&
++     (CONN_INUSE(conn) || Curl_conn_is_multiplex(conn, FIRSTSOCKET)))
+     return TRUE;
+ 
+   admin = Curl_get_admin(data);

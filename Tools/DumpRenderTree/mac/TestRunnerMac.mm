@@ -77,6 +77,7 @@
 #import <pal/spi/cf/CFNetworkSPI.h>
 #import <wtf/HashMap.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/URL.h>
 #import <wtf/WallTime.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/darwin/DispatchExtras.h>
@@ -346,8 +347,9 @@ void TestRunner::queueLoad(JSStringRef url, JSStringRef target)
     RetainPtr<CFStringRef> urlCF = adoptCF(JSStringCopyCFString(kCFAllocatorDefault, url));
     NSString *urlNS = (__bridge NSString *)urlCF.get();
 
-    NSURL *nsurl = [NSURL URLWithString:urlNS relativeToURL:[[[mainFrame dataSource] response] URL]];
-    NSString *nsurlString = [nsurl absoluteString];
+    // Resolve queued navigations with the same URL parser as WebKitTestRunner.
+    auto nsurl = WTF::URL { WTF::URL { [[[mainFrame dataSource] response] URL] }, WTF::String { urlNS } }.createNSURL();
+    NSString *nsurlString = [nsurl.get() absoluteString];
 
     auto absoluteURL = adopt(JSStringCreateWithUTF8CString([nsurlString UTF8String]));
     DRT::WorkQueue::singleton().queue(new LoadItem(absoluteURL.get(), target));
