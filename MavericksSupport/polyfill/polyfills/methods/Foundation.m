@@ -1718,9 +1718,6 @@ WK_POLYFILL_REPLACE_METHODS_ON(NSObject, "__NSCFLocalDownloadTask", "__NSCFURLSe
 // answer to each is "nothing happens", which is exactly what these do: the setters accept and discard,
 // and the getters report the absence (nil, NO, 0) that the caller already has to handle. That is correct
 // for any caller, not just for WebKit's, which is why it belongs here and not at the call sites.
-//
-// Not a no-op stub: +[NSURLSession _strictTrustEvaluate:queue:completionHandler:] is implemented for real
-// further down this file, because "nothing happens" is not a safe answer for a trust evaluation.
 
 // NSURLSessionConfiguration. Installed on the public class WebKit compiles against and on the concrete
 // class 10.9 vends.
@@ -2040,92 +2037,6 @@ static NSURLRequest *wk_requestCarryingStorageCookieAcceptPolicy(id session, NSU
 }
 
 // ---------------------------------------------------------------------------------------------------
-// +[NSURLSession _strictTrustEvaluate:queue:completionHandler:] (10.10+).
-//
-// Evaluates server trust on the shared worker pool and delivers the result on the caller's queue.
-// Proceed and Unspecified are accepted; all other results report errSecNotTrusted.
-@interface WKTrustEvaluationQueue : NSObject {
-    dispatch_queue_t _stateQueue;
-    NSMutableArray *_pending;
-    NSUInteger _active;
-    NSUInteger _width;
-}
-- (void)addOperationWithBlock:(void (^)(void))operation;
-@end
-
-@implementation WKTrustEvaluationQueue
-- (instancetype)init
-{
-    if (!(self = [super init]))
-        return nil;
-    _stateQueue = dispatch_queue_create("com.apple.WebKit.polyfill.trust-evaluation.state", DISPATCH_QUEUE_SERIAL);
-    _pending = [[NSMutableArray alloc] init];
-    _width = [NSProcessInfo processInfo].activeProcessorCount;
-    return self;
-}
-- (void)startPendingOperations
-{
-    while (_active < _width && _pending.count) {
-        NSBlockOperation *operation = [[_pending objectAtIndex:0] retain];
-        [_pending removeObjectAtIndex:0];
-        ++_active;
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-            [operation start];
-            dispatch_async(_stateQueue, ^{
-                --_active;
-                [self startPendingOperations];
-            });
-        });
-        [operation release];
-    }
-}
-- (void)addOperationWithBlock:(void (^)(void))operation
-{
-    NSBlockOperation *pending = [NSBlockOperation blockOperationWithBlock:operation];
-    dispatch_async(_stateQueue, ^{
-        [_pending addObject:pending];
-        [self startPendingOperations];
-    });
-}
-@end
-
-static WKTrustEvaluationQueue *wk_trustEvaluationQueue(void)
-{
-    static WKTrustEvaluationQueue *queue;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        queue = [[WKTrustEvaluationQueue alloc] init];
-    });
-    return queue;
-}
-
-WK_POLYFILL_ADD_METHODS(NSURLSession)
-+ (void)_strictTrustEvaluate:(NSURLAuthenticationChallenge *)challenge queue:(dispatch_queue_t)queue completionHandler:(void (^)(NSURLAuthenticationChallenge *, OSStatus))completionHandler
-{
-    // challenge is captured by the blocks, which retain it; the SecTrustRef is owned by the challenge, so
-    // it is retained across the hops explicitly.
-    SecTrustRef trust = [[challenge protectionSpace] serverTrust];
-    if (trust)
-        CFRetain(trust);
-    dispatch_queue_t completionQueue = queue ?: dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
-    dispatch_retain(completionQueue);
-
-    [wk_trustEvaluationQueue() addOperationWithBlock:^{
-        OSStatus status = errSecNotTrusted;
-        SecTrustResultType trustResult = kSecTrustResultInvalid;
-        if (trust && SecTrustEvaluate(trust, &trustResult) == errSecSuccess
-            && (trustResult == kSecTrustResultProceed || trustResult == kSecTrustResultUnspecified))
-            status = noErr;
-        dispatch_async(completionQueue, ^{
-            completionHandler(challenge, status);
-            if (trust)
-                CFRelease(trust);
-            dispatch_release(completionQueue);
-        });
-    }];
-}
-@end
-
 // ---------------------------------------------------------------------------------------------------
 // -[NSHTTPCookieStorage _initWithIdentifier:private:] (10.13+).
 //
