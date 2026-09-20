@@ -165,7 +165,9 @@ static void webkitTextCombinerReleasePad(GstElement* element, GstPad* pad)
     if (auto target = adoptGRef(gst_ghost_pad_get_target(GST_GHOST_PAD(pad)))) {
         auto parent = adoptGRef(gst_pad_get_parent_element(target.get()));
         ASSERT(parent);
-        if (parent) {
+        // MAVERICKS_BACKPORT: a WebVTT pad targets the concat element's own sink pad, and concat serves every later pad; only a converter in front of it goes with this pad.
+        // if (parent) {
+        if (parent && parent != combiner->priv->combinerElement) {
             gst_element_set_state(parent.get(), GST_STATE_NULL);
             gst_bin_remove(GST_BIN_CAST(combiner), parent.get());
         }
