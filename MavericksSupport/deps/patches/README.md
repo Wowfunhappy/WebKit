@@ -334,6 +334,29 @@ Computes the Digest `uri` from the actual request-target, as RFC 7616 section 3.
 including requests sent through an HTTP proxy and requests carrying an explicit
 `CURLOPT_REQUEST_TARGET`. CONNECT keeps its authority-form target.
 
+## curl-bare-cr-ends-field-line.patch
+
+**Target:** `curl-8.22.0`, `lib/http.c`
+**Applied to:** libcurl
+
+A bare CR inside a response header value fails the whole transfer
+(`Curl_verify_header`: "Carriage return found in header", `CURLE_WEIRD_SERVER_REPLY`), so the page
+does not load. CFNetwork, which Safari on a modern macOS loads through, ends the field value at that
+CR, drops the rest of the line and delivers the response; that reading is the cross-platform
+expectation of
+`imported/w3c/web-platform-tests/html/cross-origin-embedder-policy/header-parsing.https.html`, which
+`LayoutTests/platform/glib/` overrides with a FAIL of its own.
+
+The two callers that own the header brigade give their line the same reading before handing it on:
+the field line ends at the bare CR and keeps its CRLF, so the bytes after it are dropped rather than
+read as another field, and `curlx_dyn_setlen` re-terminates the buffer. Folded continuations are
+joined before this runs, so an interior CR is a bare one.
+
+`http_rw_hd` keeps its `const` header pointer and `Curl_http_write_resp_hd` -- the HTTP/2, HTTP/3 and
+WebSocket entry point, whose buffer belongs to those filters -- is untouched; HPACK and QPACK reject
+a bare CR in a field value on their own. `Curl_verify_header` is untouched too, so the CONNECT-proxy
+path and chunked trailers keep libcurl's strictness and a NUL byte still fails every path.
+
 ## curl-http1-framing.patch
 
 **Target:** `curl-8.22.0`, `lib/http.c`, `lib/http.h`, `lib/http_chunks.c`, `lib/http_chunks.h`,

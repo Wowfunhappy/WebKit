@@ -1070,6 +1070,8 @@ if prepare "$d"; then
         && patch -p1 < "$HERE/patches/curl-http2-completed-stream.patch" ) || exit 1
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-http1-framing.patch" \
         && patch -p1 < "$HERE/patches/curl-http1-framing.patch" ) || exit 1
+    ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-bare-cr-ends-field-line.patch" \
+        && patch -p1 < "$HERE/patches/curl-bare-cr-ends-field-line.patch" ) || exit 1
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-digest-request-target.patch" \
         && patch -p1 < "$HERE/patches/curl-digest-request-target.patch" ) || exit 1
     ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/curl-browser-http2.patch" \

@@ -1,0 +1,68 @@
+# A bare CR inside a response header value fails the whole transfer in libcurl
+# ("Carriage return found in header", CURLE_WEIRD_SERVER_REPLY from
+# Curl_verify_header), so a page whose server emits one does not load at all.
+# CFNetwork, which Safari on a modern macOS loads through, ends the field value
+# at that CR, drops the rest of the line and delivers the response;
+# imported/w3c/web-platform-tests/html/cross-origin-embedder-policy/header-parsing.https.html
+# carries that reading as its cross-platform expectation.
+#
+# The two callers that own the header brigade give their line the same reading
+# before handing it on: the field line ends at the bare CR and keeps its CRLF,
+# so the bytes after it are dropped rather than read as another field, and
+# curlx_dyn_setlen re-terminates the buffer. Folded continuations are joined
+# before this runs, so an interior CR is a bare one.
+#
+# http_rw_hd keeps its const header pointer and Curl_http_write_resp_hd -- the
+# HTTP/2, HTTP/3 and WebSocket entry point, whose buffer belongs to those
+# filters -- is untouched; HPACK and QPACK reject a bare CR in a field value on
+# their own. Curl_verify_header is untouched too, so the CONNECT-proxy path and
+# chunked trailers keep libcurl's strictness and a NUL byte still fails every
+# path.
+#
+# Applied by build_deps with patch -p1.
+
+--- a/lib/http.c
++++ b/lib/http.c
+@@ -4268,6 +4268,24 @@
+   return result;
+ }
+
++/* A bare CR ends a field line: the value stops there, the rest of the line is
++   dropped and the transfer continues, which is the response CFNetwork hands its
++   clients and what a browser on this platform reads. The buffer this shortens is
++   the caller's own header brigade, so curlx_dyn_setlen re-terminates it; the CRLF
++   the line ends with is not part of the value, hence the -2. */
++static void http_end_field_line_at_bare_cr(struct dynbuf *hb)
++{
++  size_t hdlen = curlx_dyn_len(hb);
++  char *hd = curlx_dyn_ptr(hb);
++  if(hdlen > 2) {
++    char *cr = memchr(hd, '\r', hdlen - 2);
++    if(cr) {
++      cr[1] = '\n';
++      curlx_dyn_setlen(hb, (size_t)(cr - hd) + 2);
++    }
++  }
++}
++
+ static CURLcode http_rw_hd(struct Curl_easy *data,
+                            const char *hd, size_t hdlen,
+                            const char *buf_remain, size_t blen,
+@@ -4495,6 +4513,7 @@
+     else {
+       /* the header data we hold is a complete header, pass it on */
+       size_t ignore_this;
++      http_end_field_line_at_bare_cr(&data->state.headerb);
+       result = http_rw_hd(data, curlx_dyn_ptr(&data->state.headerb),
+                           curlx_dyn_len(&data->state.headerb),
+                           NULL, 0, &ignore_this);
+@@ -4620,6 +4639,9 @@
+       }
+     }
+
++    http_end_field_line_at_bare_cr(&data->state.headerb);
++    hlen = curlx_dyn_len(&data->state.headerb);
++    hd = curlx_dyn_ptr(&data->state.headerb);
+     result = http_rw_hd(data, hd, hlen, buf, blen, &consumed);
+     /* We are done with this line. We reset because response
+      * processing might switch to HTTP/2 and that might call us
