@@ -100,6 +100,7 @@ media/modern-media-controls/tracks-support/sorted-by-user-preferred-languages.ht
 media/modern-media-controls/tracks-support/text-track-selected-via-media-api.html [ Skip ]
 media/webkit-media-controls-not-visible-after-exiting-fullscreen.html [ Skip ]
 http/tests/media/modern-media-controls/overflow-support/playback-speed-live-broadcast.html [ Skip ]
+inspector/css/getMatchedStylesForNodeUserAgentShadowRoot.html [ Skip ]
 
 # Upstream macOS also intermittently observes bufferedAmount 5 instead of 0 after receipt.
 # Exact matching failure: Apple-Tahoe-Debug-WK2-Tests, 320482@main, build 3057.
