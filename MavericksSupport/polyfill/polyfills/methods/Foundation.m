@@ -2865,9 +2865,8 @@ WK_POLYFILL_ADD_METHODS_ON(NSObject, "NSURLSessionTask", "__NSCFURLSessionTask")
 {
     objc_setAssociatedObject(self, wk_taskPriorityKey, @(priority), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
-// Per-task metrics and CNAME cloaking resolution, which 10.9 has no notion of: the getters report the
-// absence the caller already has to handle.
-- (id)_incompleteTaskMetrics { return nil; }
+// CNAME cloaking resolution, which 10.9 has no notion of: the getter reports the absence the caller
+// already has to handle.
 - (id)_resolvedCNAMEChain { return nil; }
 // -_adoptEffectiveConfiguration: exists to hand ONE task a configuration that
 // differs from its session's; 10.9 decides everything the sole caller changes -- credential storage --

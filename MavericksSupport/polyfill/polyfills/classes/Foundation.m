@@ -254,6 +254,108 @@ WK_PRIV_CLASS(_NSHTTPAlternativeServicesStorage) @interface _NSHTTPAlternativeSe
 @end
 WK_PRIV_ALIAS(_NSHTTPAlternativeServicesStorage);
 
+// NSURLSessionTaskTransactionMetrics and NSURLSessionTaskMetrics (10.12+): the record of a task's
+// request-response transactions -- one per request, so a redirected load has one per hop -- that NSURLSession
+// hands its delegate in -URLSession:task:didFinishCollectingMetrics: just before the task completes, and that
+// -[NSURLSessionTask _incompleteTaskMetrics] reports while it runs. 10.9's NSURLSession keeps no such record;
+// polyfills/webkit/task_metrics.mm fills these in from the task's own events. The properties are readwrite
+// here for that filler; the modern SDK WebKit compiles against declares them readonly. A value 10.9 cannot
+// observe (DNS, connect and TLS times, header byte counts, the connection's addresses) stays nil or zero,
+// which is how the metrics report a value that was not collected.
+WK_PRIV_CLASS(NSURLSessionTaskTransactionMetrics) @interface NSURLSessionTaskTransactionMetrics : NSObject
+@property (copy) NSURLRequest *request;
+@property (copy) NSURLResponse *response;
+@property (copy) NSDate *fetchStartDate;
+@property (copy) NSDate *domainLookupStartDate;
+@property (copy) NSDate *domainLookupEndDate;
+@property (copy) NSDate *connectStartDate;
+@property (copy) NSDate *secureConnectionStartDate;
+@property (copy) NSDate *secureConnectionEndDate;
+@property (copy) NSDate *connectEndDate;
+@property (copy) NSDate *requestStartDate;
+@property (copy) NSDate *requestEndDate;
+@property (copy) NSDate *responseStartDate;
+@property (copy) NSDate *responseEndDate;
+@property (copy) NSString *networkProtocolName;
+@property (getter=isProxyConnection) BOOL proxyConnection;
+@property (getter=isReusedConnection) BOOL reusedConnection;
+@property NSInteger resourceFetchType;
+@property int64_t countOfRequestHeaderBytesSent;
+@property int64_t countOfRequestBodyBytesSent;
+@property int64_t countOfRequestBodyBytesBeforeEncoding;
+@property int64_t countOfResponseHeaderBytesReceived;
+@property int64_t countOfResponseBodyBytesReceived;
+@property int64_t countOfResponseBodyBytesAfterDecoding;
+@property (copy) NSString *localAddress;
+@property (copy) NSNumber *localPort;
+@property (copy) NSString *remoteAddress;
+@property (copy) NSNumber *remotePort;
+@property (copy) NSNumber *negotiatedTLSProtocolVersion;
+@property (copy) NSNumber *negotiatedTLSCipherSuite;
+@property (getter=isCellular) BOOL cellular;
+@property (getter=isExpensive) BOOL expensive;
+@property (getter=isConstrained) BOOL constrained;
+@property (getter=isMultipath) BOOL multipath;
+@property NSInteger domainResolutionProtocol;
+@property (copy) NSUUID *_connectionIdentifier;
+@property (copy) NSString *_remoteAddressAndPort;
+@property int _privacyStance;
+@property (retain) id _establishmentReport;
+@property BOOL _isUnlistedTracker;
+@end
+@implementation NSURLSessionTaskTransactionMetrics
+// On this system a connection is never relayed or proxied privately: iCloud Private Relay does not exist.
+- (instancetype)init
+{
+    if ((self = [super init]))
+        __privacyStance = 1; // nw_connection_privacy_stance_not_eligible
+    return self;
+}
+- (void)dealloc
+{
+    [_request release];
+    [_response release];
+    [_fetchStartDate release];
+    [_domainLookupStartDate release];
+    [_domainLookupEndDate release];
+    [_connectStartDate release];
+    [_secureConnectionStartDate release];
+    [_secureConnectionEndDate release];
+    [_connectEndDate release];
+    [_requestStartDate release];
+    [_requestEndDate release];
+    [_responseStartDate release];
+    [_responseEndDate release];
+    [_networkProtocolName release];
+    [_localAddress release];
+    [_localPort release];
+    [_remoteAddress release];
+    [_remotePort release];
+    [_negotiatedTLSProtocolVersion release];
+    [_negotiatedTLSCipherSuite release];
+    [__connectionIdentifier release];
+    [__remoteAddressAndPort release];
+    [__establishmentReport release];
+    [super dealloc];
+}
+@end
+WK_PRIV_ALIAS(NSURLSessionTaskTransactionMetrics);
+
+WK_PRIV_CLASS(NSURLSessionTaskMetrics) @interface NSURLSessionTaskMetrics : NSObject
+@property (copy) NSArray *transactionMetrics;
+@property (retain) id taskInterval;
+@property NSUInteger redirectCount;
+@end
+@implementation NSURLSessionTaskMetrics
+- (void)dealloc
+{
+    [_transactionMetrics release];
+    [_taskInterval release];
+    [super dealloc];
+}
+@end
+WK_PRIV_ALIAS(NSURLSessionTaskMetrics);
+
 // NSDateComponentsFormatter formats a quantity of time in words -- "2 minutes, 5 seconds". WebCore
 // builds the media controls' accessibility description of a track's duration with it
 // (RenderThemeCocoa::mediaControlsFormattedStringForDuration): units style Full, allowed units

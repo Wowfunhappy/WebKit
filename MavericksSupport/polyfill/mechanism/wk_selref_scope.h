@@ -108,6 +108,9 @@ struct wk_methods_entry {
 // selector it expects as _cmd. Derived from the body's class and the receiver's chain; see
 // wk_original_of in wk_selref_scope.m. Usable only inside a REPLACE body (it reads self and _cmd).
 struct wk_original { IMP imp; SEL sel; };
+#ifdef __cplusplus
+extern "C"
+#endif
 struct wk_original wk_original_of(id receiver, SEL privateSelector);
 #define WK_METHODS_ARGLIST(...) , ##__VA_ARGS__
 #define WK_ORIGINAL_METHOD(RET, ARGTYPES, ...) ({ \
