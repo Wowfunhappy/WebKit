@@ -1,15 +1,17 @@
 # decodebin sizes a multiqueue that is not posting buffering messages with the
 # play-time limits -- five buffers. In a buffering pipeline an adaptive demuxer's
-# next variant is built as a pending group whose queue holds everything that group
+# next variant is built as a pending group whose queues hold everything that group
 # will play until the active group has drained, so the switch completes with a
 # handful of buffers behind it and the buffering reset that runs at switch
 # completion starts the queue in buffering mode near zero: a burst of
 # low-percentage buffering messages follows every variant switch, and an
 # application that follows the buffering contract pauses playback on them.
 #
-# A group that is not its chain's active group now takes the buffering limits when
-# its queue moves to playing mode. The active group's non-posting queues keep the
-# play-time limits, which in a buffering pipeline bound neither time nor bytes.
+# A group inside a pending group -- one that is not its chain's active group, or
+# that sits below such a group, as a transport-stream demuxer's group does in the
+# chain of the next variant -- now takes the buffering limits when its queue moves
+# to playing mode. The active groups' non-posting queues keep the play-time
+# limits, which in a buffering pipeline bound neither time nor bytes.
 #
 # Applied by build_deps with patch -p1.
 
@@ -42,9 +44,21 @@
        (group->parent ? group->parent->seekable : TRUE));
  
    /* FIXME: We should make sure that everything gets exposed now
-@@ -3797,16 +3797,23 @@
+@@ -3796,17 +3796,37 @@
+   GST_DEBUG_OBJECT (chain->dbin, "Started free-hidden-groups thread");
  }
  
++/* Whether this group or a group above it is not yet its chain's active group. */
++static gboolean
++gst_decode_group_is_pending (GstDecodeGroup * group)
++{
++  for (; group && group->parent; group = group->parent->parent) {
++    if (group->parent->active_group != group)
++      return TRUE;
++  }
++  return FALSE;
++}
++
  static void
 -decodebin_set_queue_size (GstDecodeBin * dbin, GstElement * multiqueue,
 +decodebin_set_queue_size (GstDecodeBin * dbin, GstDecodeGroup * group,
@@ -55,16 +69,18 @@
    /* get the current config from the multiqueue */
 -  g_object_get (multiqueue, "use-buffering", &use_buffering, NULL);
 +  g_object_get (group->multiqueue, "use-buffering", &use_buffering, NULL);
++
++  /* A group of a buffering pipeline inside a pending group takes the buffering
++   * limits: its queue holds everything the group will play until the active
++   * group has drained, and buffering is reset onto it when the switch
++   * completes. The pending group may be this group or any group above it, as
++   * when a demuxer's group sits in the chain of an adaptive demuxer's next
++   * variant. */
++  if (dbin->use_buffering && gst_decode_group_is_pending (group))
++    use_buffering = TRUE;
  
 -  decodebin_set_queue_size_full (dbin, multiqueue, use_buffering, preroll,
 -      seekable);
-+  /* A pending group of a buffering pipeline takes the buffering limits: its
-+   * queue holds everything the group will play until the active group has
-+   * drained, and buffering is reset onto it when the switch completes. */
-+  if (dbin->use_buffering && group->parent
-+      && group->parent->active_group != group)
-+    use_buffering = TRUE;
-+
 +  decodebin_set_queue_size_full (dbin, group->multiqueue, use_buffering,
 +      preroll, seekable);
  }
