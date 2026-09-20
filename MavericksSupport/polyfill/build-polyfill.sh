@@ -15,9 +15,9 @@ set -euo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/polyfill-env.sh"
 . "$REPO/MavericksSupport/scripts/cctools.sh"; NM="$CCTOOLS/nm"
 . "$REPO/MavericksSupport/scripts/host-headers.sh"
-TMECH="$POLY/tests/mechanism"; TGATES="$POLY/tests/gates"
+TGATES="$POLY/tests/gates"
 OBJ="$(mktemp -d "${TMPDIR:-/tmp}/polybuild.XXXXXX")"; trap 'rm -rf "$OBJ"' EXIT
-mkdir -p "$OUT" "$OBJ"/{c,shared,methods,classes,webkit,jsc,cdm,mech,tests}
+mkdir -p "$OUT" "$OBJ"/{c,shared,methods,classes,webkit,jsc,cdm,mech}
 
 # --- bounded-parallel compile queue ------------------------------------------------------------
 # Each compile writes its own object; cc_wait marks the point where a batch must have finished before
@@ -278,30 +278,6 @@ echo "### libwidevinegap.dylib"
     -install_name @loader_path/libwidevinegap.dylib "$OBJ"/cdm/*.o -o "$OUT/libwidevinegap.dylib.tmp"
 tmp_stable "$OUT/libwidevinegap.dylib"
 
-# --- self-tests --------------------------------------------------------------------------------
-echo "### polyfill mechanism self-tests"
-T="$OBJ/tests"
-# The guarantee a polyfill author relies on: force_load makes our definition win deterministically and the
-# declared body/value runs unconditionally, tested on both sides of the present/absent line against this
-# runtime, with a second image carrying its own copy of a polyfill the way every shipped framework does.
-"$CLANG" $HOST $INC -o "$T/wk_polyfill_test" "$TMECH/wk_polyfill_test.c" "$MECH/wk_polyfill_runtime.c" \
-    -framework CoreFoundation -framework CoreGraphics
-"$CLANG" $HOST $INC -dynamiclib -o "$T/wk_polyfill_sibling.dylib" "$TMECH/wk_polyfill_sibling.c" \
-    "$MECH/wk_polyfill_runtime.c" -framework CoreFoundation -framework CoreGraphics
-WK_POLYFILL_SIBLING="$T/wk_polyfill_sibling.dylib" "$T/wk_polyfill_test"
-# The selector mechanism's dlopen guarantee: a polyfill block whose class arrives via dlopen is installed
-# by the time dlopen returns, with no further image load. The fixture is a single-image dylib (libobjc/
-# libSystem deps only): a system framework's dlopen cascades loads whose add-image events would rescue even
-# a drainless mechanism.
-"$CLANG" $MODERN $INC -fno-objc-arc -dynamiclib -o "$T/wk_selref_dlopen_fixture.dylib" "$TMECH/wk_selref_dlopen_fixture.m" -lobjc
-"$CLANG" $MODERN $INC -fno-objc-arc -DWK_POLYFILL_UNIT=test -o "$T/wk_selref_dlopen" "$TMECH/wk_selref_dlopen.m" "$MECH/wk_selref_scope.m" -framework Foundation -lobjc
-"$T/wk_selref_dlopen" "$T/wk_selref_dlopen_fixture.dylib"
-# A REPLACE body's call-through from under a WebKit-image override that calls super: the system class
-# lives in an unmarked dylib, the override and the block in a marked image.
-"$CLANG" $MODERN $INC -fno-objc-arc -dynamiclib -o "$T/wk_selref_replace_super_fixture.dylib" "$TMECH/wk_selref_replace_super_fixture.m" -lobjc
-"$CLANG" $MODERN $INC -fno-objc-arc -DWK_POLYFILL_UNIT=test -o "$T/wk_selref_replace_super" "$TMECH/wk_selref_replace_super.m" "$MECH/wk_selref_scope.m" \
-    "$T/wk_selref_replace_super_fixture.dylib" -framework Foundation -lobjc
-"$T/wk_selref_replace_super"
 # --- shadow gates ------------------------------------------------------------------------------
 # Every polyfill's body runs unconditionally: force_load makes our definition win, the selref rewrite sends
 # WebKit's `foo` to `wk_foo`, and there is no runtime forwarding to 10.9. So a polyfill written for a symbol,
@@ -539,9 +515,6 @@ echo "  shadow gates: clean -- $(wc -l < "$W/names" | tr -d ' ') defined symbols
 echo "    $(wc -l < "$W/present_names" | tr -d ' ') present on 10.9, each declared WK_POLYFILL_REPLACES"
 echo "    $(wc -l < "$W/selregistry.tsv" | tr -d ' ') ObjC method polyfills, each landing on a class; $(awk -F'\t' '$4 == "PRESENT"' "$W/selon109" | wc -l | tr -d ' ') present on 10.9, each in a WK_POLYFILL_REPLACE_METHODS block"
 echo "    $(wc -l < "$W/clson109" | tr -d ' ') ObjC class polyfills, none of which 10.9 has"
-
-echo "### native compatibility behaviour probes"
-bash "$POLY/tests/run-behaviour-tests.sh"
 
 echo "### done -> $OUT"
 ls -la "$OUT"

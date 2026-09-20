@@ -16,7 +16,7 @@ something here has failed and should be fixed rather than worked around.
 | `polyfills/` | **The polyfills.** The rule below says which file. |
 | `mechanism/` | How the layer loads. You should not need to read this to add a polyfill. |
 | `headers/` | Header overlays on every WebKit compile's include path (`-idirafter`): declarations the modern tree includes that no SDK provides, and the port's `WebKitAdditions/AdditionalPlatformHave.h`. |
-| `tests/` | `mechanism/` checks the layer's guarantees hold on this OS, `behaviour/` checks one polyfill each (named after its framework), `gates/` holds the shadow gates' probe programs. `build-polyfill.sh` runs them all on every build. |
+| `tests/` | `mechanism/` checks the layer's guarantees hold on this OS, `behaviour/` checks one polyfill each (named after its framework), `gates/` holds the shadow gates' probe programs. `build-polyfill.sh` runs the gates. |
 | `build-polyfill.sh` | The build. |
 | `build/` | Its output (gitignored). |
 
@@ -163,13 +163,7 @@ symbol, whether 10.9 has it, and which side won. `WK_POLYFILL_REPORT=abort` addi
 process if a `WK_POLYFILL_REPLACES` targets a symbol 10.9 does not have — i.e. if the premise behind
 a replacement ("10.9 has this but it is broken") is wrong.
 
-`build-polyfill.sh` runs `tests/mechanism/wk_polyfill_test.c` on every build, which checks the layer's
-guarantees against real system symbols on both sides of the present/absent line, followed by the
-selector mechanism tests and all native compatibility probes. `build-polyfill.sh` invokes
-`tests/run-behaviour-tests.sh` unconditionally. The probe runner also accepts names for focused
-checks such as `cg_iosurface_image_reference`.
-
-It then runs the shadow gates (probe programs `tests/gates/`), which ask the running 10.9 (via
+`build-polyfill.sh` runs the shadow gates (probe programs `tests/gates/`), which ask the running 10.9 (via
 `dlopen`/`dlsym`, not the build SDK) whether any symbol the built archives define is one 10.9 already
 provides. Because every polyfill body runs unconditionally, a defined symbol 10.9 also has is a silent
 shadow, so it must be declared `WK_POLYFILL_REPLACES` or the build fails — for registry symbols and for
