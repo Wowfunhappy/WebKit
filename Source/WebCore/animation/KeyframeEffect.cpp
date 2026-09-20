@@ -1696,6 +1696,12 @@ bool KeyframeEffect::isCurrentlyAffectingProperty(CSSPropertyID property, Accele
     if (m_pseudoElementIdentifier && m_pseudoElementIdentifier->type == PseudoElementType::Marker && !Style::isValidMarkerStyleProperty(property))
         return false;
 
+    // MAVERICKS_BACKPORT: Safari 7 keeps forward-filling animations composited.
+    // Keep that backing while the effect fills so 10.9's text retains the layer's font smoothing.
+    // Accelerated style queries still use the active phase below.
+    if (accelerated == Accelerated::No && m_phaseAtLastApplication == AnimationEffectPhase::After && (fill() == FillMode::Forwards || fill() == FillMode::Both))
+        return true;
+
     return m_phaseAtLastApplication == AnimationEffectPhase::Active;
 }
 

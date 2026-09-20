@@ -5,13 +5,17 @@
 <meta name="fuzzy" content="maxDifference=0-1; totalPixels=0-89600">
 <style>
 /* WK1 accelerates opacity animations once the page enters compositing mode. */
-body { margin: 0; background: white; transform: translateZ(0); }
+body { margin: 0; background: white; }
+.compositing-trigger { position: absolute; top: 300px; width: 1px; height: 1px; transform: translateZ(0); }
 .sample { position: absolute; left: 20px; top: 20px; font: 20px/28px Arial; }
 .fractional { left: 20.5px; top: 120.5px; font-family: Times; font-size: 24px; }
 @keyframes fade { from { opacity: 0.5; } to { opacity: 1; } }
 .animate { animation: fade 0.5s forwards; }
+.fractional.animate { animation-fill-mode: both; }
 </style>
 <body>
+<!-- A separate layer enables WK1 compositing without changing the text's backdrop. -->
+<div class="compositing-trigger"></div>
 <div class="sample">Text should retain its smoothing when the animation finishes.<br><b>Hamburgefonts 0123456789</b></div>
 <div class="sample fractional">Fractional position and serif text.<br><b>Hamburgefonts 0123456789</b></div>
 <script>
@@ -42,8 +46,8 @@ for (const sample of samples) {
         if (++finished != samples.length)
             return;
         requestAnimationFrame(() => requestAnimationFrame(() => {
-            if (window.internals && samples.some(isComposited))
-                fail("The finished animation must release its composited layer.");
+            if (window.internals && !samples.every(isComposited))
+                fail("The filling animation must retain its composited layer.");
             document.documentElement.classList.remove("reftest-wait");
             if (window.testRunner)
                 testRunner.notifyDone();

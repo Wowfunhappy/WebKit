@@ -1,0 +1,13 @@
+PASS: none: finished layer released
+PASS: none: final opacity is 1
+PASS: none: cancelled layer released
+PASS: backwards: finished layer released
+PASS: backwards: final opacity is 1
+PASS: backwards: cancelled layer released
+PASS: forwards: finished layer retained
+PASS: forwards: final opacity is 1
+PASS: forwards: cancelled layer released
+PASS: both: finished layer retained
+PASS: both: final opacity is 1
+PASS: both: cancelled layer released
+

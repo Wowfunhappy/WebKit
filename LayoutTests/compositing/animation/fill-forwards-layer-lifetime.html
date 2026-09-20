@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<style>
+.compositing-trigger { width: 1px; height: 1px; transform: translateZ(0); }
+.sample { position: absolute; left: 600px; top: 20px; width: 100px; height: 20px; }
+</style>
+<div class="compositing-trigger"></div>
+<pre id="results"></pre>
+<script>
+testRunner.dumpAsText();
+testRunner.waitUntilDone();
+
+function isComposited(element) {
+    try {
+        internals.layerIDForElement(element);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function check(condition, message) {
+    document.getElementById("results").textContent += `${condition ? "PASS" : "FAIL"}: ${message}\n`;
+}
+
+function rendered() {
+    return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
+
+(async () => {
+    await rendered();
+    for (const fill of ["none", "backwards", "forwards", "both"]) {
+        const element = document.createElement("div");
+        element.className = "sample";
+        element.textContent = "Sample text";
+        document.body.appendChild(element);
+        const animation = element.animate({ opacity: [0.5, 1] }, { duration: 200, fill });
+        await animation.finished;
+        await rendered();
+        const fillsForwards = fill == "forwards" || fill == "both";
+        check(isComposited(element) == fillsForwards, `${fill}: finished layer ${fillsForwards ? "retained" : "released"}`);
+        check(getComputedStyle(element).opacity == "1", `${fill}: final opacity is 1`);
+        animation.cancel();
+        await rendered();
+        check(!isComposited(element), `${fill}: cancelled layer released`);
+        element.remove();
+    }
+    testRunner.notifyDone();
+})();
+</script>
