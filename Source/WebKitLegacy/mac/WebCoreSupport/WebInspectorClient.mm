@@ -132,11 +132,11 @@ static const CGFloat dockButtonMargin = 3;
 // a real (non-opaque) origin (SecurityOriginData::shouldTreatAsOpaqueOrigin).
 static NSString * const WebInspectorResourceScheme = @"inspector-resource";
 
-// The classic frontend runs against the modern backend, so a document-start user script — shared
-// verbatim with WK2 in WebCore/inspector/InspectorFrontendClassicBridge.h — bridges the protocol/IDL
-// drift and paints the #52/#66/#69 unified titlebar. It is injected only into this WebView group so
-// it reaches the classic production frontend and NOT the modern built-tree test frontend, whose
-// Target protocol already matches the backend and would be broken by the bridge's wrap/unwrap.
+// The classic frontend runs against the modern backend, so a document-start user script — shared with
+// WK2 and documented in MavericksSupport/source/WebCore/inspector/InspectorFrontendClassicBridge.h —
+// adapts the protocol and IDL drift and paints the #52/#66/#69 unified titlebar. The script rides this
+// WebView group, which a frontend joins only when it is the classic one: a frontend built from this
+// tree speaks the backend's own Target protocol, which the bridge's wrap/unwrap would break.
 static NSString * const WebInspectorFrontendGroupName = @"WebInspectorClassicFrontend";
 
 // MAVERICKS_BACKPORT: NSURLProtocol serving inspector-resource:// from the WebInspectorUI bundle.
@@ -686,14 +686,14 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
     _inspectedWebView = webView;
 
-    // MAVERICKS_BACKPORT: replace upstream's single file:// load with a test-vs-production split —
-    // production serves the classic frontend from the real-origin inspector-resource:// scheme
-    // (see WebInspectorResourceProtocol above); the build-tree test frontend keeps the file:// load.
+    // MAVERICKS_BACKPORT: the document-start bridge user script rides WebInspectorFrontendGroupName,
+    // and it adapts the classic frontend alone — a frontend built from this tree matches the backend
+    // and the bridge would break its Target protocol. WebCore::inspectorFrontendIsClassic names which
+    // one the com.apple.WebInspectorUI bundle holds.
+    if (WebCore::inspectorFrontendIsClassic())
+        [_frontendWebView setGroupName:WebInspectorFrontendGroupName];
+
     if (isUnderTest) {
-        // The build-tree test frontend is the modern WebInspectorUI that matches the backend, so it
-        // needs no classic-frontend bridge and loads directly (upstream shape). Its WebView is left
-        // out of WebInspectorFrontendGroupName so the bridge never reaches it (it would break the
-        // modern frontend's already-correct Target protocol).
         NSString *testPagePath = [self inspectorTestPagePath];
         RELEASE_ASSERT(testPagePath);
         auto request = adoptNS([[NSURLRequest alloc] initWithURL:[NSURL fileURLWithPath:testPagePath isDirectory:NO]]);
@@ -701,10 +701,9 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
         return self;
     }
 
-    // Production: serve the classic frontend from the real-origin inspector-resource:// scheme (see
-    // WebInspectorResourceProtocol above) so its shipped CSP resolves untouched, and join the group
-    // carrying the document-start bridge user script.
-    [_frontendWebView setGroupName:WebInspectorFrontendGroupName];
+    // MAVERICKS_BACKPORT: upstream loads Main.html from the bundle over file://; the classic frontend
+    // comes from the real-origin inspector-resource:// scheme instead (see WebInspectorResourceProtocol
+    // above) so its shipped CSP resolves untouched.
     auto request = adoptNS([[NSURLRequest alloc] initWithURL:[self inspectorPageURL]]);
     [[_frontendWebView mainFrame] loadRequest:request.get()];
 

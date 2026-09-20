@@ -149,13 +149,19 @@ static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
 - (WKWebViewConfiguration *)webViewConfiguration
 {
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    // MAVERICKS_BACKPORT: the two divergences below belong to the classic frontend
+    // (WebCore::inspectorFrontendIsClassic names the bundle inspector-resource:// serves from); a
+    // frontend built from this tree matches the backend and takes neither.
+    bool usesClassicFrontend = WebCore::inspectorFrontendIsClassic();
+
     // MAVERICKS_BACKPORT (#52): the frontend page draws no background, so the injected unified-
     // toolbar CSS's rounded top corners are genuinely transparent and the NSThemeFrame's own
     // rounded titlebar corners show through — the web view covers the whole window (frame-view
     // hosting in WebInspectorUIProxy::platformCreateFrontendWindow) and would otherwise paint
     // square corners over them. The page content stays opaque (body paints the gradient, #main
     // is white). Must be set at configuration time: the page reads drawsBackground once at init.
-    configuration.get()->_pageConfiguration->setDrawsBackground(false);
+    if (usesClassicFrontend)
+        configuration.get()->_pageConfiguration->setDrawsBackground(false);
     RetainPtr<WKInspectorResourceURLSchemeHandler> inspectorSchemeHandler = adoptNS([WKInspectorResourceURLSchemeHandler new]);
     RetainPtr<NSMutableSet<NSString *>> allowedURLSchemes = adoptNS([[NSMutableSet alloc] initWithObjects:WKInspectorResourceScheme, nil]);
     for (auto& pair : _configuration->_configuration->urlSchemeHandlers())
@@ -173,10 +179,12 @@ static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
     // payload shape changes) and builds the #52/#66/#69 unified titlebar+toolbar. The page
     // CSP does not apply to native-injected user scripts, and InspectorFrontendHost is
     // installed at window-object-clear, before document-start user scripts run.
-    [[configuration userContentController] addUserScript:adoptNS([[WKUserScript alloc]
-        initWithSource:[WKInspectorViewController _mavericksClassicFrontendBridgeScript]
-        injectionTime:WKUserScriptInjectionTimeAtDocumentStart
-        forMainFrameOnly:YES]).get()];
+    if (usesClassicFrontend) {
+        [[configuration userContentController] addUserScript:adoptNS([[WKUserScript alloc]
+            initWithSource:[WKInspectorViewController _mavericksClassicFrontendBridgeScript]
+            injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+            forMainFrameOnly:YES]).get()];
+    }
 
     RefPtr inspectedPage = _inspectedPage.get();
 #if ENABLE(WK_WEB_EXTENSIONS) && ENABLE(INSPECTOR_EXTENSIONS)
@@ -259,11 +267,9 @@ static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
     return [NSURL URLWithString:adoptNS([[NSString alloc] initWithFormat:@"%@:///%@", WKInspectorResourceScheme, resource]).get()].URLByStandardizingPath;
 }
 
-// MAVERICKS_BACKPORT (#52/#66/#69): document-start bridge + unified titlebar/toolbar for the stock
-// classic (Safari 8-era) WebInspectorUI frontend run against the modern backend, injected as a
-// WKUserScript from webViewConfiguration. Single-sourced with WebKitLegacy (which injects the same
-// string via -[WebView _addUserScriptToGroup:]) so the two ports cannot drift; the script and its
-// mechanism are documented in WebCore/inspector/InspectorFrontendClassicBridge.h.
+// MAVERICKS_BACKPORT (#52/#66/#69): the classic-frontend bridge user script, injected as a WKUserScript
+// from webViewConfiguration; WebKitLegacy injects the same string. The script and its mechanism are
+// documented in MavericksSupport/source/WebCore/inspector/InspectorFrontendClassicBridge.h.
 + (NSString *)_mavericksClassicFrontendBridgeScript
 {
     return [NSString stringWithUTF8String:WebCore::classicInspectorFrontendBridgeScriptUTF8()];

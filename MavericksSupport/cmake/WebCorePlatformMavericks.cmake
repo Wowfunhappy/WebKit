@@ -472,6 +472,8 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
 list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/AbortableTaskQueue.h
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CFNetworkSuppressedGzipDecoder.h
+    # The classic inspector frontend's bridge script, which both ports inject.
+    ${MAVERICKS_SUPPORT}/source/WebCore/inspector/InspectorFrontendClassicBridge.h
 )
 if (USE_GSTREAMER)
     list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES "${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer")
@@ -617,8 +619,6 @@ list(APPEND WebCore_LIBRARIES
 )
 
 list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
-    # the classic (legacy) inspector frontend bridge.
-    inspector/InspectorFrontendClassicBridge.h
     # the restored Dashboard-region support.
     rendering/style/StyleDashboardRegion.h
     style/values/non-standard/StyleDashboardRegions.h
