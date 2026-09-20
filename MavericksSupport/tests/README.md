@@ -1,5 +1,9 @@
 # Manual test pages
 
+`bash private-library-isolation/run.sh` loads installed WebKit and a media plugin alongside
+an independent client's libraries with colliding names, in both load orders and both dlopen
+scopes. It also checks the installed private runtime's identities and dependency paths.
+
 `bash attachment-plugin/run.sh` checks the installed WebKit1 application plug-in path with
 Mail's signature quirk disabled. Attachment objects (including uppercase MIME types) and
 Web Clips must create attached native views; Flash, unknown types and lookalike types must not.

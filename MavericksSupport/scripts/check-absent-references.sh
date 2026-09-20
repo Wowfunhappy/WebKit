@@ -206,11 +206,8 @@ seen_lib() {
 }
 
 # An install path as recorded in a load command -> a file to read. The staged tree's copy WINS: the
-# WebKit frameworks record absolute /System/... paths (stage-frameworks.sh rewrites @rpath away for
-# them), so without this mapping the gate reads the frameworks currently installed on the system
-# rather than the ones just built. The bundled GStreamer libraries keep @rpath/@loader_path deps, which
-# must be resolved too: unresolved, their libc++abi dependency disappears and every `operator new`/
-# `operator delete` they import is reported as missing.
+# frameworks and private libraries record absolute /System/... paths. Relative paths are resolved
+# against the importing image or the staged library inventory.
 # Results come back in RESOLVED rather than on stdout, for the same reason the sweep is bulk: a command
 # substitution forks. Callers read RESOLVED immediately, before the next call overwrites it.
 resolve_dep() {

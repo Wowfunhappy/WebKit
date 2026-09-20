@@ -318,23 +318,16 @@ if [ "$RC" = 0 ]; then
     echo "==================== STAGING ===================="
     bash "$ROOT/MavericksSupport/scripts/stage-frameworks.sh" || RC=$?
 
-    # The layout-test drivers run the frameworks in $BUILD/lib, not the staged product, and a
-    # sandboxed WebContent reaches GStreamer's plugins only through the copy that ships inside
-    # WebCore.framework. Mirror the staged copy -- the one whose install names staging has already
-    # rewritten -- into the built framework, so a test exercises the same lookup the installed product
-    # does and the next run's staging audit sees bundle-relative dependencies.
-    GST_PLUGINS_SRC="$BUILD/staged/System/Library/Frameworks/WebKit.framework/Versions/A/Frameworks/WebCore.framework/Versions/A/Frameworks/gstreamer/lib/gstreamer-1.0"
+    # Build-tree drivers use the relocatable dependency build. Installed absolute identities
+    # belong to the staged product; the development plugins resolve the build's @rpath libraries.
+    GST_LIBS_SRC="${GST_SRC:-$ROOT/MavericksSupport/deps/build/lib}"
+    GST_PLUGINS_SRC="$GST_LIBS_SRC/gstreamer-1.0"
     GST_PLUGINS_DST="$BUILD/lib/WebCore.framework/Versions/A/Frameworks/gstreamer/lib/gstreamer-1.0"
-    # The libraries beside them are mirrored too: a plugin resolves its own dependencies through
-    # @loader_path/../../lib, and the ones WebCore does not itself link -- libgstcodecparsers, which
-    # h264parse needs -- are in the process by no other route, so the plugin silently fails to load and
-    # the element comes back missing.
-    GST_LIBS_SRC="$BUILD/staged/System/Library/Frameworks/WebKit.framework/Versions/A/Frameworks/WebCore.framework/Versions/A/Frameworks/gstreamer/lib"
     GST_LIBS_DST="$BUILD/lib/WebCore.framework/Versions/A/Frameworks/gstreamer/lib"
     if [ "$RC" = 0 ] && [ -d "$GST_PLUGINS_SRC" ]; then
         mkdir -p "$GST_PLUGINS_DST"
         rsync -a --delete "$GST_PLUGINS_SRC/" "$GST_PLUGINS_DST/"
-        rsync -a --exclude 'gstreamer-1.0/' "$GST_LIBS_SRC/" "$GST_LIBS_DST/"
+        rsync -a --delete --exclude '*.a' --exclude 'libc++*.dylib' --exclude 'gstreamer-1.0/' "$GST_LIBS_SRC/" "$GST_LIBS_DST/"
         echo "  GSTREAMER PLUGINS and libraries mirrored into the built WebCore.framework"
     fi
 else

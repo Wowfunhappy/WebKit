@@ -269,6 +269,7 @@ preflight_check_rpaths() {
         src="$LIBDIR/$fw.framework"
         [ -d "$src" ] || continue
         while IFS= read -r f; do
+            case "$f" in "$src/Versions/A/Frameworks/"*) continue;; esac
             file "$f" 2>/dev/null | grep -q "Mach-O" || continue
             while read -r dep; do
                 case "$dep" in @rpath/*) ;; *) continue;; esac
@@ -478,10 +479,9 @@ else
     exit 1
 fi
 
-# GStreamer (#90), the sole media engine: deploy the dylibs + plugins into WebCore.framework. They
-# resolve one another via their own LC_RPATH @loader_path/../lib, so they ship as-is apart from the
-# C++ runtime binding below; the WebKit frameworks' @rpath/libg*/libgst*/etc. deps are rewritten to
-# these absolute paths in step 4.
+# The media libraries and plugins have absolute in-bundle identities and dependency paths.
+# dyld matches loaded images by install name before searching rpaths, so both sides of every
+# private dependency must name our copy, even when a host application bundles the same library.
 echo "### Deploying GStreamer libs into WebCore.framework ($GST_DEPLOY)"
 if [ -d "$GST_SRC" ]; then
     # The runtime is built from source for 10.9 (MavericksSupport/deps/build_deps.sh)
@@ -495,19 +495,13 @@ if [ -d "$GST_SRC" ]; then
     mkdir -p "$(s "$GST_DEPLOY")"
     cp -Rp "$GST_SRC/." "$(s "$GST_DEPLOY")/"
     rm -f "$(s "$GST_DEPLOY")"/*.a
-    # Single-runtime rule (framework-layout.sh): the tree's C++ users (libvpx, the decklink plugin)
-    # load @rpath/libc++.1.dylib and @rpath/libc++abi.1.dylib, which their @loader_path/../lib
-    # LC_RPATH resolves to the pair the tree carries beside them -- the same build as the pair in
-    # $PRIVLIBCXX. Bind those loads to the PRIVLIBCXX pair by absolute path, exactly as the WebKit
-    # binaries are bound in step 4, and leave the tree's own pair out of the product.
+    # All C++ users share the pair in JavaScriptCore.framework.
     rm -f "$(s "$GST_DEPLOY")/libc++.1.dylib" "$(s "$GST_DEPLOY")/libc++abi.1.dylib"
     while read -r gstlib; do
-        while read -r dep; do
-            case "$dep" in
-                @rpath/libc++.1.dylib|@rpath/libc++abi.1.dylib|@rpath/libunwind.1.dylib)
-                    int_or_die -change "$dep" "$(absolute_for_rpath_dep "$dep")" "$gstlib";;
-            esac
-        done < <("$OTOOL" -L "$gstlib" | awk 'NR>1{print $1}')
+        int_or_die -id "${gstlib#$STAGE}" "$gstlib"
+        rewrite_rpath_deps "$gstlib"
+        strip_rpaths "$gstlib"
+        verify_no_rpath "$gstlib"
     done < <(find "$(s "$GST_DEPLOY")" -type f -name '*.dylib')
 else
     echo "ERROR: GStreamer source tree $GST_SRC missing — the product would have no media engine." >&2

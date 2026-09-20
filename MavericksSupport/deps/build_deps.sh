@@ -313,7 +313,8 @@ export MACOSX_DEPLOYMENT_TARGET=10.9
 export CFLAGS="-O2 -mmacosx-version-min=10.9"
 export CXXFLAGS="-O2 -mmacosx-version-min=10.9"
 export OBJCFLAGS="-O2 -mmacosx-version-min=10.9"
-export LDFLAGS="-mmacosx-version-min=10.9"
+# Staging gives each private dylib and its imports absolute in-bundle paths.
+export LDFLAGS="-mmacosx-version-min=10.9 -Wl,-headerpad_max_install_names"
 
 INT="$CCTOOLS/install_name_tool"
 NMBIN="$CCTOOLS/nm"
@@ -1513,7 +1514,7 @@ if prepare "$d"; then
         --enable-libdav1d \
         --x86asmexe="$NASM" \
         --extra-cflags="-mmacosx-version-min=10.9" \
-        --extra-ldflags="-mmacosx-version-min=10.9 -Wl,-force_load,$GAP_A" > /dev/null ) || exit 1
+        --extra-ldflags="$LDFLAGS" > /dev/null ) || exit 1
     prepared "$d"
 fi
 ( cd "$d" && make -s -j2 > /dev/null && make -s install > /dev/null ) || exit 1

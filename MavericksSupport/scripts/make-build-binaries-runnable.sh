@@ -27,7 +27,7 @@ BINDIR="$ROOT/WebKitBuild/Release/bin"
 POLYBUILD="$ROOT/MavericksSupport/polyfill/build"
 WKTR_DIR="$ROOT/Tools/WebKitTestRunner"
 TC="${MAVERICKS_CLANG:-$ROOT/MavericksSupport/toolchain/build/clang}"
-# The GStreamer plugins build.sh mirrors from the staged product; WebContent loads them through
+# The GStreamer plugins build.sh mirrors from the dependency build; WebContent loads them through
 # GST_PLUGIN_SYSTEM_PATH. They reference only real 10.9 frameworks, so they take the C++ runtime and
 # unwinder rewrites and not the framework redirect.
 GST_PLUGINS="$LIBDIR/WebCore.framework/Versions/A/Frameworks/gstreamer/lib/gstreamer-1.0"
