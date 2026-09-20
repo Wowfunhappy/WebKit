@@ -88,3 +88,8 @@ add_custom_target(
     WebInspectorUI
     DEPENDS ${CMAKE_BINARY_DIR}/inspector-resources.stamp
 )
+
+# MAVERICKS_BACKPORT: single seam -- see MavericksSupport/cmake/WebInspectorUIPlatformMavericks.cmake.
+if (MAVERICKS_SUPPORT)
+    include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WebInspectorUIPlatformMavericks.cmake)
+endif ()
