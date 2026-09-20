@@ -257,13 +257,6 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_PDFKIT_PLUGIN PRIVATE OFF)
 # VideoPresentationInterfaceMac, which needs VIDEO_PRESENTATION_MODE (off; see below).
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_PICTURE_IN_PICTURE_API PRIVATE OFF)
 
-# OFF for one named, measured reason: ResourceUsageThreadCocoa.mm:116 asks
-# thread_info() for THREAD_EXTENDED_INFO, and this kernel answers KERN_INVALID_ARGUMENT (4) -- probed on
-# this host, while THREAD_IDENTIFIER_INFO and TASK_BASIC_INFO_64 both answer KERN_SUCCESS. Upstream's own
-# `continue` on that failure drops every thread, so the overlay would draw an empty thread list rather
-# than report anything.
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_RESOURCE_USAGE PRIVATE OFF)
-
 # OFF — native AVKit video fullscreen / PiP (VideoPresentationInterfaceMac,
 # VideoPresentationManager). The upstream implementation assumes ENABLE(GPU_PROCESS), which this port
 # runs without: VideoPresentationManager.mm reads Settings::blockMediaLayerRehostingInWebContentProcess(),

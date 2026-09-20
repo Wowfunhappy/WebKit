@@ -202,6 +202,11 @@ probe_task_vm_info() {
         "$T/task_vm_info"
 }
 
+probe_thread_extended_info() {
+    "$CLANG" $MODERN $INC -o "$T/thread_extended_info" "$TBEHAV/libSystem-thread-extended-info.c" $PROBE_LIBS &&
+        "$T/thread_extended_info"
+}
+
 probe_unfair_lock() {
     "$CLANG" $MODERN $INC -Wno-unguarded-availability-new -o "$T/unfair_lock" "$TBEHAV/libSystem-unfair-lock.c" $PROBE_LIBS &&
         "$T/unfair_lock"
@@ -629,6 +634,7 @@ run_probe gcrypt_ec_public_point "$@"
 run_probe timebase "$@"
 run_probe memory_entry_data_addr "$@"
 run_probe task_vm_info "$@"
+run_probe thread_extended_info "$@"
 run_probe unfair_lock "$@"
 run_probe stroke_line_segments "$@"
 run_probe ax_client_identification "$@"

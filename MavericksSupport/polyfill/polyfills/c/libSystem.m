@@ -11,6 +11,7 @@
 #include <dispatch/dispatch.h>
 #include <xpc/xpc.h>
 #include <dlfcn.h>
+#include <libproc.h>
 #include <mach/mach.h>
 #include <mach/thread_act.h>
 #include <mach-o/dyld.h>
@@ -392,6 +393,48 @@ WK_POLYFILL_REPLACES(NULL, kern_return_t, task_info,
     info->phys_footprint = info->internal + info->compressed;
     *outCnt = throughPhysFootprint;
     return kr;
+}
+
+// thread_info(THREAD_EXTENDED_INFO) is 10.10+. This kernel answers the flavor with
+// KERN_INVALID_ARGUMENT — measured on this host, while THREAD_BASIC_INFO and THREAD_IDENTIFIER_INFO
+// both answer KERN_SUCCESS — so a caller gets no thread name, scheduling state or per-thread times.
+//
+// proc_pidinfo(PROC_PIDTHREADINFO) is the same data from the same kernel: `struct proc_threadinfo`
+// and `struct thread_extended_info` are the same 112-byte layout field for field, and this host fills
+// it with the thread's pthread name, cpu usage, run state and priorities (measured against a thread
+// named through pthread_setname_np). It is keyed by the thread's unique id, which THREAD_IDENTIFIER_INFO
+// carries. Every other flavor, and a kernel that answers this one itself, pass through untouched.
+WK_POLYFILL_REPLACES(NULL, kern_return_t, thread_info,
+    (thread_inspect_t target, thread_flavor_t flavor, thread_info_t out, mach_msg_type_number_t *outCnt)) {
+    kern_return_t kr = WK_ORIGINAL(thread_info)(target, flavor, out, outCnt);
+    if (flavor != THREAD_EXTENDED_INFO || kr == KERN_SUCCESS || !out || !outCnt)
+        return kr;
+    if (*outCnt < THREAD_EXTENDED_INFO_COUNT)
+        return kr;
+
+    thread_identifier_info_data_t identifier;
+    mach_msg_type_number_t identifierCount = THREAD_IDENTIFIER_INFO_COUNT;
+    if (WK_ORIGINAL(thread_info)(target, THREAD_IDENTIFIER_INFO, (thread_info_t)&identifier, &identifierCount) != KERN_SUCCESS)
+        return kr;
+
+    struct proc_threadinfo threadInfo;
+    if (proc_pidinfo(getpid(), PROC_PIDTHREADINFO, identifier.thread_handle, &threadInfo, sizeof(threadInfo)) != (int)sizeof(threadInfo))
+        return kr;
+
+    thread_extended_info_data_t *extended = (thread_extended_info_data_t *)out;
+    extended->pth_user_time = threadInfo.pth_user_time;
+    extended->pth_system_time = threadInfo.pth_system_time;
+    extended->pth_cpu_usage = threadInfo.pth_cpu_usage;
+    extended->pth_policy = threadInfo.pth_policy;
+    extended->pth_run_state = threadInfo.pth_run_state;
+    extended->pth_flags = threadInfo.pth_flags;
+    extended->pth_sleep_time = threadInfo.pth_sleep_time;
+    extended->pth_curpri = threadInfo.pth_curpri;
+    extended->pth_priority = threadInfo.pth_priority;
+    extended->pth_maxpriority = threadInfo.pth_maxpriority;
+    memcpy(extended->pth_name, threadInfo.pth_name, sizeof(extended->pth_name));
+    *outCnt = THREAD_EXTENDED_INFO_COUNT;
+    return KERN_SUCCESS;
 }
 
 // DISPATCH_MEMORYPRESSURE_PROC_LIMIT_WARN and _PROC_LIMIT_CRITICAL are 10.10+. 10.9's libdispatch
