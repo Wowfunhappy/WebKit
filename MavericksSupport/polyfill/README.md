@@ -150,11 +150,11 @@ is compiled into both the polyfill archive and the dependency gap archive. Its u
 Cookie parsing and mutation notifications are WebCore's. The polyfill keeps the native jar metadata
 10.9 needs to preserve SameSite across storage and process boundaries.
 
-CoreText classifies shipped fonts using the running machine's OS package receipts.
-`c/wk_font_receipts.c` reads the native BOM records on the first provenance question in a process
-and retains the font paths and packaged sizes for the process lifetime; the WebContent sandbox
-profile allows reading the receipts. Each font caches its answer. Matching checks the current font
-file size against that snapshot.
+CoreText answers `kCTFontUserInstalledAttribute` against a stock macOS Tahoe installation:
+`c/wk_font_catalog.c` holds the families Tahoe makes available to web content, and a font on disk
+registered beyond its process whose family is one of them (or a hidden dot-prefixed face) is the
+system's; every other font is the user's. A Tahoe family this system has no face of matches as the
+stand-in family the same table names. Each font caches its answer.
 
 ## Checking what actually happened
 

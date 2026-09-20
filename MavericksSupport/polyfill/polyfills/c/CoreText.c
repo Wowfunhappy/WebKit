@@ -9,7 +9,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <errno.h>
-#include "wk_font_receipts.h"
+#include "wk_font_catalog.h"
 #include "wk_helpers.h"
 #include "VariableFontInstancer.h"
 #include "wk_colr.h"
@@ -1304,23 +1304,36 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontCopyAttribute, (CTFontRef font
 
 static const void *wk_userInstalledKey(void) { static char key; return &key; }
 
+// A font is one the system provides when its family is one a stock macOS Tahoe installation makes available
+// to web content, a hidden dot-prefixed system face, or the LastResort face CoreText falls back to for any
+// character, and a file on disk registered beyond this process holds it. A font made from bytes or
+// registered for this process alone is the user's.
 static bool wk_fontIsUserInstalled(CTFontRef font)
 {
     CFBooleanRef cached = (CFBooleanRef)objc_getAssociatedObject((id)(void *)font, wk_userInstalledKey());
     if (cached)
         return cached == kCFBooleanTrue;
+    bool userInstalled = true;
     CFTypeRef url = WK_ORIGINAL(CTFontCopyAttribute)(font, kCTFontURLAttribute);
-    bool shipped = false;
-    char path[PATH_MAX];
-    struct stat info;
-    if (url && CFGetTypeID(url) == CFURLGetTypeID()
-        && CFURLGetFileSystemRepresentation((CFURLRef)url, true, (UInt8 *)path, sizeof(path))
-        && !stat(path, &info))
-        shipped = wk_font_receipt_contains(path, info.st_size);
+    CFTypeRef scope = url ? WK_ORIGINAL(CTFontCopyAttribute)(font, kCTFontRegistrationScopeAttribute) : NULL;
+    int scopeValue = 0;
+    if (scope && CFGetTypeID(scope) == CFNumberGetTypeID())
+        CFNumberGetValue((CFNumberRef)scope, kCFNumberIntType, &scopeValue);
+    if (url && scopeValue != kCTFontManagerScopeProcess) {
+        CFTypeRef family = WK_ORIGINAL(CTFontCopyAttribute)(font, kCTFontFamilyNameAttribute);
+        char name[256];
+        if (family && CFGetTypeID(family) == CFStringGetTypeID()
+            && CFStringGetCString((CFStringRef)family, name, sizeof(name), kCFStringEncodingUTF8))
+            userInstalled = !(name[0] == '.' || !strcmp(name, "LastResort") || wk_font_family_ships_with_tahoe(name));
+        if (family)
+            CFRelease(family);
+    }
+    if (scope)
+        CFRelease(scope);
     if (url)
         CFRelease(url);
-    objc_setAssociatedObject((id)(void *)font, wk_userInstalledKey(), (id)(shipped ? kCFBooleanFalse : kCFBooleanTrue), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    return !shipped;
+    objc_setAssociatedObject((id)(void *)font, wk_userInstalledKey(), (id)(userInstalled ? kCFBooleanTrue : kCFBooleanFalse), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return userInstalled;
 }
 
 static CTFontRef wk_copySystemFallback(CTFontRef current, const UniChar *characters, CFIndex length, CFStringRef language, CFIndex *coveredLength)
@@ -1353,7 +1366,8 @@ static CTFontRef wk_copySystemFallback(CTFontRef current, const UniChar *charact
 }
 
 // A descriptor whose kCTFontUserInstalledAttribute is false, matched with that attribute mandatory, matches
-// only the faces this OS shipped; 10.9's matcher does not know the key and matches every face.
+// only the faces the system provides (wk_fontIsUserInstalled); 10.9's matcher does not know the key and
+// matches every face.
 static bool wk_descriptorRequiresSystemFont(CTFontDescriptorRef descriptor, CFSetRef mandatory)
 {
     if (!descriptor || !mandatory || !CFSetContainsValue(mandatory, kCTFontUserInstalledAttribute))
@@ -1374,36 +1388,96 @@ static bool wk_descriptorIsUserInstalled(CTFontDescriptorRef descriptor)
     return result;
 }
 
-WK_POLYFILL_REPLACES("CoreText", CFArrayRef, CTFontDescriptorCreateMatchingFontDescriptors,
-    (CTFontDescriptorRef descriptor, CFSetRef mandatoryAttributes))
+// A macOS Tahoe family this system has no face of is matched as its stand-in family
+// (wk_font_family_stand_in); a face of the family itself, wherever it is installed, is matched first.
+static CTFontDescriptorRef wk_copyStandInDescriptor(CTFontDescriptorRef descriptor)
 {
-    CFArrayRef matches = WK_ORIGINAL(CTFontDescriptorCreateMatchingFontDescriptors)
-        ? WK_ORIGINAL(CTFontDescriptorCreateMatchingFontDescriptors)(descriptor, mandatoryAttributes) : NULL;
-    if (!matches || !wk_descriptorRequiresSystemFont(descriptor, mandatoryAttributes))
-        return matches;
-    CFMutableArrayRef shipped = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
-    for (CFIndex i = 0, count = CFArrayGetCount(matches); i < count; ++i) {
-        CTFontDescriptorRef match = (CTFontDescriptorRef)CFArrayGetValueAtIndex(matches, i);
-        if (!wk_descriptorIsUserInstalled(match))
-            CFArrayAppendValue(shipped, match);
-    }
-    CFRelease(matches);
-    if (CFArrayGetCount(shipped))
-        return shipped;
-    CFRelease(shipped);
-    return NULL;
+    CFTypeRef family = descriptor ? CTFontDescriptorCopyAttribute(descriptor, kCTFontFamilyNameAttribute) : NULL;
+    char name[256];
+    const char *standIn = NULL;
+    if (family && CFGetTypeID(family) == CFStringGetTypeID()
+        && CFStringGetCString((CFStringRef)family, name, sizeof(name), kCFStringEncodingUTF8))
+        standIn = wk_font_family_stand_in(name);
+    if (family)
+        CFRelease(family);
+    if (!standIn)
+        return NULL;
+    CFStringRef standInFamily = CFStringCreateWithCString(kCFAllocatorDefault, standIn, kCFStringEncodingUTF8);
+    const void *keys[] = { kCTFontFamilyNameAttribute };
+    const void *values[] = { standInFamily };
+    CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CTFontDescriptorRef result = CTFontDescriptorCreateCopyWithAttributes(descriptor, attributes);
+    CFRelease(attributes);
+    CFRelease(standInFamily);
+    return result;
 }
 
 static CTFontDescriptorRef wk_bestShippedMatch(CTFontDescriptorRef, CFArrayRef);
 
+// The system's match for one descriptor, with user-installed faces dropped where the descriptor asks
+// for system fonts only, and NULL for no match left. The stand-in fallbacks go through these rather
+// than back through the entry points, so a stand-in target cannot re-enter the fallback.
+static CFArrayRef wk_copyShippedMatchingDescriptors(CTFontDescriptorRef, CFSetRef);
+static CTFontDescriptorRef wk_copyShippedMatchingDescriptor(CTFontDescriptorRef, CFSetRef);
+
+WK_POLYFILL_REPLACES("CoreText", CFArrayRef, CTFontDescriptorCreateMatchingFontDescriptors,
+    (CTFontDescriptorRef descriptor, CFSetRef mandatoryAttributes))
+{
+    CFArrayRef matches = wk_copyShippedMatchingDescriptors(descriptor, mandatoryAttributes);
+    if (matches)
+        return matches;
+    CTFontDescriptorRef standIn = wk_copyStandInDescriptor(descriptor);
+    if (!standIn)
+        return NULL;
+    matches = wk_copyShippedMatchingDescriptors(standIn, mandatoryAttributes);
+    CFRelease(standIn);
+    return matches;
+}
+
 WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateMatchingFontDescriptor,
     (CTFontDescriptorRef descriptor, CFSetRef mandatoryAttributes))
 {
+    CTFontDescriptorRef match = wk_copyShippedMatchingDescriptor(descriptor, mandatoryAttributes);
+    if (match)
+        return match;
+    CTFontDescriptorRef standIn = wk_copyStandInDescriptor(descriptor);
+    if (!standIn)
+        return NULL;
+    match = wk_copyShippedMatchingDescriptor(standIn, mandatoryAttributes);
+    CFRelease(standIn);
+    return match;
+}
+
+static CFArrayRef wk_copyShippedMatchingDescriptors(CTFontDescriptorRef descriptor, CFSetRef mandatoryAttributes)
+{
+    CFArrayRef matches = WK_ORIGINAL(CTFontDescriptorCreateMatchingFontDescriptors)
+        ? WK_ORIGINAL(CTFontDescriptorCreateMatchingFontDescriptors)(descriptor, mandatoryAttributes) : NULL;
+    if (matches && wk_descriptorRequiresSystemFont(descriptor, mandatoryAttributes)) {
+        CFMutableArrayRef shipped = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+        for (CFIndex i = 0, count = CFArrayGetCount(matches); i < count; ++i) {
+            CTFontDescriptorRef match = (CTFontDescriptorRef)CFArrayGetValueAtIndex(matches, i);
+            if (!wk_descriptorIsUserInstalled(match))
+                CFArrayAppendValue(shipped, match);
+        }
+        CFRelease(matches);
+        matches = shipped;
+    }
+    if (matches && !CFArrayGetCount(matches)) {
+        CFRelease(matches);
+        return NULL;
+    }
+    return matches;
+}
+
+static CTFontDescriptorRef wk_copyShippedMatchingDescriptor(CTFontDescriptorRef descriptor, CFSetRef mandatoryAttributes)
+{
     CTFontDescriptorRef match = WK_ORIGINAL(CTFontDescriptorCreateMatchingFontDescriptor)(descriptor, mandatoryAttributes);
-    if (!match || !wk_descriptorRequiresSystemFont(descriptor, mandatoryAttributes) || !wk_descriptorIsUserInstalled(match))
+    if (!match)
+        return NULL;
+    if (!wk_descriptorRequiresSystemFont(descriptor, mandatoryAttributes) || !wk_descriptorIsUserInstalled(match))
         return match;
     CFRelease(match);
-    CFArrayRef matches = CTFontDescriptorCreateMatchingFontDescriptors(descriptor, mandatoryAttributes);
+    CFArrayRef matches = wk_copyShippedMatchingDescriptors(descriptor, mandatoryAttributes);
     if (!matches)
         return NULL;
     match = wk_bestShippedMatch(descriptor, matches);

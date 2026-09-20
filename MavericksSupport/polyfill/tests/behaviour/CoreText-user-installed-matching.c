@@ -1,17 +1,14 @@
 // CTFontDescriptorCreateMatchingFontDescriptors and CTFontDescriptorCreateMatchingFontDescriptor
 // (polyfills/c/CoreText.c): a descriptor with kCTFontUserInstalledAttribute false, matched with that
-// attribute mandatory, matches only the faces this OS shipped. 10.9's matcher ignores the key, so
-// FontDatabase's AllowUserInstalledFonts::No lookups kept fonts registered at runtime.
+// attribute mandatory, matches only the faces of families a stock macOS Tahoe installation provides
+// (polyfills/c/wk_font_catalog.c), and a Tahoe family this system has no face of matches its stand-in.
 #include <ApplicationServices/ApplicationServices.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <sandbox.h>
 #include <fcntl.h>
-#include <dirent.h>
 #include <limits.h>
-#include <errno.h>
 
 // The layer supplies this on 10.9.
 #pragma clang diagnostic push
@@ -193,34 +190,6 @@ static void checkExtendedFallback(const char *path)
 
 int main(int argc, char **argv)
 {
-    if (argc == 2 && !strcmp(argv[1], "--receipt-sandbox")) {
-        char *error = NULL;
-        // The first provenance question comes after sandbox entry, under the WebContent profile's receipt rule.
-        check(!sandbox_init("(version 1) (allow default) (deny file-read* (subpath \"/private/var/db\"))"
-            " (allow file-read* (literal \"/private/var/db/receipts\"))"
-            " (allow file-read* (regex #\"^/private/var/db/receipts/com\\.apple\\.pkg\\.[^/]+\\.bom$\"))", 0, &error), "enter receipt-read sandbox");
-        if (error) sandbox_free_error(error);
-        int fd = open("/private/var/db/mds", O_RDONLY);
-        check(fd < 0 && errno == EPERM, "the sandbox denies the rest of /private/var/db");
-        if (fd >= 0) close(fd);
-        char plist[PATH_MAX] = "";
-        DIR *receipts = opendir("/private/var/db/receipts");
-        check(receipts != NULL, "the receipt directory stays listable");
-        for (struct dirent *entry; receipts && !plist[0] && (entry = readdir(receipts));) {
-            size_t length = strlen(entry->d_name);
-            if (length > 6 && !strcmp(entry->d_name + length - 6, ".plist"))
-                snprintf(plist, sizeof(plist), "/private/var/db/receipts/%s", entry->d_name);
-        }
-        if (receipts)
-            closedir(receipts);
-        check(plist[0], "the receipt directory lists a plist receipt");
-        fd = plist[0] ? open(plist, O_RDONLY) : -1;
-        check(fd < 0 && errno == EPERM, "the sandbox denies reading a receipt that is not an Apple package BOM");
-        if (fd >= 0) close(fd);
-        check(matchCount(CFSTR("Helvetica"), true) >= 4, "OS receipts read on first use inside the sandbox");
-        printf("font receipts after sandbox: %d failure(s)\n", failures);
-        return !!failures;
-    }
     if (argc < 3) {
         fprintf(stderr, "usage: %s <Ahem.ttf> <FakeHelvetica-SingleExtendedCharacter.ttf>\n", argv[0]);
         return 2;
@@ -234,6 +203,24 @@ int main(int argc, char **argv)
     check(singleMatch(CFSTR("Ahem"), false), "the single-match form finds Ahem when user-installed fonts are allowed");
     check(!singleMatch(CFSTR("Ahem"), true), "the single-match form finds no Ahem when only shipped fonts may");
     check(matchCount(CFSTR("Helvetica"), true) >= 4, "Helvetica keeps its shipped faces when only shipped fonts may match");
+    check(matchCount(CFSTR("Lucida Grande"), true) >= 2, "Lucida Grande matches when only shipped fonts may");
+    check(matchCount(CFSTR("Skia"), false) >= 1, "Skia, which this OS ships, matches when user-installed fonts are allowed");
+    check(matchCount(CFSTR("Skia"), true) == 0, "Skia, which Tahoe does not install, does not match when only shipped fonts may");
+    check(matchCount(CFSTR("hiragino sans"), true) == matchCount(CFSTR("Hiragino Kaku Gothic ProN"), true)
+        && matchCount(CFSTR("Hiragino Kaku Gothic ProN"), true) > 0, "Hiragino Sans matches as its stand-in, Hiragino Kaku Gothic ProN");
+    check(matchCount(CFSTR("Rockwell"), false) == matchCount(CFSTR("Superclarendon"), false), "Rockwell matches as its stand-in, Superclarendon");
+    check(matchCount(CFSTR("Noto Sans Cuneiform"), false) == 0, "a Tahoe family without Latin letters has no stand-in");
+    CTFontRef lastResort = CTFontCreateWithName(CFSTR("LastResort"), 12, NULL);
+    CFStringRef lastResortName = lastResort ? CTFontCopyPostScriptName(lastResort) : NULL;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
+    CFTypeRef lastResortUserInstalled = lastResort ? CTFontCopyAttribute(lastResort, kCTFontUserInstalledAttribute) : NULL;
+#pragma clang diagnostic pop
+    check(lastResortName && CFEqual(lastResortName, CFSTR("LastResort")) && lastResortUserInstalled == kCFBooleanFalse,
+        "the LastResort face is the system's");
+    if (lastResortUserInstalled) CFRelease(lastResortUserInstalled);
+    if (lastResortName) CFRelease(lastResortName);
+    if (lastResort) CFRelease(lastResort);
     check(singleMatch(CFSTR("Helvetica"), true), "the single-match form finds Helvetica when only shipped fonts may");
 
     CFSetRef mandatory;
@@ -254,8 +241,8 @@ int main(int argc, char **argv)
     if (match) CFRelease(match);
     CFRelease(request); CFRelease(attributes); CFRelease(traits); CFRelease(number); CFRelease(family); CFRelease(mandatory);
 
-    // A font installed for all users still has no OS receipt.
-    char installed[] = "/Library/Fonts/wk-receipt-test-XXXXXX.ttf";
+    // A font installed for all users whose family Tahoe does not provide is the user's.
+    char installed[] = "/Library/Fonts/wk-provenance-test-XXXXXX.ttf";
     int fd = mkstemps(installed, 4);
     check(fd >= 0, "create the temporary all-users font file");
     if (fd >= 0) {
@@ -284,7 +271,7 @@ int main(int argc, char **argv)
 #pragma clang diagnostic ignored "-Wunguarded-availability"
         CFTypeRef userInstalled = installedFont ? CTFontCopyAttribute(installedFont, kCTFontUserInstalledAttribute) : NULL;
 #pragma clang diagnostic pop
-        check(userInstalled == kCFBooleanTrue, "a font in /Library/Fonts without a receipt is user-installed");
+        check(userInstalled == kCFBooleanTrue, "a font in /Library/Fonts whose family Tahoe does not provide is user-installed");
         if (userInstalled) CFRelease(userInstalled);
         if (installedFont) CFRelease(installedFont);
         if (descriptors) CFRelease(descriptors);

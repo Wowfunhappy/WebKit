@@ -580,8 +580,7 @@ probe_clipped_glyphs() {
 probe_user_installed_matching() {
     "$CLANG" $MODERN $INC -o "$T/user_installed_matching" "$TBEHAV/CoreText-user-installed-matching.c" $PROBE_LIBS \
         -framework CoreText -framework CoreGraphics &&
-        "$T/user_installed_matching" "$REPO/LayoutTests/resources/Ahem.ttf" "$REPO/Tools/WebKitTestRunner/fonts/FakeHelvetica-SingleExtendedCharacter.ttf" &&
-        "$T/user_installed_matching" --receipt-sandbox
+        "$T/user_installed_matching" "$REPO/LayoutTests/resources/Ahem.ttf" "$REPO/Tools/WebKitTestRunner/fonts/FakeHelvetica-SingleExtendedCharacter.ttf"
 }
 
 probe_gsub_ligature_tail() {

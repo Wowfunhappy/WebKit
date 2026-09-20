@@ -140,29 +140,22 @@ static void setDebugUInt32ValueIfInUserDefaults(const String& identifier, const 
 void WebPreferences::platformInitializeStore()
 {
     @autoreleasepool {
-        // MAVERICKS_BACKPORT: Safari 7 receives HTTPS-first as an overridable default.
-        if (WTF::MacApplication::isSafari())
+        // MAVERICKS_BACKPORT: Safari receives the settings modern Safari sets through API Safari 7's
+        // WKPreferences surface cannot express, as overridable defaults: HTTPS-first, and web content
+        // limited to the fonts the system provides.
+        if (WTF::MacApplication::isSafari()) {
             registerDefaultBoolValueForKey(WebPreferencesKey::httpSByDefaultEnabledKey(), true);
+            registerDefaultBoolValueForKey(WebPreferencesKey::shouldAllowUserInstalledFontsKey(), false);
+        }
 
-        // MAVERICKS_BACKPORT: Safari 9's legacy WKPreferences surface predates requestIdleCallback and never
-        // sets its key, so the store falls to the WebKit yaml default (false) and window.requestIdleCallback
-        // stays undefined. This port's contract is to present a modern browser, and a modern embedder would
-        // enable it; set it here at the UIProcess legacy-preference boundary — the same place upstream sets
-        // initial store values that the declarative default cannot express — so the WebProcess sees it as an
-        // ordinary store value (no engine-side force in WebPage::updatePreferences). requestIdleCallback rides
-        // the WindowEventLoop idle-timer path, verified stable on 10.9 after the SharedTimer/RunLoop::TimerBase
-        // fixes (200 callbacks, correct deadlines, no runaway, no crashes). A client that explicitly sets the
-        // key still wins (this only supplies the initial value the legacy client omits).
+        // MAVERICKS_BACKPORT: the legacy WKPreferences surface has no requestIdleCallback key, so the store
+        // takes it on here as an initial value a client can still override.
         m_store.setBoolValueForKey(WebPreferencesKey::requestIdleCallbackEnabledKey(), true);
 
-        // MAVERICKS_BACKPORT: this product ships EnhancedSecurity off, a maintainer decision: the heuristic
-        // promotes every plain-http, non-loopback main-frame navigation into a separate
-        // WebContent.EnhancedSecurity process, and plain http is still ordinary on the web this port serves.
-        // The yaml default (true on Cocoa) describes Apple's product. Seeded at the UIProcess
-        // legacy-preference boundary, before the FOR_EACH_DEFAULT_OVERRIDABLE loop below, so an explicit
-        // NSUserDefaults override still wins. The variant service ships regardless
-        // (MavericksSupport/scripts/framework-layout.sh), so the paths that request it by name — an
-        // embedder's website policy, ForceEnhancedSecurity — launch a real process.
+        // MAVERICKS_BACKPORT: EnhancedSecurity heuristics are off in this product: they would move every
+        // plain-http, non-loopback main-frame navigation into a separate WebContent.EnhancedSecurity
+        // process. Seeded before the FOR_EACH_DEFAULT_OVERRIDABLE loop below, so an NSUserDefaults override
+        // still wins; the paths that request the variant service by name still launch it.
         m_store.setBoolValueForKey(WebPreferencesKey::enhancedSecurityHeuristicsEnabledKey(), false);
 
 #if ENABLE(MEDIA_STREAM)
