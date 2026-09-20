@@ -253,6 +253,14 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     if (WTF::MacApplication::isAppleMail() && configuration->corsDisablingPatterns().isEmpty())
         configuration->setCORSDisablingPatterns({ "*://*/*"_s });
 
+    // 2013 Safari serves an extension's resources over safari-extension:// through the network process,
+    // where modern Safari's arrive through a WKURLSchemeHandler that answers in the web process and
+    // never meets a cross-origin resource policy. LegacySchemeRegistry::isUserExtensionScheme carries
+    // upstream's own exemption for those resources, and its FIXME names corsDisablingPatterns as what
+    // replaces it once Safari adopts the modern surface; this Safari never will.
+    if (WTF::MacApplication::isSafari() && configuration->corsDisablingPatterns().isEmpty())
+        configuration->setCORSDisablingPatterns({ "safari-extension://*/*"_s });
+
     // The Network process reads the pool's process model through ephemeral page preferences.
     Ref preferences = configuration->preferences();
     preferences->setBoolValueForKey(WebKit::WebPreferencesKey::usesSingleWebProcessKey(), processPool.get().usesSingleWebProcess(), true);
