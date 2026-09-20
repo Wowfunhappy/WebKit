@@ -193,6 +193,10 @@ String MIMETypeRegistry::preferredExtensionForMIMEType(const String& type)
 
 bool MIMETypeRegistry::isApplicationPluginMIMEType(const String& MIMEType)
 {
+    // MAVERICKS_BACKPORT: Notes and Mail supply WebKit-ObjC plug-ins for attachment objects.
+    if (equalLettersIgnoringASCIICase(MIMEType, "application/x-apple-msg-attachment"_s))
+        return true;
+
     // MAVERICKS_BACKPORT: Dashboard Web Clips (#38) render the clipped page through
     // application/x-apple-webclip-plug-in — WebClip.plugin inside the OS-shipped Web Clip
     // widget, a WebKit-ObjC WebPlugin the DashboardClient host loads via WebKitLegacy's

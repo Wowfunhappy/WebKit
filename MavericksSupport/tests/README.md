@@ -1,5 +1,9 @@
 # Manual test pages
 
+`bash attachment-plugin/run.sh` checks the installed WebKit1 application plug-in path with
+Mail's signature quirk disabled. Attachment objects (including uppercase MIME types) and
+Web Clips must create attached native views; Flash, unknown types and lookalike types must not.
+
 `port-surface/` is not a manual page: it defines the port-surface test suite (the layout tests and
 API tests that exercise this port's own surface), run through `scripts/run-layout-tests.sh
 --port-surface` and `scripts/run-api-tests.sh --port-surface`.
