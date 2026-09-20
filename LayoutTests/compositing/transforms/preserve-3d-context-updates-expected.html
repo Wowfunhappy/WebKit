@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Updating 3D rendering context geometry and ownership</title>
+<style>
+.stage { position: relative; display: inline-block; width: 220px; height: 200px; perspective: 500px; perspective-origin: 30% 70%; }
+.scene { transform-style: preserve-3d; width: 200px; height: 180px; transform: rotateY(25deg); }
+.front, .back { position: absolute; }
+.front { left: 60px; top: 60px; width: 80px; height: 70px; background: red; transform: translateZ(40px); }
+.back { left: 20px; top: 30px; width: 160px; height: 130px; background: blue; transform: translateZ(20px); }
+.flat { position: absolute; left: 15px; top: 15px; width: 30px; height: 30px; background: green; transform: translateZ(-50px); }
+</style>
+<div class="stage"><div class="scene"><div class="front"></div><div class="back"></div></div><div class="flat"></div></div>
+<div class="stage"><div class="scene"><div class="front"></div><div class="back"></div></div><div class="flat"></div></div>
+<div class="stage"><div class="scene"><div class="front"></div><div class="back"></div></div><div class="flat"></div></div>

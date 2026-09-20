@@ -614,10 +614,12 @@ probe_control_character_glyphs() {
 }
 
 probe_depth_sorting() {
-    prepare_method_objects QuartzCoreDepthSorting &&
+    prepare_method_objects QuartzCore &&
         "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/depth_sorting" "$TBEHAV/QuartzCore-depth-sorting.m" \
-            "$OBJ/methods/QuartzCoreDepthSorting.o" "$OBJ/mech/wk_selref_scope.o" \
-            -Wl,-force_load,"$OUT/libwk_marker.a" -framework QuartzCore -framework AppKit $PROBE_LIBS &&
+            "$OBJ/methods/QuartzCore.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" "$OUT/libpolyfill.a" \
+            -framework QuartzCore -framework AppKit -framework Foundation -framework CoreServices "$OUT/libpolyfill_classes.dylib" \
+            $PROBE_LIBS &&
         "$T/depth_sorting"
 }
 

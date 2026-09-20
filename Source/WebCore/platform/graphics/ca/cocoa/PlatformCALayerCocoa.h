@@ -42,6 +42,12 @@ public:
 
     WEBCORE_EXPORT static LayerType layerTypeForPlatformLayer(PlatformLayer*);
 
+    // MAVERICKS_BACKPORT: GraphicsLayerCA places each CSS child context in a native sorting layer.
+    static bool needsExplicitDepthSorting();
+    void setSublayersWithDepthSorting(const PlatformCALayerList&);
+    PlatformCALayerList sublayersForCSS() const;
+    void setChildrenTransformForDepthSorting(const TransformationMatrix&);
+
     ~PlatformCALayerCocoa();
 
     void setOwner(PlatformCALayerClient*) override;
@@ -231,6 +237,12 @@ private:
     void updateContentsFormat();
 
     AVPlayerLayer *avPlayerLayer() const;
+
+    // MAVERICKS_BACKPORT: these are real platform layers owned by their containing CSS layer.
+    void updateDepthSortingGeometry();
+    Vector<RefPtr<PlatformCALayerCocoa>> m_depthSortingLayers;
+    bool m_hasCSSChildrenTransform { false };
+    TransformationMatrix m_depthSortingTransform;
 
     RetainPtr<NSObject> m_delegate;
     std::unique_ptr<PlatformCALayerList> m_customSublayers;

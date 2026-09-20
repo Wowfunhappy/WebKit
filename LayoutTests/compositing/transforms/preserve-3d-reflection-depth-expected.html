@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Depth sorting of reflected 3D rendering contexts</title>
+<style>
+.reflection { display:inline-block; margin:10px; -webkit-box-reflect:below 10px; }
+.scene { position:relative; width:200px; height:150px; }
+.scene { transform-style:flat; }
+.front, .back { position:absolute; }
+.front { left:60px; top:40px; width:80px; height:60px; background:red;  }
+.back { left:20px; top:10px; width:160px; height:120px; background:blue;  }
+.negative .front {  }
+.negative .back {  }
+</style>
+<p>Both scenes and their reflections show red in front of blue.</p>
+<div class="reflection"><div class="scene"><div class="back"></div><div class="front"></div></div></div>
+<div class="reflection"><div class="scene negative"><div class="back"></div><div class="front"></div></div></div>

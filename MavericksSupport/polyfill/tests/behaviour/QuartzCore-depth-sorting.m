@@ -1,4 +1,4 @@
-// Compare CSS 3D groups to native depth sorting, and exercise the logical CALayer hierarchy.
+// Native CALayer semantics and capability detection remain intact with the polyfill loaded.
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/message.h>
@@ -13,8 +13,7 @@ static unsigned failures;
 
 static void configure(CALayer *layer)
 {
-    layer.usesWebKitBehavior = YES;
-    layer.sortsSublayers = [layer isKindOfClass:[CATransformLayer class]];
+    EXPECT(![layer respondsToSelector:@selector(setUsesWebKitBehavior:)]);
 }
 
 static CATransformLayer *scene(void)
@@ -109,9 +108,7 @@ static void checkHierarchy(void)
     EXPECT(c.superlayer == parent);
     parent.sortsSublayers = NO;
     EXPECT(c.superlayer == parent);
-    parent.usesWebKitBehavior = NO;
     EXPECT(c.superlayer == parent);
-    parent.usesWebKitBehavior = YES;
     parent.sublayers = nil;
     EXPECT(!c.superlayer);
     EXPECT(!parent.sublayers.count);
@@ -124,6 +121,11 @@ static void checkHierarchy(void)
         EXPECT(!parent.sublayers.count);
     }
     EXPECT(![CALayer instancesRespondToSelector:NSSelectorFromString(@"usesWebKitBehavior")]);
+    [parent addSublayer:a];
+    CALayer *nativeParent = [CALayer layer];
+    [nativeParent setValue:@[a] forKey:@"sublayers"];
+    @try { EXPECT(!parent.sublayers.count); }
+    @catch (NSException *e) { fprintf(stderr, "FAIL KVC reparent: %s\n", [[e description] UTF8String]); ++failures; }
 }
 
 int main(void)
@@ -153,6 +155,21 @@ int main(void)
         perspective.m34 = -1.0 / 500;
         reference.sublayerTransform = actual.sublayerTransform = perspective;
         compareHalves(window, "perspective and rotation");
+        CATransform3D singular = CATransform3DMakeScale(0.7, 1, 0);
+        reference.sublayerTransform = actual.sublayerTransform = singular;
+        compareHalves(window, "singular scale");
+        reference.sublayerTransform = actual.sublayerTransform = perspective;
+        CABasicAnimation *parentAnimation = [CABasicAnimation animationWithKeyPath:@"sublayerTransform"];
+        parentAnimation.fromValue = [NSValue valueWithCATransform3D:CATransform3DIdentity];
+        parentAnimation.toValue = [NSValue valueWithCATransform3D:CATransform3DMakeRotation(0.7, 0, 1, 0)];
+        parentAnimation.duration = 1;
+        parentAnimation.speed = 0;
+        parentAnimation.timeOffset = 0.5;
+        [reference addAnimation:parentAnimation forKey:@"review"];
+        [actual addAnimation:parentAnimation forKey:@"review"];
+        compareHalves(window, "animated parent sublayerTransform");
+        [reference removeAnimationForKey:@"review"];
+        [actual removeAnimationForKey:@"review"];
         reference.anchorPoint = actual.anchorPoint = CGPointMake(0.2, 0.3);
         reference.position = CGPointMake(40, 72);
         actual.position = CGPointMake(240, 72);

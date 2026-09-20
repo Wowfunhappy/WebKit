@@ -681,6 +681,9 @@ void GraphicsLayerCA::setChildrenTransform(const TransformationMatrix& t)
 
     GraphicsLayer::setChildrenTransform(t);
     noteLayerPropertyChanged(ChildrenTransformChanged);
+    // MAVERICKS_BACKPORT: perspective changes can add or remove native context boundaries, including replicas.
+    if (is<PlatformCALayerCocoa>(*primaryLayer()) && PlatformCALayerCocoa::needsExplicitDepthSorting())
+        noteSublayersChanged();
 }
 
 void GraphicsLayerCA::moveOrCopyLayerAnimation(MoveOrCopy operation, const String& animationIdentifier, std::optional<Seconds> beginTime, PlatformCALayer *fromLayer, PlatformCALayer *toLayer)
@@ -2402,6 +2405,35 @@ void GraphicsLayerCA::updateNames()
     protect(m_layer)->setName(name);
 }
 
+// MAVERICKS_BACKPORT: only the Cocoa legacy renderer needs explicit CSS sorting boundaries.
+static bool needsDepthSortingBoundaries(PlatformCALayer& layer)
+{
+    return is<PlatformCALayerCocoa>(layer) && PlatformCALayerCocoa::needsExplicitDepthSorting()
+        && layer.layerType() != PlatformCALayer::LayerType::LayerTypeTransformLayer;
+}
+
+// MAVERICKS_BACKPORT: the actual platform tree carries context ownership and native animations.
+static void setSublayersForCSS(PlatformCALayer& layer, const PlatformCALayerList& children)
+{
+    if (needsDepthSortingBoundaries(layer))
+        downcast<PlatformCALayerCocoa>(layer).setSublayersWithDepthSorting(children);
+    else
+        layer.setSublayers(children);
+}
+
+// MAVERICKS_BACKPORT: preserve replica siblings while rebuilding their native sorting boundaries.
+static void prependSublayerForCSS(PlatformCALayer& parent, PlatformCALayer& child)
+{
+    if (!needsDepthSortingBoundaries(parent)) {
+        parent.insertSublayer(child, 0);
+        return;
+    }
+    auto children = downcast<PlatformCALayerCocoa>(parent).sublayersForCSS();
+    children.removeAllMatching([&](auto& layer) { return layer.get() == &child; });
+    children.insert(0, &child);
+    setSublayersForCSS(parent, children);
+}
+
 void GraphicsLayerCA::updateSublayerList(bool maxLayerDepthReached)
 {
     RefPtr layer = m_layer;
@@ -2469,7 +2501,8 @@ void GraphicsLayerCA::updateSublayerList(bool maxLayerDepthReached)
         appendContentsLayer(clippingChildren);
         if (clippingLayerHostsChildren)
             buildChildLayerList(clippingChildren);
-        contentsClippingLayer->setSublayers(clippingChildren);
+        // contentsClippingLayer->setSublayers(clippingChildren); // MAVERICKS_BACKPORT: explicit native child sorting contexts.
+        setSublayersForCSS(*contentsClippingLayer, clippingChildren);
     }
 
     if (RefPtr structuralLayer = m_structuralLayer) {
@@ -2479,13 +2512,15 @@ void GraphicsLayerCA::updateSublayerList(bool maxLayerDepthReached)
         if (structuralLayerHostsChildren)
             buildChildLayerList(layerList);
 
-        structuralLayer->setSublayers(layerList);
+        // structuralLayer->setSublayers(layerList); // MAVERICKS_BACKPORT: explicit native child sorting contexts.
+        setSublayersForCSS(*structuralLayer, layerList);
     }
 
     if (!clippingLayerHostsChildren && !structuralLayerHostsChildren)
         buildChildLayerList(primaryLayerChildren);
 
-    layer->setSublayers(primaryLayerChildren);
+    // layer->setSublayers(primaryLayerChildren); // MAVERICKS_BACKPORT: explicit native child sorting contexts.
+    setSublayersForCSS(*layer, primaryLayerChildren);
 }
 
 void GraphicsLayerCA::updateGeometry(float pageScaleFactor, const FloatPoint& positionRelativeToBase)
@@ -2579,11 +2614,19 @@ void GraphicsLayerCA::updateTransform()
 
 void GraphicsLayerCA::updateChildrenTransform()
 {
-    protect(primaryLayer())->setSublayerTransform(childrenTransform());
+    // protect(primaryLayer())->setSublayerTransform(childrenTransform()); // MAVERICKS_BACKPORT: place perspective inside native sorting contexts.
+    auto applyChildrenTransform = [&](PlatformCALayer& layer) {
+        if (needsDepthSortingBoundaries(layer))
+            downcast<PlatformCALayerCocoa>(layer).setChildrenTransformForDepthSorting(childrenTransform());
+        else
+            layer.setSublayerTransform(childrenTransform());
+    };
+    applyChildrenTransform(*primaryLayer());
 
     if (LayerMap* layerCloneMap = primaryLayerClones()) {
         for (auto& layer : layerCloneMap->values())
-            layer->setSublayerTransform(childrenTransform());
+            // layer->setSublayerTransform(childrenTransform()); // MAVERICKS_BACKPORT: replicas use the same context placement.
+            applyChildrenTransform(layer.get());
     }
 }
 
@@ -3382,9 +3425,11 @@ void GraphicsLayerCA::updateReplicatedLayers()
         return;
 
     if (RefPtr structuralLayer = m_structuralLayer)
-        structuralLayer->insertSublayer(*replicaRoot, 0);
+        // structuralLayer->insertSublayer(*replicaRoot, 0); // MAVERICKS_BACKPORT: reflected 3D roots need their native sorting boundary.
+        prependSublayerForCSS(*structuralLayer, *replicaRoot);
     else
-        protect(m_layer)->insertSublayer(*replicaRoot, 0);
+        // protect(m_layer)->insertSublayer(*replicaRoot, 0); // MAVERICKS_BACKPORT: reflected 3D roots need their native sorting boundary.
+        prependSublayerForCSS(*m_layer, *replicaRoot);
 }
 
 #if HAVE(SUPPORT_HDR_DISPLAY)
@@ -5091,11 +5136,13 @@ RefPtr<PlatformCALayer> GraphicsLayerCA::fetchCloneLayers(GraphicsLayer* replica
             return nullptr;
 
         if (structuralLayer) {
-            structuralLayer->insertSublayer(*replicaRoot, 0);
+            // structuralLayer->insertSublayer(*replicaRoot, 0); // MAVERICKS_BACKPORT: replica roots participate in CSS sorting contexts.
+            prependSublayerForCSS(*structuralLayer, *replicaRoot);
             return structuralLayer;
         }
         
-        primaryLayer->insertSublayer(*replicaRoot, 0);
+        // primaryLayer->insertSublayer(*replicaRoot, 0); // MAVERICKS_BACKPORT: replica roots participate in CSS sorting contexts.
+        prependSublayerForCSS(*primaryLayer, *replicaRoot);
         return primaryLayer;
     }
 
@@ -5161,7 +5208,8 @@ RefPtr<PlatformCALayer> GraphicsLayerCA::fetchCloneLayers(GraphicsLayer* replica
     
     RefPtr<PlatformCALayer> result;
     if (structuralLayer) {
-        structuralLayer->setSublayers(clonalSublayers);
+        // structuralLayer->setSublayers(clonalSublayers); // MAVERICKS_BACKPORT: explicit native child sorting contexts.
+        setSublayersForCSS(*structuralLayer, clonalSublayers);
 
         if (contentsClippingLayer || contentsLayer) {
             // If we have a transform layer, then the contents layer is parented in the 
@@ -5172,7 +5220,8 @@ RefPtr<PlatformCALayer> GraphicsLayerCA::fetchCloneLayers(GraphicsLayer* replica
 
         result = structuralLayer;
     } else {
-        primaryLayer->setSublayers(clonalSublayers);
+        // primaryLayer->setSublayers(clonalSublayers); // MAVERICKS_BACKPORT: explicit native child sorting contexts.
+        setSublayersForCSS(*primaryLayer, clonalSublayers);
         result = primaryLayer;
     }
 

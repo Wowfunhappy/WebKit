@@ -56,6 +56,7 @@
 #import <objc/runtime.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/BlockPtr.h>
+#import <wtf/HashSet.h> // MAVERICKS_BACKPORT: identify owned boundaries during replica insertion.
 #import <wtf/Lock.h>
 #import <wtf/MachSendRight.h>
 #import <wtf/RetainPtr.h>
@@ -305,6 +306,13 @@ PlatformCALayerCocoa::PlatformCALayerCocoa(PlatformLayer* layer, PlatformCALayer
     commonInit();
 }
 
+// MAVERICKS_BACKPORT: 10.9 transform-only layers share their ordinary ancestor's sorting context.
+bool PlatformCALayerCocoa::needsExplicitDepthSorting()
+{
+    static bool result = ![CALayer instancesRespondToSelector:@selector(setUsesWebKitBehavior:)];
+    return result;
+}
+
 void PlatformCALayerCocoa::commonInit()
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
@@ -375,6 +383,9 @@ Ref<PlatformCALayer> PlatformCALayerCocoa::clone(PlatformCALayerClient* owner) c
     newLayer->setAnchorPoint(anchorPoint());
     newLayer->setTransform(transform());
     newLayer->setSublayerTransform(sublayerTransform());
+    // MAVERICKS_BACKPORT: replicas carry the same CSS child perspective.
+    if (m_hasCSSChildrenTransform)
+        newLayer->setChildrenTransformForDepthSorting(m_depthSortingTransform);
     newLayer->setContents(contents());
     newLayer->setMasksToBounds(masksToBounds());
     newLayer->setDoubleSided(isDoubleSided());
@@ -485,8 +496,88 @@ void PlatformCALayerCocoa::removeFromSuperlayer()
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
+// MAVERICKS_BACKPORT: native sorting layers flatten each child context into CSS painter order.
+void PlatformCALayerCocoa::setSublayersWithDepthSorting(const PlatformCALayerList& list)
+{
+    bool has3DContext = list.containsIf([](auto& child) {
+        return child->layerType() == LayerType::LayerTypeTransformLayer;
+    });
+    bool distributePerspective = has3DContext && !m_depthSortingTransform.isIdentity();
+    m_depthSortingLayers.resize(list.size());
+    PlatformCALayerList physicalChildren;
+    for (size_t i = 0; i < list.size(); ++i) {
+        auto& boundary = m_depthSortingLayers[i];
+        if (distributePerspective || list[i]->layerType() == LayerType::LayerTypeTransformLayer) {
+            if (!boundary) {
+                boundary = create(LayerType::LayerTypeLayer, nullptr);
+                [boundary->m_layer setSortsSublayers:YES];
+                boundary->setName("3D rendering context"_s);
+            }
+            boundary->setSublayers({ list[i] });
+            physicalChildren.append(boundary);
+        } else {
+            boundary = nullptr;
+            physicalChildren.append(list[i]);
+        }
+    }
+    [m_layer setSortsSublayers:NO];
+    [m_layer setSublayerTransform:has3DContext ? TransformationMatrix() : m_depthSortingTransform];
+    updateDepthSortingGeometry();
+    [m_layer setSublayers:createNSArray(physicalChildren, [] (auto& layer) {
+        return layer->m_layer;
+    }).get()];
+}
+
+// MAVERICKS_BACKPORT: structural replica insertion operates on the CSS children of owned boundaries.
+PlatformCALayerList PlatformCALayerCocoa::sublayersForCSS() const
+{
+    HashSet<PlatformCALayer*> boundaries;
+    for (auto& boundary : m_depthSortingLayers) {
+        if (boundary)
+            boundaries.add(boundary.get());
+    }
+    PlatformCALayerList children;
+    for (auto& layer : sublayersForLogging()) {
+        if (boundaries.contains(layer.get()))
+            children.appendVector(layer->sublayersForLogging());
+        else
+            children.append(layer);
+    }
+    return children;
+}
+
+// MAVERICKS_BACKPORT: perspective acts inside each context, before native depth sorting.
+void PlatformCALayerCocoa::setChildrenTransformForDepthSorting(const TransformationMatrix& transform)
+{
+    m_hasCSSChildrenTransform = true;
+    m_depthSortingTransform = transform;
+    bool hasBoundary = m_depthSortingLayers.containsIf([](auto& boundary) { return !!boundary; });
+    [m_layer setSublayerTransform:hasBoundary ? TransformationMatrix() : transform];
+    updateDepthSortingGeometry();
+}
+
+// MAVERICKS_BACKPORT: GraphicsLayer geometry is committed together with the context geometry.
+void PlatformCALayerCocoa::updateDepthSortingGeometry()
+{
+    if (!m_depthSortingLayers.containsIf([](auto& boundary) { return !!boundary; }))
+        return;
+    auto layerBounds = bounds();
+    auto anchor = anchorPoint();
+    FloatPoint3D origin(layerBounds.x() + anchor.x() * layerBounds.width(),
+        layerBounds.y() + anchor.y() * layerBounds.height(), anchor.z());
+    for (auto& boundary : m_depthSortingLayers) {
+        if (!boundary)
+            continue;
+        boundary->setBounds(layerBounds);
+        boundary->setAnchorPoint(anchor);
+        boundary->setPosition(origin);
+        boundary->setSublayerTransform(m_depthSortingTransform);
+    }
+}
+
 void PlatformCALayerCocoa::setSublayers(const PlatformCALayerList& list)
 {
+    m_depthSortingLayers.clear(); // MAVERICKS_BACKPORT: ordinary tree replacement releases owned context layers.
     // Short circuiting here avoids the allocation of the array below.
     if (!list.size()) {
         removeAllSublayers();
@@ -517,6 +608,7 @@ PlatformCALayerList PlatformCALayerCocoa::sublayersForLogging() const
 
 void PlatformCALayerCocoa::removeAllSublayers()
 {
+    m_depthSortingLayers.clear(); // MAVERICKS_BACKPORT: release explicit child contexts with their tree.
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     [m_layer setSublayers:nil];
     END_BLOCK_OBJC_EXCEPTIONS
@@ -548,6 +640,11 @@ void PlatformCALayerCocoa::replaceSublayer(PlatformCALayer& reference, PlatformC
 
 void PlatformCALayerCocoa::adoptSublayers(PlatformCALayer& source)
 {
+    // MAVERICKS_BACKPORT: layer-type changes transfer ownership of the real sorting boundaries.
+    auto& cocoaSource = downcast<PlatformCALayerCocoa>(source);
+    m_depthSortingLayers = WTF::move(cocoaSource.m_depthSortingLayers);
+    m_depthSortingTransform = cocoaSource.m_depthSortingTransform;
+    m_hasCSSChildrenTransform = cocoaSource.m_hasCSSChildrenTransform;
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     [m_layer setSublayers:[source.m_layer.get() sublayers]];
     END_BLOCK_OBJC_EXCEPTIONS
@@ -622,6 +719,7 @@ void PlatformCALayerCocoa::setBounds(const FloatRect& value)
         updateCustomAppearance(m_customAppearance);
 
     END_BLOCK_OBJC_EXCEPTIONS
+    updateDepthSortingGeometry(); // MAVERICKS_BACKPORT: child contexts use the committed parent coordinate space.
 }
 
 FloatPoint3D PlatformCALayerCocoa::position() const
@@ -652,6 +750,7 @@ void PlatformCALayerCocoa::setAnchorPoint(const FloatPoint3D& value)
     [m_layer setAnchorPoint:CGPointMake(value.x(), value.y())];
     [m_layer setAnchorPointZ:value.z()];
     END_BLOCK_OBJC_EXCEPTIONS
+    updateDepthSortingGeometry(); // MAVERICKS_BACKPORT: child contexts use the committed parent coordinate space.
 }
 
 TransformationMatrix PlatformCALayerCocoa::transform() const
