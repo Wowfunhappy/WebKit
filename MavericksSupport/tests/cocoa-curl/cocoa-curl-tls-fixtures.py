@@ -8,8 +8,8 @@
       that trusts root.pem in the system keychain gets a chain the platform accepts.
   cocoa-curl-tls-fixtures.py serve <dir> --port N [--client-auth] [--tls 1.1|1.2|1.3] [--chain trusted]
       HTTPS server on 127.0.0.1:N presenting server.pem, or the root-signed leaf with --chain trusted;
-      every path answers "mTLS" (4 bytes). --client-auth requires a certificate signed by one of the two
-      identities above; --tls pins the version.
+      HTTP requests answer "mTLS" (4 bytes); /websocket upgrades and sends the same text in a frame.
+      --client-auth requires a certificate signed by one of the two identities above; --tls pins the version.
   cocoa-curl-tls-fixtures.py framing <dir> --port N
       HTTPS server on the root-signed leaf that answers each path below with raw bytes and then closes
       the TCP socket without a TLS close_notify, the way a server ending a body by closing the
@@ -71,6 +71,19 @@ def make(directory):
 class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
     def do_GET(self):
+        if self.path == '/websocket':
+            import base64, hashlib
+            self.protocol_version = 'HTTP/1.1'
+            key = self.headers['Sec-WebSocket-Key']
+            accept = base64.b64encode(hashlib.sha1((key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest()).decode()
+            self.send_response(101)
+            self.send_header('Upgrade', 'websocket')
+            self.send_header('Connection', 'Upgrade')
+            self.send_header('Sec-WebSocket-Accept', accept)
+            self.end_headers()
+            self.wfile.write(b'\x81\x04mTLS\x88\x02\x03\xe8')
+            self.wfile.flush()
+            return
         body = b'mTLS'
         self.send_response(200); self.send_header('Content-Type', 'text/plain'); self.send_header('Content-Length', str(len(body))); self.end_headers()
         self.wfile.write(body)

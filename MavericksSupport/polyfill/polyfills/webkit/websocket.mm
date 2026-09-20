@@ -1237,9 +1237,12 @@ static CURLcode wsInstallClientHello(CURL *curl, void *ctx, void *stream)
             completionHandler:^(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential *credential) {
                 switch (disposition) {
                 case NSURLSessionAuthChallengeUseCredential:
-                    answer(credential != nil);
+                    // CFNetwork uses normal trust validation when the delegate supplies no credential
+                    // or declines this protection space; only cancellation rejects unconditionally.
+                    answer(credential != nil || systemAccepts);
                     break;
                 case NSURLSessionAuthChallengePerformDefaultHandling:
+                case NSURLSessionAuthChallengeRejectProtectionSpace:
                     answer(systemAccepts);
                     break;
                 default:

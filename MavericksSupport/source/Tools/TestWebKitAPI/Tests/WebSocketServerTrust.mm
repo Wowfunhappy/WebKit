@@ -1,9 +1,8 @@
 /*
  * A WebSocket task's server certificate goes to the session delegate on this port
- * (MavericksSupport/polyfill/polyfills/webkit/websocket.mm), because 10.9's CFStream does the TLS
- * handshake itself and would otherwise decide for itself and never ask. The stream's own chain
- * validation is off, so what stands in its place has to hold the whole connection, not just the bytes
- * this side writes -- these two tests are the A/B for that.
+ * (MavericksSupport/polyfill/polyfills/webkit/websocket.mm). The curl transport collects the peer's
+ * chain for Security to evaluate, and the delegate's decision must hold the whole connection,
+ * not just the bytes this side writes.
  */
 
 #import "config.h"
@@ -45,10 +44,10 @@ static void removeAllCookies(WKHTTPCookieStore *store)
 }
 
 // PerformDefaultHandling hands the decision back to the evaluation this port does in place of the chain
-// check CFStream would have done -- the same verdict a task falls back to when nothing implements
+// check NSURLSession would have done -- the same verdict a task falls back to when nothing implements
 // URLSession:task:didReceiveChallenge:completionHandler: or the challenge cannot be built. A
 // self-signed certificate must lose there too.
-enum class TrustAnswer : uint8_t { Reject, Accept, DefaultHandling };
+enum class TrustAnswer : uint8_t { Reject, Accept, DefaultHandling, Decline };
 
 // A wss server whose certificate the delegate is asked about, answering the handshake as soon as the
 // TLS session is up rather than waiting for the client's request: its Set-Cookie is sitting in the
@@ -86,6 +85,9 @@ static bool webSocketHandshakeCookieIsStored(TrustAnswer answer)
         case TrustAnswer::DefaultHandling:
             completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
             break;
+        case TrustAnswer::Decline:
+            completionHandler(NSURLSessionAuthChallengeRejectProtectionSpace, nil);
+            break;
         case TrustAnswer::Reject:
             completionHandler(NSURLSessionAuthChallengeCancelAuthenticationChallenge, nil);
             break;
@@ -121,6 +123,11 @@ TEST(WebSocket, ServerTrustAcceptedHandshakeSetsCookie)
 TEST(WebSocket, ServerTrustDefaultHandlingSetsNoCookie)
 {
     EXPECT_FALSE(webSocketHandshakeCookieIsStored(TrustAnswer::DefaultHandling));
+}
+
+TEST(WebSocket, ServerTrustDeclinedHandshakeSetsNoCookie)
+{
+    EXPECT_FALSE(webSocketHandshakeCookieIsStored(TrustAnswer::Decline));
 }
 
 } // namespace TestWebKitAPI
