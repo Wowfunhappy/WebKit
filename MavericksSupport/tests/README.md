@@ -16,6 +16,9 @@ API tests that exercise this port's own surface), run through `scripts/run-layou
 `MavericksSupport/`) checks both font-collection loading entry points and colored glyph layers
 under stroke mode, transformed text matrices, opacity, and shadows.
 
+The `depth_sorting` behavior probe compares native 3D rendering with the WebKit-scoped
+Core Animation bridge, including perspective, reparenting and animated transforms.
+
 The `h264_parameter_sets` behavior probe checks count-only and indexed AVC parameter-set
 queries against native parameter bytes, then decodes four frames for Baseline, High, and
 High AutoLevel profiles.

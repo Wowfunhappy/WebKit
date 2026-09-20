@@ -115,26 +115,6 @@ WK_POLYFILL_ADD_METHODS(CALayer)
 @end
 
 // ---------------------------------------------------------------------------------------------------
-// -[CALayer usesWebKitBehavior] (10.13+) selects the compositor semantics WebKit is written against.
-// 10.9's CA has a single behavior set and no such mode, so the property is state a layer carries and
-// nothing more. The one axis of that mode 10.9 spells separately is sublayer depth sorting, whose
-// property it does have: PlatformCALayerCocoa::commonInit and RemoteLayerTreeHost send
-// -setSortsSublayers: inside the branch this selector gates, giving every layer but a CATransformLayer
-// painter's order. 10.9's default is to sort, which puts a composited layer whose 3D transform carries
-// it behind z=0 under its opaque siblings.
-static const char kWKUsesWebKitBehaviorKey;
-WK_POLYFILL_ADD_METHODS(CALayer)
-- (void)setUsesWebKitBehavior:(BOOL)usesWebKitBehavior
-{
-    objc_setAssociatedObject(self, &kWKUsesWebKitBehaviorKey, @(usesWebKitBehavior), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-}
-- (BOOL)usesWebKitBehavior
-{
-    return [objc_getAssociatedObject(self, &kWKUsesWebKitBehaviorKey) boolValue];
-}
-@end
-
-// ---------------------------------------------------------------------------------------------------
 // +[CATransaction addCommitHandler:forPhase:] (10.10+, absent on 10.9's CATransaction — sending it
 // throws NSInvalidArgumentException, which aborted Safari from TiledCoreAnimationDrawingAreaProxy::
 // createFence and permanently wedged window-resize propagation).

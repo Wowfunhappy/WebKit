@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Depth sorting in nested 3D rendering contexts</title>
+<style>
+    .scene {
+        position: relative;
+        display: inline-block;
+        width: 240px;
+        height: 180px;
+    }
+    .front {
+        position: absolute;
+        left: 60px;
+        top: 50px;
+        width: 120px;
+        height: 80px;
+        background: rgb(220, 40, 40);
+    }
+    .back {
+        position: absolute;
+        left: 10px;
+        top: 10px;
+        width: 220px;
+        height: 160px;
+        background: rgb(40, 90, 220);
+    }
+    .front { z-index: 1; }
+    .flat .front { z-index: auto; }
+</style>
+<p>Each 3D scene shows a red rectangle in front of a larger blue rectangle. The flat scene is blue.</p>
+<div class="scene"><div class="front"></div><div class="back"></div></div>
+<div class="scene"><div class="back"></div><div class="front"></div></div>
+<div class="scene negative"><div class="front"></div><div class="back"></div></div>
+<div class="scene nested"><div class="group"><div class="front"></div><div class="back"></div></div></div>
+<div class="scene flat"><div class="front"></div><div class="back"></div></div>

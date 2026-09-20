@@ -31,6 +31,7 @@ APPKIT_OBJECT_STATE=unbuilt
 FOUNDATION_OBJECT_STATE=unbuilt
 AVFOUNDATION_OBJECT_STATE=unbuilt
 QUARTZCORE_OBJECT_STATE=unbuilt
+DEPTH_SORTING_OBJECT_STATE=unbuilt
 SELREF_OBJECT_STATE=unbuilt
 
 build_method_object() {
@@ -47,6 +48,10 @@ build_method_object() {
         AVFoundation)
             state="$AVFOUNDATION_OBJECT_STATE"
             source="$PF/methods/AVFoundation.m"
+            ;;
+        QuartzCoreDepthSorting)
+            state="$DEPTH_SORTING_OBJECT_STATE"
+            source="$PF/methods/QuartzCoreDepthSorting.m"
             ;;
         QuartzCore)
             state="$QUARTZCORE_OBJECT_STATE"
@@ -65,6 +70,7 @@ build_method_object() {
             Foundation) FOUNDATION_OBJECT_STATE=built ;;
             AVFoundation) AVFOUNDATION_OBJECT_STATE=built ;;
             QuartzCore) QUARTZCORE_OBJECT_STATE=built ;;
+            QuartzCoreDepthSorting) DEPTH_SORTING_OBJECT_STATE=built ;;
         esac
         return 0
     fi
@@ -73,6 +79,7 @@ build_method_object() {
         Foundation) FOUNDATION_OBJECT_STATE=failed ;;
         AVFoundation) AVFOUNDATION_OBJECT_STATE=failed ;;
         QuartzCore) QUARTZCORE_OBJECT_STATE=failed ;;
+        QuartzCoreDepthSorting) DEPTH_SORTING_OBJECT_STATE=failed ;;
     esac
     return 1
 }
@@ -606,6 +613,14 @@ probe_control_character_glyphs() {
         "$T/control_character_glyphs"
 }
 
+probe_depth_sorting() {
+    prepare_method_objects QuartzCoreDepthSorting &&
+        "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/depth_sorting" "$TBEHAV/QuartzCore-depth-sorting.m" \
+            "$OBJ/methods/QuartzCoreDepthSorting.o" "$OBJ/mech/wk_selref_scope.o" \
+            -Wl,-force_load,"$OUT/libwk_marker.a" -framework QuartzCore -framework AppKit $PROBE_LIBS &&
+        "$T/depth_sorting"
+}
+
 probe_frame_rate_range() {
     prepare_method_objects QuartzCore &&
         "$CLANG" $MODERN $INC -fno-objc-arc -Wno-unguarded-availability-new -o "$T/frame_rate_range" "$TBEHAV/QuartzCore-frame-rate-range.m" \
@@ -685,6 +700,7 @@ run_probe audiounit_max_frames "$@"
 run_probe character_clusters "$@"
 run_probe cluster_fallback "$@"
 run_probe logical_order "$@"
+run_probe depth_sorting "$@"
 run_probe frame_rate_range "$@"
 run_probe shape_glyphs_context "$@"
 run_probe vertical_origins "$@"
