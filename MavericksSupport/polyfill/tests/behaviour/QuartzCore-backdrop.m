@@ -10,6 +10,27 @@
 static unsigned failures;
 #define EXPECT(condition) do { if (!(condition)) { fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #condition); ++failures; } } while (0)
 
+@interface BackdropAnimationDelegate : NSObject {
+@public
+    unsigned starts;
+    unsigned stops;
+}
+@end
+@implementation BackdropAnimationDelegate
+- (void)animationDidStart:(CAAnimation *)animation
+{
+    ++starts;
+    EXPECT([[(CAPropertyAnimation *)animation keyPath] isEqualToString:@"filters.blur.inputRadius"]);
+    EXPECT(animation.delegate == self);
+}
+- (void)animationDidStop:(CAAnimation *)animation finished:(BOOL)finished
+{
+    ++stops;
+    EXPECT([[(CAPropertyAnimation *)animation keyPath] isEqualToString:@"filters.blur.inputRadius"]);
+    EXPECT(animation.delegate == self);
+}
+@end
+
 static NSBitmapImageRep *capture(NSWindow *window)
 {
     [CATransaction flush];
@@ -111,20 +132,50 @@ int main(void)
         animation.speed = 0;
         animation.timeOffset = 5;
         [backdrops[0] addAnimation:animation forKey:@"blur"];
-        EXPECT([[(CAPropertyAnimation *)[backdrops[0] animationForKey:@"blur"] keyPath] isEqualToString:@"backgroundFilters.blur.inputRadius"]);
+        EXPECT([[(CAPropertyAnimation *)[backdrops[0] animationForKey:@"blur"] keyPath] isEqualToString:animation.keyPath]);
         EXPECT([animation.keyPath isEqualToString:@"filters.blur.inputRadius"]);
         CABasicAnimation *nativeAnimation = [[animation copy] autorelease];
         nativeAnimation.keyPath = @"backgroundFilters.blur.inputRadius";
         [backdrops[1] addAnimation:nativeAnimation forKey:@"blur"];
         compareHalves(capture(window));
+        CAAnimation *retrieved = [[[backdrops[0] animationForKey:@"blur"] copy] autorelease];
+        [backdrops[0] removeAnimationForKey:@"blur"];
+        [backdrops[0] addAnimation:retrieved forKey:@"blur"];
+        compareHalves(capture(window));
         CAAnimationGroup *group = [CAAnimationGroup animation];
-        group.animations = @[animation];
+        CAAnimationGroup *nested = [CAAnimationGroup animation];
+        nested.animations = @[animation, nativeAnimation];
+        nested.duration = 10;
+        group.animations = @[nested];
         group.duration = 10;
         [backdrops[0] addAnimation:group forKey:@"group"];
         CAAnimationGroup *mapped = (CAAnimationGroup *)[backdrops[0] animationForKey:@"group"];
-        EXPECT([[(CAPropertyAnimation *)mapped.animations[0] keyPath] isEqualToString:@"backgroundFilters.blur.inputRadius"]);
+        CAAnimationGroup *mappedNested = (CAAnimationGroup *)mapped.animations[0];
+        EXPECT([[(CAPropertyAnimation *)mappedNested.animations[0] keyPath] isEqualToString:animation.keyPath]);
+        EXPECT([[(CAPropertyAnimation *)mappedNested.animations[1] keyPath] isEqualToString:nativeAnimation.keyPath]);
+        EXPECT([[(CAPropertyAnimation *)nested.animations[0] keyPath] isEqualToString:animation.keyPath]);
+        EXPECT([[(CAPropertyAnimation *)nested.animations[1] keyPath] isEqualToString:nativeAnimation.keyPath]);
+        CABasicAnimation *filterList = [CABasicAnimation animationWithKeyPath:@"filters"];
+        filterList.fromValue = @[blur];
+        filterList.toValue = @[blur];
+        filterList.duration = 10;
+        [backdrops[0] addAnimation:filterList forKey:@"filterList"];
+        EXPECT([[(CAPropertyAnimation *)[backdrops[0] animationForKey:@"filterList"] keyPath] isEqualToString:@"filters"]);
         [backdrops[0] removeAllAnimations];
         [backdrops[1] removeAllAnimations];
+
+        BackdropAnimationDelegate *delegate = [[[BackdropAnimationDelegate alloc] init] autorelease];
+        CABasicAnimation *callbackAnimation = [[animation copy] autorelease];
+        callbackAnimation.speed = 1;
+        callbackAnimation.timeOffset = 0;
+        callbackAnimation.duration = .01;
+        callbackAnimation.delegate = delegate;
+        [backdrops[0] addAnimation:callbackAnimation forKey:@"callbacks"];
+        EXPECT(callbackAnimation.delegate == delegate);
+        EXPECT([backdrops[0] animationForKey:@"callbacks"].delegate == delegate);
+        capture(window);
+        EXPECT(delegate->starts == 1);
+        EXPECT(delegate->stops == 1);
 
         backdrops[0].filters = nil;
         backdrops[1].backgroundFilters = nil;

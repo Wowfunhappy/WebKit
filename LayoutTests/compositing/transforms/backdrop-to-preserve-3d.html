@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Backdrop hosts restore depth sorting when becoming 3D contexts</title>
+<style>
+.scene { position: relative; display: inline-block; width: 160px; height: 160px; transform: translateZ(0); -webkit-backdrop-filter: invert(0); }
+.front, .back { position: absolute; inset: 20px; }
+.front { background: green; transform: translateZ(40px); }
+.back { background: red; transform: translateZ(20px); }
+</style>
+<div class="scene"><div class="front"></div><div class="back"></div></div>
+<div class="scene"><div class="front"></div><div class="back"></div></div>
+<div class="scene"><div class="front"></div><div class="back"></div></div>
+<script>
+if (window.testRunner)
+    testRunner.waitUntilDone();
+const scenes = document.querySelectorAll('.scene');
+const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+function setPreserves3D(scene, enabled) {
+    scene.style.webkitBackdropFilter = enabled ? 'none' : 'invert(0)';
+    scene.style.transformStyle = enabled ? 'preserve-3d' : 'flat';
+}
+(async () => {
+    const animation = scenes[2].animate([{ transform: 'translateX(0px)' }, { transform: 'translateX(20px)' }], { duration: 1000, fill: 'both' });
+    animation.pause();
+    animation.currentTime = 500;
+    setPreserves3D(scenes[1], true);
+    await frame();
+    setPreserves3D(scenes[1], false);
+    await frame();
+    for (const scene of scenes)
+        setPreserves3D(scene, true);
+    await frame();
+    if (window.testRunner)
+        testRunner.notifyDone();
+})();
+</script>

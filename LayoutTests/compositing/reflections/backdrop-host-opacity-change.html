@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Reflections recreate backdrop hosts when group opacity changes</title>
+<meta name="fuzzy" content="maxDifference=0-1; totalPixels=0-30000">
+<style>
+.reflection { width: 160px; height: 160px; -webkit-box-reflect: below 0; transform: translateZ(0); }
+.scene { position: relative; width: 160px; height: 160px; -webkit-backdrop-filter: invert(0); }
+.fill { position: absolute; inset: 20px; background: green; transform: translateZ(0); }
+</style>
+<div class="reflection"><div class="scene"><div class="fill"></div></div></div>
+<script>
+if (window.testRunner)
+    testRunner.waitUntilDone();
+requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.querySelector('.scene').style.opacity = '.5';
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (window.testRunner)
+            testRunner.notifyDone();
+    }));
+}));
+</script>

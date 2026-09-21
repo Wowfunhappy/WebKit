@@ -2982,6 +2982,9 @@ bool GraphicsLayerCA::ensureStructuralLayer(StructuralLayerPurpose purpose)
         && !m_animations.containsIf([](auto& animation) {
             return !animation.m_pendingRemoval && (animation.m_property == AnimatedProperty::Opacity || animation.m_property == AnimatedProperty::Filter);
         });
+    // MAVERICKS_BACKPORT: each host role starts with its own native sorting and perspective state.
+    if (auto* cocoaLayer = dynamicDowncast<PlatformCALayerCocoa>(m_structuralLayer.get()); cocoaLayer && cocoaLayer->isBackdropHostingLayer() != backdropHostingLayer)
+        m_structuralLayer = nullptr;
 #if HAVE(MATERIAL_HOSTING)
     if (purpose == StructuralLayerForMaterial) {
         if (m_structuralLayer && m_structuralLayer->layerType() != PlatformCALayer::LayerType::LayerTypeMaterialHostingLayer)
@@ -3004,7 +3007,7 @@ bool GraphicsLayerCA::ensureStructuralLayer(StructuralLayerPurpose purpose)
             m_structuralLayer = createPlatformCALayer(PlatformCALayer::LayerType::LayerTypeTransformLayer, this);
             structuralLayerChanged = true;
         }
-        // MAVERICKS_BACKPORT: a reused transform layer can change between CSS 3D and backdrop hosting.
+        // MAVERICKS_BACKPORT: identify coordinate-only hosts for native background sampling.
         if (auto* cocoaLayer = dynamicDowncast<PlatformCALayerCocoa>(m_structuralLayer.get()); cocoaLayer && cocoaLayer->isBackdropHostingLayer() != backdropHostingLayer) {
             cocoaLayer->setIsBackdropHostingLayer(backdropHostingLayer);
             structuralLayerChanged = true;
@@ -3023,8 +3026,10 @@ bool GraphicsLayerCA::ensureStructuralLayer(StructuralLayerPurpose purpose)
         return false;
     
     // MAVERICKS_BACKPORT: replicas and running animations follow changes to the native host type.
-    if (m_layerClones)
+    if (m_layerClones) {
         clearClones(m_layerClones->structuralLayerClones);
+        m_layerClones->structuralLayerClones.clear();
+    } // MAVERICKS_BACKPORT: replicas are recreated with the new host's native type and role.
     if (oldStructuralLayer && oldStructuralLayer != m_structuralLayer)
         moveAnimations(oldStructuralLayer.get(), m_structuralLayer.get());
 
