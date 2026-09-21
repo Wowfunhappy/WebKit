@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- Native filtered edges and solid fills can differ by one quantization level. -->
+<meta name="fuzzy" content="maxDifference=0-1; totalPixels=0-600">
+<link rel="match" href="native-background-filter-expected.html">
+<style>
+body { margin: 0; background: white; }
+.panel { position: absolute; left: 30px; top: 30px; width: 140px; height: 100px; border-radius: 15px; -webkit-backdrop-filter: invert(1); }
+.foreground { position: absolute; left: 30px; top: 30px; width: 20px; height: 20px; background: white; }
+.second { position: fixed; left: 230px; transform: translate(10px, 10px); }
+</style>
+</head>
+<body>
+<div class="panel"><div class="foreground"></div></div>
+<div class="panel second"><div class="foreground"></div></div>
+</body>
+</html>

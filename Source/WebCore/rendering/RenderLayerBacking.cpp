@@ -112,6 +112,8 @@
 
 #if PLATFORM(MAC)
 #include "LocalDefaultSystemAppearance.h"
+#include "GraphicsLayerCA.h" // MAVERICKS_BACKPORT: identify the native compositor's sampling boundaries.
+#include "PlatformCALayerCocoa.h" // MAVERICKS_BACKPORT: the legacy compositor has explicit CSS sorting boundaries.
 #endif
 
 #if ENABLE(THREADED_ANIMATIONS)
@@ -607,7 +609,14 @@ void RenderLayerBacking::createPrimaryGraphicsLayer()
         layerName = makeString(StringView(layerName).left(maxLayerNameLength), "..."_s);
     m_graphicsLayer = createGraphicsLayer(layerName, m_isFrameLayerWithTiledBacking ? GraphicsLayer::Type::PageTiledBacking : GraphicsLayer::Type::Normal);
 
-    if (m_isFrameLayerWithTiledBacking) {
+    // MAVERICKS_BACKPORT: explicit native CSS sorting boundaries also flatten children above page tiles.
+    bool needsTileFlatteningLayer = m_isFrameLayerWithTiledBacking;
+#if PLATFORM(MAC)
+    if (auto* layer = dynamicDowncast<GraphicsLayerCA>(m_graphicsLayer.get()); layer && is<PlatformCALayerCocoa>(*layer->platformCALayer()) && PlatformCALayerCocoa::needsExplicitDepthSorting())
+        needsTileFlatteningLayer = false;
+#endif // MAVERICKS_BACKPORT: native Cocoa tile containment.
+    // if (m_isFrameLayerWithTiledBacking) {
+    if (needsTileFlatteningLayer) { // MAVERICKS_BACKPORT: keep the page background in the children's sampling surface.
         m_childContainmentLayer = createGraphicsLayer("Page TiledBacking containment"_s);
         m_graphicsLayer->addChild(*m_childContainmentLayer);
     }
@@ -3681,6 +3690,11 @@ bool RenderLayerBacking::paintsIntoWindow() const
         return false;
 
     if (m_owningLayer.isRenderViewLayer()) {
+#if PLATFORM(MAC)
+        // MAVERICKS_BACKPORT: native backgroundFilters sample composited page pixels in WebKit1.
+        if (m_owningLayer.hasBackdropFilterDescendantsWithoutRoot() && PlatformCALayerCocoa::needsExplicitDepthSorting())
+            return false;
+#endif // MAVERICKS_BACKPORT: window painting cannot supply a layer's background filters.
 #if PLATFORM(IOS_FAMILY) || USE(COORDINATED_GRAPHICS)
         if (compositor().inForcedCompositingMode())
             return false;

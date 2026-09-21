@@ -533,11 +533,6 @@ imported/w3c/web-platform-tests/css/css-fonts/font-variant-east-asian.html [ Ski
 fast/text/wide-zero-width-space.html [ Skip ]
 fast/text/international/vietnamese-nfd.html [ Skip ]
 
-# Maintainer scope decision 2026-09-15: 10.9 QuartzCore limit. 10.9 CoreAnimation backgroundFilters capture only content
-# drawn in the filtered layer's own superlayer, and WebKit's structural wrapper leaves nothing behind the backdrop. The
-# css3/filters/backdrop reftests pass only because both sides render unfiltered.
-compositing/overlap-blending/backdrop-opacity.html [ Skip ]
-
 # The GStreamer ports record this visibility reftest as flaky (platform/glib).
 # Mavericks also differs by one level in five text-antialias pixels outside the video.
 webkit.org/b/234352 imported/w3c/web-platform-tests/media-source/mediasource-video-is-visible.html [ Skip ]

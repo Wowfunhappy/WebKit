@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Backdrop blur</title>
+<style>
+body { margin: 0; font: 18px -apple-system, sans-serif; color: #18243a; }
+.scene { position: relative; height: 620px; background: repeating-linear-gradient(45deg, #20365b 0px, #20365b 36px, #f3b95e 36px, #f3b95e 72px); }
+.glass { position: fixed; top: 140px; left: 80px; width: 520px; padding: 35px; border-radius: 24px; background: rgba(255,255,255,.25); -webkit-backdrop-filter: blur(12px); }
+h1 { margin: 0 0 18px; font-size: 36px; }
+p { line-height: 1.5; }
+footer { padding: 24px; background: white; }
+</style>
+<div class="scene">
+    <div class="glass" id="glass">
+        <h1>Backdrop blur</h1>
+        <p>The stripes behind this panel should soften. The text and the stripes outside the panel should stay sharp.</p>
+        <p>Scroll the page and adjust the blur below to check that the effect updates.</p>
+    </div>
+</div>
+<footer>
+    <label>Blur: <input id="radius" type="range" min="0" max="24" value="12"> <output id="value">12px</output></label>
+    <p><label><input id="enabled" type="checkbox" checked> Enable blur</label></p>
+</footer>
+<script>
+function update() {
+    const radius = document.getElementById('radius').value;
+    document.getElementById('glass').style.webkitBackdropFilter = document.getElementById('enabled').checked ? 'blur(' + radius + 'px)' : 'none';
+    document.getElementById('value').textContent = radius + 'px';
+}
+document.getElementById('radius').oninput = update;
+document.getElementById('enabled').onchange = update;
+</script>
+</html>

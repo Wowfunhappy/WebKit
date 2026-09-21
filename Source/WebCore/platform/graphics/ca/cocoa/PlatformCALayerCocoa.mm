@@ -377,6 +377,7 @@ Ref<PlatformCALayer> PlatformCALayerCocoa::clone(PlatformCALayerClient* owner) c
         break;
     };
     auto newLayer = PlatformCALayerCocoa::create(type, owner);
+    newLayer->m_isBackdropHostingLayer = m_isBackdropHostingLayer; // MAVERICKS_BACKPORT: replicas preserve backdrop sampling boundaries.
     
     newLayer->setPosition(position());
     newLayer->setBounds(bounds());
@@ -499,15 +500,22 @@ void PlatformCALayerCocoa::removeFromSuperlayer()
 // MAVERICKS_BACKPORT: native sorting layers flatten each child context into CSS painter order.
 void PlatformCALayerCocoa::setSublayersWithDepthSorting(const PlatformCALayerList& list)
 {
-    bool has3DContext = list.containsIf([](auto& child) {
+    // MAVERICKS_BACKPORT: backdrop hosts must share the containing render surface.
+    auto is3DContext = [](auto& child) {
+        return child->layerType() == LayerType::LayerTypeTransformLayer
+            && !downcast<PlatformCALayerCocoa>(child.get())->m_isBackdropHostingLayer;
+    };
+    /* bool has3DContext = list.containsIf([](auto& child) {
         return child->layerType() == LayerType::LayerTypeTransformLayer;
-    });
+    }); */
+    bool has3DContext = list.containsIf(is3DContext);
     bool distributePerspective = has3DContext && !m_depthSortingTransform.isIdentity();
     m_depthSortingLayers.resize(list.size());
     PlatformCALayerList physicalChildren;
     for (size_t i = 0; i < list.size(); ++i) {
         auto& boundary = m_depthSortingLayers[i];
-        if (distributePerspective || list[i]->layerType() == LayerType::LayerTypeTransformLayer) {
+        // if (distributePerspective || list[i]->layerType() == LayerType::LayerTypeTransformLayer) {
+        if (distributePerspective || is3DContext(list[i])) { // MAVERICKS_BACKPORT: only CSS 3D contexts introduce sorting boundaries.
             if (!boundary) {
                 boundary = create(LayerType::LayerTypeLayer, nullptr);
                 [boundary->m_layer setSortsSublayers:YES];
@@ -1015,6 +1023,9 @@ void PlatformCALayerCocoa::setOpacity(float value)
 
 void PlatformCALayerCocoa::setFilters(const FilterOperations& filters)
 {
+    // MAVERICKS_BACKPORT: coordinate-only hosts have no foreground filters or shadow properties.
+    if (m_isBackdropHostingLayer && filters.isEmpty())
+        return;
     PlatformCAFilters::setFiltersOnLayer(platformLayer(), filters, m_backdropRootIsOpaque);
 }
 

@@ -1,19 +1,45 @@
-// QuartzCore: stubs of the Core Animation classes 10.9 does not have.
+// Core Animation classes supplied by the Mavericks compatibility layer.
 #import "wk_priv_class.h"
 #import <Foundation/Foundation.h>
 #import <QuartzCore/QuartzCore.h>
 
-// CABackdropLayer (absent on 10.9): a CALayer-backed backdrop/blur layer. 10.9 has no backdrop
-// compositing, so this shadow is a plain CALayer subclass — visually identical to a bare CALayer — but a
-// real distinct class, so PlatformCALayerCocoa / RemoteLayerTreeHost keep upstream's [CABackdropLayer class]
-// and the isKindOfClass: / (CABackdropLayer *) casts behave as upstream. -setWindowServerAware: is the one
-// method WebKit sends it (backdrop layers are marked not-window-server-aware); 10.9 has no such concept, so
-// it is a faithful no-op.
+static CAAnimation *copyBackdropAnimation(CAAnimation *animation)
+{
+    CAAnimation *mapped = [animation copy];
+    if ([mapped isKindOfClass:[CAAnimationGroup class]]) {
+        NSMutableArray *children = [NSMutableArray array];
+        for (CAAnimation *child in [(CAAnimationGroup *)mapped animations]) {
+            CAAnimation *copy = copyBackdropAnimation(child);
+            [children addObject:copy];
+            [copy release];
+        }
+        [(CAAnimationGroup *)mapped setAnimations:children];
+    } else if ([mapped isKindOfClass:[CAPropertyAnimation class]]) {
+        CAPropertyAnimation *property = (CAPropertyAnimation *)mapped;
+        if ([property.keyPath hasPrefix:@"filters."])
+            property.keyPath = [@"backgroundFilters." stringByAppendingString:[property.keyPath substringFromIndex:8]];
+        else if ([property.keyPath isEqualToString:@"filters"])
+            property.keyPath = @"backgroundFilters";
+    }
+    return mapped;
+}
+
+// Mavericks samples the enclosing render group's background through backgroundFilters.
+// WebKit supplies a transform-only host for backdrop layers without group effects.
 WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CALayer
 - (void)setWindowServerAware:(BOOL)aware;
 @end
 @implementation CABackdropLayer
 - (void)setWindowServerAware:(BOOL)aware { (void)aware; }
+- (NSArray *)filters { return [super backgroundFilters]; }
+- (void)setFilters:(NSArray *)filters { [super setBackgroundFilters:filters]; }
+
+- (void)addAnimation:(CAAnimation *)animation forKey:(NSString *)key
+{
+    CAAnimation *mapped = copyBackdropAnimation(animation);
+    [super addAnimation:mapped forKey:key];
+    [mapped release];
+}
 @end
 WK_PRIV_ALIAS(CABackdropLayer);
 WK_PRIV_CLASS(CAPresentationModifier) @interface CAPresentationModifier : NSObject @end

@@ -88,6 +88,9 @@ imported/w3c/web-platform-tests/push-api
 fast/canvas
 fast/images
 compositing
+css3/filters/backdrop/native-background-filter.html
+css3/filters/backdrop/native-background-filter-dynamic.html
+css3/filters/backdrop/native-background-blur.html
 imported/w3c/web-platform-tests/html/canvas/element
 
 # Text encoding

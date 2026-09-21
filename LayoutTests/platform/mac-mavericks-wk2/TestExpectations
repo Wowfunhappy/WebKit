@@ -295,13 +295,13 @@ imported/w3c/web-platform-tests/webrtc/legacy/munge-dont.html [ Pass ]
 
 # --- Graphics: 10.9 system behaviour ------------------------------------------------------------
 
-# Maintainer scope decision 2026-09-15: backdrop-filter rendering is outside this port's scope.
-# 10.9 backgroundFilters can filter only earlier siblings in the filtered layer's own superlayer,
-# while WebKit puts CABackdropLayer inside an otherwise empty structural layer. The visual tests are
-# skipped even where a reference pair happens to pass with both pages unfiltered. Parsing and WK2's
-# resource-accounting tests below remain enabled because they do not assert backdrop pixels.
+# Native backgroundFilters have limited sampling across clipping and grouping layers.
+# The enabled pixel tests exercise backgrounds in the same native render group.
 css3/filters/backdrop [ Skip ]
-compositing/overlap-blending/backdrop-opacity.html [ Skip ]
+css3/filters/backdrop/native-background-filter.html [ Pass ]
+css3/filters/backdrop/native-background-filter-dynamic.html [ Pass ]
+css3/filters/backdrop/native-background-blur.html [ Pass ]
+css3/filters/backdrop/effect-hw.html [ Pass ]
 css3/filters/backdrop/backdropfilter-property-computed-style.html [ Pass ]
 css3/filters/backdrop/backdropfilter-property-parsing-invalid.html [ Pass ]
 css3/filters/backdrop/backdropfilter-property-parsing.html [ Pass ]

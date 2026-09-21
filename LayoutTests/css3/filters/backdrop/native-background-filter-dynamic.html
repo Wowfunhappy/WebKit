@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- Native filtered edges and solid fills can differ by one quantization level. -->
+<meta name="fuzzy" content="maxDifference=0-1; totalPixels=0-600">
+<link rel="match" href="native-background-filter-expected.html">
+<style>
+body { margin: 0; background: white; }
+.panel { position: absolute; left: 30px; top: 30px; width: 140px; height: 100px; border-radius: 15px; -webkit-backdrop-filter: invert(1); opacity: .5; }
+.foreground { position: absolute; left: 30px; top: 30px; width: 20px; height: 20px; background: white; }
+.second { position: fixed; left: 230px; transform: translate(10px, 10px); }
+</style>
+<script>
+if (window.testRunner)
+    testRunner.waitUntilDone();
+window.onload = async function () {
+    const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await frame();
+    for (const panel of document.querySelectorAll('.panel')) {
+        panel.style.opacity = 1;
+        panel.style.webkitBackdropFilter = 'none';
+        panel.style.width = '160px';
+    }
+    await frame();
+    for (const panel of document.querySelectorAll('.panel')) {
+        panel.style.webkitBackdropFilter = 'invert(1)';
+        panel.style.width = '140px';
+        const animation = panel.animate([{ opacity: .5 }, { opacity: 1 }], { duration: 1000 });
+        animation.finish();
+        animation.cancel();
+    }
+    await frame();
+    if (window.testRunner)
+        testRunner.notifyDone();
+};
+</script>
+</head>
+<body>
+<div class="panel"><div class="foreground"></div></div>
+<div class="panel second"><div class="foreground"></div></div>
+</body>
+</html>

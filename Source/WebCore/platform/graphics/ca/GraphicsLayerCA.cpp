@@ -437,6 +437,9 @@ void GraphicsLayerCA::initialize(Type layerType)
     }
 
     m_layer = createPlatformCALayer(platformLayerType, this);
+    // MAVERICKS_BACKPORT: viewport anchors carry coordinates, not independent CSS 3D contexts.
+    if (layerType == Type::Structural && is<PlatformCALayerCocoa>(*m_layer))
+        downcast<PlatformCALayerCocoa>(*m_layer).setIsBackdropHostingLayer(true);
 
     noteLayerPropertyChanged(ContentsScaleChanged);
     noteLayerPropertyChanged(CoverageRectChanged);
@@ -2191,6 +2194,9 @@ void GraphicsLayerCA::commitLayerChangesBeforeSublayers(CommitState& commitState
 
     // Need to handle Preserves3DChanged first, because it affects which layers subsequent properties are applied to
     LayerChangeFlags structuralLayerUpdateReasons = Preserves3DChanged | ReplicatedLayerChanged | BackdropFiltersChanged;
+    // MAVERICKS_BACKPORT: native background sampling requires a host without group effects.
+    if (needsBackdrop() && is<PlatformCALayerCocoa>(*m_layer) && PlatformCALayerCocoa::needsExplicitDepthSorting())
+        structuralLayerUpdateReasons |= OpacityChanged | FiltersChanged | MaskLayerChanged | BlendModeChanged | AnimationChanged;
 #if HAVE(CORE_MATERIAL)
     structuralLayerUpdateReasons |= AppleVisualEffectChanged;
 #endif
@@ -2409,7 +2415,8 @@ void GraphicsLayerCA::updateNames()
 static bool needsDepthSortingBoundaries(PlatformCALayer& layer)
 {
     return is<PlatformCALayerCocoa>(layer) && PlatformCALayerCocoa::needsExplicitDepthSorting()
-        && layer.layerType() != PlatformCALayer::LayerType::LayerTypeTransformLayer;
+        // && layer.layerType() != PlatformCALayer::LayerType::LayerTypeTransformLayer;
+        && (layer.layerType() != PlatformCALayer::LayerType::LayerTypeTransformLayer || downcast<PlatformCALayerCocoa>(layer).isBackdropHostingLayer()); // MAVERICKS_BACKPORT: coordinate-only hosts still isolate their children's CSS 3D contexts.
 }
 
 // MAVERICKS_BACKPORT: the actual platform tree carries context ownership and native animations.
@@ -2967,6 +2974,14 @@ bool GraphicsLayerCA::ensureStructuralLayer(StructuralLayerPurpose purpose)
         return structuralLayerChanged;
     }
 
+    // MAVERICKS_BACKPORT: CATransformLayer lets backgroundFilters sample the parent's surface.
+    RefPtr oldStructuralLayer = m_structuralLayer;
+    bool backdropHostingLayer = purpose == StructuralLayerForBackdrop
+        && is<PlatformCALayerCocoa>(*m_layer) && PlatformCALayerCocoa::needsExplicitDepthSorting()
+        && m_opacity == 1 && m_filters.isEmpty() && !m_maskLayer && m_blendMode == BlendMode::Normal
+        && !m_animations.containsIf([](auto& animation) {
+            return !animation.m_pendingRemoval && (animation.m_property == AnimatedProperty::Opacity || animation.m_property == AnimatedProperty::Filter);
+        });
 #if HAVE(MATERIAL_HOSTING)
     if (purpose == StructuralLayerForMaterial) {
         if (m_structuralLayer && m_structuralLayer->layerType() != PlatformCALayer::LayerType::LayerTypeMaterialHostingLayer)
@@ -2976,15 +2991,22 @@ bool GraphicsLayerCA::ensureStructuralLayer(StructuralLayerPurpose purpose)
             m_structuralLayer = createPlatformCALayer(PlatformCALayer::LayerType::LayerTypeMaterialHostingLayer, this);
             structuralLayerChanged = true;
         }
-    } else if (purpose == StructuralLayerForPreserves3D) {
+    // } else if (purpose == StructuralLayerForPreserves3D) {
+    } else if (purpose == StructuralLayerForPreserves3D || backdropHostingLayer) { // MAVERICKS_BACKPORT: transparent backdrop hosting.
 #else
-    if (purpose == StructuralLayerForPreserves3D) {
+    // if (purpose == StructuralLayerForPreserves3D) {
+    if (purpose == StructuralLayerForPreserves3D || backdropHostingLayer) { // MAVERICKS_BACKPORT: transparent backdrop hosting.
 #endif
         if (m_structuralLayer && m_structuralLayer->layerType() != PlatformCALayer::LayerType::LayerTypeTransformLayer)
             m_structuralLayer = nullptr;
         
         if (!m_structuralLayer) {
             m_structuralLayer = createPlatformCALayer(PlatformCALayer::LayerType::LayerTypeTransformLayer, this);
+            structuralLayerChanged = true;
+        }
+        // MAVERICKS_BACKPORT: a reused transform layer can change between CSS 3D and backdrop hosting.
+        if (auto* cocoaLayer = dynamicDowncast<PlatformCALayerCocoa>(m_structuralLayer.get()); cocoaLayer && cocoaLayer->isBackdropHostingLayer() != backdropHostingLayer) {
+            cocoaLayer->setIsBackdropHostingLayer(backdropHostingLayer);
             structuralLayerChanged = true;
         }
     } else {
@@ -3000,6 +3022,12 @@ bool GraphicsLayerCA::ensureStructuralLayer(StructuralLayerPurpose purpose)
     if (!structuralLayerChanged)
         return false;
     
+    // MAVERICKS_BACKPORT: replicas and running animations follow changes to the native host type.
+    if (m_layerClones)
+        clearClones(m_layerClones->structuralLayerClones);
+    if (oldStructuralLayer && oldStructuralLayer != m_structuralLayer)
+        moveAnimations(oldStructuralLayer.get(), m_structuralLayer.get());
+
     addUncommittedChanges(structuralLayerChangeFlags);
 
     // We've changed the layer that our parent added to its sublayer list, so tell it to update

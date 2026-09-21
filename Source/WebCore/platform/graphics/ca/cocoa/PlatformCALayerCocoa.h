@@ -44,6 +44,8 @@ public:
 
     // MAVERICKS_BACKPORT: GraphicsLayerCA places each CSS child context in a native sorting layer.
     static bool needsExplicitDepthSorting();
+    void setIsBackdropHostingLayer(bool value) { m_isBackdropHostingLayer = value; } // MAVERICKS_BACKPORT: a backdrop host shares its parent's background.
+    bool isBackdropHostingLayer() const { return m_isBackdropHostingLayer; } // MAVERICKS_BACKPORT: identifies transparent backdrop hosts.
     void setSublayersWithDepthSorting(const PlatformCALayerList&);
     PlatformCALayerList sublayersForCSS() const;
     void setChildrenTransformForDepthSorting(const TransformationMatrix&);
@@ -242,6 +244,7 @@ private:
     void updateDepthSortingGeometry();
     Vector<RefPtr<PlatformCALayerCocoa>> m_depthSortingLayers;
     bool m_hasCSSChildrenTransform { false };
+    bool m_isBackdropHostingLayer { false }; // MAVERICKS_BACKPORT: transform-only backdrop hosts are not CSS 3D contexts.
     TransformationMatrix m_depthSortingTransform;
 
     RetainPtr<NSObject> m_delegate;
