@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+body { margin: 0; }
+.background { width: 200px; height: 200px; background: linear-gradient(black 100px, white 100px); }
+.panel { position: absolute; left: 50px; top: 50px; width: 100px; height: 100px; overflow: hidden; }
+.filtered { position: absolute; left: -50px; top: -50px; -webkit-filter: blur(8px); transform: translateZ(0); }
+.foreground { position: absolute; left: 20px; top: 20px; width: 10px; height: 10px; background: white; }
+.ordinary { position: absolute; left: 250px; top: 50px; width: 100px; height: 100px; background: linear-gradient(black 50px, white 50px); -webkit-filter: blur(6px); transform: translateZ(0); }
+</style>
+</head>
+<body>
+<div class="background"></div>
+<div class="panel"><div class="background filtered"></div><div class="foreground"></div></div>
+<div class="ordinary"></div>
+</body>
+</html>

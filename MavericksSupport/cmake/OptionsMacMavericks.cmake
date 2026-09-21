@@ -431,8 +431,7 @@ link_libraries(${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill.a)
 # per-framework by _MAVERICKS_LINK_POLYFILL_CLASSES so it covers framework targets without also
 # being dragged into build tools, and the classes its owning framework is linked earlier than are handled by
 # the reexport+repoint in MavericksSupport/scripts/stage-frameworks.sh.
-# QuartzCore's CALayer is the superclass of the CABackdropLayer stub; linking it everywhere (it is a 10.9
-# system framework) is harmless and also covers any binary that uses CALayer directly.
+# QuartzCore supplies native Core Animation classes throughout the compositor.
 link_libraries("-framework QuartzCore")
 
 # the Apple Mac port builds the layout-test tools (ImageDiff) via Xcode upstream, so

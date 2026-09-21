@@ -623,12 +623,6 @@ probe_depth_sorting() {
         "$T/depth_sorting"
 }
 
-probe_backdrop() {
-    "$CLANG" $HOST $INC -o "$T/backdrop" "$TBEHAV/QuartzCore-backdrop.m" \
-        "$OUT/libpolyfill_classes.dylib" -Wl,-rpath,"$OUT" -framework QuartzCore -framework AppKit &&
-        "$T/backdrop"
-}
-
 probe_frame_rate_range() {
     prepare_method_objects QuartzCore &&
         "$CLANG" $MODERN $INC -fno-objc-arc -Wno-unguarded-availability-new -o "$T/frame_rate_range" "$TBEHAV/QuartzCore-frame-rate-range.m" \
@@ -646,7 +640,6 @@ probe_audiounit_max_frames() {
 }
 
 run_probe accent_color "$@"
-run_probe backdrop "$@"
 run_probe touch_bar "$@"
 run_probe scrollview_insets "$@"
 run_probe color_popover_top_bar "$@"

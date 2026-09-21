@@ -48,6 +48,7 @@
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/SoftLinking.h>
 #import "WebLayer.h"
+#import <WebCore/WebBackdropLayerMavericks.h> // MAVERICKS_BACKPORT: WebKit-owned native background-filter surfaces.
 #import "WebSystemBackdropLayer.h"
 #import "WebTiledBackingLayer.h"
 #import <AVFoundation/AVPlayer.h>
@@ -243,7 +244,8 @@ PlatformCALayerCocoa::PlatformCALayerCocoa(LayerType layerType, PlatformCALayerC
         layerClass = [CATransformLayer class];
         break;
     case LayerType::LayerTypeBackdropLayer:
-        layerClass = [CABackdropLayer class];
+        // layerClass = [CABackdropLayer class];
+        layerClass = [WebBackdropLayerMavericks class]; // MAVERICKS_BACKPORT: native CALayer behavior with a backend-owned role.
         break;
 #if HAVE(CORE_MATERIAL)
     case LayerType::LayerTypeMaterialLayer:
@@ -292,7 +294,8 @@ PlatformCALayerCocoa::PlatformCALayerCocoa(LayerType layerType, PlatformCALayerC
 #if HAVE(CORE_MATERIAL)
     isBackdropLayer |= layerType == LayerType::LayerTypeMaterialLayer;
 #endif
-    if (isBackdropLayer)
+    // if (isBackdropLayer)
+    if (isBackdropLayer && ![m_layer isKindOfClass:WebBackdropLayerMavericks.class]) // MAVERICKS_BACKPORT: WindowServer mode belongs to system backdrop layers.
         [(CABackdropLayer *)m_layer.get() setWindowServerAware:NO];
 #endif
 
@@ -1032,7 +1035,11 @@ void PlatformCALayerCocoa::setFilters(const FilterOperations& filters)
 void PlatformCALayerCocoa::copyFiltersFrom(const PlatformCALayer& sourceLayer)
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
-    [m_layer setFilters:[sourceLayer.platformLayer() filters]];
+    // MAVERICKS_BACKPORT: backdrop replicas copy the native background-filter property.
+    if (layerType() == LayerType::LayerTypeBackdropLayer)
+        [m_layer setBackgroundFilters:[sourceLayer.platformLayer() backgroundFilters]];
+    else
+        [m_layer setFilters:[sourceLayer.platformLayer() filters]];
     END_BLOCK_OBJC_EXCEPTIONS
 }
 

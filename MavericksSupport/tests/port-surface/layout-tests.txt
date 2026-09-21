@@ -91,6 +91,7 @@ compositing
 css3/filters/backdrop/native-background-filter.html
 css3/filters/backdrop/native-background-filter-dynamic.html
 css3/filters/backdrop/native-background-blur.html
+css3/filters/backdrop/native-background-animation.html
 imported/w3c/web-platform-tests/html/canvas/element
 
 # Text encoding

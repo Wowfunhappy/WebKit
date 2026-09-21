@@ -1,0 +1,41 @@
+<!DOCTYPE html> <!-- webkit-test-runner [ CSSUnprefixedBackdropFilterEnabled=true ] -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+body { margin: 0; }
+.background { width: 200px; height: 200px; background: linear-gradient(black 100px, white 100px); }
+.panel { position: absolute; left: 50px; top: 50px; width: 100px; height: 100px; -webkit-backdrop-filter: blur(1px); }
+.foreground { position: absolute; left: 20px; top: 20px; width: 10px; height: 10px; background: white; }
+.ordinary { position: absolute; left: 250px; top: 50px; width: 100px; height: 100px; background: linear-gradient(black 50px, white 50px); -webkit-filter: blur(2px); transform: translateZ(0); }
+</style>
+</head>
+<body>
+<div class="background"></div>
+<div class="panel"><div class="foreground"></div></div>
+<div class="ordinary"></div>
+<script>
+if (window.testRunner)
+    testRunner.waitUntilDone();
+(async () => {
+    const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const panel = document.querySelector('.panel');
+    const foreground = document.querySelector('.ordinary');
+    await frame();
+    const backdropAnimation = panel.animate([{ backdropFilter: 'blur(4px)' }, { backdropFilter: 'blur(12px)' }], { duration: 1000, fill: 'both' });
+    const foregroundAnimation = foreground.animate([{ filter: 'blur(2px)' }, { filter: 'blur(10px)' }], { duration: 1000, fill: 'both' });
+    await Promise.all([backdropAnimation.ready, foregroundAnimation.ready]);
+    await frame();
+    for (const animation of [backdropAnimation, foregroundAnimation]) {
+        animation.pause();
+        animation.currentTime = 500;
+    }
+    await frame();
+    if (window.internals && (!internals.acceleratedAnimationsForElement(panel).length || !internals.acceleratedAnimationsForElement(foreground).length))
+        document.body.style.background = 'red';
+    if (window.testRunner)
+        testRunner.notifyDone();
+})();
+</script>
+</body>
+</html>

@@ -11,7 +11,7 @@ macro(_MAVERICKS_SET_ARC_IF_NEEDED _file)
 endmacro()
 
 # The polyfill ObjC-class stubs dylib, linked into every WebKit framework. The polyfilled classes have
-# absent-on-10.9 SYSTEM names (UTType, NSScrollingPredominantAxisFilter, CABackdropLayer, SecKeyProxy,
+# absent-on-10.9 SYSTEM names (UTType, NSScrollingPredominantAxisFilter, SecKeyProxy,
 # ...) that the build SDK declares in system frameworks (AppKit/QuartzCore/Foundation/Security/
 # CFNetwork/CoreServices); under the two-level namespace a reference binds to whichever provider the
 # linker resolves it against. Linking the dylib here covers the classes the linker resolves against IT

@@ -16,6 +16,7 @@ list(APPEND TestWTF_SOURCES
 )
 
 list(APPEND TestWebCore_SOURCES
+    ${CMAKE_SOURCE_DIR}/MavericksSupport/source/Tools/TestWebKitAPI/Tests/WebCore/BackdropFiltersMavericks.mm
     ${CMAKE_SOURCE_DIR}/MavericksSupport/source/Tools/TestWebKitAPI/Tests/WebCore/GStreamerCocoaPixelBuffer.mm
     ${CMAKE_SOURCE_DIR}/MavericksSupport/source/Tools/TestWebKitAPI/Tests/WebCore/AudioCaptureRestart.mm
     ${TESTWEBKITAPI_DIR}/Tests/WebCore/AbortableTaskQueue.cpp

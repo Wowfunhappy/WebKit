@@ -4021,7 +4021,8 @@ bool GraphicsLayerCA::appendToUncommittedAnimations(const GraphicsLayerKeyframeV
 
     bool valuesOK;
     RefPtr<PlatformCAAnimation> caAnimation;
-    auto keyPath = PlatformCAAnimation::makeKeyPath(AnimatedProperty::Filter, filterOp, animationIndex);
+    // auto keyPath = PlatformCAAnimation::makeKeyPath(AnimatedProperty::Filter, filterOp, animationIndex);
+    auto keyPath = PlatformCAAnimation::makeKeyPath(valueList.property(), filterOp, animationIndex); // MAVERICKS_BACKPORT: distinguish native foreground and backdrop animation targets.
 
     if (isKeyframe(valueList)) {
         caAnimation = createKeyframeAnimation(animation, keyPath, false, keyframesShouldUseAnimationWideTimingFunction);

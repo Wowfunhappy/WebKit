@@ -79,7 +79,7 @@ Run the `adversarial-hack-reviewer` agent on **every** bug fix, hack removal, gu
 
 **Divergence-minimization order:** link the real symbol → build-config flag → external polyfill → source edit. Prefer converting an existing source edit into a polyfill over keeping it.
 
-**A no-op / "fake" stub in the polyfill layer is an acceptable price for keeping WebKit source byte-upstream.** That said, real implementations are greatly preferred over stubs.
+**Polyfills must honor the original external API contract, including semantics and preconditions, independently of WebKit's callers.** Caller-specific approximations belong in WebKit's platform backend; minimizing upstream divergence does not justify an inaccurate framework API.
 
 ### Markers
 

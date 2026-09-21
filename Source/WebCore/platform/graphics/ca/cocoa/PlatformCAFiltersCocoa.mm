@@ -28,6 +28,7 @@
 
 #import "FloatConversion.h"
 #import "PlatformCALayerCocoa.h"
+#import <WebCore/WebBackdropLayerMavericks.h> // MAVERICKS_BACKPORT: explicit WebKit backdrop role, independent of CALayer's API.
 #import <QuartzCore/QuartzCore.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/BlockObjCExceptions.h>
@@ -213,9 +214,13 @@ void PlatformCAFilters::updatePresentationModifiers(const FilterOperations& filt
 
 void PlatformCAFilters::setFiltersOnLayer(PlatformLayer* layer, const FilterOperations& filters, bool backdropIsOpaque)
 {
+    bool isBackdropLayer = is_objc<WebBackdropLayerMavericks>(layer); // MAVERICKS_BACKPORT: target the native background-filter surface.
     if (!filters.size()) {
         BEGIN_BLOCK_OBJC_EXCEPTIONS
-        [layer setFilters:nil];
+        if (isBackdropLayer) // MAVERICKS_BACKPORT: clearing a backdrop leaves native foreground filters alone.
+            [layer setBackgroundFilters:nil];
+        else
+            [layer setFilters:nil];
         // FIXME: this adds shadow properties to the layer even when it had none.
         [layer setShadowOffset:CGSizeZero];
         [layer setShadowColor:nil];
@@ -310,7 +315,8 @@ void PlatformCAFilters::setFiltersOnLayer(PlatformLayer* layer, const FilterOper
             const auto& blurOperation = downcast<BlurFilterOperation>(filterOperation);
             CAFilter *filter = [CAFilter filterWithType:kCAFilterGaussianBlur];
             [filter setValue:@(blurOperation.stdDeviation()) forKey:@"inputRadius"];
-            if (is_objc<CABackdropLayer>(layer)) {
+            // if (is_objc<CABackdropLayer>(layer)) {
+            if (isBackdropLayer) { // MAVERICKS_BACKPORT: normalize edges for the native backdrop surface.
 #if PLATFORM(VISION)
                 // FIXME: https://bugs.webkit.org/show_bug.cgi?id=275965
                 UNUSED_PARAM(backdropIsOpaque);
@@ -335,7 +341,10 @@ void PlatformCAFilters::setFiltersOnLayer(PlatformLayer* layer, const FilterOper
         return nil;
     });
 
-    if ([array count])
+    // if ([array count])
+    if ([array count] && isBackdropLayer) // MAVERICKS_BACKPORT: explicit routing preserves CALayer.filters semantics.
+        [layer setBackgroundFilters:array.get()];
+    else if ([array count])
         [layer setFilters:array.get()];
 
     END_BLOCK_OBJC_EXCEPTIONS

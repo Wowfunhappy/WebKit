@@ -454,6 +454,7 @@ MAVERICKS_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES 
 # GStreamer Cocoa glue follows USE_GSTREAMER below; unified sources stay in Source/.
 list(APPEND WebCore_SOURCES
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/cocoa/MavericksBackportWebCoreGlue.mm
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/ca/cocoa/WebBackdropLayerMavericks.mm
     # Decodes the gzip bodies 10.9 CFNetwork withholds; see the file for the rule it reproduces.
     # WebCoreResourceHandleAsOperationQueueDelegate.h reaches its header by bare name and WebKit's
     # network process as <WebCore/CFNetworkSuppressedGzipDecoder.h>, so the directory goes on the
@@ -471,6 +472,7 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
 )
 list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/AbortableTaskQueue.h
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/ca/cocoa/WebBackdropLayerMavericks.h
     ${MAVERICKS_SUPPORT}/source/WebCore/platform/network/cocoa/CFNetworkSuppressedGzipDecoder.h
     # The classic inspector frontend's bridge script, which both ports inject.
     ${MAVERICKS_SUPPORT}/source/WebCore/inspector/InspectorFrontendClassicBridge.h

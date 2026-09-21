@@ -1,6 +1,6 @@
 // The rules for polyfills/classes/ -- Objective-C classes macOS 10.9 does not have at all (UTType,
-// CABackdropLayer, NSVisualEffectView, LSDatabaseContext, ...), one file per owning framework. Each
-// stub supplies as much of the class as WebKit's 10.9 code paths actually use.
+// NSVisualEffectView, LSDatabaseContext, ...), one file per owning framework. Replacements must honor
+// the original external API's semantics and preconditions independently of WebKit's callers.
 //
 // ONLY absent SYSTEM classes belong here, with no exceptions. A class WebKit itself owns has its source
 // in this tree; if it does not build on 10.9, fix that instead of stubbing it here -- a stub of a WebKit
@@ -35,7 +35,7 @@
 // crashes the app at launch. For the two classes WebKit probes with NSClassFromString
 // (NSVisualEffectView, _NSScrollingMomentumCalculator) the nil result is the correct 10.9 answer:
 // WebKit falls back to its pre-class code path instead of using a non-functional stub. Every other stub
-// (UTType, CABackdropLayer, NSPresentationIntent, ...) is reached through a compile-time [Name class] /
+// (UTType, NSPresentationIntent, ...) is reached through a compile-time [Name class] /
 // _OBJC_CLASS_$_ classref, which binds to the alias, so those ARE used. A stub WebKit soft-links has to
 // be findable by NAME as well, which WK_POLYFILL_CLASS (mechanism/wk_polyfill.h) provides.
 //

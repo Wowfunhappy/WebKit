@@ -241,7 +241,7 @@ echo "### libpolyfill_classes.dylib"
 # defined exactly once across the loaded images) and is link_libraries'd into every framework, which
 # resolves the classes the linker reaches it for (AppKit/QuartzCore/Foundation). For classes whose owning
 # framework is linked BEFORE this dylib (CFNetwork -> _NSHTTPAlternativeServices*;
-# CoreServices -> LSBundleProxy; QuartzCore in some binaries -> CABackdropLayer) the dylib REEXPORTS those
+# CoreServices -> LSBundleProxy) the dylib REEXPORTS those
 # frameworks and scripts/stage-frameworks.sh repoints each WebKit binary's dependency on them to it, so the
 # class resolves here and the framework's real symbols pass through. compatibility_version is very high so
 # the repointed load commands are satisfied; the install name is @rpath (self-contained, mapped to the
