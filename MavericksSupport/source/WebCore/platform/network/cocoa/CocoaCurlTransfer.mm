@@ -319,6 +319,8 @@ static NSString *const cocoaCurlCacheStatusTextKey = @"WebKitHTTPStatusText";
 static NSString *const cocoaCurlCacheHTTPVersionKey = @"WebKitHTTPVersion";
 static NSString *const cocoaCurlCacheVaryingRequestHeadersKey = @"WebKitVaryingRequestHeaders";
 static NSString *const cocoaCurlCacheRangeKey = @"WebKitRequestRange";
+static NSString *const cocoaCurlCacheEmptyBodyKey = @"WebKitEmptyBody";
+static NSString *const cocoaCurlCacheRemovedKey = @"WebKitRemovedEntry";
 
 static RetainPtr<NSURLCache> cocoaCurlURLCache(NetworkStorageSession* storage)
 {
@@ -353,7 +355,7 @@ CocoaCurlCacheLookup lookUpCocoaCurlCachedResponse(NetworkStorageSession* storag
         return { absent, nullptr };
     RetainPtr cache = cocoaCurlURLCache(storage);
     RetainPtr entry = [cache cachedResponseForRequest:cocoaCurlCacheRequest(request).get()];
-    if (!entry)
+    if (!entry || [[entry userInfo][cocoaCurlCacheRemovedKey] boolValue])
         return { absent, nullptr };
     if (request.httpHeaderField(HTTPHeaderName::Range) != String(dynamic_objc_cast<NSString>([entry userInfo][cocoaCurlCacheRangeKey])))
         return { absent, nullptr };
@@ -489,18 +491,63 @@ RetainPtr<NSCachedURLResponse> createCocoaCurlCachedResponse(NetworkStorageSessi
     return adoptNS([[NSCachedURLResponse alloc] initWithResponse:response.nsURLResponse() data:data.get() userInfo:userInfo.get() storagePolicy:NSURLCacheStorageAllowed]);
 }
 
-void storeCocoaCurlCachedResponse(NetworkStorageSession* storage, NSCachedURLResponse *entry, const ResourceRequest& request)
+// 10.9's CFURLCache queues every removal as a task that makes it decline later stores of that request, and runs those
+// tasks only in a cache with a persistent store. In a memory-only cache the entry is replaced by one marked removed,
+// which lookups answer as absent and a later store replaces.
+static void removeCocoaCurlCacheEntry(NSURLCache *cache, NSURLRequest *cacheRequest)
+{
+    if ([cache diskCapacity]) {
+        [cache removeCachedResponseForRequest:cacheRequest];
+        return;
+    }
+    RetainPtr response = adoptNS([[NSURLResponse alloc] initWithURL:[cacheRequest URL] MIMEType:nil expectedContentLength:0 textEncodingName:nil]);
+    static const uint8_t placeholder = 0;
+    RetainPtr body = adoptNS([[NSData alloc] initWithBytes:&placeholder length:1]);
+    RetainPtr removed = adoptNS([[NSCachedURLResponse alloc] initWithResponse:response.get() data:body.get() userInfo:@{ cocoaCurlCacheRemovedKey: @YES } storagePolicy:NSURLCacheStorageAllowedInMemoryOnly]);
+    [cache storeCachedResponse:removed.get() forRequest:cacheRequest];
+}
+
+// Removing a request the cache holds no entry for is a no-op that 10.9's CFURLCache would still queue.
+static void removeHeldCocoaCurlCachedResponse(NetworkStorageSession* storage, const ResourceRequest& request)
 {
     RetainPtr cache = cocoaCurlURLCache(storage);
-    [cache storeCachedResponse:entry forRequest:cocoaCurlCacheRequest(request).get()];
+    RetainPtr cacheRequest = cocoaCurlCacheRequest(request);
+    RetainPtr held = [cache cachedResponseForRequest:cacheRequest.get()];
+    if (held && ![[held userInfo][cocoaCurlCacheRemovedKey] boolValue])
+        removeCocoaCurlCacheEntry(cache.get(), cacheRequest.get());
+}
+
+// 10.9's CFURLCache makes room by evicting its least recently used entries until their sizes cover the new one, and
+// declines the store when an evicted entry frees nothing, so it holds no empty entry: its own loader stores no empty
+// body, and gives a cached permanent redirect a short body naming it. An empty body is stored here as one byte and a
+// userInfo flag, and cocoaCurlCachedBody() answers it as empty. The entry's key is WebKit's own (see the NSURLCache
+// polyfill in polyfills/methods/Foundation.m), so no other client of the cache reads it.
+void storeCocoaCurlCachedResponse(NetworkStorageSession* storage, NSCachedURLResponse *entry, const ResourceRequest& request)
+{
+    RetainPtr<NSCachedURLResponse> storedEntry = entry;
+    if (![entry data].length) {
+        RetainPtr userInfo = adoptNS([[entry userInfo] mutableCopy] ?: [[NSMutableDictionary alloc] init]);
+        [userInfo setObject:@YES forKey:cocoaCurlCacheEmptyBodyKey];
+        static const uint8_t placeholder = 0;
+        RetainPtr body = adoptNS([[NSData alloc] initWithBytes:&placeholder length:1]);
+        storedEntry = adoptNS([[NSCachedURLResponse alloc] initWithResponse:[entry response] data:body.get() userInfo:userInfo.get() storagePolicy:[entry storagePolicy]]);
+    }
+    RetainPtr cache = cocoaCurlURLCache(storage);
+    [cache storeCachedResponse:storedEntry.get() forRequest:cocoaCurlCacheRequest(request).get()];
+}
+
+NSData *cocoaCurlCachedBody(NSCachedURLResponse *entry)
+{
+    if ([[entry userInfo][cocoaCurlCacheEmptyBodyKey] boolValue])
+        return [NSData data];
+    return [entry data];
 }
 
 void removeCocoaCurlCachedResponse(NetworkStorageSession* storage, const ResourceRequest& request)
 {
     if (request.cachePolicy() == ResourceRequestCachePolicy::DoNotUseAnyCache)
         return;
-    RetainPtr cache = cocoaCurlURLCache(storage);
-    [cache removeCachedResponseForRequest:cocoaCurlCacheRequest(request).get()];
+    removeHeldCocoaCurlCachedResponse(storage, request);
 }
 
 void invalidateCocoaCurlCacheAfterResponse(NetworkStorageSession* storage, const ResourceRequest& request, const ResourceResponse& response)
@@ -512,7 +559,7 @@ void invalidateCocoaCurlCacheAfterResponse(NetworkStorageSession* storage, const
     cachedRequest.setFirstPartyForCookies(request.firstPartyForCookies());
     cachedRequest.setShouldBlockThirdPartyStorage(request.shouldBlockThirdPartyStorage());
     RetainPtr cache = cocoaCurlURLCache(storage);
-    [cache removeCachedResponseForRequest:cocoaCurlCacheRequest(cachedRequest).get()];
+    removeCocoaCurlCacheEntry(cache.get(), cocoaCurlCacheRequest(cachedRequest).get());
 }
 
 bool isValidCocoaCurlRequestHeaderValue(const String& value)

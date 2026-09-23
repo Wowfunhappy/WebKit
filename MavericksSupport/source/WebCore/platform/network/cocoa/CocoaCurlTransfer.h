@@ -85,6 +85,7 @@ WEBCORE_EXPORT bool cocoaCurlCacheMayStore(NetworkStorageSession*, const Resourc
 WEBCORE_EXPORT bool cocoaCurlCacheAcceptsLength(NetworkStorageSession*, uint64_t);
 WEBCORE_EXPORT RetainPtr<NSCachedURLResponse> createCocoaCurlCachedResponse(NetworkStorageSession*, const ResourceRequest&, const ResourceResponse&, std::span<const uint8_t>, WallTime responseTimestamp);
 WEBCORE_EXPORT void storeCocoaCurlCachedResponse(NetworkStorageSession*, NSCachedURLResponse *, const ResourceRequest&);
+WEBCORE_EXPORT NSData *cocoaCurlCachedBody(NSCachedURLResponse *);
 WEBCORE_EXPORT void removeCocoaCurlCachedResponse(NetworkStorageSession*, const ResourceRequest&);
 
 struct CocoaCurlTransferOptions {

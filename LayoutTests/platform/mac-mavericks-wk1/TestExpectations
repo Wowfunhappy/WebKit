@@ -1110,6 +1110,7 @@ fast/mediastream/mediastreamtrack-video-resize-event.html [ Skip ]
 fast/webcodecs/resetting-video-decoder-with-unsupported-codec-crash.html [ Skip ]
 fast/webcodecs/resetting-video-encoder-with-unsupported-codec-crash.html [ Skip ]
 fast/webcodecs/video-frame-zero-display-size.html [ Skip ]
+http/wpt/mediastream/serialize-mediastreamtrack-to-worker.html [ Skip ]
 http/tests/webcodecs/h264-reordering-annexB.html [ Skip ]
 http/tests/webcodecs/h264-reordering.html [ Skip ]
 http/tests/webcodecs/hevc-reordering-annexB.html [ Skip ]
@@ -1538,6 +1539,7 @@ fast/mediastream/getDisplayMedia-max-constraints2.html [ Skip ]
 fast/mediastream/getDisplayMedia-size.html [ Skip ]
 webrtc/getDisplayMedia-odd-size.html [ Skip ]
 webrtc/getDisplayMedia-pc.html [ Skip ]
+webrtc/getDisplayMedia-pc-resolution.html [ Skip ]
 fast/mediastream/mediastreamtrack-video-clone.html [ Skip ]
 webrtc/h264-high.html [ Skip ]
 webrtc/video-clone-track.html [ Skip ]
@@ -2087,3 +2089,13 @@ webkit.org/b/169420 imported/w3c/web-platform-tests/xhr/send-redirect-to-cors.ht
 
 # Legacy embed/object navigations lack distinct Fetch Metadata destinations.
 imported/w3c/web-platform-tests/fetch/metadata/embed.https.sub.tentative.html [ Skip ]
+
+
+# Compares an audio RTP timestamp against performance.timeOrigin + performance.now() and fails that comparison only
+# under a full WK1 run's load; it passes run alone and runs on WK2. Upstream skips webrtc on WK1 entirely
+# (platform/mac-wk1/TestExpectations:79).
+imported/w3c/web-platform-tests/webrtc/RTCRtpReceiver-getSynchronizationSources.https.html [ Skip ]
+
+# Reads inbound-rtp before the first frame of the negotiated H.264 stream arrives: 10.9's only H.264 encoder, the
+# software one, emits its first output after 10 submitted frames and refuses RealTime and MaxFrameDelayCount (-12900).
+webrtc/video-stats.html [ Skip ]

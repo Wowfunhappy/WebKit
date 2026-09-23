@@ -219,7 +219,7 @@ void CocoaCurlResourceHandle::curlReceivedResponse(CocoaCurlTransferResponse&& r
     // A 304 refreshes the stored metadata before completing the validating request.
     if (RetainPtr entry = std::exchange(m_cachedEntry, nullptr); entry && status == httpStatus304NotModified) {
         auto revalidated = cocoaCurlRevalidatedResponse(entry.get(), m_response.response);
-        auto body = makeVector([entry data]);
+        auto body = makeVector(cocoaCurlCachedBody(entry.get()));
         if (cocoaCurlCacheMayStore(m_storage.get(), m_request, revalidated)) {
             auto updatedEntry = createCocoaCurlCachedResponse(m_storage.get(), m_request, revalidated, body.span(), m_responseTimestamp);
             storeCocoaCurlCachedResponse(m_storage.get(), updatedEntry.get(), m_request);
@@ -508,7 +508,7 @@ void CocoaCurlResourceHandle::publishCachedResponse(ResourceResponse&& response,
         redirect();
         return;
     }
-    m_sniffed = makeVector([entry data]);
+    m_sniffed = makeVector(cocoaCurlCachedBody(entry));
     m_result = ResourceError { };
     m_useResponse = false;
     m_waitingForPolicy = false;

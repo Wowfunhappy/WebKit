@@ -390,6 +390,31 @@ int main()
         check(cocoaCurlCacheMayStore(&storage, wholeRequest, forbidden), "403 marked public is stored");
         forbidden.setHTTPHeaderField(HTTPHeaderName::CacheControl, "max-age=3600"_s);
         check(cocoaCurlCacheMayStore(&storage, wholeRequest, forbidden), "403 with max-age is stored");
+
+        // What the backend stores in the shared cache is keyed by WebKit's own entry key, so the host's CFNetwork loads,
+        // whose requests carry no such key, never read it, whatever the backend stored.
+        auto storeForHost = [&](ASCIILiteral name, int status, std::span<const uint8_t> body) {
+            ResourceRequest request(URL { makeString("http://127.0.0.1:18981/cache/host/"_s, name, '/', run) });
+            ResourceResponse response(URL { request.url() }, "text/plain"_s, body.size(), "UTF-8"_s);
+            response.setHTTPStatusCode(status);
+            response.setHTTPHeaderField(HTTPHeaderName::CacheControl, "max-age=3600"_s);
+            if (status >= 300 && status < 400)
+                response.setHTTPHeaderField(HTTPHeaderName::Location, "/elsewhere"_s);
+            storeCocoaCurlCachedResponse(&storage, createCocoaCurlCachedResponse(&storage, request, response, body, WallTime::now()).get(), request);
+            bool backendReads = lookUpCocoaCurlCachedResponse(&storage, request).entry;
+            bool hostReads = [[NSURLCache sharedURLCache] cachedResponseForRequest:[NSURLRequest requestWithURL:request.url().createNSURL().get()]];
+            return std::pair { backendReads, hostReads };
+        };
+        std::array<uint8_t, 5> hello { 'H', 'E', 'L', 'L', 'O' };
+        for (auto [name, status, body] : { std::tuple { "empty-200"_s, 200, std::span<const uint8_t> { } }, std::tuple { "moved-301"_s, 301, std::span<const uint8_t> { } }, std::tuple { "full-200"_s, 200, std::span<const uint8_t> { hello } } }) {
+            auto [backendReads, hostReads] = storeForHost(name, status, body);
+            check(backendReads && !hostReads, "the backend reads its shared-cache entry and the host's CFNetwork does not");
+        }
+        RetainPtr hostCacheOnly = [NSURLRequest requestWithURL:URL { makeString("http://127.0.0.1:18981/cache/host/full-200/"_s, run) }.createNSURL().get() cachePolicy:NSURLRequestReturnCacheDataDontLoad timeoutInterval:10];
+        NSURLResponse *hostResponse = nil;
+        NSError *hostError = nil;
+        NSData *hostData = [NSURLConnection sendSynchronousRequest:hostCacheOnly.get() returningResponse:&hostResponse error:&hostError];
+        check(!hostData.length && hostError, "a host NSURLConnection cache-only load finds nothing the backend stored");
         auto rangeEntry = createCocoaCurlCachedResponse(&storage, rangeRequest, partialResponse, rangeBody, WallTime::now());
         storeCocoaCurlCachedResponse(&storage, rangeEntry.get(), rangeRequest);
         auto sameRange = lookUpCocoaCurlCachedResponse(&storage, rangeRequest);

@@ -7,7 +7,7 @@
 #include <wtf/RefCounted.h>
 #include <wtf/text/MakeString.h>
 #include <Foundation/Foundation.h>
-#include <WebCore/FormDataStreamCFNet.h>
+#include <WebCore/FormDataStreamCocoa.h>
 #include <cerrno>
 #include <cstdio>
 
@@ -157,12 +157,13 @@ int main()
         Ref lateFailure = FormData::create();
         lateFailure->appendData(suffix);
         lateFailure->appendFileRange(String([directory stringByAppendingPathComponent:@"missing"]), 0, BlobDataItem::toEndOfFile, std::nullopt);
-        // The CFNetwork body path this port still ships for NetworkDataTaskCocoa.
-        auto stream = createHTTPBodyCFReadStream(lateFailure);
+        // The body stream NetworkSessionCocoa hands CFNetwork.
+        RetainPtr bodyStream = createHTTPBodyNSInputStream(lateFailure.copyRef());
+        auto stream = RetainPtr { (__bridge CFReadStreamRef)bodyStream.get() };
         check(stream && CFReadStreamOpen(stream.get()), "composite stream opens its first readable element");
         uint8_t buffer[8];
         check(CFReadStreamRead(stream.get(), buffer, sizeof(buffer)) == 1, "composite stream returns its readable prefix");
-        // FormDataStreamCFNet ends at a missing to-EOF file; FormDataElement counts it as zero bytes.
+        // The composite stream ends at a missing to-EOF file; FormDataElement counts it as zero bytes.
         CFIndex second = CFReadStreamRead(stream.get(), buffer, sizeof(buffer));
         CFStreamError streamError = CFReadStreamGetError(stream.get());
         check(!second && CFReadStreamGetStatus(stream.get()) == kCFStreamStatusAtEnd && !streamError.domain && !streamError.error,

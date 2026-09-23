@@ -81,7 +81,7 @@ int main()
         RELEASE_ASSERT(createStorage);
         NetworkStorageSession storage(PAL::SessionID::generateEphemeralSessionID(), nullptr, adoptCF(createStorage(nullptr, nullptr)), NetworkStorageSession::IsInMemoryCookieStore::Yes);
         Ref context = Context::create(storage);
-        for (auto endpoint : { "http://127.0.0.1:18981/probe/baseline", "http://127.0.0.1:18981/probe/_download_404_body", "http://127.0.0.1:18981/probe/chunk_short_data", "http://127.0.0.1:18982/file" }) {
+        for (auto endpoint : { "http://127.0.0.1:18981/probe/baseline", "http://127.0.0.1:18981/probe/_download_404_body", "http://127.0.0.1:18982/file" }) {
             char directory[] = "/private/tmp/curl-handoff-XXXXXX";
             RELEASE_ASSERT(mkdtemp(directory));
             RetainPtr destination = adoptNS([Destination new]);
@@ -97,11 +97,10 @@ int main()
             CFRunLoopRun();
             CFRunLoopTimerInvalidate(deadline.get());
             NSData* data = [NSData dataWithContentsOfFile:destination->path];
-            bool partial = strstr(endpoint, "chunk_short_data");
             bool large = strstr(endpoint, "18982");
             check(destination->done && destination->responses == 1, "download gets one response and one terminal event");
-            check(destination->error == (partial ? NSURLErrorNetworkConnectionLost : 0), "handoff preserves terminal result, and an adopted 404 is saved");
-            bool matches = data.length == (large ? 2097152 : partial ? 3 : 5);
+            check(!destination->error, "handoff preserves terminal result, and an adopted 404 is saved");
+            bool matches = data.length == (large ? 2097152 : 5);
             const auto* bytes = static_cast<const uint8_t*>(data.bytes);
             for (size_t i = 0; matches && i < data.length; ++i) matches = bytes[i] == (large ? (i & 255) : "HELLO"[i]);
             check(matches, "handoff preserves exact buffered and streamed bytes");

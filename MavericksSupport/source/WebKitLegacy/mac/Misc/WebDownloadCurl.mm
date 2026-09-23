@@ -399,7 +399,7 @@ void WebDownloadCurlClient::curlReceivedResponse(CocoaCurlTransferResponse&& res
     // destination is ready.
     if (RetainPtr entry = std::exchange(m_cachedEntry, nullptr); entry && m_response.response.httpStatusCode() == httpStatus304NotModified) {
         m_response.response = cocoaCurlRevalidatedResponse(entry.get(), m_response.response);
-        m_responseCompletion = [protectedThis = Ref { *this }, data = retainPtr([entry data]), completion = WTF::move(*m_responseCompletion)]() mutable {
+        m_responseCompletion = [protectedThis = Ref { *this }, data = retainPtr(cocoaCurlCachedBody(entry.get())), completion = WTF::move(*m_responseCompletion)]() mutable {
             if (protectedThis->m_finished) {
                 completion();
                 return;

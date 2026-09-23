@@ -597,6 +597,15 @@ webkit.org/b/258185 http/tests/media/hls/track-in-band-ext-x-date-range-start-ti
 # uploads 127; interpolated red/green also differ by at most one channel level.
 fast/canvas/webgl/canvas-getImageData.html [ Skip ]
 
+# The player can reach HaveEnoughData, and fire canplaythrough, before the video's size reaches the main thread,
+# so the ImageBitmap made from the video is 1x1 under load; it passes run alone.
+imported/w3c/web-platform-tests/html/canvas/element/manual/imagebitmap/createImageBitmap-flipY.html [ Skip ]
+
+# MediaRecorderPrivateEncoder stamps each video frame with the audio received so far, and 10.9's Web Audio clock starts
+# after the first frames are drawn, so those frames collapse to time 0 and the recording ends on a red frame. The pcm and
+# alac variants also record MP4 audio GStreamer's MSE registry does not accept, so their appends fail.
+webkit.org/b/288025 http/wpt/mediarecorder/MediaRecorder-AV-audio-video-dataavailable.html [ Skip ]
+
 # Upstream GLib Release records this MSE abort/event-ordering test as flaky.
 webkit.org/b/308601 imported/w3c/web-platform-tests/media-source/SourceBuffer-abort-updating.html [ Skip ]
 

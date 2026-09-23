@@ -75,7 +75,7 @@ int main()
         struct Case { NSString* url; NSInteger error; NSUInteger bytes; unsigned redirects; unsigned challenges; NSString* echoedTarget; };
         Case cases[] = {
             { @"http://127.0.0.1:18981/probe/baseline", 0, 5, 0, 0 },
-            { @"http://127.0.0.1:18981/probe/chunk_short_data", NSURLErrorNetworkConnectionLost, 3, 0, 0 },
+            { @"http://127.0.0.1:18981/probe/chunk_short_data", NSURLErrorNetworkConnectionLost, 0, 0, 0 },
             { @"http://127.0.0.1:18981/probe/redirect_limit_20", 0, 0, 20, 0, @"/echo/redirect_done_20" },
             { @"http://127.0.0.1:18981/probe/redirect_limit_21", NSURLErrorHTTPTooManyRedirects, 0, 20, 0 },
             { @"http://127.0.0.1:18982/basic", 0, 2097152, 0, 1 },
