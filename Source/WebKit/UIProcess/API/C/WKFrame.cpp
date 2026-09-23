@@ -26,7 +26,7 @@
 #include "config.h"
 #include "WKFrame.h"
 
-// MAVERICKS_BACKPORT: restored for the WKCertificateInfo C API the base gutted (#103)
+// MAVERICKS_BACKPORT: API::CertificateInfo backs the WKCertificateInfo C API Safari 7 calls (#103).
 #include "APICertificateInfo.h"
 #include "APIData.h"
 #include "APIFrameHandle.h"

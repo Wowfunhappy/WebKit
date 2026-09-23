@@ -32,11 +32,11 @@ header: "APIObject.h"
     API::FrameHandle
     WebKit::WebImage
     API::PageHandle
-    # MAVERICKS_BACKPORT: restore serialization for API::PageGroupHandle (resurrected WKPageGroup* C API the base gutted) for the 10.9 build
+    # MAVERICKS_BACKPORT: Safari 7 puts its WKPageGroup in the injected-bundle initialization UserData.
     API::PageGroupHandle
     API::Point
     API::Rect
-    # MAVERICKS_BACKPORT: restore serialization for API::SerializedScriptValue (resurrected do-JS-result C API the base gutted) for the 10.9 build
+    # MAVERICKS_BACKPORT: WKSerializedScriptValue values cross IPC inside UserData (Safari 7 extension messages).
     API::SerializedScriptValue
     API::Size
     API::String

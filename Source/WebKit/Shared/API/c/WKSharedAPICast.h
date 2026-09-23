@@ -63,7 +63,7 @@
 
 namespace API {
 class Array;
-// MAVERICKS_BACKPORT: forward-declare API::CertificateInfo, restored for the WKCertificateInfo C API the base gutted (#103)
+// MAVERICKS_BACKPORT: API::CertificateInfo backs the WKCertificateInfo C API Safari 7 calls (#103).
 class CertificateInfo;
 class CompletionListener;
 class Dictionary;
@@ -71,7 +71,7 @@ class Data;
 class Point;
 class Rect;
 class SecurityOrigin;
-// MAVERICKS_BACKPORT: forward-declare API::SerializedScriptValue, restored for the resurrected do-JS-result C API the base gutted
+// MAVERICKS_BACKPORT: API::SerializedScriptValue backs WKSerializedScriptValue, Safari 7's extension-message and "do JavaScript" carrier.
 class SerializedScriptValue;
 class Size;
 class UserContentURLPattern;
@@ -97,7 +97,7 @@ template<typename ImplType> struct ImplTypeInfo;
 
 WK_ADD_API_MAPPING(WKArrayRef, API::Array)
 WK_ADD_API_MAPPING(WKBooleanRef, API::Boolean)
-// MAVERICKS_BACKPORT: map WKCertificateInfoRef ↔ API::CertificateInfo, restored for the WKCertificateInfo C API the base gutted (#103)
+// MAVERICKS_BACKPORT: WKCertificateInfoRef maps to API::CertificateInfo (#103).
 WK_ADD_API_MAPPING(WKCertificateInfoRef, API::CertificateInfo)
 WK_ADD_API_MAPPING(WKCompletionListenerRef, API::CompletionListener);
 WK_ADD_API_MAPPING(WKContextMenuItemRef, WebContextMenuItem)
@@ -109,7 +109,7 @@ WK_ADD_API_MAPPING(WKImageRef, WebImage)
 WK_ADD_API_MAPPING(WKPointRef, API::Point)
 WK_ADD_API_MAPPING(WKRectRef, API::Rect)
 WK_ADD_API_MAPPING(WKSecurityOriginRef, API::SecurityOrigin)
-// MAVERICKS_BACKPORT: map WKSerializedScriptValueRef ↔ API::SerializedScriptValue, restored for the resurrected do-JS-result C API the base gutted
+// MAVERICKS_BACKPORT: WKSerializedScriptValueRef maps to API::SerializedScriptValue (see above).
 WK_ADD_API_MAPPING(WKSerializedScriptValueRef, API::SerializedScriptValue)
 WK_ADD_API_MAPPING(WKSizeRef, API::Size)
 WK_ADD_API_MAPPING(WKStringRef, API::String)

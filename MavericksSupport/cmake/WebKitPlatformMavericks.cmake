@@ -166,10 +166,16 @@ list(APPEND WebKit_SYSTEM_INCLUDE_DIRECTORIES
 )
 
 # IPC serialization for the two API types whose C SPI is restored for Safari 7
-# (WKPageGroup* and the do-JavaScript result).
+# (WKPageGroup* and WKSerializedScriptValue).
 list(APPEND WebKit_SERIALIZATION_IN_FILES
     Shared/API/APIPageGroupHandle.serialization.in
     Shared/API/APISerializedScriptValue.serialization.in
+)
+# upstream's shared JS context for converting evaluation results into JS values, which
+# WKPageRunJavaScriptInMainFrame uses to hand Safari 7 a WKSerializedScriptValue. Upstream lists it
+# for the GLib ports only.
+list(APPEND WebKit_SOURCES
+    Shared/API/APISerializedScriptValue.cpp
 )
 
 # re-export WebKitLegacy through WebKit.framework so its DOM ObjC classes

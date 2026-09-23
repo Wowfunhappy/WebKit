@@ -47,9 +47,8 @@
 #include "APIOpenPanelParameters.h"
 #include "APIPageConfiguration.h"
 #include "APIPolicyClient.h"
-// MAVERICKS_BACKPORT: needed to vend a deserializable WKSerializedScriptValueRef from the legacy WKPageRunJavaScriptInMainFrame alias.
 #include "APISecurityOrigin.h" // MAVERICKS_BACKPORT: legacy website-data managers at the bottom of this file.
-#include "APISerializedScriptValue.h"
+#include "APISerializedScriptValue.h" // MAVERICKS_BACKPORT: WKPageRunJavaScriptInMainFrame's result carrier.
 #include "APIResourceLoadClient.h"
 #include "APISessionState.h"
 #include "APIUIClient.h"
@@ -3015,13 +3014,9 @@ void WKPageEvaluateJavaScriptInMainFrame(WKPageRef pageRef, WKStringRef scriptRe
     WKPageEvaluateJavaScriptInFrame(pageRef, nullptr, scriptRef, context, callback);
 }
 
-// MAVERICKS_BACKPORT: Safari 7/9 call the older WKPageRunJavaScriptInMainFrame
-// symbol (the API was renamed to *Evaluate*). Without this alias, Safari
-// crashes with dyld_fatal_error on osascript "do JavaScript" commands.
-// Unlike the modern Evaluate API, the legacy contract hands the callback a
-// WKSerializedScriptValueRef the caller deserializes with
-// WKSerializedScriptValueDeserialize, so deliver an API::SerializedScriptValue
-// (see APISerializedScriptValue.h) rather than toAPI()'s plain WKType objects.
+// MAVERICKS_BACKPORT: upstream's WKPageRunJavaScriptInMainFrame (removed in bug 277522), which Safari 7
+// calls for "do JavaScript". Its callback receives a WKSerializedScriptValueRef, so the evaluation
+// result is converted in upstream's shared deserialization context and re-serialized.
 extern "C" WK_EXPORT void WKPageRunJavaScriptInMainFrame(WKPageRef pageRef, WKStringRef scriptRef, void* context, WKPageEvaluateJavaScriptFunction callback);
 extern "C" void WKPageRunJavaScriptInMainFrame(WKPageRef pageRef, WKStringRef scriptRef, void* context, WKPageEvaluateJavaScriptFunction callback)
 {
@@ -3044,35 +3039,30 @@ extern "C" void WKPageRunJavaScriptInMainFrame(WKPageRef pageRef, WKStringRef sc
     }, std::nullopt, API::ContentWorld::pageContentWorldSingleton(), !!callback, [context, callback] (auto&& result) {
         if (!callback)
             return;
+        RefPtr<API::SerializedScriptValue> serializedValue;
         if (result) {
-            Ref serializedValue = API::SerializedScriptValue::create(WTF::move(*result));
-            callback(toAPI(static_cast<API::Object*>(serializedValue.ptr())), nullptr, context);
-        } else
-            callback(nullptr, nullptr, context);
+            auto jsContext = API::SerializedScriptValue::deserializationContext();
+            auto value = result->toJS(jsContext.get());
+            serializedValue = API::SerializedScriptValue::create(jsContext.get(), value.get(), nullptr);
+        }
+        callback(toAPI(static_cast<API::Object*>(serializedValue.get())), nullptr, context);
     });
 }
 
-// MAVERICKS_BACKPORT: MailUI.framework links against the block-based WKPageRunJavaScriptInMainFrame_b
-// variant (the Safari-7-era spelling). Without this exported symbol Mail.app fails to launch with
-// dyld: Symbol not found: _WKPageRunJavaScriptInMainFrame_b (expected in WebKit2). The block carries
-// its own context, so copy it into the function-pointer implementation's context slot and release it
-// once the single callback fires. Delivering the result with the (result, error) shape is compatible
-// with the legacy single-argument block too (extra arguments are ignored by the block's invoke).
-static void callRunJavaScriptInMainFrameBlock(WKTypeRef result, WKErrorRef error, void* context)
+// MAVERICKS_BACKPORT: upstream's block variant of WKPageRunJavaScriptInMainFrame (removed in bug 277522),
+// which MailUI.framework calls.
+static void callRunJavaScriptBlockAndRelease(WKTypeRef resultValue, WKErrorRef error, void* context)
 {
     auto block = reinterpret_cast<void (^)(WKSerializedScriptValueRef, WKErrorRef)>(context);
-    block(static_cast<WKSerializedScriptValueRef>(result), error);
+    block(static_cast<WKSerializedScriptValueRef>(resultValue), error);
     Block_release(block);
 }
 
 extern "C" WK_EXPORT void WKPageRunJavaScriptInMainFrame_b(WKPageRef pageRef, WKStringRef scriptRef, void (^block)(WKSerializedScriptValueRef, WKErrorRef));
 extern "C" void WKPageRunJavaScriptInMainFrame_b(WKPageRef pageRef, WKStringRef scriptRef, void (^block)(WKSerializedScriptValueRef, WKErrorRef))
 {
-    if (!block) {
-        WKPageRunJavaScriptInMainFrame(pageRef, scriptRef, nullptr, nullptr);
-        return;
-    }
-    WKPageRunJavaScriptInMainFrame(pageRef, scriptRef, reinterpret_cast<void*>(Block_copy(block)), callRunJavaScriptInMainFrameBlock);
+    CRASH_IF_SUSPENDED;
+    WKPageRunJavaScriptInMainFrame(pageRef, scriptRef, reinterpret_cast<void*>(Block_copy(block)), callRunJavaScriptBlockAndRelease);
 }
 
 void WKPageEvaluateJavaScriptInFrame(WKPageRef pageRef, WKFrameInfoRef frame, WKStringRef scriptRef, void* context, WKPageEvaluateJavaScriptFunction callback)
